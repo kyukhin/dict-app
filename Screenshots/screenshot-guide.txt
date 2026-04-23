@@ -1,0 +1,29 @@
+App Store Screenshot Guide
+==========================
+
+HEADLINES
+---------
+1. "192,000+ Words. Zero Internet."
+2. "Search in Milliseconds, Not Seconds."
+3. "Two Dictionaries. One Tap."
+4. "Your Words, Always Offline."
+5. "No Ads. No Tracking. Just Words."
+
+
+COLOR PALETTE
+-------------
+Deep Blue    #1A3A5C   Primary headline text, top bars
+Accent Blue  #2D7FF9   Call-to-action accents, highlights
+Sky Blue     #E8F1FB   Screenshot background (light)
+Soft White   #F7F9FC   Card/content backgrounds
+Slate Gray   #5A6978   Secondary text, descriptions
+
+
+LAYOUT TIPS
+-----------
+- Sky Blue (#E8F1FB) background
+- Device mockup centered
+- Headline in Deep Blue (#1A3A5C) above or below the device
+- One accent word per headline in Accent Blue (#2D7FF9)
+  e.g. "192,000+ Words. *Zero* Internet."
+- Keep it clean and readable at small sizes

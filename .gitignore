@@ -1,0 +1,52 @@
+# --- Xcode ---
+build/
+DerivedData/
+*.xcodeproj/xcuserdata/
+*.xcworkspace/xcuserdata/
+*.xcodeproj/project.xcworkspace/xcshareddata/IDEWorkspaceChecks.plist
+*.xcodeproj/project.xcworkspace/xcuserdata/
+xcuserdata/
+
+# Xcode playgrounds
+timeline.xctimeline
+playground.xcworkspace
+
+# --- Swift Package Manager ---
+.swiftpm/
+.build/
+Packages/
+Package.resolved
+
+# --- CocoaPods (just in case) ---
+Pods/
+
+# --- macOS ---
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.Spotlight-V100
+.Trashes
+
+# --- Python (build script) ---
+.venv/
+__pycache__/
+*.pyc
+*.egg-info/
+
+# --- IDE / Editor ---
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# --- Claude Code ---
+.claude/
+
+# --- Misc ---
+*.ipa
+*.dSYM.zip
+*.dSYM
+*.hmap
+*.xcarchive
