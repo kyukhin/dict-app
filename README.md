@@ -1,6 +1,6 @@
-# LibreDict
+# LibreDict — Minimalist Offline Dictionary
 
-**A fast, offline-first dictionary with 192,000+ words — no ads, no tracking, no internet required.**
+**192,000+ words at your fingertips. No internet. No ads. No tracking. Just words.**
 
 [![Swift](https://img.shields.io/badge/Swift-5.9-orange.svg)](https://swift.org)
 [![Platform](https://img.shields.io/badge/Platform-iOS%2017+-blue.svg)](https://developer.apple.com/ios/)
@@ -10,14 +10,14 @@
 
 ## Features
 
-- **Fully Offline** — All 192,000+ words are stored locally. Search works without any internet connection.
+- **Fully Offline** — All 192,000+ words stored locally. Works without any internet connection.
 - **Instant Search** — FTS5 full-text search delivers results in milliseconds as you type.
-- **Two Built-in Dictionaries** — WordNet (English) and OpenRussian (Russian-English) included out of the box.
+- **Two Built-in Dictionaries** — WordNet (English) and OpenRussian (Russian-English) out of the box.
 - **Import Your Own** — Add custom dictionaries via `.json` or `.sqlite` files.
-- **Zero Ads, Zero Tracking** — No analytics, no telemetry, no third-party SDKs. Your data stays on your device.
+- **Zero Ads, Zero Tracking** — No analytics, no telemetry, no third-party SDKs.
 - **Bookmarks & History** — Save words and revisit recent lookups from the home screen.
 - **Text-to-Speech** — Hear the pronunciation of any word with one tap.
-- **Clean, Minimalist UI** — Designed to get out of your way. Just you and the words.
+- **Clean, Minimalist UI** — Designed to get out of your way.
 
 ## Screenshots
 
@@ -46,10 +46,12 @@
 ### Build & Run
 
 ```bash
-git clone https://github.com/kyukhin/LibreDict.git
-cd LibreDict/DictApp
+git clone https://github.com/kyukhin/dict-app.git
+cd dict-app/DictApp
 open DictApp.xcodeproj
 ```
+
+> **Note:** This repo uses [Git LFS](https://git-lfs.github.com) for large database files (`.sqlite`). Make sure Git LFS is installed (`brew install git-lfs && git lfs install`) before cloning, or run `git lfs pull` after cloning to fetch the seed database.
 
 Select your target device or simulator and hit **Run** (Cmd+R). Xcode will resolve the GRDB Swift Package dependency automatically.
 
