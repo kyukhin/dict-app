@@ -187,6 +187,35 @@ final class DictAppTests: XCTestCase {
 
     // MARK: - App Metadata Tests
 
+    /// Issue #4: Verifies the app declares support for both iPhone (1) and iPad (2)
+    /// in `UIDeviceFamily`. Until this was fixed the bundle was iPhone-only
+    /// (TARGETED_DEVICE_FAMILY=1), which caused a blank-white screen on iPad
+    /// because UIKit launched the app in the "Designed for iPhone" compatibility
+    /// chrome and `UIApplicationSceneManifest` defaults wouldn't attach a window
+    /// for the iPad idiom.
+    func testAppSupportsIPhoneAndIPad() throws {
+        let hostBundle: Bundle = {
+            if let url = Bundle.main.url(forResource: "DictApp", withExtension: "app") {
+                return Bundle(url: url) ?? .main
+            }
+            return .main
+        }()
+
+        let info = hostBundle.infoDictionary ?? Bundle.main.infoDictionary ?? [:]
+
+        // UIDeviceFamily — synthesized by Xcode from TARGETED_DEVICE_FAMILY.
+        // 1 = iPhone, 2 = iPad. We require both.
+        let family = info["UIDeviceFamily"] as? [Int] ?? []
+        XCTAssertTrue(
+            family.contains(1),
+            "Info.plist UIDeviceFamily must include iPhone (1); got \(family)"
+        )
+        XCTAssertTrue(
+            family.contains(2),
+            "Info.plist UIDeviceFamily must include iPad (2); got \(family)"
+        )
+    }
+
     /// Issue #7: Verifies the app's CFBundleDisplayName is "LibreDict".
     /// Loads Info.plist directly from the host app bundle to validate the
     /// shipped value (rather than the test bundle's own plist).
