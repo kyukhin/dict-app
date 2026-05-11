@@ -32,7 +32,7 @@ final class DictAppTests: XCTestCase {
         // Directly write to the test database via a temporary GRDB pool.
         let path = tempDir.appendingPathComponent("test.sqlite").path
         let pool = try DatabasePool(path: path)
-        try pool.write { dbConn in
+        try await pool.writeWithoutTransaction { dbConn in
             for i in 0..<count {
                 try dbConn.execute(
                     sql: """
@@ -136,6 +136,79 @@ final class DictAppTests: XCTestCase {
         // "word1" should match word1, word10, word11, ..., word19.
         let results = try await db.search(query: "word1")
         XCTAssertGreaterThanOrEqual(results.count, 11, "Prefix search for 'word1' should match >= 11 entries")
+    }
+
+    // MARK: - Bundled Resources Tests
+
+    /// Regression test for the "Database Error: SQLite error 26: file is not a database"
+    /// crash that occurred when `seed.sqlite` was shipped as a Git-LFS pointer stub
+    /// instead of the real database. Fails loudly if the bundled resource is missing,
+    /// too small, or isn't a real SQLite file (e.g. an LFS pointer header).
+    func testBundledSeedIsRealSQLite() throws {
+        let hostBundle: Bundle = {
+            if let url = Bundle.main.url(forResource: "DictApp", withExtension: "app") {
+                return Bundle(url: url) ?? .main
+            }
+            return .main
+        }()
+
+        let seedURL = try XCTUnwrap(
+            hostBundle.url(forResource: "seed", withExtension: "sqlite")
+                ?? Bundle.main.url(forResource: "seed", withExtension: "sqlite"),
+            "Bundled seed.sqlite is missing from the app bundle."
+        )
+
+        let data = try Data(contentsOf: seedURL, options: .alwaysMapped)
+        // SQLite files start with the 16-byte magic header "SQLite format 3\0".
+        // Git-LFS pointer stubs start with "version https://git-lfs.github.com/".
+        let header = data.prefix(16)
+        let headerString = String(data: header, encoding: .utf8) ?? ""
+
+        XCTAssertFalse(
+            headerString.hasPrefix("version https://git-lfs"),
+            "seed.sqlite is a Git-LFS pointer stub. Run `git lfs install && git lfs pull` before building."
+        )
+        XCTAssertGreaterThan(
+            data.count, 1024,
+            "seed.sqlite is suspiciously small (\(data.count) bytes) — likely not the real database."
+        )
+        XCTAssertEqual(
+            headerString, "SQLite format 3\u{0000}",
+            "seed.sqlite does not have a valid SQLite header."
+        )
+
+        // And it must actually open and contain entries.
+        let queue = try DatabaseQueue(path: seedURL.path)
+        let count = try queue.read { db in
+            try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM entries") ?? 0
+        }
+        XCTAssertGreaterThan(count, 0, "Bundled seed.sqlite must contain entries.")
+    }
+
+    // MARK: - App Metadata Tests
+
+    /// Issue #7: Verifies the app's CFBundleDisplayName is "LibreDict".
+    /// Loads Info.plist directly from the host app bundle to validate the
+    /// shipped value (rather than the test bundle's own plist).
+    func testAppDisplayNameIsLibreDict() throws {
+        // The unit-test target is hosted by the app under test, so
+        // Bundle.main is the host (DictApp.app). Resolve robustly.
+        let hostBundle: Bundle = {
+            if let url = Bundle.main.url(forResource: "DictApp", withExtension: "app") {
+                return Bundle(url: url) ?? .main
+            }
+            return .main
+        }()
+
+        let displayName =
+            hostBundle.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String
+            ?? Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String
+
+        XCTAssertEqual(
+            displayName,
+            "LibreDict",
+            "CFBundleDisplayName must be 'LibreDict' (got \(displayName ?? "nil"))"
+        )
     }
 
     // MARK: - Performance Tests

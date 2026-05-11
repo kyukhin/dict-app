@@ -79,7 +79,7 @@ struct DictionaryManagerView: View {
                                 .font(.largeTitle)
                                 .foregroundStyle(.tint)
                             VStack(alignment: .leading) {
-                                Text("DictApp")
+                                Text("LibreDict")
                                     .font(.title2.bold())
                                 Text("Offline Dictionary")
                                     .font(.subheadline)
