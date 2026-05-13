@@ -132,6 +132,13 @@ actor DatabaseService {
         }
     }
 
+    func clearAllBookmarks() async throws {
+        guard let pool = dbPool else { throw DBError.notConnected }
+        try await pool.write { db in
+            try db.execute(sql: "DELETE FROM bookmarks")
+        }
+    }
+
     // MARK: - Bookmarks
 
     func addBookmark(entryId: Int64) async throws {

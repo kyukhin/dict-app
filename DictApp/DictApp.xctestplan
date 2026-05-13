@@ -1,0 +1,38 @@
+{
+  "configurations" : [
+    {
+      "id" : "D7D7437B-336C-4424-B390-71611DA90E60",
+      "name" : "Test Scheme Action",
+      "options" : {
+
+      }
+    }
+  ],
+  "defaultOptions" : {
+    "performanceAntipatternCheckerEnabled" : true,
+    "targetForVariableExpansion" : {
+      "containerPath" : "container:DictApp.xcodeproj",
+      "identifier" : "A50000000000000000000001",
+      "name" : "DictApp"
+    }
+  },
+  "testTargets" : [
+    {
+      "parallelizable" : false,
+      "target" : {
+        "containerPath" : "container:DictApp.xcodeproj",
+        "identifier" : "A50000000000000000000002",
+        "name" : "DictAppTests"
+      }
+    },
+    {
+      "parallelizable" : true,
+      "target" : {
+        "containerPath" : "container:DictApp.xcodeproj",
+        "identifier" : "0748367A2FB4632B00E3EA41",
+        "name" : "DictAppUITests"
+      }
+    }
+  ],
+  "version" : 1
+}

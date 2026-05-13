@@ -40,6 +40,13 @@ struct DictApp: App {
         do {
             try await DatabaseService.shared.setup()
             try await DatabaseService.shared.seedIfNeeded()
+
+            // Check for test reset flag
+            if CommandLine.arguments.contains("-resetData") {
+                try await DatabaseService.shared.clearAllBookmarks()
+                try await DatabaseService.shared.clearHistory()
+            }
+
             isReady = true
         } catch {
             setupError = error.localizedDescription
