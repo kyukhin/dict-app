@@ -10,21 +10,25 @@ struct ContentView: View {
                 .tabItem {
                     Label("Search", systemImage: "magnifyingglass")
                 }
+                .accessibilityIdentifier("search_tab")
 
             HistoryView()
                 .tabItem {
                     Label("History", systemImage: "clock")
                 }
+                .accessibilityIdentifier("history_tab")
 
             BookmarksView()
                 .tabItem {
                     Label("Bookmarks", systemImage: "bookmark")
                 }
+                .accessibilityIdentifier("bookmarks_tab")
 
-            DictionaryManagerView()
+            SettingsView()
                 .tabItem {
-                    Label("Manage", systemImage: "books.vertical")
+                    Label("Settings", systemImage: "gearshape")
                 }
+                .accessibilityIdentifier("settings_tab")
         }
     }
 }
