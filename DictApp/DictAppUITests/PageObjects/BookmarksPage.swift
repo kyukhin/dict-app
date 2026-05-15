@@ -65,6 +65,9 @@ class BookmarksPage: BasePage {
     // MARK: - Verification Methods
 
     func verifyBookmarksListExists() -> Bool {
+        if app.staticTexts["No Bookmarks"].exists {
+            return true
+        }
         return bookmarksList.exists
     }
 

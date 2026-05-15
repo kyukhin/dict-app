@@ -48,17 +48,14 @@ class TabBarPage: BasePage {
         return app.tabBars.firstMatch.buttons["Bookmarks"]
     }
 
-    private var manageTab: XCUIElement {
-        // First try by accessibility identifier within tab bar
-        if tabBar.buttons["manage_tab"].exists {
-            return tabBar.buttons["manage_tab"]
+    private var settingsTab: XCUIElement {
+        if tabBar.buttons["settings_tab"].exists {
+            return tabBar.buttons["settings_tab"]
         }
-        // Second try by label within tab bar
-        if tabBar.buttons["Manage"].exists {
-            return tabBar.buttons["Manage"]
+        if tabBar.buttons["Settings"].exists {
+            return tabBar.buttons["Settings"]
         }
-        // Fallback to first match in tab bars
-        return app.tabBars.firstMatch.buttons["Manage"]
+        return app.tabBars.firstMatch.buttons["Settings"]
     }
 
     // MARK: - Navigation Methods
@@ -82,8 +79,8 @@ class TabBarPage: BasePage {
     }
 
     @discardableResult
-    func tapManageTab() -> TabBarPage {
-        manageTab.tap()
+    func tapSettingsTab() -> TabBarPage {
+        settingsTab.tap()
         return self
     }
 
@@ -97,7 +94,7 @@ class TabBarPage: BasePage {
         return searchTab.exists &&
                historyTab.exists &&
                bookmarksTab.exists &&
-               manageTab.exists
+               settingsTab.exists
     }
 
     func verifySearchTabSelected() -> Bool {
@@ -112,7 +109,17 @@ class TabBarPage: BasePage {
         return bookmarksTab.isSelected
     }
 
+    func verifySettingsTabSelected() -> Bool {
+        return settingsTab.isSelected
+    }
+
+    @available(*, deprecated, renamed: "verifySettingsTabSelected")
     func verifyManageTabSelected() -> Bool {
-        return manageTab.isSelected
+        return verifySettingsTabSelected()
+    }
+
+    @discardableResult
+    func tapManageTab() -> TabBarPage {
+        return tapSettingsTab()
     }
 }

@@ -7,7 +7,7 @@ struct AccessibilityIdentifiers {
         static let searchTab = "search_tab"
         static let historyTab = "history_tab"
         static let bookmarksTab = "bookmarks_tab"
-        static let manageTab = "manage_tab"
+        static let settingsTab = "settings_tab"
     }
 
     // MARK: - Search View

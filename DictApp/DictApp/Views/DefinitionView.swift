@@ -50,9 +50,11 @@ struct DefinitionView: View {
                 Text(markdownDefinition)
                     .font(.body)
                     .textSelection(.enabled)
+                    .accessibilityIdentifier("definition_content")
             }
             .padding()
         }
+        .accessibilityIdentifier("definition_view")
         .navigationTitle(vm.entry.word)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -63,6 +65,7 @@ struct DefinitionView: View {
                     Image(systemName: vm.isBookmarked ? "bookmark.fill" : "bookmark")
                 }
                 .accessibilityLabel(vm.isBookmarked ? "Remove bookmark" : "Add bookmark")
+                .accessibilityIdentifier("bookmark_button")
             }
         }
         .task {

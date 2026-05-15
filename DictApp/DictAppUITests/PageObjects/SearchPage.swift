@@ -28,8 +28,13 @@ func searchFor(_ term: String) {
     }
 
     func clearSearch() {
-        searchField.tap()
-        searchField.clearAndTypeText("")
+        let clearButton = searchField.buttons["Clear text"]
+        if clearButton.waitForExistence(timeout: 1.0) {
+            clearButton.tap()
+        } else {
+            searchField.tap()
+            searchField.clearAndTypeText("")
+        }
     }
 
     // MARK: - Results Interaction
@@ -62,7 +67,12 @@ func searchFor(_ term: String) {
     }
 
     func verifySearchFieldContains(_ text: String) -> Bool {
-        return searchField.value as? String == text
+        let value = searchField.value as? String ?? ""
+        if text.isEmpty {
+            // Empty field may show placeholder text instead of ""
+            return value.isEmpty || value == searchField.placeholderValue
+        }
+        return value == text
     }
 
     func verifyResultsListExists() -> Bool {

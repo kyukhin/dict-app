@@ -17,6 +17,15 @@ struct SettingsView: View {
                 // Dictionary Management Section (Refactored)
                 dictionaryManagementSection
 
+                // Learning Mode Section (stub)
+                learningModeSection
+
+                // Reading Mode Section (stub)
+                readingModeSection
+
+                // Support Section (stub)
+                supportSection
+
                 // Import Dictionary Section
                 importDictionarySection
 
@@ -63,8 +72,25 @@ struct SettingsView: View {
 
     private var dictionaryManagementSection: some View {
         Section("Dictionaries") {
-            Text("Dictionary management temporarily disabled.")
-                .foregroundStyle(.secondary)
+            if viewModel.sourceStats.isEmpty {
+                Text("Loading…")
+                    .foregroundStyle(.secondary)
+            } else {
+                ForEach(viewModel.sourceStats) { stat in
+                    HStack {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(stat.displayName)
+                                .font(.body)
+                            Text("\(stat.count.formatted()) entries")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundStyle(.green)
+                    }
+                }
+            }
         }
     }
 
@@ -122,6 +148,32 @@ struct SettingsView: View {
             .padding(.vertical, 4)
         } header: {
             Text("About")
+        }
+    }
+
+    // MARK: - New Stub Sections
+
+    private var learningModeSection: some View {
+        Section("Learning Mode") {
+            Label("Coming Soon", systemImage: "brain")
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private var readingModeSection: some View {
+        Section("Reading Mode") {
+            Label("Coming Soon", systemImage: "book")
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private var supportSection: some View {
+        Section("Support") {
+            Button("Report a Bug") { }
+                .disabled(true)
+            NavigationLink("Credits") {
+                CreditsView()
+            }
         }
     }
 

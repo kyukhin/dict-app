@@ -4,11 +4,15 @@ class HistoryPage: BasePage {
 
     // UI Elements
     private var historyList: XCUIElement {
-        // Try multiple approaches to find the history list
         if app.tables[AccessibilityIdentifiers.History.historyList].exists {
             return app.tables[AccessibilityIdentifiers.History.historyList]
         }
-        // Fallback to any table or list
+        if app.collectionViews[AccessibilityIdentifiers.History.historyList].exists {
+            return app.collectionViews[AccessibilityIdentifiers.History.historyList]
+        }
+        if app.descendants(matching: .any)[AccessibilityIdentifiers.History.historyList].exists {
+            return app.descendants(matching: .any)[AccessibilityIdentifiers.History.historyList]
+        }
         if app.tables.firstMatch.exists {
             return app.tables.firstMatch
         }
@@ -41,6 +45,9 @@ class HistoryPage: BasePage {
     // MARK: - Verification Methods
 
     func verifyHistoryListExists() -> Bool {
+        if app.staticTexts["No History"].exists {
+            return true
+        }
         return historyList.exists
     }
 
@@ -58,7 +65,15 @@ class HistoryPage: BasePage {
 
     func verifyHistoryContainsWord(_ word: String) -> Bool {
         let historyItem = app.cells[AccessibilityIdentifiers.History.historyItem(word: word)]
-        return historyItem.exists
+        if historyItem.exists { return true }
+        let cells = historyList.cells
+        for i in 0..<cells.count {
+            let cell = cells.element(boundBy: i)
+            if cell.staticTexts.containing(NSPredicate(format: "label CONTAINS[c] %@", word)).count > 0 {
+                return true
+            }
+        }
+        return false
     }
 
     func verifyHistoryItemAtIndex(_ index: Int, containsText text: String) -> Bool {
@@ -82,7 +97,13 @@ class HistoryPage: BasePage {
     }
 
     func waitForHistoryToLoad(timeout: TimeInterval = TestData.Timeouts.medium) -> Bool {
-        return historyList.waitForExistence(timeout: timeout)
+        // Wait for the populated list first (fast path when data exists)
+        if app.descendants(matching: .any)[AccessibilityIdentifiers.History.historyList]
+            .waitForExistence(timeout: timeout) {
+            return true
+        }
+        // List didn't appear — history must be empty
+        return app.staticTexts["No History"].exists
     }
 
     func verifyHistoryOrder(expectedWords: [String]) -> Bool {

@@ -10,7 +10,10 @@ class SettingsViewModel: ObservableObject {
     @Published var selectedUILanguage: UILanguage = .english
     @Published var availableUILanguages: [UILanguage] = [.english]
 
-    // Dictionary Management (temporarily disabled)
+    // Dictionary info (read-only, loaded from DB)
+    @Published var sourceStats: [SourceStat] = []
+
+    // Legacy import functionality
     @Published var totalCount: Int = 0
     @Published var isImporting = false
     @Published var importResult: String?
@@ -19,6 +22,7 @@ class SettingsViewModel: ObservableObject {
 
     init() {
         loadUILanguageSettings()
+        Task { await loadSourceStats() }
     }
 
     func loadUILanguageSettings() {
@@ -29,5 +33,14 @@ class SettingsViewModel: ObservableObject {
     func updateUILanguage(_ language: UILanguage) {
         selectedUILanguage = language
         settingsService.selectedUILanguage = language
+    }
+
+    func loadSourceStats() async {
+        do {
+            sourceStats = try await DatabaseService.shared.fetchSourceStats()
+        } catch {
+            // Non-fatal: leave sourceStats empty
+            print("SettingsViewModel: failed to load source stats: \(error)")
+        }
     }
 }

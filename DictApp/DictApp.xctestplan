@@ -26,7 +26,6 @@
       }
     },
     {
-      "parallelizable" : true,
       "target" : {
         "containerPath" : "container:DictApp.xcodeproj",
         "identifier" : "0748367A2FB4632B00E3EA41",

@@ -30,8 +30,10 @@ struct HistoryView: View {
                                     }
                                 }
                             }
+                            .accessibilityIdentifier("history_item_\(item.word)")
                         }
                     }
+                    .accessibilityIdentifier("history_list")
                 }
             }
             .navigationTitle("History")

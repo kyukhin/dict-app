@@ -66,7 +66,9 @@ class DefinitionPage: BasePage {
     }
 
     func verifyDefinitionContainsText(_ text: String) -> Bool {
-        return definitionContent.staticTexts.containing(NSPredicate(format: "label CONTAINS[c] %@", text)).count > 0
+        let element = definitionContent
+        if element.label.range(of: text, options: .caseInsensitive) != nil { return true }
+        return element.staticTexts.containing(NSPredicate(format: "label CONTAINS[c] %@", text)).count > 0
     }
 
     func verifyBookmarkButtonState(isBookmarked: Bool) -> Bool {

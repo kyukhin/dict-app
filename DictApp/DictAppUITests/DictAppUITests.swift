@@ -27,9 +27,9 @@ final class DictAppUITests: XCTestCase {
             let searchTab = app.buttons["Search"]
             let historyTab = app.buttons["History"]
             let bookmarksTab = app.buttons["Bookmarks"]
-            let manageTab = app.buttons["Manage"]
+            let settingsTab = app.buttons["Settings"]
 
-            let anyTabExists = searchTab.exists || historyTab.exists || bookmarksTab.exists || manageTab.exists
+            let anyTabExists = searchTab.exists || historyTab.exists || bookmarksTab.exists || settingsTab.exists
             XCTAssertTrue(anyTabExists, "At least one tab should be accessible")
         }
     }
