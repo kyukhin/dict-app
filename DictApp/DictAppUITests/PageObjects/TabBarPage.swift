@@ -79,9 +79,9 @@ class TabBarPage: BasePage {
     }
 
     @discardableResult
-    func tapSettingsTab() -> TabBarPage {
+    func tapSettingsTab() -> SettingsPage {
         settingsTab.tap()
-        return self
+        return SettingsPage(app: app)
     }
 
     // MARK: - Verification Methods
@@ -119,7 +119,8 @@ class TabBarPage: BasePage {
     }
 
     @discardableResult
-    func tapManageTab() -> TabBarPage {
+    func tapManageTab() -> SettingsPage {
         return tapSettingsTab()
     }
 }
+

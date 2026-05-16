@@ -41,4 +41,12 @@ struct AccessibilityIdentifiers {
             return "bookmark_item_\(id)"
         }
     }
+
+    // MARK: - Settings View
+    struct Settings {
+        static func dictionaryToggle(source: String) -> String {
+            return "dictionary_toggle_\(source)"
+        }
+    }
 }
+

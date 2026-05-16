@@ -51,6 +51,31 @@ final class DictAppTests: XCTestCase {
         }
     }
 
+    /// Seeds a fixed set of words for the given source, used by the per-source
+    /// filter tests in issue #2. Word prefix is namespaced so concurrent
+    /// sources don't collide on the (word, source) unique index.
+    private func seedSourcedEntries(source: String, words: [String]) async throws {
+        let path = tempDir.appendingPathComponent("test.sqlite").path
+        let pool = try DatabasePool(path: path)
+        try await pool.writeWithoutTransaction { dbConn in
+            for word in words {
+                try dbConn.execute(
+                    sql: """
+                        INSERT OR IGNORE INTO entries(word, definition, phonetic, pos, source)
+                        VALUES (?, ?, ?, ?, ?)
+                        """,
+                    arguments: [
+                        word,
+                        "Definition of \(word) in \(source).",
+                        "",
+                        "noun",
+                        source
+                    ]
+                )
+            }
+        }
+    }
+
     // MARK: - Unit Tests
 
     /// Verifies a search returns the correct definition for a known entry.
@@ -240,6 +265,100 @@ final class DictAppTests: XCTestCase {
         )
     }
 
+    // MARK: - Issue #2: Per-source enable/disable filter
+
+    /// Search with `enabledSources = nil` should return results from all sources
+    /// (first-launch default behavior).
+    func testSearchWithNilEnabledSourcesReturnsAll() async throws {
+        try await seedSourcedEntries(source: "alpha", words: ["sharedterm", "alphaword"])
+        try await seedSourcedEntries(source: "beta",  words: ["sharedterm", "betaword"])
+
+        let results = try await db.search(query: "sharedterm", enabledSources: nil)
+
+        let sources = Set(results.map { $0.source })
+        XCTAssertTrue(sources.contains("alpha"), "nil enabledSources must include 'alpha' results")
+        XCTAssertTrue(sources.contains("beta"),  "nil enabledSources must include 'beta' results")
+        XCTAssertEqual(results.count, 2, "Expected one match per source for 'sharedterm'; got \(results.count)")
+    }
+
+    /// Search with an empty `enabledSources` set must return an empty array
+    /// without hitting the database.
+    func testSearchWithEmptyEnabledSourcesReturnsEmpty() async throws {
+        try await seedSourcedEntries(source: "alpha", words: ["sharedterm"])
+        try await seedSourcedEntries(source: "beta",  words: ["sharedterm"])
+
+        let results = try await db.search(query: "sharedterm", enabledSources: [])
+
+        XCTAssertTrue(results.isEmpty, "Empty enabledSources must yield no results; got \(results.count)")
+    }
+
+    /// Search with a specific set of enabled sources must return only entries
+    /// whose `source` is in that set.
+    /// Note: FTS5's `unicode61` tokenizer treats non-alphanumeric chars as
+    /// separators and `sanitizeFTS` strips them, so test words must be pure
+    /// alphanumerics (no underscores, hyphens, etc.).
+    func testSearchFiltersBySpecificEnabledSources() async throws {
+        try await seedSourcedEntries(source: "alpha", words: ["sharedterm", "alphaword"])
+        try await seedSourcedEntries(source: "beta",  words: ["sharedterm", "betaword"])
+
+        // Only alpha enabled: both query terms must come only from alpha.
+        let alphaShared = try await db.search(query: "sharedterm", enabledSources: ["alpha"])
+        XCTAssertEqual(alphaShared.count, 1)
+        XCTAssertEqual(alphaShared.first?.source, "alpha")
+
+        let alphaOnly = try await db.search(query: "alphaword", enabledSources: ["alpha"])
+        XCTAssertEqual(alphaOnly.count, 1, "alphaword must be found when alpha is enabled")
+        XCTAssertEqual(alphaOnly.first?.source, "alpha")
+
+        // betaword is in beta; with alpha-only filter it must be invisible.
+        let betaOnlyFromAlpha = try await db.search(query: "betaword", enabledSources: ["alpha"])
+        XCTAssertTrue(betaOnlyFromAlpha.isEmpty, "betaword must be filtered out when only alpha is enabled")
+    }
+
+    /// `SettingsService.isEnabled(source:)` must return true for any source
+    /// before the user has explicitly toggled anything (first-launch default).
+    func testSettingsServiceFirstLaunchAllEnabled() throws {
+        let service = SettingsService.shared
+        // Reset to first-launch state.
+        service.enabledSources = nil
+        defer { service.enabledSources = nil }
+
+        XCTAssertTrue(service.isEnabled(source: "wordnet"),
+                      "First-launch default must treat every source as enabled")
+        XCTAssertTrue(service.isEnabled(source: "openrussian"))
+        XCTAssertTrue(service.isEnabled(source: "anything_not_yet_known"),
+                      "Unknown sources must also be enabled on first launch")
+    }
+
+    /// Toggling a source off then on must round-trip through UserDefaults
+    /// and be reflected in subsequent `isEnabled` calls.
+    func testSettingsServiceTogglePersists() throws {
+        let service = SettingsService.shared
+        service.enabledSources = nil
+        defer { service.enabledSources = nil }
+
+        let known: Set<String> = ["wordnet", "openrussian"]
+
+        // Disable wordnet — openrussian must stay enabled.
+        service.setEnabled(false, for: "wordnet", knownSources: known)
+        XCTAssertFalse(service.isEnabled(source: "wordnet"),
+                       "wordnet must report disabled after setEnabled(false)")
+        XCTAssertTrue(service.isEnabled(source: "openrussian"),
+                      "openrussian must remain enabled when only wordnet was toggled")
+
+        // Round-trip through UserDefaults: re-read raw and assert it's persisted.
+        let stored = service.enabledSources
+        XCTAssertNotNil(stored, "After any setEnabled call, the key must be present")
+        XCTAssertFalse(stored?.contains("wordnet") ?? true)
+        XCTAssertTrue(stored?.contains("openrussian") ?? false)
+
+        // Re-enable wordnet — must be reflected immediately.
+        service.setEnabled(true, for: "wordnet", knownSources: known)
+        XCTAssertTrue(service.isEnabled(source: "wordnet"),
+                      "wordnet must report enabled after setEnabled(true)")
+        XCTAssertTrue(service.isEnabled(source: "openrussian"))
+    }
+
     // MARK: - Performance Tests
 
     /// Measures FTS5 search time on a 100,000-entry database. Target: < 16ms.
@@ -275,3 +394,4 @@ final class DictAppTests: XCTestCase {
         }
     }
 }
+

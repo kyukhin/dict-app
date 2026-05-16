@@ -22,6 +22,7 @@ struct SearchView: View {
                     }
                 } else if vm.results.isEmpty && !vm.isSearching {
                     ContentUnavailableView.search(text: vm.query)
+                        .accessibilityIdentifier("search_no_results")
                 } else {
                     ForEach(vm.results) { entry in
                         NavigationLink(value: entry) {
@@ -130,3 +131,4 @@ private struct HistoryWordDestination: View {
         }
     }
 }
+

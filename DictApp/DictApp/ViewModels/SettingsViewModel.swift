@@ -10,11 +10,10 @@ class SettingsViewModel: ObservableObject {
     @Published var selectedUILanguage: UILanguage = .english
     @Published var availableUILanguages: [UILanguage] = [.english]
 
-    // Dictionary info (read-only, loaded from DB)
-    @Published var sourceStats: [SourceStat] = []
+    // Dictionary list with enabled/disabled state
+    @Published var dictionaries: [DictionaryItem] = []
 
     // Legacy import functionality
-    @Published var totalCount: Int = 0
     @Published var isImporting = false
     @Published var importResult: String?
 
@@ -22,7 +21,7 @@ class SettingsViewModel: ObservableObject {
 
     init() {
         loadUILanguageSettings()
-        Task { await loadSourceStats() }
+        Task { await loadDictionaries() }
     }
 
     func loadUILanguageSettings() {
@@ -35,12 +34,27 @@ class SettingsViewModel: ObservableObject {
         settingsService.selectedUILanguage = language
     }
 
-    func loadSourceStats() async {
+    func loadDictionaries() async {
         do {
-            sourceStats = try await DatabaseService.shared.fetchSourceStats()
+            let stats = try await DatabaseService.shared.fetchSourceStats()
+            dictionaries = stats.map { stat in
+                DictionaryItem(
+                    source: stat.source,
+                    displayName: stat.displayName,
+                    count: stat.count,
+                    isEnabled: settingsService.isEnabled(source: stat.source)
+                )
+            }
         } catch {
-            // Non-fatal: leave sourceStats empty
-            print("SettingsViewModel: failed to load source stats: \(error)")
+            print("SettingsViewModel: failed to load dictionaries: \(error)")
         }
+    }
+
+    func toggleDictionary(source: String) {
+        guard let index = dictionaries.firstIndex(where: { $0.source == source }) else { return }
+        let knownSources = Set(dictionaries.map { $0.source })
+        let newEnabled = !dictionaries[index].isEnabled
+        settingsService.setEnabled(newEnabled, for: source, knownSources: knownSources)
+        dictionaries[index].isEnabled = newEnabled
     }
 }

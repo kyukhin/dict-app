@@ -72,22 +72,26 @@ struct SettingsView: View {
 
     private var dictionaryManagementSection: some View {
         Section("Dictionaries") {
-            if viewModel.sourceStats.isEmpty {
+            if viewModel.dictionaries.isEmpty {
                 Text("Loading…")
                     .foregroundStyle(.secondary)
             } else {
-                ForEach(viewModel.sourceStats) { stat in
+                ForEach(viewModel.dictionaries) { dict in
                     HStack {
                         VStack(alignment: .leading, spacing: 2) {
-                            Text(stat.displayName)
+                            Text(dict.displayName)
                                 .font(.body)
-                            Text("\(stat.count.formatted()) entries")
+                            Text("\(dict.count.formatted()) entries")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
                         Spacer()
-                        Image(systemName: "checkmark.circle.fill")
-                            .foregroundStyle(.green)
+                        Toggle(isOn: Binding(
+                            get: { dict.isEnabled },
+                            set: { _ in viewModel.toggleDictionary(source: dict.source) }
+                        )) { EmptyView() }
+                        .labelsHidden()
+                        .accessibilityIdentifier("dictionary_toggle_\(dict.source)")
                     }
                 }
             }
@@ -186,3 +190,4 @@ struct SettingsView: View {
         }
     }
 }
+

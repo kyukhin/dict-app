@@ -45,6 +45,8 @@ struct DictApp: App {
             if CommandLine.arguments.contains("-resetData") {
                 try await DatabaseService.shared.clearAllBookmarks()
                 try await DatabaseService.shared.clearHistory()
+                // Reset per-source enable/disable preference to first-launch default.
+                SettingsService.shared.enabledSources = nil
             }
 
             isReady = true
@@ -53,3 +55,4 @@ struct DictApp: App {
         }
     }
 }
+

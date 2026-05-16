@@ -66,27 +66,41 @@ actor DatabaseService {
     ///   Priority 2: starts-with (word LIKE 'query%')
     ///   Priority 3: FTS relevance (rank)
     /// The unicode61 tokenizer handles both Latin and Cyrillic input.
-    func search(query: String, limit: Int = 50) async throws -> [DictionaryEntry] {
+    func search(query: String, limit: Int = 50, enabledSources: Set<String>? = nil) async throws -> [DictionaryEntry] {
+        // If an explicit (non-nil) empty set is passed, no sources are enabled — return immediately.
+        if let sources = enabledSources, sources.isEmpty { return [] }
+
         guard let pool = dbPool else { throw DBError.notConnected }
         let sanitized = sanitizeFTS(query)
         guard !sanitized.isEmpty else { return [] }
         return try await pool.read { db in
-            let sql = """
+            var sql = """
                 SELECT e.*
                 FROM entries_fts fts
                 JOIN entries e ON e.id = fts.rowid
                 WHERE entries_fts MATCH ?
+                """
+            var arguments: [DatabaseValueConvertible] = [sanitized + "*"]
+
+            if let sources = enabledSources, !sources.isEmpty {
+                let placeholders = sources.map { _ in "?" }.joined(separator: ", ")
+                sql += " AND e.source IN (\(placeholders))"
+                arguments += sources.map { $0 as DatabaseValueConvertible }
+            }
+
+            sql += """
+
                 ORDER BY
                     (e.word = ? COLLATE NOCASE) DESC,
                     (e.word LIKE ? COLLATE NOCASE) DESC,
                     rank
                 LIMIT ?
                 """
-            let startsWithPattern = sanitized + "%"
-            return try DictionaryEntry.fetchAll(
-                db, sql: sql,
-                arguments: [sanitized + "*", sanitized, startsWithPattern, limit]
-            )
+            arguments += [sanitized, sanitized + "%", limit]
+
+            var statArgs = StatementArguments()
+            for arg in arguments { statArgs += [arg] }
+            return try DictionaryEntry.fetchAll(db, sql: sql, arguments: statArgs)
         }
     }
 

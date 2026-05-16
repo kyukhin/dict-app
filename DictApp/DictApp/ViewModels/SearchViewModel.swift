@@ -16,9 +16,11 @@ final class SearchViewModel: ObservableObject {
     private let debounceInterval: Duration = .milliseconds(150)
 
     private let db: DatabaseService
+    private let settings: SettingsService
 
-    init(db: DatabaseService = .shared) {
+    init(db: DatabaseService = .shared, settings: SettingsService = .shared) {
         self.db = db
+        self.settings = settings
     }
 
     func loadRecent() async {
@@ -38,13 +40,17 @@ final class SearchViewModel: ObservableObject {
 
         isSearching = true
 
-        searchTask = Task { [trimmed, db] in
+        // Capture the enabled-sources set at the moment the query fires.
+        // nil means "all enabled" (first-launch default); empty set means "none enabled".
+        let enabledSources: Set<String>? = settings.enabledSources
+
+        searchTask = Task { [trimmed, db, enabledSources] in
             // Debounce: wait briefly so we don't hammer the DB on every keystroke.
             try? await Task.sleep(for: debounceInterval)
             guard !Task.isCancelled else { return }
 
             do {
-                let found = try await db.search(query: trimmed)
+                let found = try await db.search(query: trimmed, enabledSources: enabledSources)
                 guard !Task.isCancelled else { return }
                 self.results = found
                 self.errorMessage = nil

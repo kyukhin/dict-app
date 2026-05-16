@@ -117,3 +117,13 @@ struct SourceStat: Identifiable, Equatable {
     let displayName: String
     let count: Int
 }
+
+// MARK: - DictionaryItem (Settings UI model with enabled state)
+
+struct DictionaryItem: Identifiable, Equatable {
+    var id: String { source }
+    let source: String
+    let displayName: String
+    let count: Int
+    var isEnabled: Bool
+}

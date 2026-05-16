@@ -37,6 +37,54 @@ func searchFor(_ term: String) {
         }
     }
 
+    /// Dismisses the on-screen keyboard so the tab bar becomes hittable.
+    /// On iPhone the keyboard overlays the tab bar after a `.searchable()`
+    /// search, so any subsequent `tabBar.buttons[...]` tap would silently
+    /// hit the keyboard area instead.
+    ///
+    /// The commit-key label varies by keyboard type — `.searchable()` uses
+    /// "Search" / "search"; standard text fields use "return". We try the
+    /// known labels, then fall back to a swipe-down gesture that dismisses
+    /// the keyboard in iOS without scrolling the content area.
+    func dismissKeyboard() {
+        guard app.keyboards.firstMatch.exists else { return }
+        for label in ["return", "Return", "Search", "search", "Go", "Done"] {
+            let key = app.keyboards.buttons[label]
+            if key.exists {
+                key.tap()
+                // Wait briefly for the keyboard to animate out.
+                _ = app.keyboards.firstMatch.waitForNonExistence(timeout: 2.0)
+                return
+            }
+        }
+        // Fallback: scroll the results list down — iOS dismisses the
+        // keyboard on a scroll-drag in a scrollable container.
+        app.swipeDown()
+        _ = app.keyboards.firstMatch.waitForNonExistence(timeout: 2.0)
+    }
+
+    /// On first use of `.searchable()` iOS 26 surfaces a full-screen
+    /// "Siri, Dictation & Privacy" notice that overlays the entire app and
+    /// silently intercepts subsequent taps on the tab bar. This method
+    /// detects and closes that sheet so tests can carry on.
+    func dismissSiriPrivacyNoticeIfPresent() {
+        let nav = app.navigationBars["Siri, Dictation & Privacy"]
+        guard nav.waitForExistence(timeout: 1.0) else { return }
+        // The sheet has a Close button (system "close" symbol) in its
+        // navigation bar — tap it via the first button on that bar.
+        let close = nav.buttons.firstMatch
+        if close.exists {
+            close.tap()
+        }
+    }
+
+    /// Convenience: clears anything that could be blocking the tab bar after
+    /// a `.searchable()` interaction (keyboard + Siri privacy sheet).
+    func clearOverlaysBeforeTabSwitch() {
+        dismissSiriPrivacyNoticeIfPresent()
+        dismissKeyboard()
+    }
+
     // MARK: - Results Interaction
 
     @discardableResult
@@ -109,4 +157,21 @@ func searchFor(_ term: String) {
         let result = XCTWaiter.wait(for: [expectation], timeout: timeout)
         return result == .completed
     }
+
+    /// Waits for the `ContentUnavailableView` that SearchView renders inside
+    /// its List when `results` is empty and `query` is non-empty.
+    ///
+    /// We can't use `cells.count == 0` because the ContentUnavailableView is
+    /// rendered as one cell inside the SwiftUI List — a "no results" state
+    /// looks like one cell, not zero. Instead we look for the explicit
+    /// accessibility identifier added in `SearchView.swift`.
+    func waitForNoResults(timeout: TimeInterval = TestData.Timeouts.medium) -> Bool {
+        let marker = app.descendants(matching: .any)["search_no_results"]
+        return marker.waitForExistence(timeout: timeout)
+    }
+
+    func verifyContentUnavailableShown() -> Bool {
+        return app.descendants(matching: .any)["search_no_results"].exists
+    }
 }
+
