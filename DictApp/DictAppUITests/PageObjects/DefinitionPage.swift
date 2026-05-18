@@ -40,6 +40,7 @@ class DefinitionPage: BasePage {
         bookmarkButton.tap()
     }
 
+    @discardableResult
     func navigateBack() -> SearchPage {
         // Use navigation back button or swipe gesture
         if app.navigationBars.buttons["Back"].exists {
