@@ -2,19 +2,17 @@
 // Settings view with UI language selection and dictionary management
 
 import SwiftUI
-import UniformTypeIdentifiers
 
 struct SettingsView: View {
     @StateObject private var viewModel = SettingsViewModel()
-    @State private var showImporter = false
 
     var body: some View {
         NavigationStack {
             Form {
-                // UI Language Section (NEW)
+                // UI Language Section
                 uiLanguageSection
 
-                // Dictionary Management Section (Refactored)
+                // Dictionary Management Section
                 dictionaryManagementSection
 
                 // Learning Mode Section (stub)
@@ -26,27 +24,13 @@ struct SettingsView: View {
                 // Support Section (stub)
                 supportSection
 
-                // Import Dictionary Section
-                importDictionarySection
-
-                // Supported Formats Section
-                supportedFormatsSection
-
-                // About Section (Existing, refined)
+                // About Section
                 aboutSection
 
                 // Version Section
                 versionSection
             }
             .navigationTitle("Settings")
-            .fileImporter(
-                isPresented: $showImporter,
-                allowedContentTypes: [.json, .database, UTType(filenameExtension: "sqlite")].compactMap { $0 },
-                allowsMultipleSelection: false
-            ) { result in
-                // Import functionality temporarily disabled
-                print("Import attempted: \(result)")
-            }
         }
     }
 
@@ -95,38 +79,13 @@ struct SettingsView: View {
                     }
                 }
             }
-        }
-    }
 
-    private var importDictionarySection: some View {
-        Section("Import Dictionary") {
-            Button {
-                showImporter = true
+            NavigationLink {
+                ManageDictionariesView()
             } label: {
-                Label("Import File (.json or .sqlite)", systemImage: "square.and.arrow.down")
+                Label("Manage Dictionaries", systemImage: "books.vertical")
             }
-            .disabled(viewModel.isImporting)
-
-            if viewModel.isImporting {
-                ProgressView("Importing...")
-            }
-
-            if let result = viewModel.importResult {
-                Text(result)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-        }
-    }
-
-    private var supportedFormatsSection: some View {
-        Section("Supported Formats") {
-            Text("**JSON** — array of objects with `word` and `definition` keys. Optional: `phonetic`, `pos`.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            Text("**SQLite** — must contain an `entries` table with columns: word, definition, phonetic, pos, source.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+            .accessibilityIdentifier("manage_dictionaries_link")
         }
     }
 
@@ -155,7 +114,7 @@ struct SettingsView: View {
         }
     }
 
-    // MARK: - New Stub Sections
+    // MARK: - Stub Sections
 
     private var learningModeSection: some View {
         Section("Learning Mode") {
@@ -190,4 +149,3 @@ struct SettingsView: View {
         }
     }
 }
-

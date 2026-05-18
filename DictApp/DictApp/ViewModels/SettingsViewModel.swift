@@ -13,10 +13,6 @@ class SettingsViewModel: ObservableObject {
     // Dictionary list with enabled/disabled state
     @Published var dictionaries: [DictionaryItem] = []
 
-    // Legacy import functionality
-    @Published var isImporting = false
-    @Published var importResult: String?
-
     private let settingsService = SettingsService.shared
 
     init() {
