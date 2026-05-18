@@ -8,8 +8,25 @@ final class HistoryFlowTests: XCTestCase {
     override func setUpWithError() throws {
         continueAfterFailure = false
         app = XCUIApplication()
-        app.launch()
+        app.launchArguments.append("-resetData")
 
+        // iOS 26 surfaces an "Enable Dictation?" springboard alert the first
+        // time `.searchable()` is activated. XCUI's default handler taps the
+        // wrong button (the "About Siri & Dictation…" info link) which then
+        // covers the tab bar and breaks the test. Install our own handler
+        // that picks a dismissal label.
+        addUIInterruptionMonitor(withDescription: "Enable Dictation alert") { alert in
+            for label in ["Not Now", "Cancel", "Don't Enable", "Don't Allow", "Enable Dictation"] {
+                let button = alert.buttons[label]
+                if button.exists {
+                    button.tap()
+                    return true
+                }
+            }
+            return false
+        }
+
+        app.launch()
         tabBarPage = TabBarPage(app: app)
     }
 
@@ -137,8 +154,11 @@ final class HistoryFlowTests: XCTestCase {
         XCTAssertTrue(historyPage.waitForHistoryToLoad(), "History should load")
         XCTAssertTrue(historyPage.verifyHistoryContainsWord(searchTerm), "History should contain the word")
 
-        // Simulate app restart
+        // Simulate app restart. CRUCIAL: drop `-resetData` from the launch
+        // args before the relaunch — otherwise the freshly-added history
+        // would be wiped and the assertion below would be vacuous.
         app.terminate()
+        app.launchArguments.removeAll { $0 == "-resetData" }
         app.launch()
 
         // Reinitialize page objects
@@ -157,19 +177,20 @@ final class HistoryFlowTests: XCTestCase {
     }
 
     func testEmptyHistory() throws {
-        // Test behavior when history is empty (fresh app state)
+        // `-resetData` in setUp wipes history, so we can assert empty state
+        // unconditionally. The `No History` ContentUnavailableView must be
+        // showing, and there must be zero history cells.
         let historyPage = tabBarPage.tapHistoryTab()
         XCTAssertTrue(historyPage.waitForHistoryToLoad(), "History should load")
 
-        // Note: This test might not be applicable if there's already history
-        // In a real scenario, you might need a way to clear history for testing
-
-        if historyPage.verifyHistoryIsEmpty() {
-            XCTAssertTrue(
-                historyPage.verifyHistoryCount(equalTo: 0),
-                "Empty history should have 0 items"
-            )
-        }
+        XCTAssertTrue(
+            app.staticTexts["No History"].waitForExistence(timeout: TestData.Timeouts.medium),
+            "Empty-state ContentUnavailableView must be visible when history is empty"
+        )
+        XCTAssertTrue(
+            historyPage.verifyHistoryIsEmpty(),
+            "History list must report zero entries on first launch with -resetData"
+        )
     }
 
     func testHistoryItemContent() throws {

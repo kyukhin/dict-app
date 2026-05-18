@@ -93,7 +93,13 @@ class HistoryPage: BasePage {
         guard cells.count > index else { return "" }
 
         let cell = cells.element(boundBy: index)
-        return cell.label
+        // SwiftUI NavigationLink rows in a List don't reliably surface the
+        // child Text content through `cell.label` (it may be empty or only
+        // contain the timestamp). The visible word lives in a staticText
+        // descendant — concatenate them, matching the lookup behavior of
+        // `verifyHistoryItemAtIndex(_:containsText:)`.
+        let texts = cell.staticTexts.allElementsBoundByIndex.map(\.label)
+        return texts.joined(separator: " ")
     }
 
     func waitForHistoryToLoad(timeout: TimeInterval = TestData.Timeouts.medium) -> Bool {
