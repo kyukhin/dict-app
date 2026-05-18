@@ -103,13 +103,54 @@ class SettingsPage: BasePage {
         return app.descendants(matching: .any)[id]
     }
 
-    /// Waits for the "Manage Dictionaries" navigation row, scrolling once if
-    /// it sits below the fold on smaller screens.
+    /// Waits for the "Manage Dictionaries" navigation row.
+    ///
+    /// The link itself is *unconditionally* rendered inside the
+    /// Dictionaries section in `SettingsView` — it's outside the
+    /// `if dictionaries.isEmpty` branch — so the only failure mode is
+    /// cell-virtualization: SwiftUI's `Form` is backed by a
+    /// `UICollectionView` that only materializes cells in/near the visible
+    /// region. After many launches the simulator's scene-state restoration
+    /// can resume Settings at any scroll offset (often the bottom on warm
+    /// runs), keeping the link off the rendered-cell window. `exists`
+    /// then returns false even though the link is in the SwiftUI view
+    /// hierarchy.
+    ///
+    /// Strategy:
+    ///   1) Wait for *some* sign Settings rendered — the navigation title
+    ///      "Settings". Without this we'd be swiping a tab bar or a wrong
+    ///      form when the tab transition is still in flight.
+    ///   2) Probe for the link. If visible, done.
+    ///   3) Otherwise sweep the form in both directions a few times. We
+    ///      don't know whether scene restoration parked it above or below
+    ///      the fold, so we try down then up.
     func waitForManageDictionariesLink(timeout: TimeInterval = TestData.Timeouts.medium) -> Bool {
+        // 1) Wait for the Settings screen itself to mount — the navigation
+        //    title is the most reliable per-tab indicator and is present
+        //    regardless of `SettingsViewModel.dictionaries` load state.
+        _ = app.navigationBars["Settings"].waitForExistence(timeout: timeout)
+
         let link = manageDictionariesLink
-        if link.waitForExistence(timeout: timeout) { return true }
-        swipeContainerUp()
-        return link.waitForExistence(timeout: timeout)
+        if link.waitForExistence(timeout: 1.0) { return true }
+
+        // 2) Sweep up (reveal content below the fold) — most common case
+        //    on first entry where the form starts at the top.
+        for _ in 0..<6 {
+            swipeContainerUp()
+            if link.waitForExistence(timeout: 0.5) { return true }
+        }
+
+        // 3) Sweep back down — covers the scene-restoration case where the
+        //    form resumed scrolled past the link.
+        for _ in 0..<8 {
+            swipeContainerDown()
+            if link.waitForExistence(timeout: 0.5) { return true }
+        }
+        return false
+    }
+
+    private func swipeContainerDown() {
+        if let f = form { f.swipeDown() } else { app.swipeDown() }
     }
 
     /// Taps "Manage Dictionaries" and returns the destination page object.

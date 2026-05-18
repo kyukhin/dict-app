@@ -57,29 +57,41 @@ final class NavigationTests: XCTestCase {
     }
 
     func testTabSwitchingPreservesState() throws {
-        // Test that switching tabs preserves state
-
-        // Start with search, perform a search
+        // SearchView holds its query in a @StateObject, so tab switching
+        // must not reset the underlying search state — coming back to the
+        // Search tab should still show the results that were on screen.
+        //
+        // On iOS 26 the visible `.searchable()` field collapses when its
+        // host tab loses focus and the rendered field text shows as empty
+        // until the user re-activates the field. That's iOS chrome, not
+        // app state — `vm.query` itself is preserved, which is what the
+        // user actually cares about. We therefore assert the *results
+        // list* still contains entries (proving `vm.query` survived), and
+        // do not assert on the field's displayed text.
         let searchPage = tabBarPage.tapSearchTab()
         let searchTerm = TestData.searchTerms[0]
         searchPage.searchFor(searchTerm)
         XCTAssertTrue(searchPage.waitForResults(), "Search results should appear")
+        let baselineCount = searchPage.getResultsCount()
+        XCTAssertGreaterThan(baselineCount, 0, "Pre-condition: search returned at least one result")
 
-        // Switch to History tab
+        // Switch to History tab and back.
         let historyPage = tabBarPage.tapHistoryTab()
         XCTAssertTrue(historyPage.verifyHistoryListExists(), "History should load")
 
-        // Switch back to Search tab
         let searchPageAgain = tabBarPage.tapSearchTab()
 
-        // Verify search state is preserved
-        XCTAssertTrue(
-            searchPageAgain.verifySearchFieldContains(searchTerm),
-            "Search field should preserve the search term"
-        )
+        // The results list — driven by `vm.query`/`vm.results` — must still
+        // be populated. This is the real "state preserved" signal: if
+        // tab-switching had blown away the query, the view would fall back
+        // to the Recent list or be empty.
         XCTAssertTrue(
             searchPageAgain.verifyResultsCount(greaterThan: 0),
-            "Search results should still be visible"
+            "Search results must still be visible after returning from another tab"
+        )
+        XCTAssertEqual(
+            searchPageAgain.getResultsCount(), baselineCount,
+            "Result count must match the pre-tab-switch baseline; differing means vm.query changed"
         )
     }
 
