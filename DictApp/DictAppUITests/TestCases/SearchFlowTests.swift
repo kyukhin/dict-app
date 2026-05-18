@@ -9,8 +9,25 @@ final class SearchFlowTests: XCTestCase {
     override func setUpWithError() throws {
         continueAfterFailure = false
         app = XCUIApplication()
-        app.launch()
+        app.launchArguments.append("-resetData")
 
+        // iOS 26 surfaces an "Enable Dictation?" springboard alert the first
+        // time `.searchable()` is activated. XCUI's default handler taps the
+        // wrong button ("About Siri & Dictation…") which then covers the tab
+        // bar and breaks the test. Install our own handler that picks a
+        // dismissal label.
+        addUIInterruptionMonitor(withDescription: "Enable Dictation alert") { alert in
+            for label in ["Not Now", "Cancel", "Don't Enable", "Don't Allow", "Enable Dictation"] {
+                let button = alert.buttons[label]
+                if button.exists {
+                    button.tap()
+                    return true
+                }
+            }
+            return false
+        }
+
+        app.launch()
         tabBarPage = TabBarPage(app: app)
         searchPage = tabBarPage.tapSearchTab()
     }
@@ -115,18 +132,18 @@ final class SearchFlowTests: XCTestCase {
     }
 
     func testEmptySearchResults() throws {
-        // Test search with term that should return no results
+        // A search term that cannot exist in either bundled dictionary.
         let nonExistentTerm = "xyzzyx123nonexistent"
 
         searchPage.searchFor(nonExistentTerm)
 
-        // Wait a moment for search to complete
-        Thread.sleep(forTimeInterval: 1.0)
-
-        // Verify no results or empty results
+        // The empty-state ContentUnavailableView SwiftUI renders inside the
+        // results List is *one* cell — so `cells.count == 0` is the wrong
+        // signal. Wait on the explicit `search_no_results` identifier
+        // instead, which is the unambiguous "zero matches" marker.
         XCTAssertTrue(
-            searchPage.verifyNoResults() || searchPage.verifyResultsCount(equalTo: 0),
-            "Should have no results for non-existent term"
+            searchPage.waitForNoResults(timeout: TestData.Timeouts.medium),
+            "Search for a non-existent term must show the no-results view"
         )
     }
 
