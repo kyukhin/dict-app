@@ -60,27 +60,40 @@ class TabBarPage: BasePage {
 
     // MARK: - Navigation Methods
 
+    /// Taps a tab-bar element via a normalized center coordinate. XCUITest's
+    /// `.tap()` first invokes an AX `scrollToVisible` action; on iOS 26 with
+    /// certain SwiftUI layouts (notably after a NavigationLink push inside
+    /// the tab) that action fails with `kAXErrorCannotComplete`, breaking
+    /// tab navigation entirely. A coordinate tap skips `scrollToVisible`
+    /// and works as long as the element's frame is correct (which it is for
+    /// tab-bar buttons — they live in a fixed bottom strip).
+    private func coordinateTap(_ element: XCUIElement) {
+        // Make sure the element exists before computing a coordinate from it.
+        _ = element.waitForExistence(timeout: TestData.Timeouts.medium)
+        element.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+    }
+
     @discardableResult
     func tapSearchTab() -> SearchPage {
-        searchTab.tap()
+        coordinateTap(searchTab)
         return SearchPage(app: app)
     }
 
     @discardableResult
     func tapHistoryTab() -> HistoryPage {
-        historyTab.tap()
+        coordinateTap(historyTab)
         return HistoryPage(app: app)
     }
 
     @discardableResult
     func tapBookmarksTab() -> BookmarksPage {
-        bookmarksTab.tap()
+        coordinateTap(bookmarksTab)
         return BookmarksPage(app: app)
     }
 
     @discardableResult
     func tapSettingsTab() -> SettingsPage {
-        settingsTab.tap()
+        coordinateTap(settingsTab)
         return SettingsPage(app: app)
     }
 
@@ -123,4 +136,3 @@ class TabBarPage: BasePage {
         return tapSettingsTab()
     }
 }
-

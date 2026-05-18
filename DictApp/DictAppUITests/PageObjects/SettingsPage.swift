@@ -91,5 +91,37 @@ class SettingsPage: BasePage {
             swipes += 1
         }
     }
-}
 
+    // MARK: - Manage Dictionaries navigation
+
+    private var manageDictionariesLink: XCUIElement {
+        // SwiftUI NavigationLink usually surfaces as a button or cell — accept
+        // either, indexed by the accessibility identifier set on the view.
+        let id = AccessibilityIdentifiers.Settings.manageDictionariesLink
+        if app.buttons[id].exists { return app.buttons[id] }
+        if app.cells[id].exists   { return app.cells[id] }
+        return app.descendants(matching: .any)[id]
+    }
+
+    /// Waits for the "Manage Dictionaries" navigation row, scrolling once if
+    /// it sits below the fold on smaller screens.
+    func waitForManageDictionariesLink(timeout: TimeInterval = TestData.Timeouts.medium) -> Bool {
+        let link = manageDictionariesLink
+        if link.waitForExistence(timeout: timeout) { return true }
+        swipeContainerUp()
+        return link.waitForExistence(timeout: timeout)
+    }
+
+    /// Taps "Manage Dictionaries" and returns the destination page object.
+    @discardableResult
+    func tapManageDictionariesLink() -> ManageDictionariesPage {
+        XCTAssertTrue(
+            waitForManageDictionariesLink(timeout: TestData.Timeouts.long),
+            "Manage Dictionaries link should appear in Settings"
+        )
+        let link = manageDictionariesLink
+        scrollToElement(link)
+        link.tap()
+        return ManageDictionariesPage(app: app)
+    }
+}

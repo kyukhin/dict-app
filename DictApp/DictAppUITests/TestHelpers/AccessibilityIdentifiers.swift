@@ -44,9 +44,15 @@ struct AccessibilityIdentifiers {
 
     // MARK: - Settings View
     struct Settings {
+        static let manageDictionariesLink = "manage_dictionaries_link"
         static func dictionaryToggle(source: String) -> String {
             return "dictionary_toggle_\(source)"
         }
     }
-}
 
+    // MARK: - Manage Dictionaries View
+    struct ManageDictionaries {
+        static let importButton = "import_dictionary_button"
+        static let importResultMessage = "import_result_message"
+    }
+}

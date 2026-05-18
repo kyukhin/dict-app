@@ -49,10 +49,17 @@ struct DictApp: App {
                 SettingsService.shared.enabledSources = nil
             }
 
+            // UI-test hook: scrub entries left over from a previous fixture
+            // import. The import end-to-end tests assert "no results before
+            // import" as a pre-condition, which would spuriously fail if a
+            // prior run left fixture entries behind in the persistent DB.
+            if CommandLine.arguments.contains("-clearFixtureImports") {
+                try? await DatabaseService.shared.clearEntries(fromSource: "test_import_fixture")
+            }
+
             isReady = true
         } catch {
             setupError = error.localizedDescription
         }
     }
 }
-

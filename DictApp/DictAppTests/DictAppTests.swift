@@ -359,6 +359,141 @@ final class DictAppTests: XCTestCase {
         XCTAssertTrue(service.isEnabled(source: "openrussian"))
     }
 
+    // MARK: - Issue #26: Manage Dictionaries grouping
+
+    /// `ManageDictionariesViewModel` must default to "not importing", with no
+    /// surfaced import-result message.
+    @MainActor
+    func testManageDictionariesViewModelDefaultState() throws {
+        let vm = ManageDictionariesViewModel()
+        XCTAssertFalse(vm.isImporting, "VM must default to not-importing")
+        XCTAssertNil(vm.importResult, "VM must default to no surfaced import-result")
+    }
+
+    /// `.success([])` (file picker dismissed without choosing) must be a
+    /// no-op: no async import is spawned, no state changes, no error surfaces.
+    @MainActor
+    func testManageDictionariesViewModelHandleImportEmptySelectionIsNoOp() throws {
+        let vm = ManageDictionariesViewModel()
+        vm.handleImport(result: .success([]))
+        XCTAssertFalse(vm.isImporting,
+                       "Empty selection must not flip isImporting to true")
+        XCTAssertNil(vm.importResult,
+                     "Empty selection must not surface an importResult message")
+    }
+
+    /// `handleImport(.success([jsonURL]))` must insert the fixture's entries
+    /// into the active DB and surface an "Imported N entries" message.
+    /// Verifies the end-to-end ViewModel → DatabaseService path; the URL
+    /// resolves to the bundled `test_import_fixture.json` (10 entries).
+    @MainActor
+    func testHandleImportJSONFixtureInsertsEntries() async throws {
+        let vm = ManageDictionariesViewModel()
+        let url = try XCTUnwrap(
+            Bundle.main.url(forResource: "test_import_fixture", withExtension: "json"),
+            "Bundled JSON fixture must exist"
+        )
+
+        vm.handleImport(result: .success([url]))
+
+        // handleImport spawns an async Task; poll for completion (importResult
+        // becomes non-nil and isImporting flips back to false).
+        try await waitForImportToFinish(vm: vm)
+
+        let message = try XCTUnwrap(vm.importResult)
+        XCTAssertTrue(message.contains("Imported"),
+                      "Success message must read 'Imported N …'; got: \(message)")
+
+        // Verify the unique fixture word is actually searchable in the DB.
+        let results = try await db.search(query: "qaflux")
+        XCTAssertGreaterThan(results.count, 0,
+                             "Fixture entry 'qaflux' must be searchable after import")
+    }
+
+    /// `handleImport(.success([sqliteURL]))` must drain the external SQLite
+    /// file into the active DB. Uses the bundled `test_import_fixture.sqlite`
+    /// (10 entries) and asserts the unique word "zarboom" becomes searchable.
+    @MainActor
+    func testHandleImportSQLiteFixtureInsertsEntries() async throws {
+        let vm = ManageDictionariesViewModel()
+        let url = try XCTUnwrap(
+            Bundle.main.url(forResource: "test_import_fixture", withExtension: "sqlite"),
+            "Bundled SQLite fixture must exist"
+        )
+
+        vm.handleImport(result: .success([url]))
+        try await waitForImportToFinish(vm: vm)
+
+        let message = try XCTUnwrap(vm.importResult)
+        XCTAssertTrue(message.contains("Imported"),
+                      "Success message must read 'Imported N …'; got: \(message)")
+
+        let results = try await db.search(query: "zarboom")
+        XCTAssertGreaterThan(results.count, 0,
+                             "Fixture entry 'zarboom' must be searchable after import")
+    }
+
+    /// Polls `vm.importResult` until set or 10s elapses. `handleImport`
+    /// spawns an async Task that we cannot directly await, so the test loop
+    /// observes the published state instead.
+    @MainActor
+    private func waitForImportToFinish(vm: ManageDictionariesViewModel,
+                                       timeout: TimeInterval = 10) async throws {
+        let deadline = Date().addingTimeInterval(timeout)
+        while vm.importResult == nil && Date() < deadline {
+            try await Task.sleep(nanoseconds: 50_000_000)
+        }
+        XCTAssertNotNil(vm.importResult, "Import did not complete within \(timeout)s")
+        XCTAssertFalse(vm.isImporting, "isImporting must flip back to false on completion")
+    }
+
+    /// `handleImport(.failure(...))` must surface the error's
+    /// `localizedDescription` via `importResult`.
+    @MainActor
+    func testManageDictionariesViewModelHandleImportFailureSurfacesError() throws {
+        let vm = ManageDictionariesViewModel()
+
+        struct ImportFailure: LocalizedError {
+            var errorDescription: String? { "file is not a recognized dictionary" }
+        }
+        let failure = ImportFailure()
+
+        vm.handleImport(result: .failure(failure))
+
+        XCTAssertEqual(vm.importResult, failure.localizedDescription,
+                       "Failure path must surface the error's localizedDescription")
+        XCTAssertFalse(vm.isImporting,
+                       "Failure path must not leave isImporting stuck on true")
+
+        // A second, distinct failure must overwrite the previous message rather
+        // than concatenating or being ignored.
+        struct OtherFailure: LocalizedError {
+            var errorDescription: String? { "permission denied" }
+        }
+        let other = OtherFailure()
+        vm.handleImport(result: .failure(other))
+        XCTAssertEqual(vm.importResult, other.localizedDescription,
+                       "Second failure must replace the earlier importResult")
+    }
+
+    /// `SettingsViewModel` no longer carries import state after the
+    /// issue-#26 split — the `isImporting` / `importResult` properties were
+    /// removed. This is a structural guard, not a behavior test.
+    @MainActor
+    func testSettingsViewModelNoLongerOwnsImportState() throws {
+        let vm = SettingsViewModel()
+        let labels = Mirror(reflecting: vm).children.compactMap { $0.label }
+
+        // @Published property wrappers manifest as `_propertyName` in Mirror,
+        // so guard against both naming conventions.
+        let leakedImportState = labels.filter {
+            ["isImporting", "_isImporting",
+             "importResult", "_importResult"].contains($0)
+        }
+        XCTAssertTrue(leakedImportState.isEmpty,
+                      "SettingsViewModel must not own import state after issue #26; found: \(leakedImportState)")
+    }
+
     // MARK: - Performance Tests
 
     /// Measures FTS5 search time on a 100,000-entry database. Target: < 16ms.
@@ -394,4 +529,3 @@ final class DictAppTests: XCTestCase {
         }
     }
 }
-

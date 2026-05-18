@@ -153,6 +153,15 @@ actor DatabaseService {
         }
     }
 
+    /// Deletes every entry whose `source` equals the given value. Used by
+    /// UI tests to scrub previously-imported fixture data before re-running.
+    func clearEntries(fromSource source: String) async throws {
+        guard let pool = dbPool else { throw DBError.notConnected }
+        try await pool.write { db in
+            try db.execute(sql: "DELETE FROM entries WHERE source = ?", arguments: [source])
+        }
+    }
+
     // MARK: - Bookmarks
 
     func addBookmark(entryId: Int64) async throws {

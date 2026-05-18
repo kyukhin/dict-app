@@ -29,7 +29,7 @@ struct ManageDictionariesView: View {
     private var importDictionarySection: some View {
         Section("Import Dictionary") {
             Button {
-                showImporter = true
+                handleImportTap()
             } label: {
                 Label("Import File (.json or .sqlite)", systemImage: "square.and.arrow.down")
             }
@@ -44,6 +44,7 @@ struct ManageDictionariesView: View {
                 Text(result)
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                    .accessibilityIdentifier("import_result_message")
             }
         }
     }
@@ -57,5 +58,22 @@ struct ManageDictionariesView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
+    }
+
+    /// Routes the import-button tap. Normally presents the system file
+    /// picker; under the UI-test launch arg `-importFixtureViaCallback:json`
+    /// (or `:sqlite`) it short-circuits to the bundled fixture so end-to-end
+    /// tests can exercise the real import-and-search path without driving
+    /// `UIDocumentPickerViewController` (which is unreliable in CI).
+    private func handleImportTap() {
+        let args = CommandLine.arguments
+        if let arg = args.first(where: { $0.hasPrefix("-importFixtureViaCallback:") }) {
+            let ext = String(arg.dropFirst("-importFixtureViaCallback:".count))
+            if let url = Bundle.main.url(forResource: "test_import_fixture", withExtension: ext) {
+                viewModel.handleImport(result: .success([url]))
+                return
+            }
+        }
+        showImporter = true
     }
 }

@@ -1,0 +1,12 @@
+[
+  {"word": "qaflux", "definition": "JSON-FIXTURE: a synthetic test entry imported from JSON. Never appears in the seed dictionary.", "phonetic": "/kaflʌks/", "pos": "noun"},
+  {"word": "vexnut", "definition": "JSON-FIXTURE: a synthetic test entry imported from JSON.", "phonetic": "/vɛksnʌt/", "pos": "noun"},
+  {"word": "myrzip", "definition": "JSON-FIXTURE: a synthetic test entry imported from JSON.", "phonetic": "/mɜːzɪp/", "pos": "verb"},
+  {"word": "snerflox", "definition": "JSON-FIXTURE: a synthetic test entry imported from JSON.", "phonetic": "/snɜːflɒks/", "pos": "verb"},
+  {"word": "yagblob", "definition": "JSON-FIXTURE: a synthetic test entry imported from JSON.", "phonetic": "/jæɡblɒb/", "pos": "noun"},
+  {"word": "plinxar", "definition": "JSON-FIXTURE: a synthetic test entry imported from JSON.", "phonetic": "/plɪnksɑː/", "pos": "adjective"},
+  {"word": "zorthik", "definition": "JSON-FIXTURE: a synthetic test entry imported from JSON.", "phonetic": "/zɔːθɪk/", "pos": "adjective"},
+  {"word": "kwibble", "definition": "JSON-FIXTURE: a synthetic test entry imported from JSON.", "phonetic": "/kwɪbəl/", "pos": "verb"},
+  {"word": "jundlep", "definition": "JSON-FIXTURE: a synthetic test entry imported from JSON.", "phonetic": "/dʒʌndlɛp/", "pos": "noun"},
+  {"word": "brevokt", "definition": "JSON-FIXTURE: a synthetic test entry imported from JSON.", "phonetic": "/brɛvɒkt/", "pos": "adverb"}
+]

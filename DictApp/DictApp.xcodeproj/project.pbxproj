@@ -33,6 +33,8 @@
 		A10000000000000000000011 /* DictAppTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000011 /* DictAppTests.swift */; };
 		A10000000000000000000012 /* GRDB in Frameworks */ = {isa = PBXBuildFile; productRef = A80000000000000000000001 /* GRDB */; };
 		A10000000000000000000013 /* seed.sqlite in Resources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000012 /* seed.sqlite */; };
+		A10000000000000000000F01 /* test_import_fixture.json in Resources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000F01 /* test_import_fixture.json */; };
+		A10000000000000000000F02 /* test_import_fixture.sqlite in Resources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000F02 /* test_import_fixture.sqlite */; };
 		A10000000000000000000014 /* AboutView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000013 /* AboutView.swift */; };
 		A10000000000000000000015 /* DictionaryDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000014 /* DictionaryDetailView.swift */; };
 /* End PBXBuildFile section */
@@ -82,6 +84,8 @@
 		A20000000000000000000010 /* Schema.sql */ = {isa = PBXFileReference; lastKnownFileType = text; path = Schema.sql; sourceTree = "<group>"; };
 		A20000000000000000000011 /* DictAppTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DictAppTests.swift; sourceTree = "<group>"; };
 		A20000000000000000000012 /* seed.sqlite */ = {isa = PBXFileReference; lastKnownFileType = file; path = seed.sqlite; sourceTree = "<group>"; };
+		A20000000000000000000F01 /* test_import_fixture.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = test_import_fixture.json; sourceTree = "<group>"; };
+		A20000000000000000000F02 /* test_import_fixture.sqlite */ = {isa = PBXFileReference; lastKnownFileType = file; path = test_import_fixture.sqlite; sourceTree = "<group>"; };
 		A20000000000000000000013 /* AboutView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AboutView.swift; sourceTree = "<group>"; };
 		A20000000000000000000014 /* DictionaryDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DictionaryDetailView.swift; sourceTree = "<group>"; };
 		A20000000000000000000020 /* DictApp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = DictApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -206,6 +210,8 @@
 			children = (
 				A20000000000000000000010 /* Schema.sql */,
 				A20000000000000000000012 /* seed.sqlite */,
+				A20000000000000000000F01 /* test_import_fixture.json */,
+				A20000000000000000000F02 /* test_import_fixture.sqlite */,
 			);
 			path = Resources;
 			sourceTree = "<group>";
@@ -353,6 +359,8 @@
 				A10000000000000000000010 /* Schema.sql in Resources */,
 				07BE90832F8E4EB4007FCBBF /* Assets.xcassets in Resources */,
 				A10000000000000000000013 /* seed.sqlite in Resources */,
+				A10000000000000000000F01 /* test_import_fixture.json in Resources */,
+				A10000000000000000000F02 /* test_import_fixture.sqlite in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
