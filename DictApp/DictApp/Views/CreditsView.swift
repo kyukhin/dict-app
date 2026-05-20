@@ -6,18 +6,18 @@ import SwiftUI
 struct CreditsView: View {
     var body: some View {
         List {
-            Section("App") {
-                Text("LibreDict — Open-source offline dictionary")
+            Section("credits.app.section") {
+                Text("credits.app.description")
             }
-            Section("Data Sources") {
-                Text("WordNet — Princeton University")
+            Section("credits.dataSources.section") {
+                Text("credits.dataSources.wordnet")
             }
-            Section("Licenses") {
-                Text("Full license information coming soon.")
+            Section("credits.licenses.section") {
+                Text("credits.licenses.placeholder")
                     .foregroundStyle(.secondary)
             }
         }
-        .navigationTitle("Credits")
+        .navigationTitle("credits.title")
         .navigationBarTitleDisplayMode(.inline)
     }
 }

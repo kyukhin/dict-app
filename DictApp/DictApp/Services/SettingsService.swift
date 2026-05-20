@@ -12,13 +12,20 @@ class SettingsService {
 
     private init() {}
 
-    var selectedUILanguage: UILanguage {
-        get {
-            let rawValue = userDefaults.string(forKey: uiLanguageKey) ?? UILanguage.english.rawValue
-            return UILanguage(rawValue: rawValue) ?? .english
-        }
+    /// Persisted BCP-47 code of the user's chosen UI language. Returns `nil`
+    /// when no preference has been stored yet, leaving the choice up to the
+    /// caller (typically: pick the system locale's language if supported).
+    ///
+    /// We store only the code; resolving it to a `UILanguage` requires the
+    /// supported-locales manifest, which the `LocalizationManager` owns.
+    var selectedUILanguageCode: String? {
+        get { userDefaults.string(forKey: uiLanguageKey) }
         set {
-            userDefaults.set(newValue.rawValue, forKey: uiLanguageKey)
+            if let code = newValue {
+                userDefaults.set(code, forKey: uiLanguageKey)
+            } else {
+                userDefaults.removeObject(forKey: uiLanguageKey)
+            }
         }
     }
 

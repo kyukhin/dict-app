@@ -26,7 +26,7 @@ struct DefinitionView: View {
                         Image(systemName: "speaker.wave.2.fill")
                             .font(.title2)
                     }
-                    .accessibilityLabel("Speak word")
+                    .accessibilityLabel(Text("definition.a11y.speakWord"))
                 }
 
                 // Phonetic
@@ -64,7 +64,7 @@ struct DefinitionView: View {
                 } label: {
                     Image(systemName: vm.isBookmarked ? "bookmark.fill" : "bookmark")
                 }
-                .accessibilityLabel(vm.isBookmarked ? "Remove bookmark" : "Add bookmark")
+                .accessibilityLabel(Text(vm.isBookmarked ? "definition.a11y.removeBookmark" : "definition.a11y.addBookmark"))
                 .accessibilityIdentifier("bookmark_button")
             }
         }

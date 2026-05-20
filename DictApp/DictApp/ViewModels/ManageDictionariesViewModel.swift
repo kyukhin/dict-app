@@ -13,6 +13,12 @@ final class ManageDictionariesViewModel: ObservableObject {
     @Published var isImporting = false
     @Published var importResult: String?
 
+    private let localization: LocalizationManager
+
+    init(localization: LocalizationManager = .shared) {
+        self.localization = localization
+    }
+
     /// Handles the result of `.fileImporter`. Dispatches to JSON or SQLite
     /// import based on file extension, copies/streams the picked file into
     /// the app database, and reports the row count (or error) via
@@ -44,10 +50,17 @@ final class ManageDictionariesViewModel: ObservableObject {
             case "sqlite", "db":
                 count = try await DatabaseService.shared.importSQLite(at: url, source: source)
             default:
-                importResult = "Unsupported file type: .\(url.pathExtension)"
+                importResult = String(
+                    localized: "manageDictionaries.import.result.unsupported \(url.pathExtension)",
+                    locale: localization.currentLocale
+                )
                 return
             }
-            importResult = "Imported \(count) entries from \(source)"
+            // String Catalog handles plural variants for the current locale.
+            importResult = String(
+                localized: "manageDictionaries.import.result.success \(count) \(source)",
+                locale: localization.currentLocale
+            )
         } catch {
             importResult = error.localizedDescription
         }

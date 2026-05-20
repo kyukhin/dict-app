@@ -11,7 +11,7 @@ struct SearchView: View {
             List {
                 if vm.query.isEmpty {
                     if !vm.recentWords.isEmpty {
-                        Section("Recent") {
+                        Section("search.recent.title") {
                             ForEach(vm.recentWords) { item in
                                 NavigationLink(value: item.word) {
                                     Label(item.word, systemImage: "clock")
@@ -31,8 +31,8 @@ struct SearchView: View {
                     }
                 }
             }
-            .navigationTitle("Dictionary")
-            .searchable(text: $vm.query, prompt: "Search words...")
+            .navigationTitle("search.title")
+            .searchable(text: $vm.query, prompt: Text("search.prompt"))
             .onChange(of: vm.query) {
                 vm.onQueryChanged()
             }
@@ -113,9 +113,9 @@ private struct HistoryWordDestination: View {
                 DefinitionView(entry: entry)
             } else if loaded {
                 ContentUnavailableView(
-                    "Not Found",
+                    "search.notFound.title",
                     systemImage: "magnifyingglass",
-                    description: Text("'\(word)' was not found in any dictionary.")
+                    description: Text("search.notFound.description \(word)")
                 )
             } else {
                 ProgressView()
@@ -131,4 +131,3 @@ private struct HistoryWordDestination: View {
         }
     }
 }
-

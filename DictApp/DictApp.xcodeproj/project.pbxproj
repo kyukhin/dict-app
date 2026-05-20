@@ -14,6 +14,9 @@
 		0748371D2FB75BAA00E3EA41 /* UILanguage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0748371C2FB75BAA00E3EA41 /* UILanguage.swift */; };
 		079C758C2FBB15B400AC5AB3 /* ManageDictionariesViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 079C758B2FBB15B400AC5AB3 /* ManageDictionariesViewModel.swift */; };
 		079C758E2FBB15D700AC5AB3 /* ManageDictionariesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 079C758D2FBB15D700AC5AB3 /* ManageDictionariesView.swift */; };
+		079C77052FBDFB5500AC5AB3 /* LocalizationManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 079C77042FBDFB5500AC5AB3 /* LocalizationManager.swift */; };
+		079C77082FBDFB7500AC5AB3 /* SupportedLocales.json in Resources */ = {isa = PBXBuildFile; fileRef = 079C77072FBDFB7500AC5AB3 /* SupportedLocales.json */; };
+		079C77092FBDFB7500AC5AB3 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = 079C77062FBDFB7500AC5AB3 /* Localizable.xcstrings */; };
 		07BE90832F8E4EB4007FCBBF /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 07BE90822F8E4EB4007FCBBF /* Assets.xcassets */; };
 		A10000000000000000000001 /* DictApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000001 /* DictApp.swift */; };
 		A10000000000000000000002 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000002 /* Models.swift */; };
@@ -33,10 +36,10 @@
 		A10000000000000000000011 /* DictAppTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000011 /* DictAppTests.swift */; };
 		A10000000000000000000012 /* GRDB in Frameworks */ = {isa = PBXBuildFile; productRef = A80000000000000000000001 /* GRDB */; };
 		A10000000000000000000013 /* seed.sqlite in Resources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000012 /* seed.sqlite */; };
-		A10000000000000000000F01 /* test_import_fixture.json in Resources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000F01 /* test_import_fixture.json */; };
-		A10000000000000000000F02 /* test_import_fixture.sqlite in Resources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000F02 /* test_import_fixture.sqlite */; };
 		A10000000000000000000014 /* AboutView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000013 /* AboutView.swift */; };
 		A10000000000000000000015 /* DictionaryDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000014 /* DictionaryDetailView.swift */; };
+		A10000000000000000000F01 /* test_import_fixture.json in Resources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000F01 /* test_import_fixture.json */; };
+		A10000000000000000000F02 /* test_import_fixture.sqlite in Resources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000F02 /* test_import_fixture.sqlite */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -66,6 +69,9 @@
 		0748371C2FB75BAA00E3EA41 /* UILanguage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UILanguage.swift; sourceTree = "<group>"; };
 		079C758B2FBB15B400AC5AB3 /* ManageDictionariesViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ManageDictionariesViewModel.swift; sourceTree = "<group>"; };
 		079C758D2FBB15D700AC5AB3 /* ManageDictionariesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ManageDictionariesView.swift; sourceTree = "<group>"; };
+		079C77042FBDFB5500AC5AB3 /* LocalizationManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalizationManager.swift; sourceTree = "<group>"; };
+		079C77062FBDFB7500AC5AB3 /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
+		079C77072FBDFB7500AC5AB3 /* SupportedLocales.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = SupportedLocales.json; sourceTree = "<group>"; };
 		07BE90822F8E4EB4007FCBBF /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		A20000000000000000000001 /* DictApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DictApp.swift; sourceTree = "<group>"; };
 		A20000000000000000000002 /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
@@ -84,12 +90,12 @@
 		A20000000000000000000010 /* Schema.sql */ = {isa = PBXFileReference; lastKnownFileType = text; path = Schema.sql; sourceTree = "<group>"; };
 		A20000000000000000000011 /* DictAppTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DictAppTests.swift; sourceTree = "<group>"; };
 		A20000000000000000000012 /* seed.sqlite */ = {isa = PBXFileReference; lastKnownFileType = file; path = seed.sqlite; sourceTree = "<group>"; };
-		A20000000000000000000F01 /* test_import_fixture.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = test_import_fixture.json; sourceTree = "<group>"; };
-		A20000000000000000000F02 /* test_import_fixture.sqlite */ = {isa = PBXFileReference; lastKnownFileType = file; path = test_import_fixture.sqlite; sourceTree = "<group>"; };
 		A20000000000000000000013 /* AboutView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AboutView.swift; sourceTree = "<group>"; };
 		A20000000000000000000014 /* DictionaryDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DictionaryDetailView.swift; sourceTree = "<group>"; };
 		A20000000000000000000020 /* DictApp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = DictApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		A20000000000000000000021 /* DictAppTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = DictAppTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		A20000000000000000000F01 /* test_import_fixture.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = test_import_fixture.json; sourceTree = "<group>"; };
+		A20000000000000000000F02 /* test_import_fixture.sqlite */ = {isa = PBXFileReference; lastKnownFileType = file; path = test_import_fixture.sqlite; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -160,6 +166,7 @@
 		A70000000000000000000004 /* Services */ = {
 			isa = PBXGroup;
 			children = (
+				079C77042FBDFB5500AC5AB3 /* LocalizationManager.swift */,
 				0748371A2FB75B8900E3EA41 /* SettingsService.swift */,
 				A20000000000000000000003 /* DatabaseService.swift */,
 				A20000000000000000000004 /* SpeechService.swift */,
@@ -208,6 +215,8 @@
 		A70000000000000000000008 /* Resources */ = {
 			isa = PBXGroup;
 			children = (
+				079C77062FBDFB7500AC5AB3 /* Localizable.xcstrings */,
+				079C77072FBDFB7500AC5AB3 /* SupportedLocales.json */,
 				A20000000000000000000010 /* Schema.sql */,
 				A20000000000000000000012 /* seed.sqlite */,
 				A20000000000000000000F01 /* test_import_fixture.json */,
@@ -328,6 +337,7 @@
 			knownRegions = (
 				en,
 				Base,
+				ru,
 			);
 			mainGroup = A70000000000000000000001;
 			packageReferences = (
@@ -356,6 +366,8 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				079C77082FBDFB7500AC5AB3 /* SupportedLocales.json in Resources */,
+				079C77092FBDFB7500AC5AB3 /* Localizable.xcstrings in Resources */,
 				A10000000000000000000010 /* Schema.sql in Resources */,
 				07BE90832F8E4EB4007FCBBF /* Assets.xcassets in Resources */,
 				A10000000000000000000013 /* seed.sqlite in Resources */,
@@ -394,6 +406,7 @@
 				A1000000000000000000000A /* SearchView.swift in Sources */,
 				0748371D2FB75BAA00E3EA41 /* UILanguage.swift in Sources */,
 				A1000000000000000000000B /* DefinitionView.swift in Sources */,
+				079C77052FBDFB5500AC5AB3 /* LocalizationManager.swift in Sources */,
 				079C758E2FBB15D700AC5AB3 /* ManageDictionariesView.swift in Sources */,
 				A1000000000000000000000C /* HistoryView.swift in Sources */,
 				074837152FB75B3F00E3EA41 /* CreditsView.swift in Sources */,

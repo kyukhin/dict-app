@@ -10,9 +10,9 @@ struct BookmarksView: View {
             Group {
                 if vm.entries.isEmpty {
                     ContentUnavailableView(
-                        "No Bookmarks",
+                        "bookmarks.empty.title",
                         systemImage: "bookmark",
-                        description: Text("Bookmark words to save them here.")
+                        description: Text("bookmarks.empty.description")
                     )
                 } else {
                     List {
@@ -40,7 +40,7 @@ struct BookmarksView: View {
                     .accessibilityIdentifier("bookmarks_list")
                 }
             }
-            .navigationTitle("Bookmarks")
+            .navigationTitle("bookmarks.title")
             .navigationDestination(for: DictionaryEntry.self) { entry in
                 DefinitionView(entry: entry)
             }

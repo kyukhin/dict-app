@@ -494,6 +494,210 @@ final class DictAppTests: XCTestCase {
                       "SettingsViewModel must not own import state after issue #26; found: \(leakedImportState)")
     }
 
+    // MARK: - Issue #1: Localization architecture
+
+    /// `SupportedLocales.json` must decode into a non-empty list and contain
+    /// both `en` and `ru` after the issue-#1 work ships.
+    func testSupportedLocalesManifestLoads() throws {
+        let url = try XCTUnwrap(
+            Bundle.main.url(forResource: "SupportedLocales", withExtension: "json"),
+            "SupportedLocales.json must be bundled with the app"
+        )
+        let data = try Data(contentsOf: url)
+        let languages = try JSONDecoder().decode([UILanguage].self, from: data)
+
+        XCTAssertFalse(languages.isEmpty, "Manifest must declare at least one language")
+
+        let en = try XCTUnwrap(
+            languages.first(where: { $0.code == "en" }),
+            "Manifest must include English (code 'en')"
+        )
+        XCTAssertEqual(en.nativeName, "English",
+                       "English nativeName must be 'English'")
+
+        let ru = try XCTUnwrap(
+            languages.first(where: { $0.code == "ru" }),
+            "Manifest must include Russian (code 'ru')"
+        )
+        XCTAssertEqual(ru.nativeName, "Русский",
+                       "Russian nativeName must be 'Русский' (Cyrillic), not a transliteration")
+
+        // Each record must point at a localized key — without a displayKey
+        // the Settings picker would render an empty string.
+        for lang in languages {
+            XCTAssertFalse(lang.displayKey.isEmpty,
+                           "Language '\(lang.code)' must have a non-empty displayKey")
+            XCTAssertFalse(lang.nativeName.isEmpty,
+                           "Language '\(lang.code)' must have a non-empty nativeName")
+        }
+    }
+
+    /// `LocalizationManager` must default to English when no preference is
+    /// persisted and the device's preferred languages aren't in the
+    /// supported list. We exercise the pure resolver directly.
+    @MainActor
+    func testLocalizationManagerDefaultsToEnglish() throws {
+        let supported = [
+            UILanguage(code: "ja", displayKey: "language.ja.name", nativeName: "日本語"),
+            UILanguage(code: "fr", displayKey: "language.fr.name", nativeName: "Français"),
+            UILanguage(code: "en", displayKey: "language.en.name", nativeName: "English"),
+        ]
+        let result = LocalizationManager.resolveInitialLanguage(
+            persistedCode: nil,
+            supported: supported
+        )
+        XCTAssertEqual(result.code, "en",
+                       "With no persisted preference, default must be English")
+
+        // Edge case: supported list without English at all — resolver must
+        // still return *something* (first entry) rather than crashing on an
+        // optional unwrap.
+        let supportedNoEnglish = [
+            UILanguage(code: "ja", displayKey: "language.ja.name", nativeName: "日本語"),
+        ]
+        let fallback = LocalizationManager.resolveInitialLanguage(
+            persistedCode: nil,
+            supported: supportedNoEnglish
+        )
+        XCTAssertEqual(fallback.code, "ja",
+                       "When English is absent, resolver must fall back to first supported entry")
+    }
+
+    /// `LocalizationManager.setLanguage(...)` must update `currentLocale`,
+    /// `currentLanguage`, and persist the code through `SettingsService`.
+    @MainActor
+    func testLocalizationManagerSetLanguagePersists() throws {
+        // Don't bleed test state into the shared singleton or other tests.
+        let originalCode = SettingsService.shared.selectedUILanguageCode
+        addTeardownBlock { @MainActor in
+            SettingsService.shared.selectedUILanguageCode = originalCode
+        }
+        SettingsService.shared.selectedUILanguageCode = nil
+
+        let manager = LocalizationManager()
+        XCTAssertEqual(manager.currentLanguage.code, "en",
+                       "Pre-condition: a fresh manager with no persisted code starts at English")
+
+        let russian = UILanguage(code: "ru", displayKey: "language.ru.name", nativeName: "Русский")
+        manager.setLanguage(russian)
+
+        XCTAssertEqual(manager.currentLanguage.code, "ru",
+                       "currentLanguage must reflect the new selection")
+        XCTAssertEqual(manager.currentLocale.identifier, "ru",
+                       "currentLocale must update to match the new selection")
+        XCTAssertEqual(SettingsService.shared.selectedUILanguageCode, "ru",
+                       "Selection must be persisted through SettingsService")
+
+        // A language not in the supported list must be ignored (the public
+        // API documents this as a no-op).
+        let unsupported = UILanguage(code: "zz-fake", displayKey: "x", nativeName: "Fake")
+        manager.setLanguage(unsupported)
+        XCTAssertEqual(manager.currentLanguage.code, "ru",
+                       "Unsupported languages must be rejected, current selection unchanged")
+        XCTAssertEqual(SettingsService.shared.selectedUILanguageCode, "ru",
+                       "Persisted code must remain on last valid selection after rejected setLanguage")
+    }
+
+    /// Switching to Russian and back to English must round-trip cleanly,
+    /// with each step persisting the choice and updating both
+    /// `currentLanguage` and `currentLocale`. A second freshly-constructed
+    /// manager must observe the persisted code on init.
+    @MainActor
+    func testLocalizationManagerLanguageRoundTrips() throws {
+        let originalCode = SettingsService.shared.selectedUILanguageCode
+        addTeardownBlock { @MainActor in
+            SettingsService.shared.selectedUILanguageCode = originalCode
+        }
+        SettingsService.shared.selectedUILanguageCode = nil
+
+        let manager = LocalizationManager()
+        let english = UILanguage(code: "en", displayKey: "language.en.name", nativeName: "English")
+        let russian = UILanguage(code: "ru", displayKey: "language.ru.name", nativeName: "Русский")
+
+        XCTAssertEqual(manager.currentLanguage.code, "en", "Round-trip starts at English")
+
+        manager.setLanguage(russian)
+        XCTAssertEqual(manager.currentLanguage.code, "ru")
+        XCTAssertEqual(manager.currentLocale.identifier, "ru")
+        XCTAssertEqual(SettingsService.shared.selectedUILanguageCode, "ru")
+
+        manager.setLanguage(english)
+        XCTAssertEqual(manager.currentLanguage.code, "en",
+                       "Switching back to English must restore the English record")
+        XCTAssertEqual(manager.currentLocale.identifier, "en")
+        XCTAssertEqual(SettingsService.shared.selectedUILanguageCode, "en")
+
+        // A fresh manager built after the round-trip must observe the
+        // persisted code — proves the persistence layer round-trips, not
+        // just the in-memory state.
+        let revived = LocalizationManager()
+        XCTAssertEqual(revived.currentLanguage.code, "en",
+                       "A second manager must pick up the persisted code on init")
+    }
+
+    /// The Russian plural form of `dictionary.entries.count` must produce
+    /// `запись` for 1, `записи` for 3, and `записей` for 7 — CLDR plural
+    /// classes one/few/many. Validates that the xcstrings catalog's
+    /// plural variations made it through the Xcode compile step into the
+    /// runtime localized resources.
+    ///
+    /// We pass the `ru.lproj` bundle explicitly. `String(localized:locale:)`
+    /// alone is not enough: that initializer looks the format up in the
+    /// *current* bundle's locale (development language = en) and only uses
+    /// `locale:` for plural-rule selection on the resulting English string.
+    /// Forcing the bundle ensures we get the Russian catalog entry.
+    func testRussianPluralFormsForEntriesCount() throws {
+        let ruBundle = try Self.lprojBundle(forLocale: "ru")
+        let ru = Locale(identifier: "ru")
+
+        XCTAssertEqual(
+            String(localized: "dictionary.entries.count \(1)", bundle: ruBundle, locale: ru),
+            "1 запись",
+            "Russian CLDR 'one' (1) must render with the 'запись' form"
+        )
+        XCTAssertEqual(
+            String(localized: "dictionary.entries.count \(3)", bundle: ruBundle, locale: ru),
+            "3 записи",
+            "Russian CLDR 'few' (2-4) must render with the 'записи' form"
+        )
+        XCTAssertEqual(
+            String(localized: "dictionary.entries.count \(7)", bundle: ruBundle, locale: ru),
+            "7 записей",
+            "Russian CLDR 'many' (5+) must render with the 'записей' form"
+        )
+
+        // Sanity check: English plurals also work — guards against the
+        // catalog being wired up but the English variations getting dropped
+        // in a future refactor. en.lproj is technically Bundle.main since
+        // development language is English, but we look it up the same way
+        // for symmetry with the Russian path.
+        let enBundle = try Self.lprojBundle(forLocale: "en")
+        let en = Locale(identifier: "en")
+        XCTAssertEqual(
+            String(localized: "dictionary.entries.count \(1)", bundle: enBundle, locale: en),
+            "1 entry",
+            "English 'one' must use the singular form"
+        )
+        XCTAssertEqual(
+            String(localized: "dictionary.entries.count \(5)", bundle: enBundle, locale: en),
+            "5 entries",
+            "English 'other' must use the plural form"
+        )
+    }
+
+    /// Resolves the per-locale resource bundle (e.g. `ru.lproj`) inside
+    /// `Bundle.main`. Falls back to `Bundle.main` when the lproj isn't
+    /// found, with an explicit XCTFail so the test reports a missing
+    /// catalog compile rather than a misleading assertion failure later.
+    private static func lprojBundle(forLocale code: String) throws -> Bundle {
+        guard let path = Bundle.main.path(forResource: code, ofType: "lproj"),
+              let bundle = Bundle(path: path) else {
+            XCTFail("Expected '\(code).lproj' in app bundle — verify the xcstrings catalog compiles for '\(code)'")
+            return .main
+        }
+        return bundle
+    }
+
     // MARK: - Performance Tests
 
     /// Measures FTS5 search time on a 100,000-entry database. Target: < 16ms.

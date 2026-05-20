@@ -7,6 +7,7 @@ import SwiftUI
 struct DictApp: App {
     @State private var isReady = false
     @State private var setupError: String?
+    @StateObject private var localization = LocalizationManager.shared
 
     var body: some Scene {
         WindowGroup {
@@ -18,7 +19,7 @@ struct DictApp: App {
                         Image(systemName: "exclamationmark.triangle")
                             .font(.largeTitle)
                             .foregroundStyle(.red)
-                        Text("Database Error")
+                        Text("error.database.title")
                             .font(.title2.bold())
                         Text(error)
                             .font(.caption)
@@ -27,9 +28,16 @@ struct DictApp: App {
                             .padding(.horizontal)
                     }
                 } else {
-                    ProgressView("Loading dictionary...")
+                    ProgressView("app.loading")
                 }
             }
+            // Forces SwiftUI to rebuild the tree on language change so
+            // already-rendered `Text` nodes re-resolve their catalog keys.
+            // `\.locale` alone is not enough — SwiftUI caches localized
+            // strings per view identity.
+            .id(localization.currentLanguage.code)
+            .environment(\.locale, localization.currentLocale)
+            .environmentObject(localization)
             .task {
                 await initializeDatabase()
             }

@@ -9,55 +9,51 @@ struct SettingsView: View {
     var body: some View {
         NavigationStack {
             Form {
-                // UI Language Section
                 uiLanguageSection
-
-                // Dictionary Management Section
                 dictionaryManagementSection
-
-                // Learning Mode Section (stub)
                 learningModeSection
-
-                // Reading Mode Section (stub)
                 readingModeSection
-
-                // Support Section (stub)
                 supportSection
-
-                // About Section
                 aboutSection
-
-                // Version Section
                 versionSection
             }
-            .navigationTitle("Settings")
+            .navigationTitle("settings.title")
         }
     }
 
     private var uiLanguageSection: some View {
-        Section("Interface Language") {
-            Picker("Language", selection: Binding(
+        Section("settings.language.section") {
+            Picker(selection: Binding(
                 get: { viewModel.selectedUILanguage },
                 set: { viewModel.updateUILanguage($0) }
             )) {
                 ForEach(viewModel.availableUILanguages) { language in
                     HStack {
-                        Text(language.displayName)
+                        // `displayKey` resolves to the language name in the
+                        // *current* UI language; `nativeName` stays in the
+                        // language's own script.
+                        Text(LocalizedStringKey(language.displayKey))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.8)
                         Spacer()
                         Text(language.nativeName)
                             .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.8)
                     }
                     .tag(language)
                 }
+            } label: {
+                Text("settings.language.picker")
             }
             .pickerStyle(.navigationLink)
         }
     }
 
     private var dictionaryManagementSection: some View {
-        Section("Dictionaries") {
+        Section("settings.dictionaries.section") {
             if viewModel.dictionaries.isEmpty {
-                Text("Loading…")
+                Text("common.loading")
                     .foregroundStyle(.secondary)
             } else {
                 ForEach(viewModel.dictionaries) { dict in
@@ -65,7 +61,9 @@ struct SettingsView: View {
                         VStack(alignment: .leading, spacing: 2) {
                             Text(dict.displayName)
                                 .font(.body)
-                            Text("\(dict.count.formatted()) entries")
+                            // Plural-aware key resolved by the String Catalog
+                            // via CLDR rules for the active locale.
+                            Text("dictionary.entries.count \(dict.count)")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
@@ -83,7 +81,7 @@ struct SettingsView: View {
             NavigationLink {
                 ManageDictionariesView()
             } label: {
-                Label("Manage Dictionaries", systemImage: "books.vertical")
+                Label("settings.manageDictionaries", systemImage: "books.vertical")
             }
             .accessibilityIdentifier("manage_dictionaries_link")
         }
@@ -97,44 +95,45 @@ struct SettingsView: View {
                         .font(.largeTitle)
                         .foregroundStyle(.tint)
                     VStack(alignment: .leading) {
-                        Text("LibreDict")
+                        // App name — not translated.
+                        Text(verbatim: "LibreDict")
                             .font(.title2.bold())
-                        Text("Offline Dictionary")
+                        Text("about.tagline")
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
                     }
                 }
-                Text("An open-source, offline-first dictionary application. All lookups are performed locally using SQLite FTS5 full-text search. No internet connection required.")
+                Text("about.description")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }
             .padding(.vertical, 4)
         } header: {
-            Text("About")
+            Text("about.section")
         }
     }
 
     // MARK: - Stub Sections
 
     private var learningModeSection: some View {
-        Section("Learning Mode") {
-            Label("Coming Soon", systemImage: "brain")
+        Section("settings.learningMode.section") {
+            Label("common.comingSoon", systemImage: "brain")
                 .foregroundStyle(.secondary)
         }
     }
 
     private var readingModeSection: some View {
-        Section("Reading Mode") {
-            Label("Coming Soon", systemImage: "book")
+        Section("settings.readingMode.section") {
+            Label("common.comingSoon", systemImage: "book")
                 .foregroundStyle(.secondary)
         }
     }
 
     private var supportSection: some View {
-        Section("Support") {
-            Button("Report a Bug") { }
+        Section("settings.support.section") {
+            Button("settings.support.reportBug") { }
                 .disabled(true)
-            NavigationLink("Credits") {
+            NavigationLink("settings.support.credits") {
                 CreditsView()
             }
         }
@@ -142,8 +141,8 @@ struct SettingsView: View {
 
     private var versionSection: some View {
         Section {
-            LabeledContent("Version", value: "1.0")
-            Text("This app uses data from public-domain and openly licensed dictionary projects. Each dictionary retains its original license.")
+            LabeledContent("settings.version", value: "1.0")
+            Text("settings.licenseNote")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
         }

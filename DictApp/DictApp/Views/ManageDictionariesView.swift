@@ -17,7 +17,7 @@ struct ManageDictionariesView: View {
             importDictionarySection
             supportedFormatsSection
         }
-        .navigationTitle("Manage Dictionaries")
+        .navigationTitle("manageDictionaries.title")
         .fileImporter(
             isPresented: $showImporter,
             allowedContentTypes: [.json, .database, UTType(filenameExtension: "sqlite")].compactMap { $0 },
@@ -27,21 +27,24 @@ struct ManageDictionariesView: View {
     }
 
     private var importDictionarySection: some View {
-        Section("Import Dictionary") {
+        Section("manageDictionaries.import.section") {
             Button {
                 handleImportTap()
             } label: {
-                Label("Import File (.json or .sqlite)", systemImage: "square.and.arrow.down")
+                Label("manageDictionaries.import.button", systemImage: "square.and.arrow.down")
             }
             .disabled(viewModel.isImporting)
             .accessibilityIdentifier("import_dictionary_button")
 
             if viewModel.isImporting {
-                ProgressView("Importing...")
+                ProgressView("manageDictionaries.import.inProgress")
             }
 
             if let result = viewModel.importResult {
-                Text(result)
+                // Already a localized string from the view-model (built via
+                // the String Catalog so plurals and interpolation are
+                // already applied for the active locale).
+                Text(verbatim: result)
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .accessibilityIdentifier("import_result_message")
@@ -50,11 +53,11 @@ struct ManageDictionariesView: View {
     }
 
     private var supportedFormatsSection: some View {
-        Section("Supported Formats") {
-            Text("**JSON** — array of objects with `word` and `definition` keys. Optional: `phonetic`, `pos`.")
+        Section("manageDictionaries.formats.section") {
+            Text("manageDictionaries.formats.json")
                 .font(.caption)
                 .foregroundStyle(.secondary)
-            Text("**SQLite** — must contain an `entries` table with columns: word, definition, phonetic, pos, source.")
+            Text("manageDictionaries.formats.sqlite")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }

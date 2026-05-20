@@ -10,9 +10,9 @@ struct HistoryView: View {
             Group {
                 if vm.items.isEmpty {
                     ContentUnavailableView(
-                        "No History",
+                        "history.empty.title",
                         systemImage: "clock",
-                        description: Text("Words you look up will appear here.")
+                        description: Text("history.empty.description")
                     )
                 } else {
                     List {
@@ -36,11 +36,11 @@ struct HistoryView: View {
                     .accessibilityIdentifier("history_list")
                 }
             }
-            .navigationTitle("History")
+            .navigationTitle("history.title")
             .toolbar {
                 if !vm.items.isEmpty {
                     ToolbarItem(placement: .topBarTrailing) {
-                        Button("Clear") {
+                        Button("history.clear") {
                             Task { await vm.clear() }
                         }
                     }
@@ -65,9 +65,9 @@ private struct HistoryDestination: View {
                 DefinitionView(entry: entry)
             } else if loaded {
                 ContentUnavailableView(
-                    "Not Found",
+                    "search.notFound.title",
                     systemImage: "magnifyingglass",
-                    description: Text("'\(word)' was not found in any dictionary.")
+                    description: Text("search.notFound.description \(word)")
                 )
             } else {
                 ProgressView()

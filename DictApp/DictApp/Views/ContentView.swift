@@ -8,25 +8,25 @@ struct ContentView: View {
         TabView {
             SearchView()
                 .tabItem {
-                    Label("Search", systemImage: "magnifyingglass")
+                    Label("tab.search", systemImage: "magnifyingglass")
                 }
                 .accessibilityIdentifier("search_tab")
 
             HistoryView()
                 .tabItem {
-                    Label("History", systemImage: "clock")
+                    Label("tab.history", systemImage: "clock")
                 }
                 .accessibilityIdentifier("history_tab")
 
             BookmarksView()
                 .tabItem {
-                    Label("Bookmarks", systemImage: "bookmark")
+                    Label("tab.bookmarks", systemImage: "bookmark")
                 }
                 .accessibilityIdentifier("bookmarks_tab")
 
             SettingsView()
                 .tabItem {
-                    Label("Settings", systemImage: "gearshape")
+                    Label("tab.settings", systemImage: "gearshape")
                 }
                 .accessibilityIdentifier("settings_tab")
         }

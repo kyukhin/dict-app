@@ -1,0 +1,12 @@
+[
+  {
+    "code": "en",
+    "displayKey": "language.en.name",
+    "nativeName": "English"
+  },
+  {
+    "code": "ru",
+    "displayKey": "language.ru.name",
+    "nativeName": "Русский"
+  }
+]

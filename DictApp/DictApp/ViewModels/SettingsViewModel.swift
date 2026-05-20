@@ -6,28 +6,37 @@ import Combine
 
 @MainActor
 class SettingsViewModel: ObservableObject {
-    // UI Language Management
-    @Published var selectedUILanguage: UILanguage = .english
-    @Published var availableUILanguages: [UILanguage] = [.english]
-
-    // Dictionary list with enabled/disabled state
+    /// Dictionary list with enabled/disabled state.
     @Published var dictionaries: [DictionaryItem] = []
 
-    private let settingsService = SettingsService.shared
+    /// The active UI language. Reads through to `LocalizationManager` so the
+    /// picker stays in sync with the rest of the app — there is exactly one
+    /// authoritative source of truth for the current language.
+    var selectedUILanguage: UILanguage { localization.currentLanguage }
 
-    init() {
-        loadUILanguageSettings()
+    /// All UI languages declared in `Resources/SupportedLocales.json`.
+    var availableUILanguages: [UILanguage] { localization.supportedLanguages }
+
+    private let settingsService: SettingsService
+    private let localization: LocalizationManager
+    private var cancellables: Set<AnyCancellable> = []
+
+    init(settingsService: SettingsService = .shared,
+         localization: LocalizationManager = .shared) {
+        self.settingsService = settingsService
+        self.localization = localization
+
+        // Re-publish manager changes through this view-model so the picker
+        // updates immediately when the language is changed elsewhere.
+        localization.objectWillChange
+            .sink { [weak self] _ in self?.objectWillChange.send() }
+            .store(in: &cancellables)
+
         Task { await loadDictionaries() }
     }
 
-    func loadUILanguageSettings() {
-        selectedUILanguage = settingsService.selectedUILanguage
-        availableUILanguages = UILanguage.allCases
-    }
-
     func updateUILanguage(_ language: UILanguage) {
-        selectedUILanguage = language
-        settingsService.selectedUILanguage = language
+        localization.setLanguage(language)
     }
 
     func loadDictionaries() async {
