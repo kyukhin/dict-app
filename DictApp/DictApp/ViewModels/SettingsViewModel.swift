@@ -21,14 +21,20 @@ class SettingsViewModel: ObservableObject {
     private let localization: LocalizationManager
     private var cancellables: Set<AnyCancellable> = []
 
+    /// `LocalizationManager.shared` is `@MainActor`-isolated, so passing it
+    /// as a default-value expression would be evaluated in the caller's
+    /// context — Swift 6 can't prove every caller is on the main actor.
+    /// Accept `nil` and resolve `.shared` inside the `@MainActor`-isolated
+    /// body instead.
     init(settingsService: SettingsService = .shared,
-         localization: LocalizationManager = .shared) {
+         localization: LocalizationManager? = nil) {
         self.settingsService = settingsService
-        self.localization = localization
+        let resolvedLocalization = localization ?? .shared
+        self.localization = resolvedLocalization
 
         // Re-publish manager changes through this view-model so the picker
         // updates immediately when the language is changed elsewhere.
-        localization.objectWillChange
+        resolvedLocalization.objectWillChange
             .sink { [weak self] _ in self?.objectWillChange.send() }
             .store(in: &cancellables)
 
