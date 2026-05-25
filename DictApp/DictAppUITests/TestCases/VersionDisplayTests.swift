@@ -6,9 +6,14 @@ import XCTest
 /// is the contract these tests pin.
 final class VersionDisplayTests: XCTestCase {
 
+    /// Application under test. Recreated for every test method.
     var app: XCUIApplication!
+    /// Page object used to navigate to the Settings tab.
     var tabBarPage: TabBarPage!
 
+    /// Launches the app fresh for each test and wires up the page
+    /// object. Halts the suite on first failure to keep stack traces
+    /// pointing at the real problem.
     override func setUpWithError() throws {
         continueAfterFailure = false
         app = XCUIApplication()
@@ -16,6 +21,7 @@ final class VersionDisplayTests: XCTestCase {
         tabBarPage = TabBarPage(app: app)
     }
 
+    /// Releases per-test state so each method gets a clean slate.
     override func tearDownWithError() throws {
         app = nil
         tabBarPage = nil
