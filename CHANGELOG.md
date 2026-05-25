@@ -5,7 +5,7 @@ All notable changes to **LibreDict** will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.2.0] - 2026-05-25
 
 ### Added
 - [Issue #25] Settings → Version now shows the real marketing version from `MARKETING_VERSION` / `CFBundleShortVersionString`, with a `-unreleased` suffix appended on every build that isn't an App-Store-distributed binary (Debug, TestFlight, Ad-Hoc/Enterprise/Developer-export). Channel detection is layered runtime signals (`#if DEBUG`, sandbox receipt path, embedded provisioning profile) so no manual archive-time flag flip is required. A new `AppVersion` value type is the single source of truth for the displayed string, exposing `displayString` for UI and `verboseString` for telemetry consumers.

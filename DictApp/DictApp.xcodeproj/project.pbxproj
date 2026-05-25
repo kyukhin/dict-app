@@ -40,10 +40,10 @@
 		A10000000000000000000015 /* DictionaryDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000014 /* DictionaryDetailView.swift */; };
 		A10000000000000000000F01 /* test_import_fixture.json in Resources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000F01 /* test_import_fixture.json */; };
 		A10000000000000000000F02 /* test_import_fixture.sqlite in Resources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000F02 /* test_import_fixture.sqlite */; };
-		D40000000000000000000001 /* AppVersion.swift in Sources */ = {isa = PBXBuildFile; fileRef = D50000000000000000000001 /* AppVersion.swift */; };
 		D10000000000000000000001 /* SupportService.swift in Sources */ = {isa = PBXBuildFile; fileRef = D20000000000000000000001 /* SupportService.swift */; };
 		D10000000000000000000002 /* SupportViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = D20000000000000000000002 /* SupportViewModel.swift */; };
 		D10000000000000000000003 /* MailComposeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D20000000000000000000003 /* MailComposeView.swift */; };
+		D40000000000000000000001 /* AppVersion.swift in Sources */ = {isa = PBXBuildFile; fileRef = D50000000000000000000001 /* AppVersion.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -100,10 +100,10 @@
 		A20000000000000000000021 /* DictAppTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = DictAppTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		A20000000000000000000F01 /* test_import_fixture.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = test_import_fixture.json; sourceTree = "<group>"; };
 		A20000000000000000000F02 /* test_import_fixture.sqlite */ = {isa = PBXFileReference; lastKnownFileType = file; path = test_import_fixture.sqlite; sourceTree = "<group>"; };
-		D50000000000000000000001 /* AppVersion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppVersion.swift; sourceTree = "<group>"; };
 		D20000000000000000000001 /* SupportService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SupportService.swift; sourceTree = "<group>"; };
 		D20000000000000000000002 /* SupportViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SupportViewModel.swift; sourceTree = "<group>"; };
 		D20000000000000000000003 /* MailComposeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MailComposeView.swift; sourceTree = "<group>"; };
+		D50000000000000000000001 /* AppVersion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppVersion.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -634,7 +634,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 3;
 				DEVELOPMENT_TEAM = 8W78LNAP9K;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = LibreDict;
@@ -648,7 +648,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.1.0;
+				MARKETING_VERSION = 1.2.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.kyukhin.DictApp;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
@@ -667,7 +667,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 3;
 				DEVELOPMENT_TEAM = 8W78LNAP9K;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = LibreDict;
@@ -681,7 +681,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.1.0;
+				MARKETING_VERSION = 1.2.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.kyukhin.DictApp;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
