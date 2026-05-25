@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- [Issue #25] Settings → Version now shows the real marketing version from `MARKETING_VERSION` / `CFBundleShortVersionString`, with a `-unreleased` suffix appended on every build that isn't an App-Store-distributed binary (Debug, TestFlight, Ad-Hoc/Enterprise/Developer-export). Channel detection is layered runtime signals (`#if DEBUG`, sandbox receipt path, embedded provisioning profile) so no manual archive-time flag flip is required. A new `AppVersion` value type is the single source of truth for the displayed string, exposing `displayString` for UI and `verboseString` for telemetry consumers.
 - [Issue #19] Comprehensive UI tests for end-to-end user workflows using XCUITest framework with Page Object pattern for maintainability.
 - [Issue #22] Added UI language choice section to Settings tab with English as initial option, preparing for future internationalization.
 - [Issue #15] Added Learning Mode, Reading Mode, and Support stub sections to SettingsView. Support section includes a disabled "Report a Bug" button and a Credits navigation link showing static attribution text.
