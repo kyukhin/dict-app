@@ -52,6 +52,9 @@ struct AppVersion {
     /// runtime signals (`#if DEBUG`, receipt path, embedded profile).
     let channel: ReleaseChannel
 
+    /// Build an `AppVersion` from a `Bundle` (default `.main`). If
+    /// `channel` is `nil`, the channel is detected at runtime from
+    /// receipt and provisioning-profile signals on the same bundle.
     init(bundle: Bundle = .main, channel: ReleaseChannel? = nil) {
         self.init(
             infoDictionary: bundle.infoDictionary,
