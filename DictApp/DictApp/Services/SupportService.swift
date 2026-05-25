@@ -13,6 +13,9 @@ import UIKit
 
 @MainActor
 final class SupportService {
+    /// Shared singleton used by the Settings view-model. Internal state is
+    /// stateless, so the singleton is safe and avoids passing the service
+    /// down through every view layer.
     static let shared = SupportService()
 
     /// Single source of truth for the destination address. Change this in
@@ -79,10 +82,14 @@ final class SupportService {
 
     // MARK: - Sources
 
+    /// Marketing version from `CFBundleShortVersionString` (e.g. `"1.1.0"`).
+    /// Falls back to `"?"` if the Info.plist entry is missing.
     private var appVersion: String {
         Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?"
     }
 
+    /// Build number from `CFBundleVersion` (e.g. `"2"`). Falls back to
+    /// `"?"` if the Info.plist entry is missing.
     private var buildNumber: String {
         Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "?"
     }
