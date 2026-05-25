@@ -5,6 +5,8 @@ import SwiftUI
 
 struct SettingsView: View {
     @StateObject private var viewModel = SettingsViewModel()
+    @StateObject private var supportVM = SupportViewModel()
+    @Environment(\.openURL) private var openURL
 
     var body: some View {
         NavigationStack {
@@ -18,6 +20,25 @@ struct SettingsView: View {
                 versionSection
             }
             .navigationTitle("settings.title")
+            .sheet(isPresented: $supportVM.isPresentingMail) {
+                MailComposeView(
+                    recipient: SupportService.shared.recipient,
+                    subject: SupportService.shared.subject(),
+                    body: SupportService.shared.bodyTemplate(),
+                    onFinish: supportVM.handleMailDidFinish
+                )
+            }
+            .alert(item: $supportVM.mailUnavailableAlert) { reason in
+                Alert(
+                    title: Text("support.mailUnavailable.title"),
+                    message: Text(reason.localizedBodyKey),
+                    primaryButton: .default(
+                        Text("support.mailUnavailable.copyAddress"),
+                        action: { UIPasteboard.general.string = SupportService.shared.recipient }
+                    ),
+                    secondaryButton: .cancel()
+                )
+            }
         }
     }
 
@@ -131,8 +152,10 @@ struct SettingsView: View {
 
     private var supportSection: some View {
         Section("settings.support.section") {
-            Button("settings.support.reportBug") { }
-                .disabled(true)
+            Button("settings.support.reportBug") {
+                supportVM.startReportFlow(openURL: openURL)
+            }
+            .accessibilityIdentifier("report_bug_button")
             NavigationLink("settings.support.credits") {
                 CreditsView()
             }

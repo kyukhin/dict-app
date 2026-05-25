@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- [Issue #8] Basic bug reporting via the native iOS Mail compose sheet. The "Report a Bug" button in Settings now opens a pre-filled message to the support address with subject, greeting, and a delimited English telemetry block (app version, build, iOS version, device model, UI language, system locale). Falls back to `mailto:` for devices without Mail configured, and to a copy-address alert when no mail client is available.
 - [Issue #19] Comprehensive UI tests for end-to-end user workflows using XCUITest framework with Page Object pattern for maintainability.
 - [Issue #22] Added UI language choice section to Settings tab with English as initial option, preparing for future internationalization.
 - [Issue #15] Added Learning Mode, Reading Mode, and Support stub sections to SettingsView. Support section includes a disabled "Report a Bug" button and a Credits navigation link showing static attribution text.
