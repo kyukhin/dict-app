@@ -23,7 +23,7 @@
 
 | Search | Definition | Manage |
 |:---:|:---:|:---:|
-| <img src="Screenshots/screenshot-1-iphone17pm-en.png" width="250"> | <img src="Screenshots/screenshot-2-iphone17pm-en.png" width="250"> | <img src="Screenshots/screenshot-3-iphone17pm-en.png" width="250"> |
+| <img src="Screenshots/screenshot-1-iphone17pm-en.png" width="250" alt="LibreDict search screen on iPhone showing the word lookup field"> | <img src="Screenshots/screenshot-2-iphone17pm-en.png" width="250" alt="LibreDict definition screen showing the entry for a single word"> | <img src="Screenshots/screenshot-3-iphone17pm-en.png" width="250" alt="LibreDict Manage Dictionaries screen listing imported sources"> |
 
 ## Tech Stack
 
