@@ -23,7 +23,7 @@
 
 | Search | Definition | Manage |
 |:---:|:---:|:---:|
-| <img src="Screenshots/screenshot-1.png" width="250"> | <img src="Screenshots/screenshot-2.png" width="250"> | <img src="Screenshots/screenshot-3.png" width="250"> |
+| <img src="Screenshots/screenshot-1-iphone17pm-en.png" width="250"> | <img src="Screenshots/screenshot-2-iphone17pm-en.png" width="250"> | <img src="Screenshots/screenshot-3-iphone17pm-en.png" width="250"> |
 
 ## Tech Stack
 
