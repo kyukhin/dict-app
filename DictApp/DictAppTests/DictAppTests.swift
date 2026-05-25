@@ -4,6 +4,7 @@
 import XCTest
 @testable import DictApp
 import GRDB
+import MessageUI
 
 final class DictAppTests: XCTestCase {
 
@@ -847,6 +848,255 @@ final class DictAppTests: XCTestCase {
         XCTAssertFalse(ReleaseChannel.appStore.isUnreleased,
                        "App Store channel is the *only* released channel")
     }
+
+
+    // MARK: - Issue #8: Bug-report flow (SupportService)
+    //
+    // SupportService is @MainActor and reads Bundle.main / UIDevice /
+    // LocalizationManager.shared at call time, so the tests run on the
+    // main actor and any language toggles are restored in teardown.
+
+    /// Subject must start with a `[LibreDict <version> b<build>]` prefix
+    /// and include the localized "LibreDict bug report" tail.
+    @MainActor
+    func testSupportServiceSubjectIncludesBuildPrefix() throws {
+        let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?"
+        let buildNumber = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "?"
+
+        let subject = SupportService.shared.subject()
+
+        let expectedPrefix = "[LibreDict \(appVersion) b\(buildNumber)]"
+        XCTAssertTrue(
+            subject.hasPrefix(expectedPrefix),
+            "Subject must begin with the machine-readable build prefix '\(expectedPrefix)'; got '\(subject)'"
+        )
+
+        // The localized tail must follow the prefix. We force the lookup
+        // through the active LocalizationManager (the same path SupportService
+        // uses) so the assertion stays valid regardless of UI language.
+        let localizedTail = LocalizationManager.shared.localized("support.email.subject")
+        XCTAssertTrue(
+            subject.hasSuffix(localizedTail),
+            "Subject must end with the localized 'bug report' tail; got '\(subject)'"
+        )
+        XCTAssertNotEqual(
+            localizedTail, "support.email.subject",
+            "Localization key did not resolve — check xcstrings contains 'support.email.subject'"
+        )
+    }
+
+    /// Body template must end with a delimited telemetry block containing
+    /// app version, build, iOS version, device model, UI language, and
+    /// system locale.
+    @MainActor
+    func testSupportServiceBodyContainsTelemetryBlock() throws {
+        let body = SupportService.shared.bodyTemplate()
+
+        // Delimited by '---' lines.
+        XCTAssertTrue(body.hasSuffix("---"),
+                      "Telemetry block must terminate with a '---' delimiter")
+        let delimiterCount = body.components(separatedBy: "---").count - 1
+        XCTAssertEqual(delimiterCount, 2,
+                       "Telemetry block must be wrapped by exactly two '---' delimiters; got \(delimiterCount)")
+
+        // Required field markers (English by design — see next test for the
+        // language-independence guarantee).
+        let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?"
+        let buildNumber = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "?"
+
+        XCTAssertTrue(body.contains("LibreDict \(appVersion) (build \(buildNumber))"),
+                      "Telemetry block must include 'LibreDict <version> (build <build>)'")
+        XCTAssertTrue(body.contains("iOS \(UIDevice.current.systemVersion)"),
+                      "Telemetry block must include 'iOS <systemVersion>'")
+        XCTAssertTrue(body.contains("Device:"),
+                      "Telemetry block must include a 'Device:' line")
+        XCTAssertTrue(body.contains("UI language: \(LocalizationManager.shared.currentLanguage.code)"),
+                      "Telemetry block must include the active 'UI language: <code>'")
+        XCTAssertTrue(body.contains("System locale: \(Locale.current.identifier)"),
+                      "Telemetry block must include the 'System locale: <identifier>'")
+
+        // The greeting must come *before* the telemetry block — the user's
+        // free-text area sits between greeting and telemetry.
+        let greeting = LocalizationManager.shared.localized("support.email.bodyGreeting")
+        let greetingRange = try XCTUnwrap(body.range(of: greeting),
+                                          "Body must start with the localized greeting")
+        let telemetryRange = try XCTUnwrap(body.range(of: "---"),
+                                           "Body must contain the '---' delimiter")
+        XCTAssertLessThan(greetingRange.lowerBound, telemetryRange.lowerBound,
+                          "Greeting must precede the telemetry block")
+    }
+
+    /// Telemetry block must remain in English regardless of the active UI
+    /// language (English markers like `UI language:`, `Device:`).
+    @MainActor
+    func testSupportServiceTelemetryBlockIsEnglish() throws {
+        // Save and restore the active language so we don't bleed Russian
+        // selection into other tests.
+        let manager = LocalizationManager.shared
+        let originalLanguage = manager.currentLanguage
+        let originalPersistedCode = SettingsService.shared.selectedUILanguageCode
+        addTeardownBlock { @MainActor in
+            manager.setLanguage(originalLanguage)
+            SettingsService.shared.selectedUILanguageCode = originalPersistedCode
+        }
+
+        let russian = manager.supportedLanguages.first(where: { $0.code == "ru" })
+            ?? UILanguage(code: "ru", displayKey: "language.ru.name", nativeName: "Русский")
+        manager.setLanguage(russian)
+
+        let block = SupportService.shared.telemetryBlock()
+
+        // English markers must survive a UI language change.
+        XCTAssertTrue(block.contains("LibreDict "),
+                      "Telemetry block must keep the literal 'LibreDict' product marker in English")
+        XCTAssertTrue(block.contains("(build "),
+                      "Telemetry block must keep the English '(build N)' marker")
+        XCTAssertTrue(block.contains("iOS "),
+                      "Telemetry block must keep the English 'iOS' marker")
+        XCTAssertTrue(block.contains("Device: "),
+                      "Telemetry block must keep the English 'Device:' marker")
+        XCTAssertTrue(block.contains("UI language: "),
+                      "Telemetry block must keep the English 'UI language:' marker")
+        XCTAssertTrue(block.contains("System locale: "),
+                      "Telemetry block must keep the English 'System locale:' marker")
+
+        // The value of UI language must reflect the *active* choice ("ru"),
+        // even though the marker stays English — this is the dual signal
+        // the triage human needs.
+        XCTAssertTrue(block.contains("UI language: ru"),
+                      "Active UI language code must be reported in the telemetry block")
+
+        // Sanity: no Cyrillic letters leaked into the structured markers.
+        // (Locale identifier values are safe; markers must be ASCII.)
+        let cyrillicMarkers = ["Устройство", "Язык", "Локаль", "Сборка"]
+        for marker in cyrillicMarkers {
+            XCTAssertFalse(block.contains(marker),
+                           "Telemetry block must not contain translated marker '\(marker)'")
+        }
+    }
+
+    /// `mailtoURL()` must produce a valid `mailto:` URL whose path equals
+    /// the configured recipient and whose query contains URL-encoded
+    /// subject and body.
+    @MainActor
+    func testSupportServiceMailtoURLEncodesSubjectAndBody() throws {
+        let service = SupportService.shared
+        let url = try XCTUnwrap(service.mailtoURL(),
+                                "mailtoURL() must produce a URL for a valid recipient")
+
+        XCTAssertEqual(url.scheme, "mailto",
+                       "mailtoURL must use the 'mailto' scheme; got '\(url.scheme ?? "nil")'")
+
+        // URLComponents parsing gives us decoded values, which lets us
+        // assert content equivalence without depending on a specific
+        // percent-encoding scheme.
+        let components = try XCTUnwrap(URLComponents(url: url, resolvingAgainstBaseURL: false),
+                                       "mailto URL must be parseable as URLComponents")
+
+        // For mailto URLs, the recipient lives in the opaque/path portion.
+        XCTAssertEqual(components.path, service.recipient,
+                       "mailto path must equal the recipient address")
+
+        let items = components.queryItems ?? []
+        let subjectItem = items.first { $0.name == "subject" }
+        let bodyItem = items.first { $0.name == "body" }
+
+        XCTAssertEqual(subjectItem?.value, service.subject(),
+                       "mailto query 'subject' must equal SupportService.subject()")
+        XCTAssertEqual(bodyItem?.value, service.bodyTemplate(),
+                       "mailto query 'body' must equal SupportService.bodyTemplate()")
+
+        // The raw string must actually be percent-encoded (spaces from the
+        // subject prefix, newlines in the body) — a regression here would
+        // mean the mail client opens with garbled content.
+        let raw = url.absoluteString
+        XCTAssertFalse(raw.contains(" "),
+                       "Raw mailto URL must not contain unencoded spaces; got '\(raw.prefix(120))…'")
+        XCTAssertFalse(raw.contains("\n"),
+                       "Raw mailto URL must not contain unencoded newlines")
+    }
+
+    /// `SupportService.recipient` must be a syntactically valid email
+    /// address (one `@`, non-empty local and domain parts, no whitespace).
+    /// Guards against accidentally committing a placeholder.
+    @MainActor
+    func testSupportServiceRecipientIsValidEmail() throws {
+        let recipient = SupportService.shared.recipient
+
+        XCTAssertFalse(recipient.isEmpty, "recipient must not be empty")
+        XCTAssertNil(recipient.rangeOfCharacter(from: .whitespacesAndNewlines),
+                     "recipient must not contain whitespace; got '\(recipient)'")
+
+        let parts = recipient.split(separator: "@", omittingEmptySubsequences: false)
+        XCTAssertEqual(parts.count, 2,
+                       "recipient must contain exactly one '@' separator; got '\(recipient)'")
+        XCTAssertFalse(parts[0].isEmpty, "recipient must have a non-empty local part")
+        XCTAssertFalse(parts[1].isEmpty, "recipient must have a non-empty domain part")
+        XCTAssertTrue(parts[1].contains("."),
+                      "recipient domain must include a '.'; got '\(parts[1])'")
+
+        // Guard against the most common placeholder typos.
+        let lowered = recipient.lowercased()
+        for placeholder in ["example.com", "todo", "fixme", "your-email", "changeme"] {
+            XCTAssertFalse(lowered.contains(placeholder),
+                           "recipient looks like a placeholder ('\(placeholder)'): '\(recipient)'")
+        }
+    }
+
+    // MARK: - Issue #8: SupportViewModel
+
+    /// Initial state: neither sheet nor alert is presented. Guards against
+    /// the VM accidentally surfacing UI before the user taps anything.
+    @MainActor
+    func testSupportViewModelDefaultState() throws {
+        let vm = SupportViewModel()
+        XCTAssertFalse(vm.isPresentingMail,
+                       "VM must default with no mail sheet presented")
+        XCTAssertNil(vm.mailUnavailableAlert,
+                     "VM must default with no mail-unavailable alert pending")
+    }
+
+    /// `handleMailDidFinish` flips `isPresentingMail` back to false for
+    /// every `MFMailComposeResult` case. We don't surface any further UI
+    /// from the callback — its only job is to retract the sheet flag.
+    @MainActor
+    func testSupportViewModelHandleMailDidFinishDismissesSheet() throws {
+        let vm = SupportViewModel()
+
+        let results: [MFMailComposeResult] = [.cancelled, .saved, .sent, .failed]
+        for result in results {
+            vm.isPresentingMail = true
+            vm.handleMailDidFinish(result, error: nil)
+            XCTAssertFalse(
+                vm.isPresentingMail,
+                "isPresentingMail must drop to false after result \(result.rawValue)"
+            )
+            XCTAssertNil(
+                vm.mailUnavailableAlert,
+                "handleMailDidFinish must not surface a fallback alert for result \(result.rawValue)"
+            )
+        }
+    }
+
+    /// `MailUnavailableReason.noMailClient` must be Identifiable (the
+    /// SwiftUI `.alert(item:)` modifier requires it) and map to a real
+    /// localization key so the alert body isn't blank.
+    @MainActor
+    func testSupportViewModelMailUnavailableReasonIsLocalized() throws {
+        let reason = SupportViewModel.MailUnavailableReason.noMailClient
+        XCTAssertEqual(reason.id, "noMailClient",
+                       "Identifiable id must be stable for SwiftUI .alert(item:)")
+
+        // Resolve the LocalizedStringKey through the active LocalizationManager
+        // bundle (same path SwiftUI uses for Text(LocalizedStringKey)).
+        let key = "support.mailUnavailable.body.noClient"
+        let resolved = LocalizationManager.shared.localized(key)
+        XCTAssertNotEqual(resolved, key,
+                          "Localization for '\(key)' must resolve to a translated string")
+        XCTAssertFalse(resolved.isEmpty,
+                       "Localized body for noMailClient must not be empty")
+    }
+
 
     // MARK: - Performance Tests
 
