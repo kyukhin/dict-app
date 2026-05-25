@@ -45,6 +45,7 @@ struct AccessibilityIdentifiers {
     // MARK: - Settings View
     struct Settings {
         static let manageDictionariesLink = "manage_dictionaries_link"
+        static let versionValue = "version_value"
         static func dictionaryToggle(source: String) -> String {
             return "dictionary_toggle_\(source)"
         }

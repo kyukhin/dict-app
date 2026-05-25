@@ -698,6 +698,156 @@ final class DictAppTests: XCTestCase {
         return bundle
     }
 
+    // MARK: - Issue #25: Build version information
+    //
+    // `AppVersion` is a pure value type with no UIKit/SwiftUI dependencies,
+    // so we exercise it by injecting a controlled `Bundle` and an explicit
+    // `ReleaseChannel` instead of relying on runtime detection.
+
+    /// `displayString` must drop the `-unreleased` suffix only for the
+    /// `.appStore` channel; every other channel must include it.
+    func testAppVersionDisplayStringSuffixByChannel() throws {
+        let info: [String: Any] = [
+            "CFBundleShortVersionString": "1.1.0",
+            "CFBundleVersion": "2"
+        ]
+
+        // App Store is the *only* channel that hides the suffix.
+        let appStore = AppVersion(infoDictionary: info, channel: .appStore)
+        XCTAssertEqual(appStore.displayString, "1.1.0",
+                       "App Store builds must display the bare marketing version")
+
+        // All other channels must include the suffix — pin every one of
+        // them so a future case added without an `isUnreleased` update is
+        // caught here.
+        let unreleased: [ReleaseChannel] = [.debug, .testFlight, .development]
+        for channel in unreleased {
+            let av = AppVersion(infoDictionary: info, channel: channel)
+            XCTAssertEqual(
+                av.displayString, "1.1.0-unreleased",
+                "Channel \(channel) must display with the '-unreleased' suffix"
+            )
+        }
+    }
+
+    /// `verboseString` must always include the build number in
+    /// parentheses, e.g. `"1.1.0-unreleased (build 2)"`.
+    func testAppVersionVerboseStringIncludesBuild() throws {
+        let info: [String: Any] = [
+            "CFBundleShortVersionString": "1.1.0",
+            "CFBundleVersion": "2"
+        ]
+
+        let unreleased = AppVersion(infoDictionary: info, channel: .debug)
+        XCTAssertEqual(
+            unreleased.verboseString, "1.1.0-unreleased (build 2)",
+            "Non-App-Store verboseString must include the suffix AND the build number"
+        )
+
+        let released = AppVersion(infoDictionary: info, channel: .appStore)
+        XCTAssertEqual(
+            released.verboseString, "1.1.0 (build 2)",
+            "App Store verboseString must drop the suffix but keep the build number"
+        )
+
+        // Multi-digit build — guard against any "single-character only"
+        // formatting bug.
+        let bigBuild: [String: Any] = [
+            "CFBundleShortVersionString": "2.0.0",
+            "CFBundleVersion": "1024"
+        ]
+        XCTAssertEqual(
+            AppVersion(infoDictionary: bigBuild, channel: .appStore).verboseString,
+            "2.0.0 (build 1024)"
+        )
+    }
+
+    /// Missing `CFBundleShortVersionString` and `CFBundleVersion`
+    /// fall back to `"unknown"` and `"0"` respectively rather than
+    /// crashing or returning empty strings.
+    func testAppVersionFallsBackWhenInfoPlistMissing() throws {
+        // Case 1: infoDictionary is nil (no Info.plist at all).
+        let nilVersion = AppVersion(infoDictionary: nil, channel: .appStore)
+        XCTAssertEqual(nilVersion.marketingVersion, "unknown",
+                       "Missing CFBundleShortVersionString must fall back to 'unknown'")
+        XCTAssertEqual(nilVersion.buildNumber, "0",
+                       "Missing CFBundleVersion must fall back to '0'")
+        XCTAssertEqual(nilVersion.displayString, "unknown",
+                       "displayString on appStore channel must still surface the fallback marketing string")
+        XCTAssertEqual(nilVersion.verboseString, "unknown (build 0)",
+                       "verboseString must compose cleanly with the fallback values")
+
+        // Case 2: infoDictionary exists but the keys we care about are absent.
+        let emptyVersion = AppVersion(infoDictionary: [:], channel: .debug)
+        XCTAssertEqual(emptyVersion.marketingVersion, "unknown")
+        XCTAssertEqual(emptyVersion.buildNumber, "0")
+
+        // Case 3: keys exist but the values aren't strings (wrong types in
+        // a malformed plist). The lookup is `info?[...] as? String`, so we
+        // expect the fallback to kick in rather than a runtime crash.
+        let wrongType: [String: Any] = [
+            "CFBundleShortVersionString": 1.0,
+            "CFBundleVersion": 42
+        ]
+        let wrongTypeVersion = AppVersion(infoDictionary: wrongType, channel: .appStore)
+        XCTAssertEqual(wrongTypeVersion.marketingVersion, "unknown",
+                       "Non-string CFBundleShortVersionString must fall back to 'unknown', not crash")
+        XCTAssertEqual(wrongTypeVersion.buildNumber, "0",
+                       "Non-string CFBundleVersion must fall back to '0', not crash")
+    }
+
+    /// `AppVersion.current.marketingVersion` matches the live
+    /// `CFBundleShortVersionString` in `Bundle.main.infoDictionary`,
+    /// guarding against future refactors that drop the lookup.
+    func testAppVersionCurrentMatchesBundle() throws {
+        // The host app bundle holds the real marketing version. The unit
+        // test target is hosted by the app, so resolve robustly.
+        let hostBundle: Bundle = {
+            if let url = Bundle.main.url(forResource: "DictApp", withExtension: "app") {
+                return Bundle(url: url) ?? .main
+            }
+            return .main
+        }()
+
+        let bundleVersion = hostBundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
+        let bundleBuild = hostBundle.object(forInfoDictionaryKey: "CFBundleVersion") as? String
+
+        XCTAssertNotNil(bundleVersion,
+                        "Host bundle must expose CFBundleShortVersionString (guarded by GENERATE_INFOPLIST_FILE)")
+        XCTAssertNotNil(bundleBuild,
+                        "Host bundle must expose CFBundleVersion")
+
+        // AppVersion.current reads `Bundle.main`, which for the unit-test
+        // process is the host app (DictApp.app) — the same bundle whose
+        // CFBundleShortVersionString we just read.
+        let current = AppVersion(bundle: hostBundle)
+        XCTAssertEqual(current.marketingVersion, bundleVersion,
+                       "AppVersion.marketingVersion must mirror the bundle's CFBundleShortVersionString")
+        XCTAssertEqual(current.buildNumber, bundleBuild,
+                       "AppVersion.buildNumber must mirror the bundle's CFBundleVersion")
+
+        // The shared `AppVersion.current` instance must agree with a freshly
+        // constructed one against the same bundle — proves the singleton
+        // hasn't been replaced with a stale snapshot.
+        XCTAssertEqual(AppVersion.current.marketingVersion, current.marketingVersion,
+                       "AppVersion.current must equal a fresh AppVersion(bundle:) reading the same plist")
+        XCTAssertEqual(AppVersion.current.buildNumber, current.buildNumber)
+    }
+
+    /// `ReleaseChannel.isUnreleased` is true for every channel except
+    /// `.appStore` — pins the display rule the rest of the system
+    /// depends on.
+    func testReleaseChannelIsUnreleasedRule() throws {
+        XCTAssertTrue(ReleaseChannel.debug.isUnreleased,
+                      "Debug channel must be marked unreleased")
+        XCTAssertTrue(ReleaseChannel.testFlight.isUnreleased,
+                      "TestFlight channel must be marked unreleased")
+        XCTAssertTrue(ReleaseChannel.development.isUnreleased,
+                      "Development/Ad-Hoc/Enterprise channel must be marked unreleased")
+        XCTAssertFalse(ReleaseChannel.appStore.isUnreleased,
+                       "App Store channel is the *only* released channel")
+    }
+
     // MARK: - Performance Tests
 
     /// Measures FTS5 search time on a 100,000-entry database. Target: < 16ms.

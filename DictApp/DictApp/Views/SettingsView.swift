@@ -136,7 +136,8 @@ struct SettingsView: View {
 
     private var versionSection: some View {
         Section {
-            LabeledContent("settings.version", value: "1.0")
+            LabeledContent("settings.version", value: AppVersion.current.displayString)
+                .accessibilityIdentifier("version_value")
             Text("settings.licenseNote")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
