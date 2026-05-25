@@ -23,30 +23,25 @@ struct SettingsView: View {
 
     private var uiLanguageSection: some View {
         Section("settings.language.section") {
-            Picker(selection: Binding(
-                get: { viewModel.selectedUILanguage },
-                set: { viewModel.updateUILanguage($0) }
-            )) {
-                ForEach(viewModel.availableUILanguages) { language in
-                    HStack {
-                        // `displayKey` resolves to the language name in the
-                        // *current* UI language; `nativeName` stays in the
-                        // language's own script.
-                        Text(LocalizedStringKey(language.displayKey))
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.8)
-                        Spacer()
-                        Text(language.nativeName)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.8)
-                    }
-                    .tag(language)
-                }
+            // `Picker(.navigationLink)` renders empty rows in the pushed list
+            // on iPad iOS 17.5 regardless of whether the row content is a
+            // single Text, an HStack, or a Text-concatenation. Replace the
+            // picker with an explicit `NavigationLink` to a custom selector
+            // view so we control the row rendering directly.
+            NavigationLink {
+                UILanguagePickerView(
+                    languages: viewModel.availableUILanguages,
+                    selection: viewModel.selectedUILanguage,
+                    onSelect: { viewModel.updateUILanguage($0) }
+                )
             } label: {
-                Text("settings.language.picker")
+                LabeledContent {
+                    Text(verbatim: viewModel.selectedUILanguage.nativeName)
+                } label: {
+                    Text("settings.language.picker")
+                }
             }
-            .pickerStyle(.navigationLink)
+            .accessibilityIdentifier("ui_language_link")
         }
     }
 
@@ -146,5 +141,40 @@ struct SettingsView: View {
                 .font(.footnote)
                 .foregroundStyle(.secondary)
         }
+    }
+}
+
+/// Push-style language selector. Replaces the previous
+/// `Picker(.pickerStyle(.navigationLink))` which renders empty rows on
+/// iPad iOS 17.5. A plain `List` of `Button`s gives us full control over
+/// the row layout (localized name + native name + checkmark).
+private struct UILanguagePickerView: View {
+    let languages: [UILanguage]
+    let selection: UILanguage
+    let onSelect: (UILanguage) -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        List(languages) { language in
+            Button {
+                onSelect(language)
+                dismiss()
+            } label: {
+                HStack {
+                    Text(LocalizedStringKey(language.displayKey))
+                        .foregroundStyle(.primary)
+                    Spacer()
+                    Text(verbatim: language.nativeName)
+                        .foregroundStyle(.secondary)
+                    if language == selection {
+                        Image(systemName: "checkmark")
+                            .foregroundStyle(.tint)
+                            .padding(.leading, 4)
+                    }
+                }
+            }
+            .accessibilityIdentifier("ui_language_option_\(language.code)")
+        }
+        .navigationTitle("settings.language.picker")
     }
 }
