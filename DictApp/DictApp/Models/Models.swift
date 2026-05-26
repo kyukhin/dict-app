@@ -35,9 +35,12 @@ struct DictionaryEntry: Codable, Identifiable, Equatable, FetchableRecord, Persi
     /// Human-readable source label for display.
     var sourceLabel: String {
         switch source {
-        case "wordnet":     return "WordNet"
-        case "openrussian": return "OpenRussian"
-        default:            return source.capitalized
+        case "wordnet":          return "WordNet"
+        case "openrussian":      return "OpenRussian"
+        // Badge is space-constrained; the full name lives in
+        // `dict_metadata.display_name` (Settings + DictionaryDetailView).
+        case "freedict-eng-spa": return "En–Es"
+        default:                 return source.capitalized
         }
     }
 }

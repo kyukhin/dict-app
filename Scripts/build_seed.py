@@ -1,22 +1,31 @@
 #!/usr/bin/env python3
 """
 build_seed.py
-Downloads WordNet (En-En) and OpenRussian (Ru-En) dictionaries, then builds
-a single seed.sqlite with both sources, FTS5 index, and a metadata table.
+Downloads WordNet (En-En), OpenRussian (Ru-En) and FreeDict eng-spa
+(En-Es) dictionaries, then builds a single seed.sqlite containing all
+three sources, an FTS5 index, and a metadata table.
 
 Sources:
-  - WordNet 3.1 via NLTK  (BSD license, Princeton University)
-  - OpenRussian.org        (CC-BY-SA 4.0, community-maintained)
+  - WordNet 3.1 via NLTK   (BSD license, Princeton University)
+  - OpenRussian.org         (CC-BY-SA 4.0, community-maintained)
+  - FreeDict eng-spa        (GPL-3.0, freedict.org — TEI/XML)
+
+Source-identifier convention used by this builder:
+  - single-monolingual / unambiguous → bare provider name
+        e.g. "wordnet", "openrussian".
+  - bilingual / multi-direction → "provider-srclang-tgtlang" with
+    ISO-639-3 codes, e.g. "freedict-eng-spa".
 
 Requirements:
-    pip install nltk requests
+    pip install nltk requests defusedxml
 
 Usage (from project root):
     source .venv/bin/activate
     python Scripts/build_seed.py
     python Scripts/build_seed.py --output DictApp/DictApp/Resources/seed.sqlite
-    python Scripts/build_seed.py --skip-russian   # WordNet only
-    python Scripts/build_seed.py --limit 5000      # subset for testing
+    python Scripts/build_seed.py --skip-russian   # WordNet only (plus eng-spa)
+    python Scripts/build_seed.py --skip-spanish   # skip FreeDict eng-spa
+    python Scripts/build_seed.py --limit 5000     # subset WordNet (testing)
 """
 
 import argparse
@@ -155,7 +164,7 @@ def extract_pos_tags(synsets) -> str:
 
 def insert_wordnet(cur: sqlite3.Cursor, conn: sqlite3.Connection,
                    limit: int | None = None) -> int:
-    print("\n[1/2] WordNet (En-En)")
+    print("\n[1/3] WordNet (En-En)")
     nltk = ensure_nltk()
     from nltk.corpus import wordnet as wn
 
@@ -285,7 +294,7 @@ def parse_openrussian(csv_files: dict[str, str]) -> list[tuple]:
 
 
 def insert_openrussian(cur: sqlite3.Cursor, conn: sqlite3.Connection) -> int:
-    print("\n[2/2] OpenRussian (Ru-En)")
+    print("\n[2/3] OpenRussian (Ru-En)")
     requests_mod = ensure_requests()
 
     try:
@@ -357,6 +366,69 @@ def insert_openrussian(cur: sqlite3.Cursor, conn: sqlite3.Connection) -> int:
 
 
 # ---------------------------------------------------------------------------
+# FreeDict English-Spanish (En-Es)
+# ---------------------------------------------------------------------------
+
+def insert_freedict_eng_spa(cur: sqlite3.Cursor, conn: sqlite3.Connection) -> int:
+    print("\n[3/3] FreeDict (En-Es)")
+    # Imported lazily so a `--skip-spanish` run doesn't need the module
+    # (and so a tools-checkout with an old build_seed.py won't crash on
+    # a missing sibling file).
+    from build_freedict_eng_spa import (
+        download_and_parse,
+        DESCRIPTION_TEXT,
+        DISPLAY_NAME,
+        LICENSE_TEXT,
+        SOURCE,
+        URL as METADATA_URL,
+    )
+
+    # No try/except here: this function only runs when the caller did
+    # NOT pass --skip-spanish, i.e. Spanish was explicitly requested. A
+    # download/parse failure must surface (non-zero exit) instead of
+    # silently shipping a seed without the dictionary the user asked for.
+    # Use --skip-spanish to build without it on purpose.
+    entries, version = download_and_parse()
+
+    print(f"  Parsed {len(entries)} En-Es entries.")
+
+    batch, inserted = [], 0
+    total = len(entries)
+    for i, row in enumerate(entries):
+        batch.append(row)
+        if len(batch) >= 500:
+            cur.executemany(
+                "INSERT OR IGNORE INTO entries(word, definition, phonetic, pos, source) "
+                "VALUES (?, ?, ?, ?, ?)", batch)
+            conn.commit()
+            inserted += len(batch)
+            batch.clear()
+            if total > 0:
+                pct = int((i + 1) / total * 100)
+                print(f"\r  [{pct:3d}%] {inserted} entries...", end="", flush=True)
+    if batch:
+        cur.executemany(
+            "INSERT OR IGNORE INTO entries(word, definition, phonetic, pos, source) "
+            "VALUES (?, ?, ?, ?, ?)", batch)
+        conn.commit()
+        inserted += len(batch)
+
+    count = cur.execute(
+        "SELECT COUNT(*) FROM entries WHERE source=?", (SOURCE,)).fetchone()[0]
+    cur.execute(
+        "INSERT OR REPLACE INTO dict_metadata(source, display_name, version, license, url, word_count, built_at, description) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        (SOURCE, DISPLAY_NAME, version,
+         LICENSE_TEXT,
+         METADATA_URL,
+         count, datetime.now(tz=None).isoformat(),
+         DESCRIPTION_TEXT))
+    conn.commit()
+    print(f"\n  FreeDict: {count} entries")
+    return count
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -368,12 +440,18 @@ def main():
     parser.add_argument("--limit", "-l", type=int, default=None,
                         help="Limit WordNet to first N lemmas (for testing).")
     parser.add_argument("--skip-russian", action="store_true",
-                        help="Only build the WordNet dictionary.")
+                        help="Skip the OpenRussian dictionary.")
+    parser.add_argument("--skip-spanish", action="store_true",
+                        help="Skip the FreeDict English-Spanish dictionary.")
     args = parser.parse_args()
 
     os.makedirs(os.path.dirname(args.output) or ".", exist_ok=True)
     if os.path.exists(args.output):
         os.remove(args.output)
+
+    # Allow `build_freedict_eng_spa` to be imported when this script is
+    # run from any working directory.
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
     conn = sqlite3.connect(args.output)
     cur = conn.cursor()
@@ -383,6 +461,16 @@ def main():
     ru_count = 0
     if not args.skip_russian:
         ru_count = insert_openrussian(cur, conn)
+    es_count = 0
+    if not args.skip_spanish:
+        es_count = insert_freedict_eng_spa(cur, conn)
+
+    # Rebuild FTS index in bulk. Per-row triggers already kept it in sync
+    # during the inserts, but a final rebuild produces a smaller,
+    # read-optimised index for the shipped seed.
+    print("\nRebuilding FTS index...")
+    cur.execute("INSERT INTO entries_fts(entries_fts) VALUES('rebuild')")
+    conn.commit()
 
     total = cur.execute("SELECT COUNT(*) FROM entries").fetchone()[0]
     size_mb = os.path.getsize(args.output) / (1024 * 1024)
@@ -394,6 +482,7 @@ def main():
     print(f"  Size     : {size_mb:.1f} MB")
     print(f"  WordNet  : {wn_count:,} entries")
     print(f"  OpenRus  : {ru_count:,} entries")
+    print(f"  FreeDict : {es_count:,} entries")
     print(f"  Total    : {total:,} entries")
     print(f"{'='*50}")
 

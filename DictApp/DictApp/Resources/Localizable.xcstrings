@@ -213,6 +213,40 @@
         }
       }
     },
+    "credits.dataSources.freedict" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "FreeDict — English–Spanish, GNU GPL"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "FreeDict — английский-испанский, GNU GPL"
+          }
+        }
+      }
+    },
+    "credits.dataSources.openrussian" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "OpenRussian — Russian-English, CC BY-SA 4.0"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "OpenRussian — русско-английский, CC BY-SA 4.0"
+          }
+        }
+      }
+    },
     "credits.dataSources.wordnet" : {
       "extractionState" : "manual",
       "localizations" : {

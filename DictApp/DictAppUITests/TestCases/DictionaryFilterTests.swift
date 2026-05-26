@@ -25,13 +25,26 @@ final class DictionaryFilterTests: XCTestCase {
     var app: XCUIApplication!
     var tabBarPage: TabBarPage!
 
-    /// The two sources shipped in the seed database.
+    /// The three sources shipped in the seed database.
     private let englishSource = "wordnet"
     private let russianSource = "openrussian"
+    private let englishSpanishSource = "freedict-eng-spa"
 
     /// A search term that exists in OpenRussian and *only* in OpenRussian
     /// (no Cyrillic in WordNet). Disabling OpenRussian must drop it to 0.
     private let russianOnlyTerm = "яблоко"
+
+    /// A Spanish term that exists *only* in FreeDict eng-spa. The `ñ`
+    /// rules out collisions with WordNet's plain-ASCII headwords, and
+    /// the Latin script rules out collisions with OpenRussian's Cyrillic
+    /// content. Verified offline against `seed.sqlite`: 6 matches, all
+    /// `source = 'freedict-eng-spa'`.
+    private let spanishOnlyTerm = "español"
+
+    /// The badge text `DictionaryEntry.sourceLabel` renders for the
+    /// `freedict-eng-spa` source. The dash is U+2013 (en dash), matching
+    /// the literal in `Models.swift`.
+    private let freeDictBadge = "En–Es"
 
     override func setUpWithError() throws {
         continueAfterFailure = false
@@ -120,6 +133,79 @@ final class DictionaryFilterTests: XCTestCase {
         XCTAssertTrue(
             searchPage.waitForNoResults(),
             "With all dictionaries disabled, search must show ContentUnavailableView"
+        )
+    }
+
+    // MARK: - FreeDict eng-spa (Issue #24)
+
+    /// Searching a Spanish-only word ("español", with the unambiguous `ñ`)
+    /// must surface FreeDict eng-spa entries end-to-end:
+    ///   - the results list must be non-empty,
+    ///   - the first row's source badge must read `En–Es`, which is the
+    ///     value `DictionaryEntry.sourceLabel` produces only for the
+    ///     `freedict-eng-spa` source.
+    ///
+    /// Without the badge assertion this test would still pass if some
+    /// other source happened to mention "español" in its definitions; the
+    /// badge proves the contribution comes from the new bundle.
+    func testSearchingSpanishOnlyWordSurfacesFreeDictResults() throws {
+        let searchPage = tabBarPage.tapSearchTab()
+        searchPage.searchFor(spanishOnlyTerm)
+
+        XCTAssertTrue(
+            searchPage.waitForResults(),
+            "Search for '\(spanishOnlyTerm)' must return at least one result from \(englishSpanishSource)"
+        )
+        XCTAssertTrue(
+            searchPage.verifyResultContainsText(freeDictBadge, at: 0),
+            "First result for '\(spanishOnlyTerm)' must carry the '\(freeDictBadge)' source badge, proving the entry came from \(englishSpanishSource)"
+        )
+    }
+
+    /// Disabling `freedict-eng-spa` must eliminate Spanish-only hits, and
+    /// re-enabling must bring them back. Round-trips the toggle so we
+    /// cover both edges of the per-source filter for the new source.
+    ///
+    /// Probing with a term that exists exclusively in `freedict-eng-spa`
+    /// keeps the empty-state assertion meaningful — without an
+    /// exclusivity guarantee, leftover hits from another dictionary's
+    /// loanword entries would mask a regression in the toggle wiring.
+    func testDisablingFreeDictHidesAndRestoresSpanishResults() throws {
+        // 1) Baseline: with all dictionaries enabled, '\(spanishOnlyTerm)'
+        //    returns results.
+        var searchPage = tabBarPage.tapSearchTab()
+        searchPage.searchFor(spanishOnlyTerm)
+        XCTAssertTrue(
+            searchPage.waitForResults(),
+            "Baseline: '\(spanishOnlyTerm)' must return results before toggling"
+        )
+        searchPage.clearOverlaysBeforeTabSwitch()
+
+        // 2) Disable freedict-eng-spa.
+        var settingsPage = tabBarPage.tapSettingsTab()
+        settingsPage.tapToggle(source: englishSpanishSource)
+
+        // 3) The same search now drops to ContentUnavailableView — the
+        //    Spanish-only term has no remaining home in the enabled set.
+        searchPage = tabBarPage.tapSearchTab()
+        searchPage.clearSearch()
+        searchPage.searchFor(spanishOnlyTerm)
+        XCTAssertTrue(
+            searchPage.waitForNoResults(),
+            "After disabling '\(englishSpanishSource)', '\(spanishOnlyTerm)' must show ContentUnavailableView"
+        )
+        searchPage.clearOverlaysBeforeTabSwitch()
+
+        // 4) Re-enable freedict-eng-spa; results must come back.
+        settingsPage = tabBarPage.tapSettingsTab()
+        settingsPage.tapToggle(source: englishSpanishSource)
+
+        searchPage = tabBarPage.tapSearchTab()
+        searchPage.clearSearch()
+        searchPage.searchFor(spanishOnlyTerm)
+        XCTAssertTrue(
+            searchPage.waitForResults(),
+            "After re-enabling '\(englishSpanishSource)', '\(spanishOnlyTerm)' must return results again"
         )
     }
 
