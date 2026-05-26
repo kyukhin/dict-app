@@ -43,34 +43,15 @@ final class ReportBugFlowTests: XCTestCase {
 
         // 2. Tap "Report a Bug". Settings is a SwiftUI Form backed by a
         //    UICollectionView with cell virtualisation, and Support is
-        //    below the fold on iPhone — so first wait for the button to
-        //    enter the view hierarchy, then scroll until it is *hittable*
-        //    (existence alone is not enough on cell-virtualised lists),
-        //    and finally assert the post-scroll state before tapping.
+        //    below the fold on iPhone. Delegate the scroll-search to the
+        //    shared `XCUIApplication.scrollToElement` helper — it sweeps
+        //    up then down until the button is `.exists && .isHittable`,
+        //    which is the only state in which a `.tap()` is meaningful.
         let reportBug = app.buttons["report_bug_button"]
-        let form: XCUIElement = {
-            let candidates = [app.collectionViews.firstMatch,
-                              app.scrollViews.firstMatch,
-                              app.tables.firstMatch]
-            return candidates.first(where: { $0.exists }) ?? app
-        }()
-        XCTAssertTrue(reportBug.waitForExistence(timeout: 10),
-                      "Report a Bug button should appear in the Settings hierarchy")
-
-        // Scroll-until-hittable. Bounded so a regression fails the test
-        // rather than spinning forever; the loop check is `isHittable`
-        // (not `exists`) because XCUI considers off-screen cells as
-        // existing but not tappable.
-        var swipes = 0
-        while !reportBug.isHittable && swipes < 8 {
-            form.swipeUp()
-            swipes += 1
-        }
-
+        XCTAssertTrue(app.scrollToElement(reportBug),
+                      "Report a Bug button must be reachable in the Settings form")
         XCTAssertTrue(reportBug.isEnabled,
                       "Report a Bug button should not be disabled (Issue #8)")
-        XCTAssertTrue(reportBug.isHittable,
-                      "Report a Bug button must be hittable after \(swipes) swipe(s); raise the cap if the form grew")
         reportBug.tap()
 
         // 3. The fallback alert appears (no Mail account on simulator).

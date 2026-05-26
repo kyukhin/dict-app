@@ -4,23 +4,6 @@ class SettingsPage: BasePage {
 
     // MARK: - UI Elements
 
-    /// The Settings form is a SwiftUI `Form`. XCUI exposes it as a
-    /// `collectionView`, `scrollView`, or `table` depending on the OS
-    /// version. We pick the first one that exists; if none do, callers
-    /// fall back to swiping the whole app element.
-    private var form: XCUIElement? {
-        let candidates: [XCUIElement] = [
-            app.collectionViews.firstMatch,
-            app.scrollViews.firstMatch,
-            app.tables.firstMatch
-        ]
-        return candidates.first(where: { $0.exists })
-    }
-
-    private func swipeContainerUp() {
-        if let f = form { f.swipeUp() } else { app.swipeUp() }
-    }
-
     private func toggle(for source: String) -> XCUIElement {
         app.switches[AccessibilityIdentifiers.Settings.dictionaryToggle(source: source)]
     }
@@ -33,12 +16,11 @@ class SettingsPage: BasePage {
     /// Toggle hit-targets in iOS 26 don't toggle on label-area taps), we
     /// retry on the right-edge coordinate where the switch handle lives.
     func tapToggle(source: String) {
-        XCTAssertTrue(
-            waitForToggle(source: source, timeout: TestData.Timeouts.long),
-            "Toggle for '\(source)' should appear in Settings"
-        )
         let sw = toggle(for: source)
-        scrollToElement(sw)
+        XCTAssertTrue(
+            app.scrollToElement(sw),
+            "Toggle for '\(source)' should be reachable in Settings after scrolling"
+        )
         let before = isDictionaryEnabled(source: source)
         sw.tap()
         if !waitForStateChange(source: source, from: before, timeout: 3.0) {
@@ -61,14 +43,20 @@ class SettingsPage: BasePage {
 
     // MARK: - Verification
 
-    /// Waits for the toggle for the given source to appear. Scrolls once if
-    /// the toggle isn't immediately visible (the Dictionaries section may
-    /// be below the fold on smaller screens).
+    /// Waits for the toggle for the given source to appear and become
+    /// hittable. Delegates the scroll search to `XCUIApplication.
+    /// scrollToElement`, which sweeps up then down with a swipe budget
+    /// that handles the SwiftUI Form virtualisation case where the
+    /// Dictionaries section sits below the fold on smaller screens or
+    /// after the section grows (e.g. adding the FreeDict eng-spa row in
+    /// Issue #24 pushed the Russian toggle further down).
+    ///
+    /// The `timeout` parameter is retained for source-compatibility with
+    /// existing callers; the underlying scroll loop is bounded by swipe
+    /// count rather than wall-clock time, and finishes well within the
+    /// previous default budget.
     func waitForToggle(source: String, timeout: TimeInterval = TestData.Timeouts.medium) -> Bool {
-        let sw = toggle(for: source)
-        if sw.waitForExistence(timeout: timeout) { return true }
-        swipeContainerUp()
-        return sw.waitForExistence(timeout: timeout)
+        return app.scrollToElement(toggle(for: source))
     }
 
     /// Returns the SwiftUI Toggle's "on" state, tried via several XCUI
@@ -82,16 +70,6 @@ class SettingsPage: BasePage {
         return nil
     }
 
-    // MARK: - Helpers
-
-    private func scrollToElement(_ element: XCUIElement, maxSwipes: Int = 6) {
-        var swipes = 0
-        while !element.isHittable && swipes < maxSwipes {
-            swipeContainerUp()
-            swipes += 1
-        }
-    }
-
     // MARK: - Manage Dictionaries navigation
 
     private var manageDictionariesLink: XCUIElement {
@@ -103,54 +81,25 @@ class SettingsPage: BasePage {
         return app.descendants(matching: .any)[id]
     }
 
-    /// Waits for the "Manage Dictionaries" navigation row.
+    /// Waits for the "Manage Dictionaries" navigation row to be reachable.
     ///
-    /// The link itself is *unconditionally* rendered inside the
-    /// Dictionaries section in `SettingsView` — it's outside the
-    /// `if dictionaries.isEmpty` branch — so the only failure mode is
-    /// cell-virtualization: SwiftUI's `Form` is backed by a
-    /// `UICollectionView` that only materializes cells in/near the visible
-    /// region. After many launches the simulator's scene-state restoration
-    /// can resume Settings at any scroll offset (often the bottom on warm
-    /// runs), keeping the link off the rendered-cell window. `exists`
-    /// then returns false even though the link is in the SwiftUI view
-    /// hierarchy.
+    /// The link itself is *unconditionally* rendered inside the Dictionaries
+    /// section in `SettingsView` — it's outside the `if dictionaries.isEmpty`
+    /// branch — so the only failure mode is cell-virtualization: SwiftUI's
+    /// `Form` is backed by a `UICollectionView` that only materializes cells
+    /// in/near the visible region.
     ///
-    /// Strategy:
-    ///   1) Wait for *some* sign Settings rendered — the navigation title
-    ///      "Settings". Without this we'd be swiping a tab bar or a wrong
-    ///      form when the tab transition is still in flight.
-    ///   2) Probe for the link. If visible, done.
-    ///   3) Otherwise sweep the form in both directions a few times. We
-    ///      don't know whether scene restoration parked it above or below
-    ///      the fold, so we try down then up.
+    /// Strategy: first wait for the Settings screen itself to mount (so we
+    /// don't swipe on a half-loaded tab transition), then delegate the
+    /// scroll search to the shared `XCUIApplication.scrollToElement` helper.
     func waitForManageDictionariesLink(timeout: TimeInterval = TestData.Timeouts.medium) -> Bool {
-        // 1) Wait for the Settings screen itself to mount — the navigation
-        //    title is the most reliable per-tab indicator and is present
-        //    regardless of `SettingsViewModel.dictionaries` load state.
-        _ = app.navigationBars["Settings"].waitForExistence(timeout: timeout)
-
-        let link = manageDictionariesLink
-        if link.waitForExistence(timeout: 1.0) { return true }
-
-        // 2) Sweep up (reveal content below the fold) — most common case
-        //    on first entry where the form starts at the top.
-        for _ in 0..<6 {
-            swipeContainerUp()
-            if link.waitForExistence(timeout: 0.5) { return true }
-        }
-
-        // 3) Sweep back down — covers the scene-restoration case where the
-        //    form resumed scrolled past the link.
-        for _ in 0..<8 {
-            swipeContainerDown()
-            if link.waitForExistence(timeout: 0.5) { return true }
-        }
-        return false
-    }
-
-    private func swipeContainerDown() {
-        if let f = form { f.swipeDown() } else { app.swipeDown() }
+        // Wait for the Settings screen itself to mount — any navigation
+        // bar is a reliable per-tab indicator and is present regardless
+        // of `SettingsViewModel.dictionaries` load state. Match by
+        // first-existence rather than the localized title "Settings" so
+        // the wait holds under non-English UI languages.
+        _ = app.navigationBars.firstMatch.waitForExistence(timeout: timeout)
+        return app.scrollToElement(manageDictionariesLink)
     }
 
     /// Taps "Manage Dictionaries" and returns the destination page object.
@@ -158,11 +107,9 @@ class SettingsPage: BasePage {
     func tapManageDictionariesLink() -> ManageDictionariesPage {
         XCTAssertTrue(
             waitForManageDictionariesLink(timeout: TestData.Timeouts.long),
-            "Manage Dictionaries link should appear in Settings"
+            "Manage Dictionaries link should be reachable in Settings"
         )
-        let link = manageDictionariesLink
-        scrollToElement(link)
-        link.tap()
+        manageDictionariesLink.tap()
         return ManageDictionariesPage(app: app)
     }
 }
