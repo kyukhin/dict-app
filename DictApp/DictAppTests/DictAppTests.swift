@@ -1098,6 +1098,279 @@ final class DictAppTests: XCTestCase {
     }
 
 
+    // MARK: - Issue #24: FreeDict English–Spanish bundle
+    //
+    // The dictionary content itself lives in the bundled `seed.sqlite`,
+    // so coverage spans two surfaces:
+    //   1. Cosmetic Swift (`sourceLabel`, Settings toggle wiring) —
+    //      independent of the seed contents.
+    //   2. Bundled data (metadata row + searchable headwords) — the
+    //      tests query the host bundle's `seed.sqlite` directly via
+    //      GRDB, identical to the pattern in `testBundledSeedIsRealSQLite`.
+    //      If the maintainer hasn't yet regenerated `seed.sqlite` with
+    //      the new source these tests will fail loudly — that's the
+    //      signal that the data step of #24 is incomplete.
+
+    /// The canonical source identifier for the new dictionary. Centralised
+    /// here so a future rename (e.g. moving to ISO-639-3 `eng-spa`
+    /// codepoints) only requires one edit.
+    private static let freeDictEngSpaSource = "freedict-eng-spa"
+
+    /// `DictionaryEntry.sourceLabel` must return the terse "En–Es"
+    /// badge for the new source identifier, not the raw capitalised
+    /// fallback (e.g. "Freedict-Eng-Spa").
+    func testFreeDictSourceLabelIsTerseEnEs() throws {
+        let entry = DictionaryEntry(
+            id: 1,
+            word: "house",
+            definition: "**noun**\n1. casa",
+            phonetic: "haʊs",
+            pos: "noun",
+            source: Self.freeDictEngSpaSource,
+            createdAt: nil
+        )
+        XCTAssertEqual(
+            entry.sourceLabel, "En–Es",
+            "freedict-eng-spa must render as the terse 'En–Es' badge, not the .capitalized fallback"
+        )
+
+        // Negative control: the unknown-source fallback (`.capitalized`)
+        // still produces the wrong-looking 'Freedict-Eng-Spa'. We assert
+        // this here so the test fails if anyone ever removes the switch
+        // case entirely.
+        let fallback = DictionaryEntry(
+            id: nil, word: "x", definition: "", phonetic: "",
+            pos: "", source: Self.freeDictEngSpaSource, createdAt: nil
+        )
+        XCTAssertNotEqual(
+            fallback.sourceLabel, Self.freeDictEngSpaSource.capitalized,
+            "freedict-eng-spa source must short-circuit the .capitalized fallback"
+        )
+
+        // Existing sources must keep their labels (regression guard).
+        let wordnet = DictionaryEntry(
+            id: nil, word: "x", definition: "", phonetic: "",
+            pos: "", source: "wordnet", createdAt: nil
+        )
+        XCTAssertEqual(wordnet.sourceLabel, "WordNet")
+
+        let openRussian = DictionaryEntry(
+            id: nil, word: "x", definition: "", phonetic: "",
+            pos: "", source: "openrussian", createdAt: nil
+        )
+        XCTAssertEqual(openRussian.sourceLabel, "OpenRussian")
+
+        // An entirely unknown source still flows through .capitalized.
+        let unknown = DictionaryEntry(
+            id: nil, word: "x", definition: "", phonetic: "",
+            pos: "", source: "kaikki", createdAt: nil
+        )
+        XCTAssertEqual(unknown.sourceLabel, "Kaikki",
+                       "Unknown sources must fall back to .capitalized")
+    }
+
+    /// The bundled `seed.sqlite` must contain a `dict_metadata` row for
+    /// `freedict-eng-spa` with every contract column populated. We open
+    /// the seed directly (read-only) — the per-test `DatabaseService`
+    /// instance points at a fresh tempDir DB and won't see bundled data.
+    ///
+    /// FAILS LOUDLY if the seed hasn't been regenerated with the new
+    /// source. That's the gate that catches a half-shipped #24.
+    func testFreeDictMetadataRowIsPopulated() throws {
+        let queue = try Self.openBundledSeedReadOnly()
+
+        let row = try queue.read { db -> Row? in
+            try Row.fetchOne(
+                db,
+                sql: """
+                    SELECT source, display_name, version, license, url, description, word_count
+                    FROM dict_metadata
+                    WHERE source = ?
+                    """,
+                arguments: [Self.freeDictEngSpaSource]
+            )
+        }
+
+        let unwrapped = try XCTUnwrap(
+            row,
+            "Bundled seed.sqlite has no dict_metadata row for '\(Self.freeDictEngSpaSource)'. Regenerate via `python Scripts/build_seed.py` before merging Issue #24."
+        )
+
+        let displayName: String = unwrapped["display_name"]
+        let version: String = unwrapped["version"]
+        let license: String = unwrapped["license"]
+        let url: String = unwrapped["url"]
+        let description: String = unwrapped["description"]
+        let wordCount: Int = unwrapped["word_count"]
+
+        XCTAssertFalse(displayName.isEmpty,
+                       "dict_metadata.display_name must be non-empty")
+        XCTAssertFalse(version.isEmpty,
+                       "dict_metadata.version must capture the upstream FreeDict release tag")
+        XCTAssertFalse(url.isEmpty,
+                       "dict_metadata.url must point at FreeDict's project page")
+        XCTAssertTrue(url.contains("freedict"),
+                      "dict_metadata.url should reference 'freedict.org'; got '\(url)'")
+        XCTAssertFalse(description.isEmpty,
+                       "dict_metadata.description must explain the source")
+
+        // GPL text is a hard contract — the bundle ships GPL'd data and
+        // must surface the license text in-app (DictionaryDetailView).
+        XCTAssertFalse(license.isEmpty,
+                       "dict_metadata.license must contain the full GPL text")
+        XCTAssertTrue(license.uppercased().contains("GPL") || license.contains("GNU GENERAL PUBLIC LICENSE"),
+                      "License text must mention GPL — required for GPL compliance; got first 80 chars: \(license.prefix(80))")
+
+        // Success criterion #3 from the design doc: ≥ 50,000 entries.
+        XCTAssertGreaterThanOrEqual(
+            wordCount, 50_000,
+            "FreeDict eng-spa should contribute ≥ 50,000 entries (success criterion #3); got \(wordCount)"
+        )
+    }
+
+    /// At least one *common* English headword from the eng-spa pair must
+    /// be present in the bundled seed under `source = 'freedict-eng-spa'`.
+    /// We try several candidates so the test isn't pinned to a single
+    /// word that could be missing in an upstream release.
+    func testFreeDictHeadwordIsSearchable() throws {
+        let queue = try Self.openBundledSeedReadOnly()
+
+        // Sanity: the source must have a presence in the entries table.
+        let total = try queue.read { db in
+            try Int.fetchOne(
+                db,
+                sql: "SELECT COUNT(*) FROM entries WHERE source = ?",
+                arguments: [Self.freeDictEngSpaSource]
+            ) ?? 0
+        }
+        XCTAssertGreaterThan(
+            total, 0,
+            "Bundled seed has no entries with source='\(Self.freeDictEngSpaSource)'. Regenerate via `python Scripts/build_seed.py`."
+        )
+
+        // Pick everyday words that every general-purpose English-Spanish
+        // dictionary covers. At least one must hit.
+        let candidates = ["house", "water", "book", "time", "love", "day"]
+        var hits: [String: Int] = [:]
+        try queue.read { db in
+            for word in candidates {
+                let count = try Int.fetchOne(
+                    db,
+                    sql: """
+                        SELECT COUNT(*) FROM entries
+                        WHERE source = ? AND word = ? COLLATE NOCASE
+                        """,
+                    arguments: [Self.freeDictEngSpaSource, word]
+                ) ?? 0
+                hits[word] = count
+            }
+        }
+        let foundWords = hits.filter { $0.value > 0 }.map { $0.key }.sorted()
+        // Halt the test if no candidates hit — continuing would just
+        // emit an index-out-of-range crash on `foundWords[0]`.
+        let probeWord = try XCTUnwrap(
+            foundWords.first,
+            "None of the candidate headwords \(candidates) were found in '\(Self.freeDictEngSpaSource)'. The dictionary is either too small, mis-cased, or mis-tagged. Hits: \(hits)"
+        )
+
+        // Verify the row is fully populated — `definition` non-empty
+        // (sense aggregation worked) and `source` exactly matches (tags
+        // weren't truncated/renamed).
+        let entry = try queue.read { db -> Row? in
+            try Row.fetchOne(
+                db,
+                sql: """
+                    SELECT word, definition, source, pos
+                    FROM entries
+                    WHERE source = ? AND word = ? COLLATE NOCASE
+                    LIMIT 1
+                    """,
+                arguments: [Self.freeDictEngSpaSource, probeWord]
+            )
+        }
+        let unwrapped = try XCTUnwrap(entry,
+                                      "Lookup for '\(probeWord)' in '\(Self.freeDictEngSpaSource)' returned no row")
+        let definition: String = unwrapped["definition"]
+        XCTAssertFalse(definition.isEmpty,
+                       "FreeDict entries must have a non-empty definition; '\(probeWord)' was empty")
+        let actualSource: String = unwrapped["source"]
+        XCTAssertEqual(actualSource, Self.freeDictEngSpaSource,
+                       "Source identifier must match the canonical 'freedict-eng-spa'")
+    }
+
+    /// `SettingsService.isEnabled(source:)` must report the new source as
+    /// enabled on first launch (no UserDefaults entry), persist a toggle
+    /// to off, and persist a toggle back to on — same shape as the
+    /// existing `testSettingsServiceTogglePersists`, scoped to the new id.
+    func testFreeDictSourceTogglePersists() throws {
+        let service = SettingsService.shared
+
+        // Snapshot + restore so we don't bleed state into adjacent tests.
+        let originalEnabled = service.enabledSources
+        addTeardownBlock {
+            service.enabledSources = originalEnabled
+        }
+
+        // First-launch state.
+        service.enabledSources = nil
+        XCTAssertTrue(
+            service.isEnabled(source: Self.freeDictEngSpaSource),
+            "Unknown / first-launch state must treat \(Self.freeDictEngSpaSource) as enabled"
+        )
+
+        let known: Set<String> = ["wordnet", "openrussian", Self.freeDictEngSpaSource]
+
+        // Toggle off.
+        service.setEnabled(false, for: Self.freeDictEngSpaSource, knownSources: known)
+        XCTAssertFalse(
+            service.isEnabled(source: Self.freeDictEngSpaSource),
+            "After setEnabled(false), freedict-eng-spa must report disabled"
+        )
+        // Other sources must remain enabled (the user toggled exactly one).
+        XCTAssertTrue(service.isEnabled(source: "wordnet"),
+                      "Disabling freedict-eng-spa must not affect other sources")
+        XCTAssertTrue(service.isEnabled(source: "openrussian"))
+
+        // Persisted set must contain the other two and exclude ours.
+        let stored = service.enabledSources
+        XCTAssertNotNil(stored, "Persisted enabledSources must exist after any setEnabled call")
+        XCTAssertFalse(stored?.contains(Self.freeDictEngSpaSource) ?? true,
+                       "Persisted set must not contain freedict-eng-spa after toggling it off")
+        XCTAssertTrue(stored?.contains("wordnet") ?? false)
+        XCTAssertTrue(stored?.contains("openrussian") ?? false)
+
+        // Toggle back on.
+        service.setEnabled(true, for: Self.freeDictEngSpaSource, knownSources: known)
+        XCTAssertTrue(
+            service.isEnabled(source: Self.freeDictEngSpaSource),
+            "Re-enabling freedict-eng-spa must be visible immediately"
+        )
+        XCTAssertTrue(service.enabledSources?.contains(Self.freeDictEngSpaSource) ?? false,
+                      "Re-enable must round-trip through UserDefaults")
+    }
+
+    /// Opens the bundled `seed.sqlite` read-only via GRDB so the FreeDict
+    /// tests can probe it without touching the per-test database. Mirrors
+    /// the host-bundle resolution used by `testBundledSeedIsRealSQLite`.
+    private static func openBundledSeedReadOnly() throws -> DatabaseQueue {
+        let hostBundle: Bundle = {
+            if let url = Bundle.main.url(forResource: "DictApp", withExtension: "app") {
+                return Bundle(url: url) ?? .main
+            }
+            return .main
+        }()
+
+        let seedURL = try XCTUnwrap(
+            hostBundle.url(forResource: "seed", withExtension: "sqlite")
+                ?? Bundle.main.url(forResource: "seed", withExtension: "sqlite"),
+            "Bundled seed.sqlite is missing from the app bundle"
+        )
+
+        var config = Configuration()
+        config.readonly = true
+        return try DatabaseQueue(path: seedURL.path, configuration: config)
+    }
+
     // MARK: - Performance Tests
 
     /// Measures FTS5 search time on a 100,000-entry database. Target: < 16ms.

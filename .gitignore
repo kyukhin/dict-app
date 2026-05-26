@@ -34,6 +34,10 @@ __pycache__/
 *.pyc
 *.egg-info/
 
+# Build-script download cache (FreeDict TEI tarballs, etc.). Re-fetched
+# from upstream on demand; never committed.
+Scripts/.cache/
+
 # --- IDE / Editor ---
 .idea/
 .vscode/

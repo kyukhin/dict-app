@@ -5,6 +5,11 @@ All notable changes to **LibreDict** will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- [Issue #24] Bundled an English–Spanish dictionary sourced from FreeDict's `eng-spa` TEI/XML release (~64k headwords, GPL-3.0). The conversion lives entirely in `Scripts/build_freedict_eng_spa.py` (TEI parser, POS normalisation, sense aggregation) and the existing `build_seed.py` orchestrator gains a `--skip-spanish` flag and a final FTS rebuild. The app's data layer needs no changes — the new source identifier `freedict-eng-spa` flows through the existing schema, Settings list, and search filter unchanged; the only Swift edits are a one-line badge label in `DictionaryEntry.sourceLabel` and two Credits rows.
+
 ## [1.2.0] - 2026-05-25
 
 ### Added
