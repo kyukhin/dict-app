@@ -52,7 +52,7 @@ final class NavigationTests: XCTestCase {
         // Test navigation to Manage tab
         tabBarPage.tapManageTab()
 
-        XCTAssertTrue(tabBarPage.verifyManageTabSelected(), "Manage tab should be selected")
+        XCTAssertTrue(tabBarPage.verifySettingsTabSelected(), "Settings tab should be selected")
         // Note: Manage tab functionality would need specific verification based on implementation
     }
 
@@ -112,7 +112,7 @@ final class NavigationTests: XCTestCase {
 
         // Move to Manage
         tabBarPage.tapManageTab()
-        XCTAssertTrue(tabBarPage.verifyManageTabSelected(), "Manage tab should be selected")
+        XCTAssertTrue(tabBarPage.verifySettingsTabSelected(), "Settings tab should be selected")
 
         // Return to Search
         let searchPageFinal = tabBarPage.tapSearchTab()

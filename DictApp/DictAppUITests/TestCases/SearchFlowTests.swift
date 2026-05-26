@@ -86,23 +86,57 @@ final class SearchFlowTests: XCTestCase {
     }
 
     func testSearchToDefinitionNavigation() throws {
-        // Test complete flow from search to definition
+        // End-to-end: search → tap a matching result → definition view loads
+        // with the expected content.
+        //
+        // We don't pin a specific result index. Bundling additional sources
+        // (e.g. the FreeDict eng-spa pair in Issue #24) changes FTS5's BM25
+        // ranking and shuffles the top-N for common headwords, so the old
+        // "result #0 is the WordNet entry" assumption was brittle. Instead,
+        // walk the visible results until one whose definition contains the
+        // expected substring is found, navigating back between attempts.
         let searchTerm = TestData.searchTerms[1] // "test"
+        guard let expectedContent = TestData.expectedResults[searchTerm] else {
+            XCTFail("TestData.expectedResults is missing an entry for '\(searchTerm)'")
+            return
+        }
 
         searchPage.searchFor(searchTerm)
         XCTAssertTrue(searchPage.waitForResults(), "Search results should appear")
 
-        let definitionPage = searchPage.tapSearchResult(at: 0)
+        // Cap the probe so a real regression (the term has no matching
+        // definition at all) fails the test in bounded time. 10 results is
+        // far more than any single source contributes to the top of a query
+        // for a common word — if the expected content isn't in the first 10,
+        // something is genuinely wrong with the seed.
+        let resultCount = searchPage.getResultsCount()
+        XCTAssertGreaterThan(resultCount, 0, "Search for '\(searchTerm)' returned no results")
+        let probeLimit = min(10, resultCount)
 
-        // Verify definition contains expected content
-        XCTAssertTrue(definitionPage.waitForDefinitionToLoad(), "Definition should load")
-
-        if let expectedContent = TestData.expectedResults[searchTerm] {
+        var matchedIndex: Int?
+        for index in 0..<probeLimit {
+            let definitionPage = searchPage.tapSearchResult(at: index)
             XCTAssertTrue(
-                definitionPage.verifyDefinitionContainsText(expectedContent),
-                "Definition should contain expected content"
+                definitionPage.waitForDefinitionToLoad(),
+                "Definition view should load for result #\(index)"
+            )
+            if definitionPage.verifyDefinitionContainsText(expectedContent) {
+                matchedIndex = index
+                break
+            }
+            // Not the match we want — navigate back and try the next one.
+            // The search query stays in the field, so results are intact.
+            definitionPage.navigateBack()
+            XCTAssertTrue(
+                searchPage.waitForResults(),
+                "Results list should re-appear after navigating back from result #\(index)"
             )
         }
+
+        XCTAssertNotNil(
+            matchedIndex,
+            "No result among the first \(probeLimit) for '\(searchTerm)' had a definition containing '\(expectedContent)'"
+        )
     }
 
     func testSearchFieldFunctionality() throws {
