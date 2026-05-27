@@ -25,26 +25,51 @@ final class DictionaryFilterTests: XCTestCase {
     var app: XCUIApplication!
     var tabBarPage: TabBarPage!
 
-    /// The three sources shipped in the seed database.
+    /// The four sources shipped in the seed database.
     private let englishSource = "wordnet"
     private let russianSource = "openrussian"
     private let englishSpanishSource = "freedict-eng-spa"
+    private let spanishEnglishSource = "wordnet-spa-eng"
 
     /// A search term that exists in OpenRussian and *only* in OpenRussian
     /// (no Cyrillic in WordNet). Disabling OpenRussian must drop it to 0.
     private let russianOnlyTerm = "яблоко"
 
-    /// A Spanish term that exists *only* in FreeDict eng-spa. The `ñ`
-    /// rules out collisions with WordNet's plain-ASCII headwords, and
-    /// the Latin script rules out collisions with OpenRussian's Cyrillic
-    /// content. Verified offline against `seed.sqlite`: 6 matches, all
-    /// `source = 'freedict-eng-spa'`.
-    private let spanishOnlyTerm = "español"
+    /// A Spanish term that exists *only* in FreeDict eng-spa — and stays
+    /// exclusive even after Spanish WordNet (#42) added 36k Spanish
+    /// headwords. We deliberately use the **plural** "niños": Spanish
+    /// WordNet stores singular lemmas ("niño"), so the plural never
+    /// appears as a `wordnet-spa-eng` headword, whereas FreeDict spells
+    /// translations in context (including plurals) inside its
+    /// definitions. The `ñ` rules out collisions with WordNet's
+    /// plain-ASCII English headwords, and the Latin script rules out
+    /// OpenRussian's Cyrillic. Verified offline against the 4-source
+    /// `seed.sqlite`: 4 FTS matches, all `source = 'freedict-eng-spa'`.
+    ///
+    /// (The earlier choice "español" stopped being exclusive once #42
+    /// landed — it became an exact `wordnet-spa-eng` headword, which then
+    /// out-ranked the FreeDict definition match and broke the index-0
+    /// badge assertion. The lesson: probe terms for source-isolation
+    /// tests must be re-validated whenever a new source is bundled.)
+    private let spanishOnlyTerm = "niños"
 
     /// The badge text `DictionaryEntry.sourceLabel` renders for the
     /// `freedict-eng-spa` source. The dash is U+2013 (en dash), matching
     /// the literal in `Models.swift`.
     private let freeDictBadge = "En–Es"
+
+    /// A Spanish headword that exists *only* in Spanish WordNet
+    /// (`wordnet-spa-eng`). Verified offline against `seed.sqlite`: a
+    /// single FTS match, `source = 'wordnet-spa-eng'`, nowhere else — so
+    /// disabling that one source must drop the query to zero results.
+    /// 'atacar' → 'attack' is a transparent cognate, so a hit also
+    /// confirms the spa→eng synset mapping resolved to the right word.
+    private let spanishHeadwordTerm = "atacar"
+
+    /// The badge `DictionaryEntry.sourceLabel` renders for
+    /// `wordnet-spa-eng`. Note the direction differs from `freeDictBadge`
+    /// ("Es–En" vs "En–Es"); the en dash is U+2013, matching `Models.swift`.
+    private let spanishWordNetBadge = "Es–En"
 
     override func setUpWithError() throws {
         continueAfterFailure = false
@@ -206,6 +231,81 @@ final class DictionaryFilterTests: XCTestCase {
         XCTAssertTrue(
             searchPage.waitForResults(),
             "After re-enabling '\(englishSpanishSource)', '\(spanishOnlyTerm)' must return results again"
+        )
+    }
+
+    // MARK: - Spanish WordNet spa-eng (Issue #42)
+
+    /// Searching a Spanish headword that exists only in Spanish WordNet
+    /// ("atacar") must surface a `wordnet-spa-eng` row end-to-end:
+    ///   - the results list is non-empty, and
+    ///   - the first row's source badge reads `Es–En`, the value
+    ///     `DictionaryEntry.sourceLabel` produces only for that source.
+    ///
+    /// Because "atacar" is exclusive to `wordnet-spa-eng`, the first
+    /// result is unambiguously from the new bundle — the badge assertion
+    /// makes this a provenance check, not a generic "search returned
+    /// something". Mirrors the #24 eng-spa coverage in the opposite
+    /// translation direction.
+    func testSearchingSpanishHeadwordSurfacesSpanishWordNetResults() throws {
+        let searchPage = tabBarPage.tapSearchTab()
+        searchPage.searchFor(spanishHeadwordTerm)
+
+        XCTAssertTrue(
+            searchPage.waitForResults(),
+            "Search for '\(spanishHeadwordTerm)' must return at least one result from \(spanishEnglishSource)"
+        )
+        XCTAssertTrue(
+            searchPage.verifyResultContainsText(spanishWordNetBadge, at: 0),
+            "First result for '\(spanishHeadwordTerm)' must carry the '\(spanishWordNetBadge)' badge, proving the entry came from \(spanishEnglishSource)"
+        )
+    }
+
+    /// Disabling `wordnet-spa-eng` must eliminate the Spanish-headword
+    /// hits, and re-enabling must restore them. Round-trips the toggle so
+    /// both edges of the per-source filter are covered for the fourth
+    /// source.
+    ///
+    /// Probing with a term exclusive to `wordnet-spa-eng` keeps the
+    /// empty-state assertion meaningful: without exclusivity, leftover
+    /// hits from FreeDict eng-spa's Spanish-in-definition entries could
+    /// mask a regression in the toggle wiring.
+    func testDisablingSpanishWordNetHidesAndRestoresResults() throws {
+        // 1) Baseline: with all dictionaries enabled, '\(spanishHeadwordTerm)'
+        //    returns results.
+        var searchPage = tabBarPage.tapSearchTab()
+        searchPage.searchFor(spanishHeadwordTerm)
+        XCTAssertTrue(
+            searchPage.waitForResults(),
+            "Baseline: '\(spanishHeadwordTerm)' must return results before toggling"
+        )
+        searchPage.clearOverlaysBeforeTabSwitch()
+
+        // 2) Disable wordnet-spa-eng.
+        var settingsPage = tabBarPage.tapSettingsTab()
+        settingsPage.tapToggle(source: spanishEnglishSource)
+
+        // 3) The same search now drops to ContentUnavailableView — the
+        //    term has no remaining home in the enabled set.
+        searchPage = tabBarPage.tapSearchTab()
+        searchPage.clearSearch()
+        searchPage.searchFor(spanishHeadwordTerm)
+        XCTAssertTrue(
+            searchPage.waitForNoResults(),
+            "After disabling '\(spanishEnglishSource)', '\(spanishHeadwordTerm)' must show ContentUnavailableView"
+        )
+        searchPage.clearOverlaysBeforeTabSwitch()
+
+        // 4) Re-enable wordnet-spa-eng; results must come back.
+        settingsPage = tabBarPage.tapSettingsTab()
+        settingsPage.tapToggle(source: spanishEnglishSource)
+
+        searchPage = tabBarPage.tapSearchTab()
+        searchPage.clearSearch()
+        searchPage.searchFor(spanishHeadwordTerm)
+        XCTAssertTrue(
+            searchPage.waitForResults(),
+            "After re-enabling '\(spanishEnglishSource)', '\(spanishHeadwordTerm)' must return results again"
         )
     }
 
