@@ -699,6 +699,135 @@ final class DictAppTests: XCTestCase {
         return bundle
     }
 
+    // MARK: - Issue #23: Spanish UI localization
+
+    /// `SupportedLocales.json` must now include Spanish (`es`) so the
+    /// in-app language picker offers it. Verifies the manifest entry's
+    /// code, native name, and display key, and that the three shipped UI
+    /// languages all coexist.
+    func testSupportedLocalesManifestIncludesSpanish() throws {
+        let url = try XCTUnwrap(
+            Bundle.main.url(forResource: "SupportedLocales", withExtension: "json"),
+            "SupportedLocales.json must be bundled with the app"
+        )
+        let languages = try JSONDecoder().decode([UILanguage].self, from: Data(contentsOf: url))
+
+        let es = try XCTUnwrap(
+            languages.first(where: { $0.code == "es" }),
+            "Manifest must include Spanish (code 'es') after Issue #23"
+        )
+        XCTAssertEqual(es.nativeName, "Español",
+                       "Spanish nativeName must be 'Español' in its own (accented) script")
+        XCTAssertEqual(es.displayKey, "language.es.name",
+                       "Spanish displayKey must point at the 'language.es.name' catalog key")
+
+        // The three shipped UI languages must all be offered, none dropped.
+        let codes = Set(languages.map(\.code))
+        XCTAssertTrue(codes.isSuperset(of: ["en", "ru", "es"]),
+                      "Manifest must offer en, ru, and es; got \(codes.sorted())")
+    }
+
+    /// The shared `LocalizationManager` must surface Spanish among its
+    /// supported languages (loaded from the bundled manifest), and the
+    /// pure resolver must select Spanish when it is the persisted choice.
+    @MainActor
+    func testLocalizationManagerSupportsSpanish() throws {
+        let supported = LocalizationManager.shared.supportedLanguages
+        XCTAssertTrue(
+            supported.contains(where: { $0.code == "es" }),
+            "Shared LocalizationManager must load Spanish from SupportedLocales.json"
+        )
+
+        let resolved = LocalizationManager.resolveInitialLanguage(
+            persistedCode: "es",
+            supported: supported
+        )
+        XCTAssertEqual(resolved.code, "es",
+                       "A persisted 'es' preference must resolve to Spanish")
+
+        // Sanity: an unsupported persisted code must NOT masquerade as
+        // Spanish — guards the resolver's match logic.
+        let fallback = LocalizationManager.resolveInitialLanguage(
+            persistedCode: "zz-not-real",
+            supported: supported
+        )
+        XCTAssertNotEqual(fallback.code, "es",
+                          "An unsupported code must not accidentally resolve to Spanish")
+    }
+
+    /// The xcstrings catalog must actually compile Spanish into `es.lproj`.
+    /// Force-load the es bundle and assert a spread of keys across every
+    /// major screen render their Spanish values — catching both a missing
+    /// compile and any untranslated (English-leak) key.
+    func testSpanishStringsCompiledIntoLproj() throws {
+        let esBundle = try Self.lprojBundle(forLocale: "es")
+        let es = Locale(identifier: "es")
+
+        let cases: [(key: String, spanish: String)] = [
+            ("tab.search", "Buscar"),
+            ("tab.history", "Historial"),
+            ("tab.bookmarks", "Marcadores"),
+            ("tab.settings", "Ajustes"),
+            ("settings.title", "Ajustes"),
+            ("settings.language.section", "Idioma de la interfaz"),
+            ("settings.language.picker", "Idioma"),
+            ("settings.dictionaries.section", "Diccionarios"),
+            ("settings.support.section", "Soporte"),
+            ("settings.support.reportBug", "Informar de un error"),
+            ("settings.support.credits", "Créditos"),
+            ("settings.manageDictionaries", "Gestionar diccionarios"),
+            ("about.section", "Acerca de"),
+            ("common.loading", "Cargando…"),
+            ("common.comingSoon", "Próximamente"),
+            ("language.es.name", "Español"),
+            ("language.en.name", "Inglés"),
+            ("language.ru.name", "Ruso"),
+        ]
+
+        for (key, spanish) in cases {
+            let value = String(localized: String.LocalizationValue(key), bundle: esBundle, locale: es)
+            XCTAssertEqual(
+                value, spanish,
+                "Key '\(key)' must render its Spanish translation from es.lproj"
+            )
+        }
+
+        // No-leak guard: the Spanish render must differ from the English
+        // source for a translated key. If es.lproj silently fell back to
+        // English, this catches it.
+        let enBundle = try Self.lprojBundle(forLocale: "en")
+        let en = Locale(identifier: "en")
+        let enSearch = String(localized: "tab.search", bundle: enBundle, locale: en)
+        let esSearch = String(localized: "tab.search", bundle: esBundle, locale: es)
+        XCTAssertEqual(enSearch, "Search", "English control value must be 'Search'")
+        XCTAssertNotEqual(esSearch, enSearch,
+                          "Spanish 'tab.search' must not fall back to the English string")
+    }
+
+    /// Spanish CLDR plural forms for `dictionary.entries.count`: Spanish
+    /// has `one` (n == 1) and `other`. Validates the plural variations
+    /// compiled into es.lproj, mirroring the Russian plural test.
+    func testSpanishPluralFormsForEntriesCount() throws {
+        let esBundle = try Self.lprojBundle(forLocale: "es")
+        let es = Locale(identifier: "es")
+
+        XCTAssertEqual(
+            String(localized: "dictionary.entries.count \(1)", bundle: esBundle, locale: es),
+            "1 entrada",
+            "Spanish 'one' (1) must use the singular 'entrada'"
+        )
+        XCTAssertEqual(
+            String(localized: "dictionary.entries.count \(5)", bundle: esBundle, locale: es),
+            "5 entradas",
+            "Spanish 'other' (5) must use the plural 'entradas'"
+        )
+        XCTAssertEqual(
+            String(localized: "dictionary.entries.count \(0)", bundle: esBundle, locale: es),
+            "0 entradas",
+            "Spanish 'other' (0) must use the plural 'entradas'"
+        )
+    }
+
     // MARK: - Issue #25: Build version information
     //
     // `AppVersion` is a pure value type with no UIKit/SwiftUI dependencies,
