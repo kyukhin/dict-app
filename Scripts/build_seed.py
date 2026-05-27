@@ -1,20 +1,22 @@
 #!/usr/bin/env python3
 """
 build_seed.py
-Downloads WordNet (En-En), OpenRussian (Ru-En) and FreeDict eng-spa
-(En-Es) dictionaries, then builds a single seed.sqlite containing all
-three sources, an FTS5 index, and a metadata table.
+Downloads WordNet (En-En), OpenRussian (Ru-En), FreeDict eng-spa
+(En-Es) and Spanish WordNet (Es-En) dictionaries, then builds a single
+seed.sqlite containing all four sources, an FTS5 index, and a metadata
+table.
 
 Sources:
-  - WordNet 3.1 via NLTK   (BSD license, Princeton University)
+  - WordNet 3.0 via NLTK   (BSD license, Princeton University)
   - OpenRussian.org         (CC-BY-SA 4.0, community-maintained)
   - FreeDict eng-spa        (GPL-3.0, freedict.org — TEI/XML)
+  - Spanish WordNet         (CC BY 3.0, MCR / OMW via NLTK)
 
 Source-identifier convention used by this builder:
   - single-monolingual / unambiguous → bare provider name
         e.g. "wordnet", "openrussian".
   - bilingual / multi-direction → "provider-srclang-tgtlang" with
-    ISO-639-3 codes, e.g. "freedict-eng-spa".
+    ISO-639-3 codes, e.g. "freedict-eng-spa", "wordnet-spa-eng".
 
 Requirements:
     pip install nltk requests defusedxml
@@ -23,9 +25,10 @@ Usage (from project root):
     source .venv/bin/activate
     python Scripts/build_seed.py
     python Scripts/build_seed.py --output DictApp/DictApp/Resources/seed.sqlite
-    python Scripts/build_seed.py --skip-russian   # WordNet only (plus eng-spa)
-    python Scripts/build_seed.py --skip-spanish   # skip FreeDict eng-spa
-    python Scripts/build_seed.py --limit 5000     # subset WordNet (testing)
+    python Scripts/build_seed.py --skip-russian          # skip OpenRussian
+    python Scripts/build_seed.py --skip-spanish          # skip FreeDict eng-spa
+    python Scripts/build_seed.py --skip-spanish-wordnet  # skip Spanish WordNet
+    python Scripts/build_seed.py --limit 5000            # subset WordNet (testing)
 """
 
 import argparse
@@ -164,7 +167,7 @@ def extract_pos_tags(synsets) -> str:
 
 def insert_wordnet(cur: sqlite3.Cursor, conn: sqlite3.Connection,
                    limit: int | None = None) -> int:
-    print("\n[1/3] WordNet (En-En)")
+    print("\n[1/4] WordNet (En-En)")
     nltk = ensure_nltk()
     from nltk.corpus import wordnet as wn
 
@@ -202,7 +205,7 @@ def insert_wordnet(cur: sqlite3.Cursor, conn: sqlite3.Connection,
     count = cur.execute(
         "SELECT COUNT(*) FROM entries WHERE source='wordnet'").fetchone()[0]
     wordnet_license = (
-        "WordNet 3.1 License (BSD-style)\n\n"
+        "WordNet 3.0 License (BSD-style)\n\n"
         "Copyright 2006 by Princeton University. All rights reserved.\n\n"
         "THIS SOFTWARE AND DATABASE IS PROVIDED \"AS IS\" AND PRINCETON "
         "UNIVERSITY MAKES NO REPRESENTATIONS OR WARRANTIES, EXPRESS OR "
@@ -235,7 +238,7 @@ def insert_wordnet(cur: sqlite3.Cursor, conn: sqlite3.Connection,
     cur.execute(
         "INSERT OR REPLACE INTO dict_metadata(source, display_name, version, license, url, word_count, built_at, description) "
         "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-        ("wordnet", "WordNet", "3.1",
+        ("wordnet", "WordNet", "3.0",
          wordnet_license,
          "https://wordnet.princeton.edu/",
          count, datetime.now(tz=None).isoformat(),
@@ -294,7 +297,7 @@ def parse_openrussian(csv_files: dict[str, str]) -> list[tuple]:
 
 
 def insert_openrussian(cur: sqlite3.Cursor, conn: sqlite3.Connection) -> int:
-    print("\n[2/3] OpenRussian (Ru-En)")
+    print("\n[2/4] OpenRussian (Ru-En)")
     requests_mod = ensure_requests()
 
     try:
@@ -370,7 +373,7 @@ def insert_openrussian(cur: sqlite3.Cursor, conn: sqlite3.Connection) -> int:
 # ---------------------------------------------------------------------------
 
 def insert_freedict_eng_spa(cur: sqlite3.Cursor, conn: sqlite3.Connection) -> int:
-    print("\n[3/3] FreeDict (En-Es)")
+    print("\n[3/4] FreeDict (En-Es)")
     # Imported lazily so a `--skip-spanish` run doesn't need the module
     # (and so a tools-checkout with an old build_seed.py won't crash on
     # a missing sibling file).
@@ -429,6 +432,67 @@ def insert_freedict_eng_spa(cur: sqlite3.Cursor, conn: sqlite3.Connection) -> in
 
 
 # ---------------------------------------------------------------------------
+# Spanish WordNet (Es-En)
+# ---------------------------------------------------------------------------
+
+def insert_spanish_wordnet(cur: sqlite3.Cursor, conn: sqlite3.Connection) -> int:
+    print("\n[4/4] Spanish WordNet (Es-En)")
+    # Imported lazily so a `--skip-spanish-wordnet` run doesn't need the
+    # module (and so an old tools-checkout won't crash on a missing
+    # sibling file).
+    from build_spanish_wordnet import (
+        build_and_collect,
+        DESCRIPTION_TEXT,
+        DISPLAY_NAME,
+        LICENSE_TEXT,
+        SOURCE,
+        URL as METADATA_URL,
+    )
+
+    # No try/except: this runs only when --skip-spanish-wordnet was not
+    # passed, so a failure must surface rather than silently shipping a
+    # seed without the requested dictionary.
+    entries, version = build_and_collect()
+
+    print(f"  Built {len(entries)} Es-En entries.")
+
+    batch, inserted = [], 0
+    total = len(entries)
+    for i, row in enumerate(entries):
+        batch.append(row)
+        if len(batch) >= 500:
+            cur.executemany(
+                "INSERT OR IGNORE INTO entries(word, definition, phonetic, pos, source) "
+                "VALUES (?, ?, ?, ?, ?)", batch)
+            conn.commit()
+            inserted += len(batch)
+            batch.clear()
+            if total > 0:
+                pct = int((i + 1) / total * 100)
+                print(f"\r  [{pct:3d}%] {inserted} entries...", end="", flush=True)
+    if batch:
+        cur.executemany(
+            "INSERT OR IGNORE INTO entries(word, definition, phonetic, pos, source) "
+            "VALUES (?, ?, ?, ?, ?)", batch)
+        conn.commit()
+        inserted += len(batch)
+
+    count = cur.execute(
+        "SELECT COUNT(*) FROM entries WHERE source=?", (SOURCE,)).fetchone()[0]
+    cur.execute(
+        "INSERT OR REPLACE INTO dict_metadata(source, display_name, version, license, url, word_count, built_at, description) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        (SOURCE, DISPLAY_NAME, version,
+         LICENSE_TEXT,
+         METADATA_URL,
+         count, datetime.now(tz=None).isoformat(),
+         DESCRIPTION_TEXT))
+    conn.commit()
+    print(f"\n  Spanish WordNet: {count} entries")
+    return count
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -443,6 +507,8 @@ def main():
                         help="Skip the OpenRussian dictionary.")
     parser.add_argument("--skip-spanish", action="store_true",
                         help="Skip the FreeDict English-Spanish dictionary.")
+    parser.add_argument("--skip-spanish-wordnet", action="store_true",
+                        help="Skip the Spanish WordNet (Spanish-English) dictionary.")
     args = parser.parse_args()
 
     os.makedirs(os.path.dirname(args.output) or ".", exist_ok=True)
@@ -464,6 +530,9 @@ def main():
     es_count = 0
     if not args.skip_spanish:
         es_count = insert_freedict_eng_spa(cur, conn)
+    spa_wn_count = 0
+    if not args.skip_spanish_wordnet:
+        spa_wn_count = insert_spanish_wordnet(cur, conn)
 
     # Rebuild FTS index in bulk. Per-row triggers already kept it in sync
     # during the inserts, but a final rebuild produces a smaller,
@@ -483,6 +552,7 @@ def main():
     print(f"  WordNet  : {wn_count:,} entries")
     print(f"  OpenRus  : {ru_count:,} entries")
     print(f"  FreeDict : {es_count:,} entries")
+    print(f"  Spa-WN   : {spa_wn_count:,} entries")
     print(f"  Total    : {total:,} entries")
     print(f"{'='*50}")
 

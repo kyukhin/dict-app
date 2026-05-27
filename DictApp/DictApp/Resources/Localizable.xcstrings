@@ -230,6 +230,23 @@
         }
       }
     },
+    "credits.dataSources.spanishWordnet" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Spanish WordNet (MCR / OMW) — Spanish-English, CC BY 3.0"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Spanish WordNet (MCR / OMW) — испанско-английский, CC BY 3.0"
+          }
+        }
+      }
+    },
     "credits.dataSources.openrussian" : {
       "extractionState" : "manual",
       "localizations" : {

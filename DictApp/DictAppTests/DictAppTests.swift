@@ -1371,6 +1371,248 @@ final class DictAppTests: XCTestCase {
         return try DatabaseQueue(path: seedURL.path, configuration: config)
     }
 
+    // MARK: - Issue #42: Spanish WordNet (Spanish–English) bundle
+    //
+    // Content lives in the bundled `seed.sqlite` under source
+    // `wordnet-spa-eng`, so coverage mirrors the #24 FreeDict tests:
+    //   1. Cosmetic Swift (sourceLabel, Settings toggle) — independent of
+    //      the seed contents.
+    //   2. Bundled data (metadata row + searchable headwords) — queried
+    //      directly via `openBundledSeedReadOnly()`. These fail loudly if
+    //      the maintainer hasn't regenerated `seed.sqlite` with the new
+    //      source, which is the signal that the data step of #42 is
+    //      incomplete.
+
+    /// Canonical source identifier for Spanish WordNet (spa→eng). Follows
+    /// the #24 `provider-srclang-tgtlang` convention. Centralised so a
+    /// future rename is a one-line edit.
+    private static let spanishWordNetSource = "wordnet-spa-eng"
+
+    /// `DictionaryEntry.sourceLabel` must return the terse "Es–En" badge
+    /// for the Spanish WordNet source identifier, not the raw
+    /// capitalised fallback.
+    func testSpanishWordNetSourceLabelIsTerseEsEn() throws {
+        let entry = DictionaryEntry(
+            id: 1, word: "casa",
+            definition: "**noun**\n1. house, home — a dwelling…",
+            phonetic: "", pos: "noun",
+            source: Self.spanishWordNetSource, createdAt: nil
+        )
+        XCTAssertEqual(
+            entry.sourceLabel, "Es–En",
+            "wordnet-spa-eng must render as the terse 'Es–En' badge, not the .capitalized fallback"
+        )
+
+        // The .capitalized fallback would produce 'Wordnet-Spa-Eng'. The
+        // switch case must short-circuit it.
+        XCTAssertNotEqual(
+            entry.sourceLabel, Self.spanishWordNetSource.capitalized,
+            "wordnet-spa-eng source must short-circuit the .capitalized fallback"
+        )
+
+        // Regression guards: existing sources keep their labels, and the
+        // sibling bilingual source from #24 is not confused with this one.
+        XCTAssertEqual(
+            DictionaryEntry(id: nil, word: "x", definition: "", phonetic: "",
+                            pos: "", source: "wordnet", createdAt: nil).sourceLabel,
+            "WordNet",
+            "Plain 'wordnet' must stay 'WordNet', not collide with the spa-eng label"
+        )
+        XCTAssertEqual(
+            DictionaryEntry(id: nil, word: "x", definition: "", phonetic: "",
+                            pos: "", source: "freedict-eng-spa", createdAt: nil).sourceLabel,
+            "En–Es",
+            "The #24 eng-spa source must keep its 'En–Es' badge (opposite direction)"
+        )
+    }
+
+    /// The bundled DB must carry a `dict_metadata` row for
+    /// `wordnet-spa-eng` with non-empty license, display_name, version
+    /// (accurately naming the WordNet/OMW version), url, and description.
+    ///
+    /// FAILS LOUDLY if the seed hasn't been regenerated with the new
+    /// source — the gate that catches a half-shipped #42.
+    func testSpanishWordNetMetadataRowIsPopulated() throws {
+        let queue = try Self.openBundledSeedReadOnly()
+
+        let row = try queue.read { db -> Row? in
+            try Row.fetchOne(
+                db,
+                sql: """
+                    SELECT source, display_name, version, license, url, description, word_count
+                    FROM dict_metadata
+                    WHERE source = ?
+                    """,
+                arguments: [Self.spanishWordNetSource]
+            )
+        }
+
+        let unwrapped = try XCTUnwrap(
+            row,
+            "Bundled seed.sqlite has no dict_metadata row for '\(Self.spanishWordNetSource)'. Regenerate via `python Scripts/build_seed.py` before merging Issue #42."
+        )
+
+        let displayName: String = unwrapped["display_name"]
+        let version: String = unwrapped["version"]
+        let license: String = unwrapped["license"]
+        let url: String = unwrapped["url"]
+        let description: String = unwrapped["description"]
+        let wordCount: Int = unwrapped["word_count"]
+
+        XCTAssertFalse(displayName.isEmpty,
+                       "dict_metadata.display_name must be non-empty")
+        XCTAssertFalse(url.isEmpty,
+                       "dict_metadata.url must point at the MCR / OMW project page")
+        XCTAssertFalse(description.isEmpty,
+                       "dict_metadata.description must explain the source")
+
+        // The design doc's central correctness point: the version must
+        // *accurately* name the WordNet/OMW version used (the English
+        // wordnet row's "3.1" is a known mislabel). Require a version-like
+        // token so a blank or stub value fails.
+        XCTAssertFalse(version.isEmpty,
+                       "dict_metadata.version must state the WordNet/OMW version used")
+        XCTAssertTrue(
+            version.range(of: #"\d"#, options: .regularExpression) != nil,
+            "dict_metadata.version should contain a version number (e.g. 'OMW 1.4 / WordNet 3.0'); got '\(version)'"
+        )
+
+        // License text is a hard contract — the bundle ships licensed data
+        // and surfaces the text in DictionaryDetailView. Guard against an
+        // empty or stub value.
+        XCTAssertGreaterThan(
+            license.count, 50,
+            "dict_metadata.license must contain real license text, not a stub; got \(license.count) chars"
+        )
+
+        // Success criterion #1 from the design doc: ≥ 30,000 entries.
+        XCTAssertGreaterThanOrEqual(
+            wordCount, 30_000,
+            "Spanish WordNet should contribute ≥ 30,000 entries (design doc success criterion); got \(wordCount)"
+        )
+    }
+
+    /// A common Spanish headword must be present under `wordnet-spa-eng`,
+    /// and its definition must lead with the correct English translation —
+    /// which also verifies the synset mapping resolved Spanish→English to
+    /// the *right* synset (the design doc's "Critical Risk").
+    func testSpanishWordNetHeadwordIsSearchable() throws {
+        let queue = try Self.openBundledSeedReadOnly()
+
+        // Sanity: the source must have a presence in the entries table.
+        let total = try queue.read { db in
+            try Int.fetchOne(
+                db,
+                sql: "SELECT COUNT(*) FROM entries WHERE source = ?",
+                arguments: [Self.spanishWordNetSource]
+            ) ?? 0
+        }
+        XCTAssertGreaterThan(
+            total, 0,
+            "Bundled seed has no entries with source='\(Self.spanishWordNetSource)'. Regenerate via `python Scripts/build_seed.py`."
+        )
+
+        // Spanish headword → an English translation lemma that the correct
+        // synset must contain. These are the sampled mappings the design
+        // doc calls out (casa→house, perro→dog, agua→water). Probing
+        // several guards against any single lemma being absent upstream.
+        let expectedTranslations: [String: String] = [
+            "casa": "house",
+            "perro": "dog",
+            "agua": "water",
+            "libro": "book",
+            "gato": "cat"
+        ]
+
+        var probed: [String: String] = [:]   // spanish -> its definition (when found)
+        try queue.read { db in
+            for spanish in expectedTranslations.keys {
+                if let def = try String.fetchOne(
+                    db,
+                    sql: """
+                        SELECT definition FROM entries
+                        WHERE source = ? AND word = ?
+                        LIMIT 1
+                        """,
+                    arguments: [Self.spanishWordNetSource, spanish]
+                ) {
+                    probed[spanish] = def
+                }
+            }
+        }
+
+        // Require at least one candidate present (guards against an empty
+        // or missing source), then validate the synset alignment for
+        // *every* probed hit — not just the first — so a single wrong
+        // mapping can't slip through behind a correct one.
+        XCTAssertFalse(
+            probed.isEmpty,
+            "None of the candidate Spanish headwords \(expectedTranslations.keys.sorted()) were found in '\(Self.spanishWordNetSource)'. The dictionary is too small or mis-tagged."
+        )
+
+        for (spanish, definition) in probed {
+            XCTAssertFalse(
+                definition.isEmpty,
+                "Spanish WordNet entry '\(spanish)' must have a non-empty definition"
+            )
+            // The synset must have mapped to the correct English word —
+            // the alignment-correctness check, not just "some text exists".
+            let expectedEnglish = expectedTranslations[spanish]!
+            XCTAssertTrue(
+                definition.range(of: expectedEnglish, options: .caseInsensitive) != nil,
+                "Definition for Spanish '\(spanish)' must contain the English translation '\(expectedEnglish)' (synset alignment); got: \(definition.prefix(160))"
+            )
+        }
+    }
+
+    /// `SettingsService.isEnabled(source: "wordnet-spa-eng")` must follow
+    /// the first-launch-all-enabled then toggle-persists contract,
+    /// paralleling the other per-source toggle tests.
+    func testSpanishWordNetSourceTogglePersists() throws {
+        let service = SettingsService.shared
+
+        // Snapshot + restore so we don't bleed state into adjacent tests.
+        let originalEnabled = service.enabledSources
+        addTeardownBlock {
+            service.enabledSources = originalEnabled
+        }
+
+        // First-launch state: every source enabled, including unknown ones.
+        service.enabledSources = nil
+        XCTAssertTrue(
+            service.isEnabled(source: Self.spanishWordNetSource),
+            "First-launch state must treat \(Self.spanishWordNetSource) as enabled"
+        )
+
+        let known: Set<String> = ["wordnet", "openrussian", "freedict-eng-spa", Self.spanishWordNetSource]
+
+        // Toggle off — siblings must remain enabled.
+        service.setEnabled(false, for: Self.spanishWordNetSource, knownSources: known)
+        XCTAssertFalse(
+            service.isEnabled(source: Self.spanishWordNetSource),
+            "After setEnabled(false), wordnet-spa-eng must report disabled"
+        )
+        XCTAssertTrue(service.isEnabled(source: "freedict-eng-spa"),
+                      "Disabling wordnet-spa-eng must not affect the eng-spa source")
+        XCTAssertTrue(service.isEnabled(source: "wordnet"))
+
+        // Persisted set must exclude ours and keep the others.
+        let stored = service.enabledSources
+        XCTAssertNotNil(stored, "Persisted enabledSources must exist after any setEnabled call")
+        XCTAssertFalse(stored?.contains(Self.spanishWordNetSource) ?? true,
+                       "Persisted set must not contain wordnet-spa-eng after toggling it off")
+        XCTAssertTrue(stored?.contains("freedict-eng-spa") ?? false)
+
+        // Toggle back on.
+        service.setEnabled(true, for: Self.spanishWordNetSource, knownSources: known)
+        XCTAssertTrue(
+            service.isEnabled(source: Self.spanishWordNetSource),
+            "Re-enabling wordnet-spa-eng must be visible immediately"
+        )
+        XCTAssertTrue(service.enabledSources?.contains(Self.spanishWordNetSource) ?? false,
+                      "Re-enable must round-trip through UserDefaults")
+    }
+
     // MARK: - Performance Tests
 
     /// Measures FTS5 search time on a 100,000-entry database. Target: < 16ms.
