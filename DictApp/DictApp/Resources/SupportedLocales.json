@@ -8,5 +8,10 @@
     "code": "ru",
     "displayKey": "language.ru.name",
     "nativeName": "Русский"
+  },
+  {
+    "code": "es",
+    "displayKey": "language.es.name",
+    "nativeName": "Español"
   }
 ]
