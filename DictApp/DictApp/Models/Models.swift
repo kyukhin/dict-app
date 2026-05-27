@@ -40,6 +40,7 @@ struct DictionaryEntry: Codable, Identifiable, Equatable, FetchableRecord, Persi
         // Badge is space-constrained; the full name lives in
         // `dict_metadata.display_name` (Settings + DictionaryDetailView).
         case "freedict-eng-spa": return "En–Es"
+        case "wordnet-spa-eng":  return "Es–En"
         default:                 return source.capitalized
         }
     }

@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- [Issue #42] Bundled a Spanish–English dictionary built from Spanish WordNet (MCR data via NLTK's Open Multilingual WordNet). The synset mapping the issue called for happens at build time in `Scripts/build_spanish_wordnet.py`: Spanish lemmas and their English glosses/synonyms are read from a single WordNet 3.0 instance, so synset IDs align by construction with no LKB parser and no cross-version risk. `build_seed.py` gains an `insert_spanish_wordnet()` step and a `--skip-spanish-wordnet` flag; the app picks up the new `wordnet-spa-eng` source with only a badge label and a Credits row. Also corrects the English `wordnet` metadata version from `3.1` to the actual `3.0`.
 - [Issue #24] Bundled an English–Spanish dictionary sourced from FreeDict's `eng-spa` TEI/XML release (~64k headwords, GPL-3.0). The conversion lives entirely in `Scripts/build_freedict_eng_spa.py` (TEI parser, POS normalisation, sense aggregation) and the existing `build_seed.py` orchestrator gains a `--skip-spanish` flag and a final FTS rebuild. The app's data layer needs no changes — the new source identifier `freedict-eng-spa` flows through the existing schema, Settings list, and search filter unchanged; the only Swift edits are a one-line badge label in `DictionaryEntry.sourceLabel` and two Credits rows.
 
 ## [1.2.0] - 2026-05-25
