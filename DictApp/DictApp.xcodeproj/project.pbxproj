@@ -40,6 +40,7 @@
 		A10000000000000000000015 /* DictionaryDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000014 /* DictionaryDetailView.swift */; };
 		A10000000000000000000F01 /* test_import_fixture.json in Resources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000F01 /* test_import_fixture.json */; };
 		A10000000000000000000F02 /* test_import_fixture.sqlite in Resources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000F02 /* test_import_fixture.sqlite */; };
+		A10000000000000000000F03 /* bidi_fixture.json in Resources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000F03 /* bidi_fixture.json */; };
 		D10000000000000000000001 /* SupportService.swift in Sources */ = {isa = PBXBuildFile; fileRef = D20000000000000000000001 /* SupportService.swift */; };
 		D10000000000000000000002 /* SupportViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = D20000000000000000000002 /* SupportViewModel.swift */; };
 		D10000000000000000000003 /* MailComposeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D20000000000000000000003 /* MailComposeView.swift */; };
@@ -100,6 +101,7 @@
 		A20000000000000000000021 /* DictAppTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = DictAppTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		A20000000000000000000F01 /* test_import_fixture.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = test_import_fixture.json; sourceTree = "<group>"; };
 		A20000000000000000000F02 /* test_import_fixture.sqlite */ = {isa = PBXFileReference; lastKnownFileType = file; path = test_import_fixture.sqlite; sourceTree = "<group>"; };
+		A20000000000000000000F03 /* bidi_fixture.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = bidi_fixture.json; sourceTree = "<group>"; };
 		D20000000000000000000001 /* SupportService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SupportService.swift; sourceTree = "<group>"; };
 		D20000000000000000000002 /* SupportViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SupportViewModel.swift; sourceTree = "<group>"; };
 		D20000000000000000000003 /* MailComposeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MailComposeView.swift; sourceTree = "<group>"; };
@@ -233,6 +235,7 @@
 				A20000000000000000000012 /* seed.sqlite */,
 				A20000000000000000000F01 /* test_import_fixture.json */,
 				A20000000000000000000F02 /* test_import_fixture.sqlite */,
+				A20000000000000000000F03 /* bidi_fixture.json */,
 			);
 			path = Resources;
 			sourceTree = "<group>";
@@ -351,6 +354,7 @@
 				Base,
 				ru,
 				es,
+				ar,
 			);
 			mainGroup = A70000000000000000000001;
 			packageReferences = (
@@ -386,6 +390,7 @@
 				A10000000000000000000013 /* seed.sqlite in Resources */,
 				A10000000000000000000F01 /* test_import_fixture.json in Resources */,
 				A10000000000000000000F02 /* test_import_fixture.sqlite in Resources */,
+				A10000000000000000000F03 /* bidi_fixture.json in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

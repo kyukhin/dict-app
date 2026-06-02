@@ -21,6 +21,12 @@
             "state": "translated",
             "value": "Una aplicación de diccionario de código abierto que funciona sin conexión. Todas las búsquedas se realizan localmente mediante la búsqueda de texto completo SQLite FTS5. No se requiere conexión a internet."
           }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تطبيق قاموس مفتوح المصدر يعمل دون اتصال بالإنترنت. تُجرى جميع عمليات البحث محليًا باستخدام بحث النص الكامل SQLite FTS5. لا يتطلب اتصالاً بالإنترنت."
+          }
         }
       }
     },
@@ -43,6 +49,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Acerca de"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "حول التطبيق"
           }
         }
       }
@@ -67,6 +79,12 @@
             "state": "translated",
             "value": "Diccionario sin conexión"
           }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "قاموس دون اتصال"
+          }
         }
       }
     },
@@ -89,6 +107,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Cargando diccionario…"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "جارٍ تحميل القاموس…"
           }
         }
       }
@@ -113,6 +137,12 @@
             "state": "translated",
             "value": "Marca palabras para guardarlas aquí."
           }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أضف الكلمات إلى المرجعيات لحفظها هنا."
+          }
         }
       }
     },
@@ -135,6 +165,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Sin marcadores"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا توجد مرجعيات"
           }
         }
       }
@@ -159,6 +195,12 @@
             "state": "translated",
             "value": "Marcadores"
           }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "المرجعيات"
+          }
         }
       }
     },
@@ -172,6 +214,12 @@
             "state": "translated",
             "value": "Información de compilación"
           }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "معلومات الإصدار"
+          }
         }
       }
     },
@@ -184,6 +232,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Compilado el"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تاريخ الإنشاء"
           }
         }
       }
@@ -208,6 +262,12 @@
             "state": "translated",
             "value": "Próximamente"
           }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "قريبًا"
+          }
         }
       }
     },
@@ -230,6 +290,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Cargando…"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "جارٍ التحميل…"
           }
         }
       }
@@ -254,6 +320,12 @@
             "state": "translated",
             "value": "LibreDict — Diccionario sin conexión de código abierto"
           }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "LibreDict — قاموس مفتوح المصدر يعمل دون اتصال"
+          }
         }
       }
     },
@@ -276,6 +348,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Aplicación"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "التطبيق"
           }
         }
       }
@@ -300,6 +378,12 @@
             "state": "translated",
             "value": "Fuentes de datos"
           }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مصادر البيانات"
+          }
         }
       }
     },
@@ -322,6 +406,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "FreeDict — inglés-español, GNU GPL"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "FreeDict — إنجليزي-إسباني، GNU GPL"
           }
         }
       }
@@ -346,6 +436,12 @@
             "state": "translated",
             "value": "Spanish WordNet (MCR / OMW) — español-inglés, CC BY 3.0"
           }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spanish WordNet (MCR / OMW) — إسباني-إنجليزي، CC BY 3.0"
+          }
         }
       }
     },
@@ -368,6 +464,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "OpenRussian — ruso-inglés, CC BY-SA 4.0"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OpenRussian — روسي-إنجليزي، CC BY-SA 4.0"
           }
         }
       }
@@ -392,6 +494,12 @@
             "state": "translated",
             "value": "WordNet — Universidad de Princeton"
           }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "WordNet — جامعة برينستون"
+          }
         }
       }
     },
@@ -414,6 +522,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Información completa de licencias próximamente."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "معلومات الترخيص الكاملة ستتوفر قريبًا."
           }
         }
       }
@@ -438,6 +552,12 @@
             "state": "translated",
             "value": "Licencias"
           }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "التراخيص"
+          }
         }
       }
     },
@@ -460,6 +580,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Créditos"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الشكر والتقدير"
           }
         }
       }
@@ -484,6 +610,12 @@
             "state": "translated",
             "value": "Añadir marcador"
           }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إضافة مرجعية"
+          }
         }
       }
     },
@@ -506,6 +638,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Quitar marcador"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إزالة المرجعية"
           }
         }
       }
@@ -530,6 +668,12 @@
             "state": "translated",
             "value": "Pronunciar palabra"
           }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "نطق الكلمة"
+          }
         }
       }
     },
@@ -542,6 +686,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Descripción"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الوصف"
           }
         }
       }
@@ -614,6 +764,48 @@
               }
             }
           }
+        },
+        "ar": {
+          "variations": {
+            "plural": {
+              "zero": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld مدخل"
+                }
+              },
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld مدخل"
+                }
+              },
+              "two": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld مدخلان"
+                }
+              },
+              "few": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld مدخلات"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld مدخلاً"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld مدخل"
+                }
+              }
+            }
+          }
         }
       }
     },
@@ -637,6 +829,12 @@
             "state": "translated",
             "value": "Error de base de datos"
           }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "خطأ في قاعدة البيانات"
+          }
         }
       }
     },
@@ -650,6 +848,12 @@
             "state": "translated",
             "value": "Nombre completo"
           }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الاسم الكامل"
+          }
         }
       }
     },
@@ -660,6 +864,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "General"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عام"
           }
         }
       }
@@ -684,6 +894,12 @@
             "state": "translated",
             "value": "Borrar"
           }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مسح"
+          }
         }
       }
     },
@@ -706,6 +922,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Las palabras que busques aparecerán aquí."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ستظهر الكلمات التي تبحث عنها هنا."
           }
         }
       }
@@ -730,6 +952,12 @@
             "state": "translated",
             "value": "Sin historial"
           }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يوجد سجل"
+          }
         }
       }
     },
@@ -752,6 +980,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Historial"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "السجل"
           }
         }
       }
@@ -776,6 +1010,12 @@
             "state": "translated",
             "value": "Inglés"
           }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الإنجليزية"
+          }
         }
       }
     },
@@ -799,6 +1039,12 @@
             "state": "translated",
             "value": "Ruso"
           }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الروسية"
+          }
         }
       }
     },
@@ -811,6 +1057,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Licencia"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الترخيص"
           }
         }
       }
@@ -835,6 +1087,12 @@
             "state": "translated",
             "value": "**JSON** — matriz de objetos con las claves `word` y `definition`. Opcional: `phonetic`, `pos`."
           }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "**JSON** — مصفوفة من الكائنات تحتوي على المفتاحين `word` و`definition`. اختياري: `phonetic` و`pos`."
+          }
         }
       }
     },
@@ -857,6 +1115,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Formatos compatibles"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الصيغ المدعومة"
           }
         }
       }
@@ -881,6 +1145,12 @@
             "state": "translated",
             "value": "**SQLite** — debe contener una tabla `entries` con las columnas: word, definition, phonetic, pos, source."
           }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "**SQLite** — يجب أن يحتوي على جدول `entries` بالأعمدة: word، definition، phonetic، pos، source."
+          }
         }
       }
     },
@@ -904,6 +1174,12 @@
             "state": "translated",
             "value": "Importar archivo (.json o .sqlite)"
           }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "استيراد ملف (.json أو .sqlite)"
+          }
         }
       }
     },
@@ -926,6 +1202,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Importando…"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "جارٍ الاستيراد…"
           }
         }
       }
@@ -998,6 +1280,48 @@
               }
             }
           }
+        },
+        "ar": {
+          "variations": {
+            "plural": {
+              "zero": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "تم استيراد %lld مدخل من %@"
+                }
+              },
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "تم استيراد %lld مدخل من %@"
+                }
+              },
+              "two": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "تم استيراد %lld مدخلين من %@"
+                }
+              },
+              "few": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "تم استيراد %lld مدخلات من %@"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "تم استيراد %lld مدخلاً من %@"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "تم استيراد %lld مدخل من %@"
+                }
+              }
+            }
+          }
         }
       }
     },
@@ -1020,6 +1344,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Tipo de archivo no admitido: .%@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "نوع ملف غير مدعوم: .%@"
           }
         }
       }
@@ -1044,6 +1374,12 @@
             "state": "translated",
             "value": "Importar diccionario"
           }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "استيراد قاموس"
+          }
         }
       }
     },
@@ -1067,6 +1403,12 @@
             "state": "translated",
             "value": "Gestionar diccionarios"
           }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إدارة القواميس"
+          }
         }
       }
     },
@@ -1079,6 +1421,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "No hay metadatos detallados disponibles para este diccionario."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا تتوفر بيانات وصفية مفصّلة لهذا القاموس."
           }
         }
       }
@@ -1103,6 +1451,12 @@
             "state": "translated",
             "value": "No se encontró «%@» en ningún diccionario."
           }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يُعثر على «%@» في أي قاموس."
+          }
         }
       }
     },
@@ -1125,6 +1479,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "No encontrado"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "غير موجود"
           }
         }
       }
@@ -1149,6 +1509,12 @@
             "state": "translated",
             "value": "Buscar palabras…"
           }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ابحث عن كلمات…"
+          }
         }
       }
     },
@@ -1171,6 +1537,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Recientes"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الأخيرة"
           }
         }
       }
@@ -1195,6 +1567,12 @@
             "state": "translated",
             "value": "Diccionario"
           }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "القاموس"
+          }
         }
       }
     },
@@ -1217,6 +1595,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Diccionarios"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "القواميس"
           }
         }
       }
@@ -1241,6 +1625,12 @@
             "state": "translated",
             "value": "Idioma"
           }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اللغة"
+          }
         }
       }
     },
@@ -1263,6 +1653,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Idioma de la interfaz"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لغة الواجهة"
           }
         }
       }
@@ -1287,6 +1683,12 @@
             "state": "translated",
             "value": "Modo de aprendizaje"
           }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "وضع التعلّم"
+          }
         }
       }
     },
@@ -1309,6 +1711,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Esta aplicación utiliza datos de proyectos de diccionarios de dominio público y con licencia abierta. Cada diccionario conserva su licencia original."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يستخدم هذا التطبيق بيانات من مشاريع قواميس في الملك العام وبتراخيص مفتوحة. يحتفظ كل قاموس بترخيصه الأصلي."
           }
         }
       }
@@ -1333,6 +1741,12 @@
             "state": "translated",
             "value": "Gestionar diccionarios"
           }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إدارة القواميس"
+          }
         }
       }
     },
@@ -1355,6 +1769,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Modo de lectura"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "وضع القراءة"
           }
         }
       }
@@ -1379,6 +1799,12 @@
             "state": "translated",
             "value": "Créditos"
           }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الشكر والتقدير"
+          }
         }
       }
     },
@@ -1401,6 +1827,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Informar de un error"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الإبلاغ عن خطأ"
           }
         }
       }
@@ -1425,6 +1857,12 @@
             "state": "translated",
             "value": "Soporte"
           }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الدعم"
+          }
         }
       }
     },
@@ -1447,6 +1885,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Ajustes"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الإعدادات"
           }
         }
       }
@@ -1471,6 +1915,12 @@
             "state": "translated",
             "value": "Versión"
           }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الإصدار"
+          }
         }
       }
     },
@@ -1483,6 +1933,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Fuente"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "المصدر"
           }
         }
       }
@@ -1497,6 +1953,12 @@
             "state": "translated",
             "value": "ID de fuente"
           }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "معرّف المصدر"
+          }
         }
       }
     },
@@ -1510,6 +1972,12 @@
             "state": "translated",
             "value": "URL de fuente"
           }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "رابط المصدر"
+          }
         }
       }
     },
@@ -1522,6 +1990,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Estadísticas"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الإحصائيات"
           }
         }
       }
@@ -1546,6 +2020,12 @@
             "state": "translated",
             "value": "Describe el problema que encontraste. El bloque de abajo nos ayuda a reproducirlo; puedes editar o eliminar cualquier dato que no quieras compartir."
           }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يرجى وصف المشكلة التي واجهتها. تساعدنا الكتلة أدناه على إعادة إنتاجها — يمكنك تعديل أو حذف أي شيء لا ترغب في مشاركته."
+          }
         }
       }
     },
@@ -1568,6 +2048,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Informe de error de LibreDict"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "بلاغ خطأ في LibreDict"
           }
         }
       }
@@ -1592,6 +2078,12 @@
             "state": "translated",
             "value": "No hay ninguna cuenta de Mail configurada en este dispositivo. Copia la dirección y envíanos un mensaje desde cualquier cliente de correo."
           }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يوجد حساب بريد مُعدّ على هذا الجهاز. انسخ العنوان وأرسل لنا رسالة من أي تطبيق بريد."
+          }
         }
       }
     },
@@ -1614,6 +2106,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "No hay ningún cliente de correo instalado en este dispositivo. Copia la dirección de soporte y envíanos un mensaje como puedas."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يوجد تطبيق بريد مثبّت على هذا الجهاز. انسخ عنوان الدعم وأرسل لنا رسالة بأي طريقة ممكنة."
           }
         }
       }
@@ -1638,6 +2136,12 @@
             "state": "translated",
             "value": "Copiar dirección"
           }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "نسخ العنوان"
+          }
         }
       }
     },
@@ -1660,6 +2164,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Correo no disponible"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "البريد غير متوفر"
           }
         }
       }
@@ -1684,6 +2194,12 @@
             "state": "translated",
             "value": "Marcadores"
           }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "المرجعيات"
+          }
         }
       }
     },
@@ -1706,6 +2222,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Historial"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "السجل"
           }
         }
       }
@@ -1730,6 +2252,12 @@
             "state": "translated",
             "value": "Buscar"
           }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "بحث"
+          }
         }
       }
     },
@@ -1753,6 +2281,12 @@
             "state": "translated",
             "value": "Ajustes"
           }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الإعدادات"
+          }
         }
       }
     },
@@ -1766,6 +2300,12 @@
             "state": "translated",
             "value": "Versión"
           }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الإصدار"
+          }
         }
       }
     },
@@ -1778,6 +2318,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Número de palabras"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عدد الكلمات"
           }
         }
       }
@@ -1801,6 +2347,41 @@
           "stringUnit": {
             "state": "translated",
             "value": "Испанский"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الإسبانية"
+          }
+        }
+      }
+    },
+    "language.ar.name": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arabic"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Арабский"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Árabe"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "العربية"
           }
         }
       }
