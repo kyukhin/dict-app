@@ -13,5 +13,10 @@
     "code": "es",
     "displayKey": "language.es.name",
     "nativeName": "Español"
+  },
+  {
+    "code": "ar",
+    "displayKey": "language.ar.name",
+    "nativeName": "العربية"
   }
 ]

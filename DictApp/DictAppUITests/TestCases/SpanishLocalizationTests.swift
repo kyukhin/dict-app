@@ -85,12 +85,16 @@ final class SpanishLocalizationTests: XCTestCase {
                 "Tab bar must show the Spanish label '\(spanish)'"
             )
         }
-        // No English leakage in the tab bar.
+        // No English leakage in the tab bar. Wait for each old English button
+        // to disappear rather than sampling immediately — the `.id(lang)`
+        // rebuild can still be tearing down the previous tree, so an instant
+        // `.exists` check can catch a button mid-transition.
+        let gone = NSPredicate(format: "exists == FALSE")
         for english in ["Search", "History", "Bookmarks", "Settings"] {
-            XCTAssertFalse(
-                tabButton(label: english).exists,
-                "English tab label '\(english)' must not appear in the Spanish UI"
-            )
+            expectation(for: gone, evaluatedWith: tabButton(label: english), handler: nil)
+        }
+        waitForExpectations(timeout: 5) { error in
+            XCTAssertNil(error, "English tab labels must disappear in the Spanish UI")
         }
     }
 
@@ -111,12 +115,14 @@ final class SpanishLocalizationTests: XCTestCase {
         )
 
         // The language row's label is the Spanish "Idioma"
-        // (settings.language.picker). Anchored by its accessibility id.
+        // (settings.language.picker). Anchor the assertion on the row element
+        // itself (by accessibility id) rather than a global static-text search,
+        // which could be satisfied by "Idioma" appearing anywhere on screen.
         let link = app.descendants(matching: .any)["ui_language_link"]
         XCTAssertTrue(app.scrollToElement(link),
                       "Language row must be reachable in Settings")
         XCTAssertTrue(
-            staticTextContaining("Idioma"),
+            link.staticTexts["Idioma"].exists || link.label.contains("Idioma"),
             "The language row must be labeled 'Idioma' in Spanish"
         )
 
