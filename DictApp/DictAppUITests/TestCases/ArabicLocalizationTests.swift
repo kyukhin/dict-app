@@ -13,9 +13,10 @@ import XCTest
 ///     documents (`LocalizationManager` snapshots the persisted language at
 ///     init, before any launch-time reset runs). Re-running locally after a
 ///     language switch may require a clean install.
-///   * `-seedBidiFixture` imports a tiny mixed En/Ar dataset (`bidi_fixture.json`)
-///     under the dedicated `bidi_fixture` source so the mixed-script cell can be
-///     surfaced by searching the Latin headword "book".
+///   * The mixed-script cell is exercised against a **real** `wordnet-arb-eng`
+///     row (Issue #10 ships the Arabic dictionary), not a synthetic fixture:
+///     searching a high-frequency English headword surfaces a result whose
+///     definition mixes an Arabic translation with the English gloss.
 ///
 /// Tab navigation is **by visible (Arabic) label**, never by index: under RTL
 /// the tab order mirrors, so the index trick `SpanishLocalizationTests` relies
@@ -25,9 +26,8 @@ import XCTest
 /// `tabBar.buttons["settings_tab"]` lookup resolves nothing. The localized label
 /// is the order-independent, RTL-safe handle the buttons actually expose.
 ///
-/// `tearDown` restores English and scrubs the `bidi_fixture` source via
-/// `-clearBidiFixture` so neither a persisted Arabic selection nor the fixture
-/// rows bleed into suites that assert on English / the seed dictionary.
+/// `tearDown` restores English so a persisted Arabic selection can't bleed
+/// into suites that assert on English labels.
 final class ArabicLocalizationTests: XCTestCase {
 
     private var app: XCUIApplication!
@@ -50,20 +50,18 @@ final class ArabicLocalizationTests: XCTestCase {
         app.launchArguments += ["-AppleLanguages", "(ar)"]
         app.launchArguments += ["-AppleLocale", "ar"]
         app.launchArguments.append("-resetData")
-        app.launchArguments.append("-seedBidiFixture")
         app.launch()
     }
 
     override func tearDownWithError() throws {
-        // Best-effort scrub: relaunch with the clear flag (and back in English)
-        // so the fixture rows and the Arabic selection don't outlive the suite.
+        // Leave the app in English so a persisted Arabic selection can't bleed
+        // into suites that assert on English labels.
         if let app, app.state == .runningForeground {
             app.terminate()
         }
         let cleanup = XCUIApplication()
         cleanup.launchArguments += ["-AppleLanguages", "(en)"]
         cleanup.launchArguments.append("-resetData")
-        cleanup.launchArguments.append("-clearBidiFixture")
         cleanup.launch()
         cleanup.terminate()
         app = nil
@@ -77,7 +75,7 @@ final class ArabicLocalizationTests: XCTestCase {
     /// localized against it.
     func testAppLaunchesInArabic() throws {
         // Generous timeout: the first launch of the run pays the one-time
-        // ~150k-row seed, during which the app shows a ProgressView and the
+        // ~306k-row seed, during which the app shows a ProgressView and the
         // tab bar has not yet appeared.
         XCTAssertTrue(
             tabButton(label: ArabicTab.settings).waitForExistence(timeout: 60),
@@ -157,20 +155,71 @@ final class ArabicLocalizationTests: XCTestCase {
         )
     }
 
-    /// AC4 — Mixed LTR/RTL in one cell. Searching the Latin headword "book"
-    /// surfaces the seeded row whose definition mixes Arabic ("كتاب") and Latin
-    /// ("a bound set…") in a single cell. Assert both scripts live in one
-    /// element's label — proof the cell carries mixed bidi content.
+    /// AC4 — Mixed LTR/RTL in one cell, against a **real** `wordnet-arb-eng`
+    /// row (Issue #10 ships the Arabic dictionary; #9's bidi fixture is retired).
+    ///
+    /// An Arabic-WordNet row is itself mixed-script: an Arabic headword with an
+    /// English gloss. We can't type Arabic reliably, and an English query ranks
+    /// these gloss-only matches far below the English headwords — so we isolate
+    /// the source by disabling the other four dictionaries, which makes a common
+    /// English word ("water", near-certain to appear in Arabic glosses) return
+    /// only `wordnet-arb-eng` rows. The top result cell then carries an Arabic
+    /// headword run *and* a Latin run (the "Ar–En" badge + English gloss) — the
+    /// mixed-bidi property, asserted without pinning a single volatile lemma.
     func testMixedScriptCellRenders() throws {
-        search(for: "book")
+        // Absorb the one-time ~306k-row seed import on a cold first launch
+        // (the app shows a ProgressView until the tab bar appears). Without
+        // this, `tapTab`'s shorter wait can fire before the UI is ready when
+        // this test runs first / in isolation.
+        XCTAssertTrue(tabButton(label: ArabicTab.settings).waitForExistence(timeout: 60),
+                      "Tab bar must appear once seeding completes")
 
-        let mixed = app.staticTexts.matching(
-            NSPredicate(format: "label CONTAINS %@ AND label CONTAINS[c] %@", "كتاب", "bound")
+        tapTab(ArabicTab.settings)
+
+        // Source-exists guard (§5): if the Arabic dictionary wasn't bundled
+        // (e.g. a `--skip-arabic-wordnet` build), fail here with a clear cause
+        // rather than later with a confusing render assertion.
+        let arabicToggle = app.switches["dictionary_toggle_wordnet-arb-eng"]
+        XCTAssertTrue(
+            app.scrollToElement(arabicToggle),
+            "The 'wordnet-arb-eng' source is missing from the seed — was it built with --skip-arabic-wordnet?"
+        )
+
+        // Isolate the Arabic source so an English query surfaces its rows.
+        let settings = SettingsPage(app: app)
+        for other in ["wordnet", "openrussian", "freedict-eng-spa", "wordnet-spa-eng"] {
+            settings.tapToggle(source: other)
+        }
+
+        tapTab(ArabicTab.search)
+        search(for: "water")
+
+        // The first result cell carries the "Ar–En" badge (Latin) — its
+        // existence proves a real wordnet-arb-eng row rendered. The dash is
+        // U+2013, matching DictionaryEntry.sourceLabel.
+        let arabicCell = app.cells.containing(
+            NSPredicate(format: "label CONTAINS %@", "Ar–En")
         ).firstMatch
         XCTAssertTrue(
-            mixed.waitForExistence(timeout: 10),
-            "A single result cell must contain both the Arabic run ('كتاب') and the Latin run ('bound')"
+            arabicCell.waitForExistence(timeout: 10),
+            "With only Arabic enabled, a result cell must render with the 'Ar–En' badge"
         )
+
+        // The same cell must also contain an Arabic-script run (the headword):
+        // both scripts in one cell is the mixed-bidi property AC4 requires.
+        // The cell's own `.label` can be empty (SwiftUI List cells don't always
+        // concatenate their children), so inspect the descendant texts.
+        let texts = arabicCell.staticTexts.allElementsBoundByIndex.map { $0.label }
+        let hasArabic = texts.contains { label in
+            label.unicodeScalars.contains { (0x0600...0x06FF).contains($0.value) }
+        }
+        let hasLatin = texts.contains { label in
+            label.contains { $0.isASCII && $0.isLetter }
+        }
+        XCTAssertTrue(hasArabic,
+                      "Result cell must contain an Arabic-script run (the headword). Texts: \(texts)")
+        XCTAssertTrue(hasLatin,
+                      "Result cell must also contain a Latin run (badge / English gloss). Texts: \(texts)")
     }
 
     /// AC4 (numerals) — the entry count renders correctly within the Arabic
@@ -245,7 +294,7 @@ final class ArabicLocalizationTests: XCTestCase {
             NSPredicate(format: "label CONTAINS[c] %@", "book")
         ).firstMatch
         XCTAssertTrue(cell.waitForExistence(timeout: 10),
-                      "Search for 'book' must return the seeded fixture row")
+                      "Search for 'book' must return the real WordNet 'book' entry")
         cell.tap()
     }
 

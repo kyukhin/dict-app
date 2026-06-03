@@ -3,13 +3,14 @@
 
 -- Main entries table: stores the canonical data.
 CREATE TABLE IF NOT EXISTS entries (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    word        TEXT    NOT NULL,
-    definition  TEXT    NOT NULL,
-    phonetic    TEXT    DEFAULT '',
-    pos         TEXT    DEFAULT '',          -- part of speech
-    source      TEXT    DEFAULT 'default',   -- which dictionary file it came from
-    created_at  TEXT    DEFAULT (datetime('now'))
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    word            TEXT    NOT NULL,
+    word_normalized TEXT    NOT NULL DEFAULT '',   -- search key (Arabic harakat-stripped; == word elsewhere)
+    definition      TEXT    NOT NULL,
+    phonetic        TEXT    DEFAULT '',
+    pos             TEXT    DEFAULT '',          -- part of speech
+    source          TEXT    DEFAULT 'default',   -- which dictionary file it came from
+    created_at      TEXT    DEFAULT (datetime('now'))
 );
 
 -- Unique constraint: no duplicate word+source pairs.
@@ -17,9 +18,10 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_entries_word_source
     ON entries(word COLLATE NOCASE, source);
 
 -- FTS5 virtual table for sub-millisecond prefix search.
--- unicode61 tokenizer handles both Latin and Cyrillic characters.
+-- Indexes word_normalized (not word) so a de-vocalized query matches a
+-- vocalized Arabic headword. unicode61 handles Latin, Cyrillic and Arabic.
 CREATE VIRTUAL TABLE IF NOT EXISTS entries_fts USING fts5(
-    word,
+    word_normalized,
     definition,
     content='entries',
     content_rowid='id',
@@ -28,20 +30,20 @@ CREATE VIRTUAL TABLE IF NOT EXISTS entries_fts USING fts5(
 
 -- Triggers to keep the FTS index in sync with the main table.
 CREATE TRIGGER IF NOT EXISTS entries_ai AFTER INSERT ON entries BEGIN
-    INSERT INTO entries_fts(rowid, word, definition)
-        VALUES (new.id, new.word, new.definition);
+    INSERT INTO entries_fts(rowid, word_normalized, definition)
+        VALUES (new.id, new.word_normalized, new.definition);
 END;
 
 CREATE TRIGGER IF NOT EXISTS entries_ad AFTER DELETE ON entries BEGIN
-    INSERT INTO entries_fts(entries_fts, rowid, word, definition)
-        VALUES ('delete', old.id, old.word, old.definition);
+    INSERT INTO entries_fts(entries_fts, rowid, word_normalized, definition)
+        VALUES ('delete', old.id, old.word_normalized, old.definition);
 END;
 
 CREATE TRIGGER IF NOT EXISTS entries_au AFTER UPDATE ON entries BEGIN
-    INSERT INTO entries_fts(entries_fts, rowid, word, definition)
-        VALUES ('delete', old.id, old.word, old.definition);
-    INSERT INTO entries_fts(rowid, word, definition)
-        VALUES (new.id, new.word, new.definition);
+    INSERT INTO entries_fts(entries_fts, rowid, word_normalized, definition)
+        VALUES ('delete', old.id, old.word_normalized, old.definition);
+    INSERT INTO entries_fts(rowid, word_normalized, definition)
+        VALUES (new.id, new.word_normalized, new.definition);
 END;
 
 -- History table: tracks recently looked-up words (no duplicates).
