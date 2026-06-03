@@ -41,6 +41,7 @@ struct DictionaryEntry: Codable, Identifiable, Equatable, FetchableRecord, Persi
         // `dict_metadata.display_name` (Settings + DictionaryDetailView).
         case "freedict-eng-spa": return "En–Es"
         case "wordnet-spa-eng":  return "Es–En"
+        case "wordnet-arb-eng":  return "Ar–En"
         default:                 return source.capitalized
         }
     }

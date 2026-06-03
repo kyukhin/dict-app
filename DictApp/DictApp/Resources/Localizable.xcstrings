@@ -2385,6 +2385,35 @@
           }
         }
       }
+    },
+    "credits.dataSources.arabicWordnet": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arabic WordNet (AWN / OMW) — Arabic-English, CC BY 3.0"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arabic WordNet (AWN / OMW) — арабско-английский, CC BY 3.0"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arabic WordNet (AWN / OMW) — árabe-inglés, CC BY 3.0"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arabic WordNet (AWN / OMW) — عربي-إنجليزي، CC BY 3.0"
+          }
+        }
+      }
     }
   },
   "version": "1.1"

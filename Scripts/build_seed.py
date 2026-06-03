@@ -2,15 +2,21 @@
 """
 build_seed.py
 Downloads WordNet (En-En), OpenRussian (Ru-En), FreeDict eng-spa
-(En-Es) and Spanish WordNet (Es-En) dictionaries, then builds a single
-seed.sqlite containing all four sources, an FTS5 index, and a metadata
-table.
+(En-Es), Spanish WordNet (Es-En) and Arabic WordNet (Ar-En)
+dictionaries, then builds a single seed.sqlite containing all five
+sources, an FTS5 index, and a metadata table.
+
+Every row carries a `word_normalized` search key: `word` for the four
+Latin/Cyrillic sources (normalization is a no-op there) and the
+harakat-stripped form for Arabic, so vocalized Arabic headwords are
+reachable by their bare form. FTS5 indexes `word_normalized`.
 
 Sources:
   - WordNet 3.0 via NLTK   (BSD license, Princeton University)
   - OpenRussian.org         (CC-BY-SA 4.0, community-maintained)
   - FreeDict eng-spa        (GPL-3.0, freedict.org — TEI/XML)
   - Spanish WordNet         (CC BY 3.0, MCR / OMW via NLTK)
+  - Arabic WordNet          (CC BY 3.0, AWN / OMW via NLTK)
 
 Source-identifier convention used by this builder:
   - single-monolingual / unambiguous → bare provider name
@@ -28,6 +34,7 @@ Usage (from project root):
     python Scripts/build_seed.py --skip-russian          # skip OpenRussian
     python Scripts/build_seed.py --skip-spanish          # skip FreeDict eng-spa
     python Scripts/build_seed.py --skip-spanish-wordnet  # skip Spanish WordNet
+    python Scripts/build_seed.py --skip-arabic-wordnet   # skip Arabic WordNet
     python Scripts/build_seed.py --limit 5000            # subset WordNet (testing)
 """
 
@@ -75,36 +82,40 @@ def ensure_requests():
 
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS entries (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    word        TEXT    NOT NULL,
-    definition  TEXT    NOT NULL,
-    phonetic    TEXT    DEFAULT '',
-    pos         TEXT    DEFAULT '',
-    source      TEXT    DEFAULT 'default',
-    created_at  TEXT    DEFAULT (datetime('now'))
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    word            TEXT    NOT NULL,
+    word_normalized TEXT    NOT NULL DEFAULT '',   -- search key (harakat-stripped)
+    definition      TEXT    NOT NULL,
+    phonetic        TEXT    DEFAULT '',
+    pos             TEXT    DEFAULT '',
+    source          TEXT    DEFAULT 'default',
+    created_at      TEXT    DEFAULT (datetime('now'))
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_entries_word_source
     ON entries(word COLLATE NOCASE, source);
 
+-- FTS5 indexes word_normalized (not word): a de-vocalized query matches a
+-- vocalized Arabic headword. word_normalized == word for non-Arabic sources,
+-- so the indexed token stream is byte-identical to the old schema for en/ru/es.
 CREATE VIRTUAL TABLE IF NOT EXISTS entries_fts USING fts5(
-    word, definition,
+    word_normalized, definition,
     content='entries', content_rowid='id',
     tokenize='unicode61 remove_diacritics 2'
 );
 
 CREATE TRIGGER IF NOT EXISTS entries_ai AFTER INSERT ON entries BEGIN
-    INSERT INTO entries_fts(rowid, word, definition)
-        VALUES (new.id, new.word, new.definition);
+    INSERT INTO entries_fts(rowid, word_normalized, definition)
+        VALUES (new.id, new.word_normalized, new.definition);
 END;
 CREATE TRIGGER IF NOT EXISTS entries_ad AFTER DELETE ON entries BEGIN
-    INSERT INTO entries_fts(entries_fts, rowid, word, definition)
-        VALUES ('delete', old.id, old.word, old.definition);
+    INSERT INTO entries_fts(entries_fts, rowid, word_normalized, definition)
+        VALUES ('delete', old.id, old.word_normalized, old.definition);
 END;
 CREATE TRIGGER IF NOT EXISTS entries_au AFTER UPDATE ON entries BEGIN
-    INSERT INTO entries_fts(entries_fts, rowid, word, definition)
-        VALUES ('delete', old.id, old.word, old.definition);
-    INSERT INTO entries_fts(rowid, word, definition)
-        VALUES (new.id, new.word, new.definition);
+    INSERT INTO entries_fts(entries_fts, rowid, word_normalized, definition)
+        VALUES ('delete', old.id, old.word_normalized, old.definition);
+    INSERT INTO entries_fts(rowid, word_normalized, definition)
+        VALUES (new.id, new.word_normalized, new.definition);
 END;
 
 CREATE TABLE IF NOT EXISTS history (
@@ -167,7 +178,7 @@ def extract_pos_tags(synsets) -> str:
 
 def insert_wordnet(cur: sqlite3.Cursor, conn: sqlite3.Connection,
                    limit: int | None = None) -> int:
-    print("\n[1/4] WordNet (En-En)")
+    print("\n[1/5] WordNet (En-En)")
     nltk = ensure_nltk()
     from nltk.corpus import wordnet as wn
 
@@ -188,8 +199,8 @@ def insert_wordnet(cur: sqlite3.Cursor, conn: sqlite3.Connection,
         batch.append((display_word, definition, "", pos, "wordnet"))
         if len(batch) >= 500:
             cur.executemany(
-                "INSERT OR IGNORE INTO entries(word, definition, phonetic, pos, source) "
-                "VALUES (?, ?, ?, ?, ?)", batch)
+                "INSERT OR IGNORE INTO entries(word, word_normalized, definition, phonetic, pos, source) "
+                "VALUES (?1, ?1, ?2, ?3, ?4, ?5)", batch)
             conn.commit()
             inserted += len(batch)
             batch.clear()
@@ -197,8 +208,8 @@ def insert_wordnet(cur: sqlite3.Cursor, conn: sqlite3.Connection,
             print(f"\r  [{pct:3d}%] {inserted} entries...", end="", flush=True)
     if batch:
         cur.executemany(
-            "INSERT OR IGNORE INTO entries(word, definition, phonetic, pos, source) "
-            "VALUES (?, ?, ?, ?, ?)", batch)
+            "INSERT OR IGNORE INTO entries(word, word_normalized, definition, phonetic, pos, source) "
+            "VALUES (?1, ?1, ?2, ?3, ?4, ?5)", batch)
         conn.commit()
         inserted += len(batch)
 
@@ -297,7 +308,7 @@ def parse_openrussian(csv_files: dict[str, str]) -> list[tuple]:
 
 
 def insert_openrussian(cur: sqlite3.Cursor, conn: sqlite3.Connection) -> int:
-    print("\n[2/4] OpenRussian (Ru-En)")
+    print("\n[2/5] OpenRussian (Ru-En)")
     requests_mod = ensure_requests()
 
     try:
@@ -316,8 +327,8 @@ def insert_openrussian(cur: sqlite3.Cursor, conn: sqlite3.Connection) -> int:
         batch.append(row)
         if len(batch) >= 500:
             cur.executemany(
-                "INSERT OR IGNORE INTO entries(word, definition, phonetic, pos, source) "
-                "VALUES (?, ?, ?, ?, ?)", batch)
+                "INSERT OR IGNORE INTO entries(word, word_normalized, definition, phonetic, pos, source) "
+                "VALUES (?1, ?1, ?2, ?3, ?4, ?5)", batch)
             conn.commit()
             inserted += len(batch)
             batch.clear()
@@ -326,8 +337,8 @@ def insert_openrussian(cur: sqlite3.Cursor, conn: sqlite3.Connection) -> int:
                 print(f"\r  [{pct:3d}%] {inserted} entries...", end="", flush=True)
     if batch:
         cur.executemany(
-            "INSERT OR IGNORE INTO entries(word, definition, phonetic, pos, source) "
-            "VALUES (?, ?, ?, ?, ?)", batch)
+            "INSERT OR IGNORE INTO entries(word, word_normalized, definition, phonetic, pos, source) "
+            "VALUES (?1, ?1, ?2, ?3, ?4, ?5)", batch)
         conn.commit()
         inserted += len(batch)
 
@@ -373,7 +384,7 @@ def insert_openrussian(cur: sqlite3.Cursor, conn: sqlite3.Connection) -> int:
 # ---------------------------------------------------------------------------
 
 def insert_freedict_eng_spa(cur: sqlite3.Cursor, conn: sqlite3.Connection) -> int:
-    print("\n[3/4] FreeDict (En-Es)")
+    print("\n[3/5] FreeDict (En-Es)")
     # Imported lazily so a `--skip-spanish` run doesn't need the module
     # (and so a tools-checkout with an old build_seed.py won't crash on
     # a missing sibling file).
@@ -401,8 +412,8 @@ def insert_freedict_eng_spa(cur: sqlite3.Cursor, conn: sqlite3.Connection) -> in
         batch.append(row)
         if len(batch) >= 500:
             cur.executemany(
-                "INSERT OR IGNORE INTO entries(word, definition, phonetic, pos, source) "
-                "VALUES (?, ?, ?, ?, ?)", batch)
+                "INSERT OR IGNORE INTO entries(word, word_normalized, definition, phonetic, pos, source) "
+                "VALUES (?1, ?1, ?2, ?3, ?4, ?5)", batch)
             conn.commit()
             inserted += len(batch)
             batch.clear()
@@ -411,8 +422,8 @@ def insert_freedict_eng_spa(cur: sqlite3.Cursor, conn: sqlite3.Connection) -> in
                 print(f"\r  [{pct:3d}%] {inserted} entries...", end="", flush=True)
     if batch:
         cur.executemany(
-            "INSERT OR IGNORE INTO entries(word, definition, phonetic, pos, source) "
-            "VALUES (?, ?, ?, ?, ?)", batch)
+            "INSERT OR IGNORE INTO entries(word, word_normalized, definition, phonetic, pos, source) "
+            "VALUES (?1, ?1, ?2, ?3, ?4, ?5)", batch)
         conn.commit()
         inserted += len(batch)
 
@@ -436,7 +447,7 @@ def insert_freedict_eng_spa(cur: sqlite3.Cursor, conn: sqlite3.Connection) -> in
 # ---------------------------------------------------------------------------
 
 def insert_spanish_wordnet(cur: sqlite3.Cursor, conn: sqlite3.Connection) -> int:
-    print("\n[4/4] Spanish WordNet (Es-En)")
+    print("\n[4/5] Spanish WordNet (Es-En)")
     # Imported lazily so a `--skip-spanish-wordnet` run doesn't need the
     # module (and so an old tools-checkout won't crash on a missing
     # sibling file).
@@ -462,8 +473,8 @@ def insert_spanish_wordnet(cur: sqlite3.Cursor, conn: sqlite3.Connection) -> int
         batch.append(row)
         if len(batch) >= 500:
             cur.executemany(
-                "INSERT OR IGNORE INTO entries(word, definition, phonetic, pos, source) "
-                "VALUES (?, ?, ?, ?, ?)", batch)
+                "INSERT OR IGNORE INTO entries(word, word_normalized, definition, phonetic, pos, source) "
+                "VALUES (?1, ?1, ?2, ?3, ?4, ?5)", batch)
             conn.commit()
             inserted += len(batch)
             batch.clear()
@@ -472,8 +483,8 @@ def insert_spanish_wordnet(cur: sqlite3.Cursor, conn: sqlite3.Connection) -> int
                 print(f"\r  [{pct:3d}%] {inserted} entries...", end="", flush=True)
     if batch:
         cur.executemany(
-            "INSERT OR IGNORE INTO entries(word, definition, phonetic, pos, source) "
-            "VALUES (?, ?, ?, ?, ?)", batch)
+            "INSERT OR IGNORE INTO entries(word, word_normalized, definition, phonetic, pos, source) "
+            "VALUES (?1, ?1, ?2, ?3, ?4, ?5)", batch)
         conn.commit()
         inserted += len(batch)
 
@@ -489,6 +500,71 @@ def insert_spanish_wordnet(cur: sqlite3.Cursor, conn: sqlite3.Connection) -> int
          DESCRIPTION_TEXT))
     conn.commit()
     print(f"\n  Spanish WordNet: {count} entries")
+    return count
+
+
+# ---------------------------------------------------------------------------
+# Arabic WordNet (Ar-En)
+# ---------------------------------------------------------------------------
+
+def insert_arabic_wordnet(cur: sqlite3.Cursor, conn: sqlite3.Connection) -> int:
+    print("\n[5/5] Arabic WordNet (Ar-En)")
+    # Imported lazily so a `--skip-arabic-wordnet` run doesn't need the
+    # module (and so an old tools-checkout won't crash on a missing
+    # sibling file).
+    from build_arabic_wordnet import (
+        build_and_collect,
+        DESCRIPTION_TEXT,
+        DISPLAY_NAME,
+        LICENSE_TEXT,
+        SOURCE,
+        URL as METADATA_URL,
+    )
+
+    # No try/except: this runs only when --skip-arabic-wordnet was not
+    # passed, so a failure must surface rather than silently shipping a
+    # seed without the requested dictionary.
+    #
+    # Arabic rows are 6-tuples that already carry word_normalized (the
+    # harakat-stripped search key), so — unlike the four no-op-normalization
+    # sources above — this INSERT lists all six columns explicitly.
+    entries, version = build_and_collect()
+
+    print(f"  Built {len(entries)} Ar-En entries.")
+
+    batch, inserted = [], 0
+    total = len(entries)
+    for i, row in enumerate(entries):
+        batch.append(row)
+        if len(batch) >= 500:
+            cur.executemany(
+                "INSERT OR IGNORE INTO entries(word, word_normalized, definition, phonetic, pos, source) "
+                "VALUES (?, ?, ?, ?, ?, ?)", batch)
+            conn.commit()
+            inserted += len(batch)
+            batch.clear()
+            if total > 0:
+                pct = int((i + 1) / total * 100)
+                print(f"\r  [{pct:3d}%] {inserted} entries...", end="", flush=True)
+    if batch:
+        cur.executemany(
+            "INSERT OR IGNORE INTO entries(word, word_normalized, definition, phonetic, pos, source) "
+            "VALUES (?, ?, ?, ?, ?, ?)", batch)
+        conn.commit()
+        inserted += len(batch)
+
+    count = cur.execute(
+        "SELECT COUNT(*) FROM entries WHERE source=?", (SOURCE,)).fetchone()[0]
+    cur.execute(
+        "INSERT OR REPLACE INTO dict_metadata(source, display_name, version, license, url, word_count, built_at, description) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        (SOURCE, DISPLAY_NAME, version,
+         LICENSE_TEXT,
+         METADATA_URL,
+         count, datetime.now(tz=None).isoformat(),
+         DESCRIPTION_TEXT))
+    conn.commit()
+    print(f"\n  Arabic WordNet: {count} entries")
     return count
 
 
@@ -509,6 +585,8 @@ def main():
                         help="Skip the FreeDict English-Spanish dictionary.")
     parser.add_argument("--skip-spanish-wordnet", action="store_true",
                         help="Skip the Spanish WordNet (Spanish-English) dictionary.")
+    parser.add_argument("--skip-arabic-wordnet", action="store_true",
+                        help="Skip the Arabic WordNet (Arabic-English) dictionary.")
     args = parser.parse_args()
 
     os.makedirs(os.path.dirname(args.output) or ".", exist_ok=True)
@@ -533,6 +611,9 @@ def main():
     spa_wn_count = 0
     if not args.skip_spanish_wordnet:
         spa_wn_count = insert_spanish_wordnet(cur, conn)
+    arb_wn_count = 0
+    if not args.skip_arabic_wordnet:
+        arb_wn_count = insert_arabic_wordnet(cur, conn)
 
     # Rebuild FTS index in bulk. Per-row triggers already kept it in sync
     # during the inserts, but a final rebuild produces a smaller,
@@ -553,6 +634,7 @@ def main():
     print(f"  OpenRus  : {ru_count:,} entries")
     print(f"  FreeDict : {es_count:,} entries")
     print(f"  Spa-WN   : {spa_wn_count:,} entries")
+    print(f"  Arb-WN   : {arb_wn_count:,} entries")
     print(f"  Total    : {total:,} entries")
     print(f"{'='*50}")
 

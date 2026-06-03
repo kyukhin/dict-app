@@ -56,6 +56,70 @@ actor DatabaseService {
             if !columnNames.contains("description") {
                 try db.execute(sql: "ALTER TABLE dict_metadata ADD COLUMN description TEXT NOT NULL DEFAULT ''")
             }
+
+            try Self.migrate(db)
+        }
+    }
+
+    /// Versioned schema migrations, gated on `PRAGMA user_version`.
+    ///
+    /// `CREATE TABLE/VIRTUAL TABLE IF NOT EXISTS` in `Schema.sql` does not
+    /// alter tables that already exist, so installs created on an older
+    /// schema need an explicit migration. This is the project's first true
+    /// `user_version`-gated migration — extend the `if version < N` ladder
+    /// for future schema changes and bump the final `PRAGMA user_version`.
+    private static func migrate(_ db: Database) throws {
+        let version = try Int.fetchOne(db, sql: "PRAGMA user_version") ?? 0
+
+        // v1 — normalized search column (Issue #10). Adds `word_normalized`
+        // and repoints `entries_fts` (+ triggers) at it. On a fresh install
+        // the updated Schema.sql already created the v1 shape, so the guards
+        // below are no-ops and this just stamps user_version = 1.
+        if version < 1 {
+            let entryColumns = try Row.fetchAll(db, sql: "PRAGMA table_info(entries)")
+            let entryColumnNames = Set(entryColumns.map { $0["name"] as String })
+            if !entryColumnNames.contains("word_normalized") {
+                try db.execute(sql: "ALTER TABLE entries ADD COLUMN word_normalized TEXT NOT NULL DEFAULT ''")
+                // No Arabic exists pre-#10, so every existing row's normalized
+                // form is exactly its word.
+                try db.execute(sql: "UPDATE entries SET word_normalized = word")
+            }
+
+            // Rebuild the FTS table + triggers if they still index `word`.
+            let ftsSQL = try String.fetchOne(
+                db,
+                sql: "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'entries_fts'"
+            ) ?? ""
+            if !ftsSQL.contains("word_normalized") {
+                try db.execute(sql: """
+                    DROP TRIGGER IF EXISTS entries_ai;
+                    DROP TRIGGER IF EXISTS entries_ad;
+                    DROP TRIGGER IF EXISTS entries_au;
+                    DROP TABLE IF EXISTS entries_fts;
+                    CREATE VIRTUAL TABLE entries_fts USING fts5(
+                        word_normalized, definition,
+                        content='entries', content_rowid='id',
+                        tokenize='unicode61 remove_diacritics 2'
+                    );
+                    CREATE TRIGGER entries_ai AFTER INSERT ON entries BEGIN
+                        INSERT INTO entries_fts(rowid, word_normalized, definition)
+                            VALUES (new.id, new.word_normalized, new.definition);
+                    END;
+                    CREATE TRIGGER entries_ad AFTER DELETE ON entries BEGIN
+                        INSERT INTO entries_fts(entries_fts, rowid, word_normalized, definition)
+                            VALUES ('delete', old.id, old.word_normalized, old.definition);
+                    END;
+                    CREATE TRIGGER entries_au AFTER UPDATE ON entries BEGIN
+                        INSERT INTO entries_fts(entries_fts, rowid, word_normalized, definition)
+                            VALUES ('delete', old.id, old.word_normalized, old.definition);
+                        INSERT INTO entries_fts(rowid, word_normalized, definition)
+                            VALUES (new.id, new.word_normalized, new.definition);
+                    END;
+                    INSERT INTO entries_fts(entries_fts) VALUES('rebuild');
+                    """)
+            }
+
+            try db.execute(sql: "PRAGMA user_version = 1")
         }
     }
 
@@ -91,8 +155,8 @@ actor DatabaseService {
             sql += """
 
                 ORDER BY
-                    (e.word = ? COLLATE NOCASE) DESC,
-                    (e.word LIKE ? COLLATE NOCASE) DESC,
+                    (e.word_normalized = ? COLLATE NOCASE) DESC,
+                    (e.word_normalized LIKE ? COLLATE NOCASE) DESC,
                     rank
                 LIMIT ?
                 """
@@ -275,12 +339,18 @@ actor DatabaseService {
             var n = 0
             for item in raw {
                 guard let word = item["word"], let definition = item["definition"] else { continue }
+                // Custom imports are not run through the Arabic normalizer
+                // (single source of truth stays in the Python build), so the
+                // search key is the word verbatim. Consequence: imported
+                // Arabic is searched diacritic-sensitively — a documented
+                // v1.3.0 limitation, not a regression.
                 try db.execute(
                     sql: """
-                        INSERT OR IGNORE INTO entries(word, definition, phonetic, pos, source)
-                        VALUES (?, ?, ?, ?, ?)
+                        INSERT OR IGNORE INTO entries(word, word_normalized, definition, phonetic, pos, source)
+                        VALUES (?, ?, ?, ?, ?, ?)
                         """,
                     arguments: [
+                        word,
                         word,
                         definition,
                         item["phonetic"] ?? "",
@@ -308,12 +378,13 @@ actor DatabaseService {
             for var entry in entries {
                 entry.source = source
                 entry.id = nil
+                // word_normalized = word for custom imports (see importJSON).
                 try db.execute(
                     sql: """
-                        INSERT OR IGNORE INTO entries(word, definition, phonetic, pos, source)
-                        VALUES (?, ?, ?, ?, ?)
+                        INSERT OR IGNORE INTO entries(word, word_normalized, definition, phonetic, pos, source)
+                        VALUES (?, ?, ?, ?, ?, ?)
                         """,
-                    arguments: [entry.word, entry.definition, entry.phonetic, entry.pos, entry.source]
+                    arguments: [entry.word, entry.word, entry.definition, entry.phonetic, entry.pos, entry.source]
                 )
                 n += 1
             }
@@ -380,16 +451,23 @@ actor DatabaseService {
             sourceArgs = []
         }
 
-        // Read entries.
-        let rows: [(String, String, String, String, String)] = try await bundledQueue.read { db in
-            let sql = "SELECT word, definition, phonetic, pos, source FROM entries \(sourceFilter)"
+        // Read entries. `word_normalized` MUST be carried across: the client
+        // re-imports rows and rebuilds its own FTS from triggers (it does not
+        // copy the seed's FTS index), so if this column were left at its empty
+        // default the FTS would index empty and Arabic search would silently
+        // break on-device even though the seed is correct.
+        let rows: [(String, String, String, String, String, String)] = try await bundledQueue.read { db in
+            let sql = "SELECT word, word_normalized, definition, phonetic, pos, source FROM entries \(sourceFilter)"
             var args = StatementArguments()
             for s in sourceArgs { args += [s] }
             let cursor = try Row.fetchCursor(db, sql: sql, arguments: args)
-            var result: [(String, String, String, String, String)] = []
+            var result: [(String, String, String, String, String, String)] = []
             while let row = try cursor.next() {
+                let word = row["word"] as String? ?? ""
                 result.append((
-                    row["word"] as String? ?? "",
+                    word,
+                    // Fall back to `word` if an older seed lacks the column.
+                    row["word_normalized"] as String? ?? word,
                     row["definition"] as String? ?? "",
                     row["phonetic"] as String? ?? "",
                     row["pos"] as String? ?? "",
@@ -431,13 +509,13 @@ actor DatabaseService {
             let batchEnd = min(batchStart + batchSize, rows.count)
             let batch = rows[batchStart..<batchEnd]
             try await pool.write { db in
-                for (word, definition, phonetic, pos, source) in batch {
+                for (word, wordNormalized, definition, phonetic, pos, source) in batch {
                     try db.execute(
                         sql: """
-                            INSERT OR IGNORE INTO entries(word, definition, phonetic, pos, source)
-                            VALUES (?, ?, ?, ?, ?)
+                            INSERT OR IGNORE INTO entries(word, word_normalized, definition, phonetic, pos, source)
+                            VALUES (?, ?, ?, ?, ?, ?)
                             """,
-                        arguments: [word, definition, phonetic, pos, source]
+                        arguments: [word, wordNormalized, definition, phonetic, pos, source]
                     )
                 }
             }
@@ -540,34 +618,35 @@ actor DatabaseService {
     // Inline schema used when Schema.sql is unavailable in the bundle.
     static let inlineSchema = """
         CREATE TABLE IF NOT EXISTS entries (
-            id          INTEGER PRIMARY KEY AUTOINCREMENT,
-            word        TEXT    NOT NULL,
-            definition  TEXT    NOT NULL,
-            phonetic    TEXT    DEFAULT '',
-            pos         TEXT    DEFAULT '',
-            source      TEXT    DEFAULT 'default',
-            created_at  TEXT    DEFAULT (datetime('now'))
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            word            TEXT    NOT NULL,
+            word_normalized TEXT    NOT NULL DEFAULT '',
+            definition      TEXT    NOT NULL,
+            phonetic        TEXT    DEFAULT '',
+            pos             TEXT    DEFAULT '',
+            source          TEXT    DEFAULT 'default',
+            created_at      TEXT    DEFAULT (datetime('now'))
         );
         CREATE UNIQUE INDEX IF NOT EXISTS idx_entries_word_source
             ON entries(word COLLATE NOCASE, source);
         CREATE VIRTUAL TABLE IF NOT EXISTS entries_fts USING fts5(
-            word, definition,
+            word_normalized, definition,
             content='entries', content_rowid='id',
             tokenize='unicode61 remove_diacritics 2'
         );
         CREATE TRIGGER IF NOT EXISTS entries_ai AFTER INSERT ON entries BEGIN
-            INSERT INTO entries_fts(rowid, word, definition)
-                VALUES (new.id, new.word, new.definition);
+            INSERT INTO entries_fts(rowid, word_normalized, definition)
+                VALUES (new.id, new.word_normalized, new.definition);
         END;
         CREATE TRIGGER IF NOT EXISTS entries_ad AFTER DELETE ON entries BEGIN
-            INSERT INTO entries_fts(entries_fts, rowid, word, definition)
-                VALUES ('delete', old.id, old.word, old.definition);
+            INSERT INTO entries_fts(entries_fts, rowid, word_normalized, definition)
+                VALUES ('delete', old.id, old.word_normalized, old.definition);
         END;
         CREATE TRIGGER IF NOT EXISTS entries_au AFTER UPDATE ON entries BEGIN
-            INSERT INTO entries_fts(entries_fts, rowid, word, definition)
-                VALUES ('delete', old.id, old.word, old.definition);
-            INSERT INTO entries_fts(rowid, word, definition)
-                VALUES (new.id, new.word, new.definition);
+            INSERT INTO entries_fts(entries_fts, rowid, word_normalized, definition)
+                VALUES ('delete', old.id, old.word_normalized, old.definition);
+            INSERT INTO entries_fts(rowid, word_normalized, definition)
+                VALUES (new.id, new.word_normalized, new.definition);
         END;
         CREATE TABLE IF NOT EXISTS history (
             id          INTEGER PRIMARY KEY AUTOINCREMENT,

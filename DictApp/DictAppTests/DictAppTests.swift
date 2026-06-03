@@ -37,10 +37,13 @@ final class DictAppTests: XCTestCase {
             for i in 0..<count {
                 try dbConn.execute(
                     sql: """
-                        INSERT OR IGNORE INTO entries(word, definition, phonetic, pos, source)
-                        VALUES (?, ?, ?, ?, ?)
+                        INSERT OR IGNORE INTO entries(word, word_normalized, definition, phonetic, pos, source)
+                        VALUES (?, ?, ?, ?, ?, ?)
                         """,
                     arguments: [
+                        "word\(i)",
+                        // FTS indexes `word_normalized` (Issue #10); for these
+                        // Latin test words it equals `word` (normalization is a no-op).
                         "word\(i)",
                         "Definition for word number \(i). This is a sample definition.",
                         "/wɜːrd/",
@@ -62,10 +65,12 @@ final class DictAppTests: XCTestCase {
             for word in words {
                 try dbConn.execute(
                     sql: """
-                        INSERT OR IGNORE INTO entries(word, definition, phonetic, pos, source)
-                        VALUES (?, ?, ?, ?, ?)
+                        INSERT OR IGNORE INTO entries(word, word_normalized, definition, phonetic, pos, source)
+                        VALUES (?, ?, ?, ?, ?, ?)
                         """,
                     arguments: [
+                        word,
+                        // FTS indexes `word_normalized` (Issue #10); == word here.
                         word,
                         "Definition of \(word) in \(source).",
                         "",
@@ -1740,6 +1745,296 @@ final class DictAppTests: XCTestCase {
         )
         XCTAssertTrue(service.enabledSources?.contains(Self.spanishWordNetSource) ?? false,
                       "Re-enable must round-trip through UserDefaults")
+    }
+
+    // MARK: - Issue #10: Arabic dictionary (normalized search column)
+    //
+    // The riskiest unverified path in #10 is the v1.2.x → v1.3.0 client
+    // migration in `DatabaseService.applySchema`: it ALTERs `entries`, backfills
+    // `word_normalized`, and DROP/CREATE/rebuilds the FTS index so it points at
+    // the new column. Fresh install is exercised on every run; the upgrade path
+    // is not. These tests build a pre-#10 database by hand and drive the real
+    // migration through `setup(path:)`.
+
+    /// Source identifiers used by the migration fixtures (representative of the
+    /// en / ru / es data that exists on a pre-#10 install).
+    private static let preV10Sources = ["wordnet", "openrussian", "wordnet-spa-eng"]
+
+    /// The exact `entries` / `entries_fts` schema that shipped *before* #10:
+    /// no `word_normalized` column, FTS indexes `word`, triggers reference
+    /// `new.word`. `dict_metadata` is created without the `description` column
+    /// too, so the migration's pre-existing `description` ALTER also runs.
+    private static let preV10Schema = """
+        CREATE TABLE entries (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            word        TEXT    NOT NULL,
+            definition  TEXT    NOT NULL,
+            phonetic    TEXT    DEFAULT '',
+            pos         TEXT    DEFAULT '',
+            source      TEXT    DEFAULT 'default',
+            created_at  TEXT    DEFAULT (datetime('now'))
+        );
+        CREATE UNIQUE INDEX idx_entries_word_source
+            ON entries(word COLLATE NOCASE, source);
+        CREATE VIRTUAL TABLE entries_fts USING fts5(
+            word, definition,
+            content='entries', content_rowid='id',
+            tokenize='unicode61 remove_diacritics 2'
+        );
+        CREATE TRIGGER entries_ai AFTER INSERT ON entries BEGIN
+            INSERT INTO entries_fts(rowid, word, definition)
+                VALUES (new.id, new.word, new.definition);
+        END;
+        CREATE TRIGGER entries_ad AFTER DELETE ON entries BEGIN
+            INSERT INTO entries_fts(entries_fts, rowid, word, definition)
+                VALUES ('delete', old.id, old.word, old.definition);
+        END;
+        CREATE TRIGGER entries_au AFTER UPDATE ON entries BEGIN
+            INSERT INTO entries_fts(entries_fts, rowid, word, definition)
+                VALUES ('delete', old.id, old.word, old.definition);
+            INSERT INTO entries_fts(rowid, word, definition)
+                VALUES (new.id, new.word, new.definition);
+        END;
+        CREATE TABLE history (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            word        TEXT    NOT NULL UNIQUE,
+            looked_at   TEXT    DEFAULT (datetime('now'))
+        );
+        CREATE TABLE bookmarks (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            entry_id    INTEGER NOT NULL UNIQUE REFERENCES entries(id) ON DELETE CASCADE,
+            created_at  TEXT    DEFAULT (datetime('now'))
+        );
+        CREATE TABLE dict_metadata (
+            source       TEXT PRIMARY KEY,
+            display_name TEXT NOT NULL,
+            version      TEXT NOT NULL DEFAULT '',
+            license      TEXT NOT NULL DEFAULT '',
+            url          TEXT NOT NULL DEFAULT '',
+            word_count   INTEGER NOT NULL DEFAULT 0,
+            built_at     TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        """
+
+    /// Representative pre-#10 rows. Latin/Cyrillic only (no Arabic exists
+    /// pre-#10), so every row's normalized form is exactly its `word`.
+    private static let preV10Rows: [(word: String, source: String)] = [
+        ("house", "wordnet"), ("water", "wordnet"), ("book", "wordnet"),
+        ("дом", "openrussian"), ("вода", "openrussian"),
+        ("casa", "wordnet-spa-eng"), ("agua", "wordnet-spa-eng"),
+    ]
+
+    /// Builds a standalone pre-#10 database at `path`, seeded with the rows
+    /// above and `user_version = 0`. The connection is closed before return
+    /// (the local queue deallocates) so `DatabaseService` can open it cleanly.
+    private func buildPreV10Database(at path: String) throws {
+        let queue = try DatabaseQueue(path: path)
+        try queue.write { db in
+            try db.execute(sql: Self.preV10Schema)
+            for (word, source) in Self.preV10Rows {
+                try db.execute(
+                    sql: "INSERT INTO entries(word, definition, phonetic, pos, source) VALUES (?, ?, '', 'noun', ?)",
+                    arguments: [word, "Definition of \(word).", source]
+                )
+            }
+            // Pre-#10 installs were never user_version-stamped.
+            try db.execute(sql: "PRAGMA user_version = 0")
+        }
+    }
+
+    /// Opens a fresh GRDB connection on `path` for schema introspection
+    /// (PRAGMAs, sqlite_master) without disturbing the service's pool.
+    private func openQueue(at path: String) throws -> DatabaseQueue {
+        try DatabaseQueue(path: path)
+    }
+
+    /// Migration v1 (#10): a pre-#10 database upgraded via `setup(path:)` must
+    /// gain a populated `word_normalized`, repoint FTS at it, preserve every
+    /// row, and remain searchable. This is the upgrade path no other test covers.
+    func testMigrationFromPreV10SchemaUpgradesAndPreservesData() async throws {
+        let path = tempDir.appendingPathComponent("legacy.sqlite").path
+        try buildPreV10Database(at: path)
+
+        // Drive the real migration (Schema.sql IF NOT EXISTS no-ops on the old
+        // tables, then `migrate` does the ALTER + FTS drop/recreate/rebuild).
+        try await db.setup(path: path)
+
+        // --- Schema post-conditions (raw introspection) ---
+        let introspect = try openQueue(at: path)
+        try await introspect.read { conn in
+            // user_version stamped to 1.
+            let version = try Int.fetchOne(conn, sql: "PRAGMA user_version") ?? -1
+            XCTAssertEqual(version, 1, "Migration must stamp PRAGMA user_version = 1")
+
+            // entries has a NOT NULL word_normalized column.
+            let cols = try Row.fetchAll(conn, sql: "PRAGMA table_info(entries)")
+            let wn = cols.first { ($0["name"] as String) == "word_normalized" }
+            let wnCol = try XCTUnwrap(wn, "entries must have a word_normalized column after migration")
+            XCTAssertEqual(wnCol["notnull"] as Int, 1, "word_normalized must be NOT NULL")
+
+            // Every row's word_normalized is populated and (pre-#10 data) == word.
+            let unpopulated = try Int.fetchOne(
+                conn, sql: "SELECT COUNT(*) FROM entries WHERE word_normalized IS NULL OR word_normalized = ''") ?? -1
+            XCTAssertEqual(unpopulated, 0, "Backfill must populate word_normalized for every existing row")
+            let mismatched = try Int.fetchOne(
+                conn, sql: "SELECT COUNT(*) FROM entries WHERE word_normalized <> word") ?? -1
+            XCTAssertEqual(mismatched, 0, "Pre-#10 rows must backfill word_normalized = word exactly")
+
+            // FTS was recreated against word_normalized.
+            let ftsSQL = try String.fetchOne(
+                conn, sql: "SELECT sql FROM sqlite_master WHERE name = 'entries_fts'") ?? ""
+            XCTAssertTrue(ftsSQL.contains("word_normalized"),
+                          "entries_fts must be recreated indexing word_normalized; got: \(ftsSQL)")
+        }
+
+        // --- Data survived: per-source counts unchanged ---
+        for source in Self.preV10Sources {
+            let expected = Self.preV10Rows.filter { $0.source == source }.count
+            let actual = try await db.entryCount(source: source)
+            XCTAssertEqual(actual, expected,
+                           "Source '\(source)' must keep all \(expected) rows through migration; got \(actual)")
+        }
+
+        // --- FTS rebuild worked: a known word is searchable, and the
+        //     content matches (proves the rebuild indexed real content) ---
+        let houseResults = try await db.search(query: "house")
+        XCTAssertTrue(houseResults.contains { $0.word == "house" },
+                      "A pre-existing English word must be searchable after the FTS rebuild")
+        let cyrillic = try await db.search(query: "дом")
+        XCTAssertTrue(cyrillic.contains { $0.word == "дом" },
+                      "A pre-existing Cyrillic word must be searchable after the FTS rebuild")
+    }
+
+    /// Running the migration twice must be a no-op the second time: no error,
+    /// user_version stays 1, and no rows or FTS entries are duplicated.
+    func testMigrationIsIdempotent() async throws {
+        let path = tempDir.appendingPathComponent("legacy_idem.sqlite").path
+        try buildPreV10Database(at: path)
+
+        try await db.setup(path: path)               // first migration
+        let countAfterFirst = try await db.entryCount()
+        try await db.setup(path: path)               // second run — must skip
+
+        // Row count unchanged (no double-insert).
+        let countAfterSecond = try await db.entryCount()
+        XCTAssertEqual(countAfterSecond, countAfterFirst,
+                       "Re-running the migration must not change the row count")
+        XCTAssertEqual(countAfterSecond, Self.preV10Rows.count,
+                       "Row count must equal the original fixture size")
+
+        let introspect = try openQueue(at: path)
+        try await introspect.read { conn in
+            // Still stamped exactly 1.
+            XCTAssertEqual(try Int.fetchOne(conn, sql: "PRAGMA user_version") ?? -1, 1,
+                           "user_version must remain 1 after a second run (no re-stamp loop)")
+            // FTS row count must equal entries row count — a double rebuild or
+            // duplicate trigger fire would inflate the external-content index.
+            let entriesCount = try Int.fetchOne(conn, sql: "SELECT COUNT(*) FROM entries") ?? -1
+            let ftsCount = try Int.fetchOne(conn, sql: "SELECT COUNT(*) FROM entries_fts") ?? -2
+            XCTAssertEqual(ftsCount, entriesCount,
+                           "entries_fts must hold exactly one row per entry (no duplicates from a second migration)")
+        }
+
+        // And search still returns exactly one match for a unique word.
+        let results = try await db.search(query: "house")
+        XCTAssertEqual(results.filter { $0.word == "house" }.count, 1,
+                       "A unique word must match exactly once (no duplicate FTS rows)")
+    }
+
+    // MARK: - Issue #10: Arabic search symmetry (§1 / §2)
+
+    /// Inserts one row with an explicit `word_normalized` (mimicking what the
+    /// Python build does for Arabic), via a direct connection so the value
+    /// isn't overwritten by the `= word` custom-import policy.
+    private func insertNormalizedEntry(word: String, normalized: String,
+                                       definition: String, source: String) async throws {
+        let path = tempDir.appendingPathComponent("test.sqlite").path
+        let pool = try DatabasePool(path: path)
+        try await pool.writeWithoutTransaction { conn in
+            try conn.execute(
+                sql: """
+                    INSERT OR IGNORE INTO entries(word, word_normalized, definition, phonetic, pos, source)
+                    VALUES (?, ?, ?, '', 'noun', ?)
+                    """,
+                arguments: [word, normalized, definition, source])
+        }
+    }
+
+    /// §1 (the load-bearing AC: "Arabic terms searchable *without* diacritics"),
+    /// through the real Swift `search` path: a vocalized Arabic headword whose
+    /// stored `word_normalized` is the bare form must be found when the user
+    /// types the **bare** form.
+    ///
+    /// FINDING (corrects DESIGN_DOC §1): §1 claims `sanitizeFTS` strips the
+    /// harakat from the query ("a user typing … كِتَاب, which sanitize
+    /// de-vocalizes"). It does **not** — the harakat are Unicode category Mn,
+    /// and `CharacterSet.alphanumerics` (which `sanitizeFTS` keeps) *includes*
+    /// M* marks, so they survive sanitisation. The FTS `remove_diacritics 2`
+    /// tokenizer also leaves Arabic harakat intact (verified: `MATCH 'كِتَاب'`
+    /// finds nothing against an indexed bare `كتاب`). Diacritic-insensitivity
+    /// therefore rests **entirely** on the Python build pre-normalising
+    /// `word_normalized` to the bare form, matched bare-to-bare — exactly the
+    /// AC's "search without diacritics". A *fully vocalized query* is NOT
+    /// guaranteed to match; that is outside the AC and asserted only as the
+    /// bare-query behaviour below.
+    func testArabicBareQueryMatchesVocalizedHeadword() async throws {
+        // كِتَاب (vocalized display) stored with word_normalized = كتاب (bare key).
+        try await insertNormalizedEntry(
+            word: "كِتَاب", normalized: "كتاب",
+            definition: "**noun**\n1. book — a written work.", source: "wordnet-arb-eng")
+
+        let bare = try await db.search(query: "كتاب")
+        XCTAssertTrue(bare.contains { $0.word == "كِتَاب" },
+                      "Bare 'كتاب' must find the vocalized headword 'كِتَاب' — the load-bearing diacritic-free search AC")
+    }
+
+    /// §1, against the **shipped** seed: at least one real wordnet-arb-eng row
+    /// whose `word` carries harakat must be reachable by its bare form. This is
+    /// the load-bearing path — 69% of Arabic lemmas are vocalized.
+    func testArabicDiacriticInsensitiveSearchAgainstSeed() async throws {
+        let queue = try Self.openBundledSeedReadOnly()
+
+        // Mirror the app's search SQL (MATCH bare 'كتاب', prefix) against the seed.
+        let rows: [Row] = try await queue.read { conn in
+            try Row.fetchAll(conn, sql: """
+                SELECT e.word AS word, e.word_normalized AS wn
+                FROM entries_fts fts JOIN entries e ON e.id = fts.rowid
+                WHERE entries_fts MATCH ? AND e.source = 'wordnet-arb-eng'
+                LIMIT 50
+                """, arguments: ["كتاب*"])
+        }
+        XCTAssertFalse(rows.isEmpty,
+                       "Bare 'كتاب' must match real Arabic rows in the seed (diacritic-insensitive search)")
+
+        // The harakat code points the build strips (DESIGN_DOC §1).
+        let harakat = Set(0x064B...0x065F).union([0x0670])
+        let hasVocalizedHit = rows.contains { row in
+            let word = row["word"] as String? ?? ""
+            return word.unicodeScalars.contains { harakat.contains(Int($0.value)) }
+        }
+        XCTAssertTrue(hasVocalizedHit,
+                      "At least one bare-'كتاب' match must be a *vocalized* headword — proving harakat-stripped reachability")
+    }
+
+    /// §2 ORDER BY change: a row whose `word_normalized` equals the query
+    /// exactly must rank above a row that only contains the term in its
+    /// `definition`. Without the `word_normalized`-based boost (the design's
+    /// one required `search` change) the exact Arabic headword would not win.
+    func testArabicNormalizedExactMatchRanksAboveDefinitionMatch() async throws {
+        // Exact normalized headword.
+        try await insertNormalizedEntry(
+            word: "كِتاب", normalized: "كتاب",
+            definition: "**noun**\n1. book — a written work.", source: "wordnet-arb-eng")
+        // A different headword that merely mentions كتاب in its definition.
+        try await insertNormalizedEntry(
+            word: "مكتبة", normalized: "مكتبة",
+            definition: "**noun**\n1. library — a place holding many كتاب.", source: "wordnet-arb-eng")
+
+        let results = try await db.search(query: "كتاب")
+        XCTAssertGreaterThanOrEqual(results.count, 2,
+                                    "Both the headword and the definition-only match should be returned")
+        XCTAssertEqual(results.first?.word, "كِتاب",
+                       "The normalized-exact headword must rank first (the §2 word_normalized boost)")
     }
 
     // MARK: - Performance Tests
