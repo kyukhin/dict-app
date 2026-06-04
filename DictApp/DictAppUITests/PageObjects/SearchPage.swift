@@ -24,7 +24,18 @@ class SearchPage: BasePage {
 
 func searchFor(_ term: String) {
         searchField.tap()
-        searchField.clearAndTypeText(term)
+        // Clear any existing query deterministically before typing. The old
+        // `clearAndTypeText` relied on `doubleTap()` "select all", which is
+        // flaky on a UISearchField (it selects a word, not the field) and
+        // intermittently fails to clear — so a second search concatenates onto
+        // the first (e.g. "word" + "example" → "wordexample"), a bogus query
+        // that returns no results. The search field's "Clear text" button is
+        // deterministic; it only exists when the field is non-empty.
+        let clearButton = searchField.buttons["Clear text"]
+        if clearButton.waitForExistence(timeout: 1.0) {
+            clearButton.tap()
+        }
+        searchField.typeText(term)
     }
 
     func clearSearch() {
@@ -152,10 +163,19 @@ func searchFor(_ term: String) {
     }
 
     func waitForResults(timeout: TimeInterval = TestData.Timeouts.medium) -> Bool {
-        let predicate = NSPredicate(format: "count > 0")
-        let expectation = XCTNSPredicateExpectation(predicate: predicate, object: resultsList.cells)
-        let result = XCTWaiter.wait(for: [expectation], timeout: timeout)
-        return result == .completed
+        // The "no results" state renders SearchView's ContentUnavailableView as
+        // a single List cell, so `cells.count > 0` alone is a false positive —
+        // and a caller would then tap that non-navigating cell and fail later
+        // with a confusing "Definition should load" timeout. Require a real
+        // result cell: at least one cell AND the no-results marker absent.
+        let noResults = app.descendants(matching: .any)["search_no_results"]
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if noResults.exists { return false }            // definitively no results
+            if resultsList.cells.count > 0 { return true }  // real result cell(s)
+            Thread.sleep(forTimeInterval: 0.15)             // settle through the debounce
+        }
+        return resultsList.cells.count > 0 && !noResults.exists
     }
 
     /// Waits for the `ContentUnavailableView` that SearchView renders inside
