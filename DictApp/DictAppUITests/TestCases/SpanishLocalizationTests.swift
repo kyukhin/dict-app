@@ -139,7 +139,10 @@ final class SpanishLocalizationTests: XCTestCase {
     /// The tab bar, waited into existence.
     private var tabBar: XCUIElement {
         let bar = app.tabBars.firstMatch
-        _ = bar.waitForExistence(timeout: 10)
+        // 60s — absorbs the one-time ~306k-row seed import on a fresh-install /
+        // cold launch (~104 MB seed.sqlite). Matches ArabicLocalizationTests; bumped
+        // per #54 after the post-#10 seed growth exposed the 10s ceiling.
+        _ = bar.waitForExistence(timeout: 60)
         return bar
     }
 
