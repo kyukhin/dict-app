@@ -42,13 +42,21 @@ class DefinitionPage: BasePage {
 
     @discardableResult
     func navigateBack() -> SearchPage {
-        // Use navigation back button or swipe gesture
-        if app.navigationBars.buttons["Back"].exists {
-            app.navigationBars.buttons["Back"].tap()
+        // The SwiftUI NavigationStack back button is labeled with the PREVIOUS
+        // screen's title ("Dictionary"), not "Back", so a `buttons["Back"]`
+        // lookup misses and the old `swipeRight()` fallback — unreliable on the
+        // slow x86_64 sim and able to leave the definition pushed on top — was
+        // taken every time. Tap the leading nav-bar button (the back chevron,
+        // index 0) for a deterministic pop, then confirm the pop completed by
+        // waiting for the search field to re-resolve on SearchView.
+        let nav = app.navigationBars.firstMatch
+        let backButton = nav.buttons.element(boundBy: 0)
+        if backButton.waitForExistence(timeout: TestData.Timeouts.medium) {
+            backButton.tap()
         } else {
-            // Fallback to swipe gesture
             definitionView.swipeRight()
         }
+        _ = app.searchFields.firstMatch.waitForExistence(timeout: TestData.Timeouts.medium)
         return SearchPage(app: app)
     }
 
