@@ -27,6 +27,10 @@ final class SearchFlowTests: XCTestCase {
             return false
         }
 
+        // Force portrait — sim orientation persists across sessions on Intel x86_64,
+        // and landscape no-ops swipeUp against SwiftUI Form/List scroll views.
+        // See project memory project_xcuitest_orientation_landscape_swipe.
+        XCUIDevice.shared.orientation = .portrait
         app.launch()
         tabBarPage = TabBarPage(app: app)
         searchPage = tabBarPage.tapSearchTab()
