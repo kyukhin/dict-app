@@ -282,7 +282,9 @@ final class ArabicLocalizationTests: XCTestCase {
     private func search(for term: String) {
         dismissSiriPrivacyNoticeIfPresent()
         let field = app.searchFields.firstMatch
-        XCTAssertTrue(field.waitForExistence(timeout: 10), "Search field must exist")
+        // 60s — absorbs the one-time ~306k-row cold seed; matches
+        // testMixedScriptCellRenders and SpanishLocalizationTests, post-#54.
+        XCTAssertTrue(field.waitForExistence(timeout: 60), "Search field must exist")
         field.tap()
         dismissSiriPrivacyNoticeIfPresent()
         // Re-resolve in case the privacy sheet dismissal re-laid out the field.
@@ -319,7 +321,9 @@ final class ArabicLocalizationTests: XCTestCase {
     /// The tab bar, waited into existence.
     private var tabBar: XCUIElement {
         let bar = app.tabBars.firstMatch
-        _ = bar.waitForExistence(timeout: 10)
+        // 60s — absorbs the one-time ~306k-row cold seed; matches
+        // testMixedScriptCellRenders and SpanishLocalizationTests, post-#54.
+        _ = bar.waitForExistence(timeout: 60)
         return bar
     }
 
