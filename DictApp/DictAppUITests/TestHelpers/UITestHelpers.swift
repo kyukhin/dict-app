@@ -99,23 +99,42 @@ extension XCUIApplication {
         in container: XCUIElement? = nil,
         maxSwipes: Int = 8
     ) -> Bool {
-        if element.exists && element.isHittable { return true }
+        // Reachability is decided from GEOMETRY ONLY — we never read
+        // `.isHittable`. On the slow Intel sim a virtualised SwiftUI `Form`
+        // row makes `.isHittable` *raise* ("Failed to determine hittability …
+        // Activation point invalid and no suggested hit points based on
+        // element frame") nondeterministically — even when the frame is valid
+        // and on-screen — and that raise fails the test outright before any
+        // swipe (the dominant ReportBugFlowTests Intel flake, #64). No frame
+        // gate prevents the raise; only not calling `.isHittable` does. A row
+        // counts as reached once it exists with a non-degenerate frame whose
+        // centre (the tap point) lies inside the app window; the caller's own
+        // `.tap()` then performs the final hittability wait. `.exists`/`.frame`
+        // don't raise on these transitional states — only `.isHittable` does.
+        func reachable(_ e: XCUIElement) -> Bool {
+            guard e.exists else { return false }
+            let f = e.frame
+            guard f.width > 1, f.height > 1 else { return false }
+            return windows.firstMatch.frame.contains(CGPoint(x: f.midX, y: f.midY))
+        }
+
+        if reachable(element) { return true }
 
         let scrollable = container ?? scrollContainer
 
         // Sweep up first — content typically lives below the initial fold.
         for _ in 0..<maxSwipes {
             scrollable.swipeUp()
-            if element.exists && element.isHittable { return true }
+            if reachable(element) { return true }
         }
 
         // Sweep back down — covers the scene-restoration case where the
         // form resumed scrolled past the target on a warm relaunch.
         for _ in 0..<maxSwipes {
             scrollable.swipeDown()
-            if element.exists && element.isHittable { return true }
+            if reachable(element) { return true }
         }
 
-        return element.exists && element.isHittable
+        return reachable(element)
     }
 }
