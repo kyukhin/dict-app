@@ -181,7 +181,9 @@ final class SpanishLocalizationTests: XCTestCase {
     @discardableResult
     private func selectLanguage(code: String) -> Bool {
         let bar = app.tabBars.firstMatch
-        guard bar.waitForExistence(timeout: 10) else { return false }
+        // 60s — absorbs the one-time ~306k-row cold seed; matches the
+        // tabBar getter post-#54.
+        guard bar.waitForExistence(timeout: 60) else { return false }
         let settings = bar.buttons.element(boundBy: settingsTabIndex)
         guard settings.waitForExistence(timeout: 5) else { return false }
         settings.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
