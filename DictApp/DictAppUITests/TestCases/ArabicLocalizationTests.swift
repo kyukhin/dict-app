@@ -180,6 +180,12 @@ final class ArabicLocalizationTests: XCTestCase {
 
         tapTab(ArabicTab.settings)
 
+        // The enable/disable toggles moved onto the pushed DictionaryOrderView
+        // (Issue #6, §1b) — open it before querying any toggle.
+        let settings = SettingsPage(app: app)
+        XCTAssertTrue(settings.openDictionaryOrder(),
+                      "Dictionary-order screen (toggles) must be reachable from Settings")
+
         // Source-exists guard (§5): if the Arabic dictionary wasn't bundled
         // (e.g. a `--skip-arabic-wordnet` build), fail here with a clear cause
         // rather than later with a confusing render assertion.
@@ -190,7 +196,6 @@ final class ArabicLocalizationTests: XCTestCase {
         )
 
         // Isolate the Arabic source so an English query surfaces its rows.
-        let settings = SettingsPage(app: app)
         for other in ["wordnet", "openrussian", "freedict-eng-spa", "wordnet-spa-eng"] {
             settings.tapToggle(source: other)
         }
@@ -243,6 +248,11 @@ final class ArabicLocalizationTests: XCTestCase {
     /// is therefore a product follow-up, not a #9 defect.
     func testEntryCountRendersCorrectlyInArabicContext() throws {
         tapTab(ArabicTab.settings)
+
+        // Per-source entry-count rows moved onto the pushed DictionaryOrderView
+        // (Issue #6, §1b).
+        XCTAssertTrue(SettingsPage(app: app).openDictionaryOrder(),
+                      "Dictionary-order screen (entry-count rows) must be reachable from Settings")
 
         // Count rows share the Arabic "entries" root "مدخل" across all plural
         // forms (مدخل / مدخلان / مدخلات / مدخلاً).

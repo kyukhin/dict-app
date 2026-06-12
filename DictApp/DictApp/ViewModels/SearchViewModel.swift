@@ -40,17 +40,29 @@ final class SearchViewModel: ObservableObject {
 
         isSearching = true
 
-        // Capture the enabled-sources set at the moment the query fires.
-        // nil means "all enabled" (first-launch default); empty set means "none enabled".
+        // Capture the relevant settings at the moment the query fires (Issue #6:
+        // also the sort mode + dictionary order). nil enabledSources means "all
+        // enabled" (first-launch default); empty set means "none enabled".
         let enabledSources: Set<String>? = settings.enabledSources
+        let mode = settings.resultSortMode
+        let order = settings.dictionaryOrder ?? []
 
-        searchTask = Task { [trimmed, db, enabledSources] in
+        searchTask = Task { [trimmed, db, enabledSources, mode, order] in
             // Debounce: wait briefly so we don't hammer the DB on every keystroke.
             try? await Task.sleep(for: debounceInterval)
             guard !Task.isCancelled else { return }
 
             do {
-                let found = try await db.search(query: trimmed, enabledSources: enabledSources)
+                let found: [DictionaryEntry]
+                if mode == .preferredDictionary, !order.isEmpty {
+                    // nil enabledSources = all enabled → all known (ordered) sources.
+                    let effectiveEnabled = enabledSources ?? Set(order)
+                    found = try await db.searchPreferred(
+                        query: trimmed, order: order, enabledSources: effectiveEnabled
+                    )
+                } else {
+                    found = try await db.search(query: trimmed, enabledSources: enabledSources)
+                }
                 guard !Task.isCancelled else { return }
                 self.results = found
                 self.errorMessage = nil
@@ -60,5 +72,14 @@ final class SearchViewModel: ObservableObject {
             }
             self.isSearching = false
         }
+    }
+
+    /// Re-runs the current query (Issue #6 §3d) so returning to Search after a
+    /// sort-mode / dictionary-order change in Settings reflects it without
+    /// retyping. No-ops on an empty query, so it does NOT fire (or double-fire)
+    /// on initial view load — the field starts empty.
+    func refreshIfNeeded() {
+        guard !query.trimmingCharacters(in: .whitespaces).isEmpty else { return }
+        onQueryChanged()
     }
 }

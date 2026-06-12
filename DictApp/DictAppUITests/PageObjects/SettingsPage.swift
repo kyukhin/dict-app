@@ -8,6 +8,99 @@ class SettingsPage: BasePage {
         app.switches[AccessibilityIdentifiers.Settings.dictionaryToggle(source: source)]
     }
 
+    // MARK: - Dictionary Order navigation (Issue #6)
+    //
+    // The enable/disable toggles moved from the Settings root onto the pushed
+    // `DictionaryOrderView` (§1b). `tapToggle` / `waitForToggle` auto-navigate
+    // there so existing callers keep working with no change.
+
+    private var dictionaryOrderLink: XCUIElement {
+        let id = AccessibilityIdentifiers.Settings.dictionaryOrderLink
+        if app.buttons[id].firstMatch.exists { return app.buttons[id].firstMatch }
+        if app.cells[id].firstMatch.exists { return app.cells[id].firstMatch }
+        return app.descendants(matching: .any).matching(identifier: id).firstMatch
+    }
+
+    // A SwiftUI row's `.accessibilityIdentifier` surfaces on both the row cell
+    // and inner views, so an unqualified `[id]` lookup matches multiple elements
+    // and raises on `.frame`/`.tap`. `.firstMatch` (the outermost / row
+    // container) disambiguates and is stable for frame-ordering and dragging.
+    private func orderRow(_ source: String) -> XCUIElement {
+        let id = AccessibilityIdentifiers.Settings.dictionaryOrderRow(source: source)
+        // The row id lives on the leading label (kept off the HStack so it can't
+        // shadow the row's switch — that breaks `dictionary_toggle_*`). The
+        // enclosing CELL is the reliable frame anchor and drag target; a bare
+        // staticText is a poor press-drag handle for reorder.
+        let cell = app.cells.containing(.staticText, identifier: id).firstMatch
+        if cell.exists { return cell }
+        if app.cells[id].firstMatch.exists { return app.cells[id].firstMatch }
+        return app.descendants(matching: .any).matching(identifier: id).firstMatch
+    }
+
+    /// Pushes the DictionaryOrderView from the Dictionaries section. Idempotent:
+    /// no-op if a dictionary-order row is already on screen.
+    @discardableResult
+    func openDictionaryOrder() -> Bool {
+        _ = app.navigationBars.firstMatch.waitForExistence(timeout: TestData.Timeouts.medium)
+        // Already on the order screen? `dictionary_order_view` is the screen-level
+        // AX id added in #6 review — wait-then-return makes subsequent interactions
+        // race-free on the slow Intel sim.
+        let orderView = app.descendants(matching: .any)["dictionary_order_view"]
+        if orderView.exists { return true }
+        guard app.scrollToElement(dictionaryOrderLink) else { return false }
+        dictionaryOrderLink.tap()
+        return orderView.waitForExistence(timeout: TestData.Timeouts.medium)
+    }
+
+    /// Ensures we're on the DictionaryOrderView (where the toggles + order rows
+    /// live). If no toggle is materialized, push the order screen.
+    private func ensureOnOrderScreen(for source: String) {
+        if !toggle(for: source).exists && !orderRow(source).exists {
+            _ = openDictionaryOrder()
+        }
+    }
+
+    /// Moves the first dictionary to the end via drag-to-reorder, returning the
+    /// resulting on-screen order. Cycles through several press points/durations
+    /// because XCUITest reorder is gesture-flaky and the reliable grip offset
+    /// differs across arches (the trailing grip works on arm64/iOS 26; a longer
+    /// centre press works on the Intel/iOS-18 sim) — we drag, poll for the order
+    /// to change, and try the next strategy if it didn't. Returns the (possibly
+    /// unchanged) order so the caller can assert.
+    @discardableResult
+    func reorderFirstToLast(sources: [String]) -> [String] {
+        let before = currentOrder(of: sources)
+        guard before.count >= 2 else { return before }
+        // (dx, press-duration) pairs, ordered most-likely-first per arch.
+        let strategies: [(CGFloat, TimeInterval)] = [
+            (0.97, 1.0), (0.5, 1.2), (0.85, 1.0), (0.5, 1.6), (0.92, 1.3)
+        ]
+        let changed = NSPredicate { [weak self] _, _ in
+            self.map { $0.currentOrder(of: sources) != before } ?? false
+        }
+        for (dx, duration) in strategies {
+            let src = orderRow(before[0])
+            let dst = orderRow(before[before.count - 1])
+            guard src.waitForExistence(timeout: TestData.Timeouts.medium),
+                  dst.waitForExistence(timeout: TestData.Timeouts.medium) else { continue }
+            src.coordinate(withNormalizedOffset: CGVector(dx: dx, dy: 0.5))
+                .press(forDuration: duration,
+                       thenDragTo: dst.coordinate(withNormalizedOffset: CGVector(dx: dx, dy: 0.5)))
+            let exp = XCTNSPredicateExpectation(predicate: changed, object: nil)
+            if XCTWaiter.wait(for: [exp], timeout: 8) == .completed { break }
+        }
+        return currentOrder(of: sources)
+    }
+
+    /// The on-screen order of the given sources, top-to-bottom by row frame.
+    func currentOrder(of sources: [String]) -> [String] {
+        sources
+            .map { ($0, orderRow($0)) }
+            .filter { $0.1.exists }
+            .sorted { $0.1.frame.minY < $1.1.frame.minY }
+            .map { $0.0 }
+    }
+
     // MARK: - Actions
 
     /// Taps the toggle for the given source and verifies its state flipped.
@@ -16,6 +109,7 @@ class SettingsPage: BasePage {
     /// Toggle hit-targets in iOS 26 don't toggle on label-area taps), we
     /// retry on the right-edge coordinate where the switch handle lives.
     func tapToggle(source: String) {
+        ensureOnOrderScreen(for: source)
         let sw = toggle(for: source)
         XCTAssertTrue(
             app.scrollToElement(sw),
@@ -56,6 +150,7 @@ class SettingsPage: BasePage {
     /// count rather than wall-clock time, and finishes well within the
     /// previous default budget.
     func waitForToggle(source: String, timeout: TimeInterval = TestData.Timeouts.medium) -> Bool {
+        ensureOnOrderScreen(for: source)
         return app.scrollToElement(toggle(for: source))
     }
 

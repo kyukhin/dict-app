@@ -17,6 +17,10 @@ struct AccessibilityIdentifiers {
         static func searchResult(id: String) -> String {
             return "search_result_\(id)"
         }
+        /// Issue #6 — per-source colour stripe on a Search/History row.
+        static func sourceStripe(source: String) -> String {
+            return "source_stripe_\(source)"
+        }
     }
 
     // MARK: - Definition View
@@ -45,9 +49,15 @@ struct AccessibilityIdentifiers {
     // MARK: - Settings View
     struct Settings {
         static let manageDictionariesLink = "manage_dictionaries_link"
+        static let dictionaryOrderLink = "dictionary_order_link"      // Issue #6
+        static let resultSortModePicker = "result_sort_mode_picker"  // Issue #6
         static let versionValue = "version_value"
         static func dictionaryToggle(source: String) -> String {
             return "dictionary_toggle_\(source)"
+        }
+        /// Issue #6 — a row in the reorderable DictionaryOrderView list.
+        static func dictionaryOrderRow(source: String) -> String {
+            return "dictionary_order_row_\(source)"
         }
     }
 

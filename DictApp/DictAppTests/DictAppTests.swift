@@ -110,9 +110,9 @@ final class DictAppTests: XCTestCase {
 
     /// Verifies that history does not contain duplicate entries.
     func testHistoryNoDuplicates() async throws {
-        try await db.addToHistory(word: "apple")
-        try await db.addToHistory(word: "banana")
-        try await db.addToHistory(word: "apple") // duplicate
+        try await db.addToHistory(word: "apple", source: "wordnet")
+        try await db.addToHistory(word: "banana", source: "wordnet")
+        try await db.addToHistory(word: "apple", source: "wordnet") // duplicate
 
         let history = try await db.fetchHistory()
         let appleCount = history.filter { $0.word == "apple" }.count
@@ -124,10 +124,10 @@ final class DictAppTests: XCTestCase {
 
     /// Verifies that re-adding a word to history updates its timestamp (most recent first).
     func testHistoryOrderUpdatedOnRevisit() async throws {
-        try await db.addToHistory(word: "alpha")
-        try await db.addToHistory(word: "beta")
+        try await db.addToHistory(word: "alpha", source: "wordnet")
+        try await db.addToHistory(word: "beta", source: "wordnet")
         // Re-add alpha so it becomes the most recent.
-        try await db.addToHistory(word: "alpha")
+        try await db.addToHistory(word: "alpha", source: "wordnet")
 
         let history = try await db.fetchHistory()
         XCTAssertEqual(history.first?.word, "alpha", "Most recently added word should be first")
@@ -135,7 +135,7 @@ final class DictAppTests: XCTestCase {
 
     /// Verifies clear history works.
     func testClearHistory() async throws {
-        try await db.addToHistory(word: "test")
+        try await db.addToHistory(word: "test", source: "wordnet")
         try await db.clearHistory()
 
         let count = try await db.historyCount()
@@ -2070,6 +2070,49 @@ final class DictAppTests: XCTestCase {
         XCTAssertLessThan(elapsed, 16.0, "Search must complete in under 16ms (got \(elapsed)ms)")
     }
 
+    // MARK: - Issue #6: Preferred-dictionary search (integration)
+
+    /// Order [B, A] on a known seed → top-N of B, then top-N of A, then a
+    /// relevance tail; no duplicate IDs (§3b/§7).
+    func testSearchPreferredBucketsByOrderThenTail() async throws {
+        let topN = Search.preferredDictionaryTopN
+        // Each source has > topN matches for the stem "term" so buckets fill
+        // and a tail remains. (unicode61 splits "term_aN" into tokens "term"+"aN",
+        // so the prefix query "term*" matches every row.)
+        try await seedSourcedEntries(source: "srcA", words: (0..<(topN + 2)).map { "term_a\($0)" })
+        try await seedSourcedEntries(source: "srcB", words: (0..<(topN + 2)).map { "term_b\($0)" })
+
+        let results = try await db.searchPreferred(
+            query: "term", order: ["srcB", "srcA"], enabledSources: ["srcA", "srcB"]
+        )
+
+        XCTAssertGreaterThanOrEqual(results.count, topN * 2, "Both buckets should fill")
+        XCTAssertTrue(results.prefix(topN).allSatisfy { $0.source == "srcB" },
+            "First \(topN) must be source B (first in order); got \(results.prefix(topN).map(\.source))")
+        XCTAssertTrue(results.dropFirst(topN).prefix(topN).allSatisfy { $0.source == "srcA" },
+            "Next \(topN) must be source A; got \(results.dropFirst(topN).prefix(topN).map(\.source))")
+        let ids = results.compactMap(\.id)
+        XCTAssertEqual(ids.count, Set(ids).count, "Results must contain no duplicate IDs")
+    }
+
+    /// An explicit empty enabled set returns nothing (mirrors `search`).
+    func testSearchPreferredEmptyEnabledReturnsEmpty() async throws {
+        try await seedSourcedEntries(source: "srcA", words: ["term_a1"])
+        let results = try await db.searchPreferred(query: "term", order: ["srcA"], enabledSources: [])
+        XCTAssertTrue(results.isEmpty)
+    }
+
+    /// `addToHistory` records the viewed source; last-viewed source wins (§5).
+    func testHistorySourceRecordedAndUpdated() async throws {
+        try await db.addToHistory(word: "book", source: "wordnet")
+        var history = try await db.fetchHistory()
+        XCTAssertEqual(history.first(where: { $0.word == "book" })?.source, "wordnet")
+        try await db.addToHistory(word: "book", source: "wordnet-arb-eng")
+        history = try await db.fetchHistory()
+        XCTAssertEqual(history.first(where: { $0.word == "book" })?.source, "wordnet-arb-eng",
+                       "Re-viewing should update the recorded source")
+    }
+
     /// Uses XCTest's built-in measure block for repeated performance measurement.
     func testSearchPerformanceRepeated() async throws {
         try await seedEntries(count: 100_000)
@@ -2082,5 +2125,107 @@ final class DictAppTests: XCTestCase {
             }
             wait(for: [expectation], timeout: 5.0)
         }
+    }
+}
+
+// MARK: - Issue #6: KeyValueStore seam + SettingsService
+
+/// In-memory `KeyValueStore` for injecting into `SettingsService` under test.
+final class InMemoryKeyValueStore: KeyValueStore {
+    private var storage: [String: Any] = [:]
+    func data(forKey key: String) -> Data? { storage[key] as? Data }
+    func set(_ data: Data?, forKey key: String) { storage[key] = data }
+    func string(forKey key: String) -> String? { storage[key] as? String }
+    func set(_ string: String?, forKey key: String) { storage[key] = string }
+    func removeObject(forKey key: String) { storage.removeValue(forKey: key) }
+}
+
+final class SettingsServiceTests: XCTestCase {
+    private func service() -> (SettingsService, InMemoryKeyValueStore) {
+        let store = InMemoryKeyValueStore()
+        return (SettingsService(store: store), store)
+    }
+
+    func testResultSortModeDefaultsToRelevance() {
+        let (s, _) = service()
+        XCTAssertEqual(s.resultSortMode, .relevance)
+    }
+
+    func testResultSortModeRoundTrips() {
+        let (s, _) = service()
+        s.resultSortMode = .preferredDictionary
+        XCTAssertEqual(s.resultSortMode, .preferredDictionary)
+    }
+
+    func testDictionaryOrderRoundTrips() {
+        let (s, _) = service()
+        XCTAssertNil(s.dictionaryOrder)
+        s.dictionaryOrder = ["b", "a", "c"]
+        XCTAssertEqual(s.dictionaryOrder, ["b", "a", "c"])
+        s.dictionaryOrder = nil
+        XCTAssertNil(s.dictionaryOrder)
+    }
+
+    // Watchpoint 1: existing prefs still flow through the new seam.
+    func testEnabledSourcesThroughSeam() {
+        let (s, _) = service()
+        XCTAssertNil(s.enabledSources, "nil = all enabled (first launch)")
+        s.setEnabled(false, for: "x", knownSources: ["x", "y"])
+        XCTAssertFalse(s.isEnabled(source: "x"))
+        XCTAssertTrue(s.isEnabled(source: "y"))
+    }
+
+    func testSelectedUILanguageThroughSeam() {
+        let (s, _) = service()
+        XCTAssertNil(s.selectedUILanguageCode)
+        s.selectedUILanguageCode = "es"
+        XCTAssertEqual(s.selectedUILanguageCode, "es")
+        s.selectedUILanguageCode = nil
+        XCTAssertNil(s.selectedUILanguageCode)
+    }
+
+    // Migration-safety (#73): the exact UserDefaults key strings are preserved,
+    // so swapping the adapter needs no data migration.
+    func testUserDefaultsKeyStringsUnchanged() {
+        let (s, store) = service()
+        s.selectedUILanguageCode = "ru"
+        s.setEnabled(false, for: "x", knownSources: ["x"])
+        s.dictionaryOrder = ["x"]
+        s.resultSortMode = .preferredDictionary
+        XCTAssertNotNil(store.string(forKey: "ui_language"))
+        XCTAssertNotNil(store.data(forKey: "enabled_sources"))
+        XCTAssertNotNil(store.data(forKey: "dictionary_order"))
+        XCTAssertNotNil(store.string(forKey: "result_sort_mode"))
+    }
+}
+
+final class SearchAssembleTests: XCTestCase {
+    private func entry(_ id: Int64, _ source: String) -> DictionaryEntry {
+        DictionaryEntry(id: id, word: "w\(id)", definition: "", phonetic: "",
+                        pos: "", source: source, createdAt: nil)
+    }
+
+    func testAssembleOrdersBucketsThenTail() {
+        let out = Search.assemble(
+            buckets: ["A": [entry(1, "A"), entry(2, "A")], "B": [entry(3, "B")]],
+            tail: [entry(4, "A"), entry(5, "C")],
+            order: ["B", "A"]
+        )
+        XCTAssertEqual(out.map(\.id), [3, 1, 2, 4, 5])
+    }
+
+    func testAssembleDedupsById() {
+        let dup = entry(1, "A")
+        let out = Search.assemble(buckets: ["A": [dup]], tail: [dup, entry(2, "B")], order: ["A"])
+        XCTAssertEqual(out.map(\.id), [1, 2], "An ID already bucketed must not repeat in the tail")
+    }
+
+    func testAssembleSkipsMissingOrderKeys() {
+        let out = Search.assemble(buckets: ["A": [entry(1, "A")]], tail: [], order: ["X", "A"])
+        XCTAssertEqual(out.map(\.id), [1])
+    }
+
+    func testPreferredDictionaryTopNIsFour() {
+        XCTAssertEqual(Search.preferredDictionaryTopN, 4)
     }
 }

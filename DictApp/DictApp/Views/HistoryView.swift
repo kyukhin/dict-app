@@ -20,17 +20,20 @@ struct HistoryView: View {
                             NavigationLink {
                                 HistoryDestination(word: item.word)
                             } label: {
-                                VStack(alignment: .leading) {
-                                    Text(item.word)
-                                        .font(.body)
-                                    if let time = item.lookedAt {
-                                        Text(time)
-                                            .font(.caption)
-                                            .foregroundStyle(.secondary)
+                                SourceStripeRow(source: item.source) {
+                                    VStack(alignment: .leading) {
+                                        Text(item.word)
+                                            .font(.body)
+                                        if let time = item.lookedAt {
+                                            Text(time)
+                                                .font(.caption)
+                                                .foregroundStyle(.secondary)
+                                        }
                                     }
                                 }
                             }
                             .accessibilityIdentifier("history_item_\(item.word)")
+                            .listRowInsets(EdgeInsets())   // stripe reaches the leading edge (#6 §5)
                         }
                     }
                     .accessibilityIdentifier("history_list")

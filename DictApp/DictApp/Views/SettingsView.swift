@@ -12,6 +12,7 @@ struct SettingsView: View {
         NavigationStack {
             Form {
                 uiLanguageSection
+                sortingSection
                 dictionaryManagementSection
                 learningModeSection
                 readingModeSection
@@ -66,33 +67,29 @@ struct SettingsView: View {
         }
     }
 
+    /// Result-sorting picker (Issue #6) — placed between the language and
+    /// dictionaries sections so the picker and the reorderable list read as a
+    /// unit. `.relevance` is the default.
+    private var sortingSection: some View {
+        Section("settings.sorting.section") {
+            Picker("settings.sorting.mode", selection: $viewModel.resultSortMode) {
+                Text("settings.sorting.relevance").tag(ResultSortMode.relevance)
+                Text("settings.sorting.preferred").tag(ResultSortMode.preferredDictionary)
+            }
+            .accessibilityIdentifier("result_sort_mode_picker")
+        }
+    }
+
+    /// Two links (Issue #6): the new combined order+enable list, and the
+    /// unchanged Manage Dictionaries (import + per-dict detail).
     private var dictionaryManagementSection: some View {
         Section("settings.dictionaries.section") {
-            if viewModel.dictionaries.isEmpty {
-                Text("common.loading")
-                    .foregroundStyle(.secondary)
-            } else {
-                ForEach(viewModel.dictionaries) { dict in
-                    HStack {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(dict.displayName)
-                                .font(.body)
-                            // Plural-aware key resolved by the String Catalog
-                            // via CLDR rules for the active locale.
-                            Text("dictionary.entries.count \(dict.count)")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                        Spacer()
-                        Toggle(isOn: Binding(
-                            get: { dict.isEnabled },
-                            set: { _ in viewModel.toggleDictionary(source: dict.source) }
-                        )) { EmptyView() }
-                        .labelsHidden()
-                        .accessibilityIdentifier("dictionary_toggle_\(dict.source)")
-                    }
-                }
+            NavigationLink {
+                DictionaryOrderView(vm: viewModel)
+            } label: {
+                Label("settings.dictionaryOrder.title", systemImage: "arrow.up.arrow.down")
             }
+            .accessibilityIdentifier("dictionary_order_link")
 
             NavigationLink {
                 ManageDictionariesView()

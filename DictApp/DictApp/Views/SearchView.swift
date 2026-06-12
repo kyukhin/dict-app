@@ -26,8 +26,11 @@ struct SearchView: View {
                 } else {
                     ForEach(vm.results) { entry in
                         NavigationLink(value: entry) {
-                            EntryRow(entry: entry)
+                            SourceStripeRow(source: entry.source) {
+                                EntryRow(entry: entry)
+                            }
                         }
+                        .listRowInsets(EdgeInsets())   // stripe reaches the leading edge (#6 §4c)
                     }
                 }
             }
@@ -49,6 +52,13 @@ struct SearchView: View {
             }
             .task {
                 await vm.loadRecent()
+            }
+            .onAppear {
+                // Re-run the current query so a sort-mode / dictionary-order
+                // change made in the Settings tab is reflected on return without
+                // retyping (#6 §3d). No-ops when the field is empty, so it does
+                // not fire on initial load.
+                vm.refreshIfNeeded()
             }
         }
     }
