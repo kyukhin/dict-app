@@ -1,0 +1,20 @@
+// Version.xcconfig — Issue #39
+//
+// Base configuration for the DictApp target (wired as
+// baseConfigurationReference on both Debug and Release). It defines a
+// default GIT_DESCRIBE and pulls in the generated, git-ignored
+// BuildInfo.xcconfig written by Scripts/generate_build_info.sh (run as a
+// Build pre-action on the shared scheme) before Xcode resolves settings.
+//
+// GIT_DESCRIBE flows: BuildInfo.xcconfig -> this build setting ->
+// Info.plist's $(GIT_DESCRIBE) substitution -> bundle -> AppVersion.
+
+// Empty default so a fresh checkout that hasn't built yet still parses
+// (the build-time validation phase fails loud if it ever stays empty).
+GIT_DESCRIBE =
+
+// Optional include: tolerant of a clean checkout where the pre-action has
+// not yet generated BuildInfo.xcconfig. On every real build the pre-action
+// has already written it, overriding the empty default above. Resolved
+// relative to this file's directory (DictApp/DictApp/).
+#include? "BuildInfo.xcconfig"

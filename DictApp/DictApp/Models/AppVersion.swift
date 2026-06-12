@@ -1,110 +1,104 @@
 // AppVersion.swift
 // Single source of truth for the running app's version string.
 //
-// Reads `CFBundleShortVersionString` and `CFBundleVersion` from the
-// generated Info.plist (populated at build time from
-// `MARKETING_VERSION` and `CURRENT_PROJECT_VERSION` in the Xcode
-// project) and derives a release channel from runtime signals.
+// The displayed version is the build-time `git describe` of HEAD, injected
+// into the bundle's Info.plist as the custom `GIT_DESCRIBE` key (Issue #39):
+//   Config/BuildInfo.xcconfig (written by Scripts/generate_build_info.sh as a
+//   scheme Build pre-action) -> GIT_DESCRIBE build setting -> Info.plist
+//   $(GIT_DESCRIBE) substitution -> bundle -> here.
 //
-// Pure value type — no UIKit, no SwiftUI, no `@MainActor`. Constant
-// for the lifetime of the process: `AppVersion.current` is computed
-// once and reused.
+// A clean build (HEAD exactly on a tag) carries the bare tag, e.g. "v1.3.0";
+// a dev build carries the full describe, e.g. "v1.2.0-8-gc7238e0". The script
+// chose the right string per case, so `displayString` returns it near-verbatim
+// (only stripping a leading "v" for the App Store / iOS Settings convention).
+//
+// Pure value type — no UIKit, no SwiftUI, no `@MainActor`. Constant for the
+// lifetime of the process: `AppVersion.current` is computed once and reused.
 
 import Foundation
 
-/// What kind of build is currently running. Detected at runtime so the
-/// developer never has to flip a flag before archiving.
-enum ReleaseChannel {
-    /// `#if DEBUG` is set — Xcode → Run on device/simulator.
-    case debug
-    /// Release config running with a sandbox-receipt — TestFlight
-    /// (or Release-config simulator, rare).
-    case testFlight
-    /// Release config with an embedded provisioning profile — Ad-Hoc,
-    /// Enterprise, or Developer-export distribution.
-    case development
-    /// Release config, no sandbox receipt, no embedded profile —
-    /// genuine App Store-distributed binary.
-    case appStore
-
-    /// Anything except `.appStore` displays with the `-unreleased`
-    /// suffix.
-    var isUnreleased: Bool { self != .appStore }
-}
-
-/// Immutable view of the app's version, build number, and release
-/// channel. Both Settings and `SupportService` read from this single
-/// type so they never disagree on what the running build is.
+/// Immutable view of the app's version: the git-describe string the build was
+/// stamped with, plus the marketing version and build number from the plist.
 struct AppVersion {
     /// Process-wide singleton. Computed once on first access.
     static let current = AppVersion()
 
-    /// Marketing version, e.g. `"1.1.0"`. `"unknown"` if the Info.plist
-    /// entry is missing (shouldn't happen with `GENERATE_INFOPLIST_FILE`
-    /// — visible-failure default rather than a fake `"1.0"`).
+    /// Raw `git describe` string captured at build time from the bundle's
+    /// `GIT_DESCRIBE` Info.plist key. Empty only if the substitution chain
+    /// is misconfigured (the build's validation phase fails loud before that
+    /// can ship) — `displayString` then falls back to `marketingVersion`.
+    let gitDescribe: String
+
+    /// Marketing version, e.g. `"1.2.0"` (`CFBundleShortVersionString`).
+    /// `"unknown"` if the Info.plist entry is missing — a visible-failure
+    /// default rather than a fake `"1.0"`. Kept for `verboseString` and as
+    /// the `displayString` fallback.
     let marketingVersion: String
 
-    /// Build number, e.g. `"2"`. `"0"` if the Info.plist entry is
-    /// missing.
+    /// Build number, e.g. `"3"` (`CFBundleVersion`). `"0"` if missing. Kept
+    /// for bug-report triage (`verboseString`).
     let buildNumber: String
 
-    /// The kind of binary this process is — derived from layered
-    /// runtime signals (`#if DEBUG`, receipt path, embedded profile).
-    let channel: ReleaseChannel
-
-    /// Build an `AppVersion` from a `Bundle` (default `.main`). If
-    /// `channel` is `nil`, the channel is detected at runtime from
-    /// receipt and provisioning-profile signals on the same bundle.
-    init(bundle: Bundle = .main, channel: ReleaseChannel? = nil) {
-        self.init(
-            infoDictionary: bundle.infoDictionary,
-            channel: channel ?? Self.detectChannel(bundle: bundle)
-        )
+    /// Build an `AppVersion` from a `Bundle` (default `.main`), reading
+    /// `GIT_DESCRIBE` + the standard `CFBundle*` keys from its Info.plist.
+    init(bundle: Bundle = .main) {
+        self.init(infoDictionary: bundle.infoDictionary)
     }
 
-    /// Internal initializer that bypasses `Bundle` entirely. Used by
-    /// unit tests to exercise the missing/malformed-Info.plist paths
-    /// without having to subclass `Bundle` (which iOS caches by path
-    /// and resists overriding).
-    init(infoDictionary: [String: Any]?, channel: ReleaseChannel) {
+    /// Bypasses `Bundle` entirely — used by unit tests to exercise the
+    /// missing/malformed-Info.plist paths without subclassing `Bundle`
+    /// (which iOS caches by path and resists overriding).
+    init(infoDictionary: [String: Any]?) {
+        self.gitDescribe = infoDictionary?["GIT_DESCRIBE"] as? String ?? ""
         self.marketingVersion = infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown"
         self.buildNumber = infoDictionary?["CFBundleVersion"] as? String ?? "0"
-        self.channel = channel
     }
 
-    /// What Settings displays: `"1.1.0-unreleased"` for any non-App-Store
-    /// build, `"1.1.0"` for an App Store-distributed binary.
+    /// Test seam (Issue #39): construct directly from a synthetic
+    /// `git describe` string with no git and no bundle. The script's
+    /// exact-match-vs-always choice can't be unit-tested in Swift, so the
+    /// seam covers the deterministic half — classification + display — for
+    /// each describe shape (clean tag, post-tag dev, no-tags SHA).
+    init(describeOutput: String,
+         marketingVersion: String = "unknown",
+         buildNumber: String = "0") {
+        self.gitDescribe = describeOutput
+        self.marketingVersion = marketingVersion
+        self.buildNumber = buildNumber
+    }
+
+    /// What Settings displays. Returns the `git describe` string with a single
+    /// leading `v` stripped (e.g. `v1.3.0` → `1.3.0`,
+    /// `v1.2.0-8-gc7238e0` → `1.2.0-8-gc7238e0`), matching the App Store /
+    /// iOS Settings convention. Falls back to `marketingVersion` only if
+    /// `gitDescribe` is empty (defensive — the build fails loudly first).
     var displayString: String {
-        channel.isUnreleased ? "\(marketingVersion)-unreleased" : marketingVersion
+        guard !gitDescribe.isEmpty else { return marketingVersion }
+        // Only strip a leading "v" when it precedes a digit — i.e. version-shaped
+        // tags like "v1.3.0" become "1.3.0", but a hypothetical non-version tag
+        // like "v_unstable" stays intact.
+        if gitDescribe.hasPrefix("v"),
+           let next = gitDescribe.dropFirst().first,
+           next.isNumber {
+            return String(gitDescribe.dropFirst())
+        }
+        return gitDescribe
     }
 
-    /// What bug-report telemetry displays. Always includes the build
-    /// number so triage can match a report to a specific archive.
-    /// e.g. `"1.1.0-unreleased (build 2)"`.
+    /// True when HEAD was exactly on a semantic-version tag at build time —
+    /// a bare `vX.Y.Z` / `X.Y.Z` with no `-<N>-g<sha>` dev suffix and not a
+    /// bare commit SHA. The optional leading `v` is tolerated.
+    var isCleanTag: Bool {
+        gitDescribe.range(
+            of: #"^v?\d+\.\d+\.\d+$"#,
+            options: .regularExpression
+        ) != nil
+    }
+
+    /// What bug-report telemetry displays. Always includes the build number
+    /// so triage can match a report to a specific archive, e.g.
+    /// `"1.2.0-8-gc7238e0 (build 3)"`.
     var verboseString: String {
         "\(displayString) (build \(buildNumber))"
-    }
-
-    // MARK: - Channel detection
-
-    /// Internal so tests can exercise the resolution rules with a
-    /// controlled `Bundle`. Production callers go through `current`.
-    static func detectChannel(bundle: Bundle = .main) -> ReleaseChannel {
-        #if DEBUG
-        return .debug
-        #else
-        // TestFlight & the Release-config simulator both report
-        // `sandboxReceipt` for the receipt filename. App Store ships
-        // a file literally named `receipt`.
-        if bundle.appStoreReceiptURL?.lastPathComponent == "sandboxReceipt" {
-            return .testFlight
-        }
-        // Ad-Hoc / Enterprise / Developer-export builds carry an
-        // embedded provisioning profile. App Store strips this file.
-        if bundle.url(forResource: "embedded", withExtension: "mobileprovision") != nil {
-            return .development
-        }
-        return .appStore
-        #endif
     }
 }

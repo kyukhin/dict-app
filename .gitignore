@@ -48,6 +48,11 @@ Scripts/.cache/
 # --- Claude Code ---
 .claude/
 
+# --- Generated build info (Issue #39) ---
+# Written by Scripts/generate_build_info.sh on every build; reflects HEAD's
+# git describe. The committed Version.xcconfig provides the stable wiring.
+DictApp/DictApp/BuildInfo.xcconfig
+
 # --- Misc ---
 *.ipa
 *.dSYM.zip

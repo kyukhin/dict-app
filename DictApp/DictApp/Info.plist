@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Partial Info.plist — Issue #39.
+
+  Supplies ONLY the custom GIT_DESCRIBE key. GENERATE_INFOPLIST_FILE stays
+  YES, so Xcode synthesizes and merges the standard CFBundle*/UI* keys onto
+  this file at build time. $(GIT_DESCRIBE) is substituted from the build
+  setting (sourced from Config/BuildInfo.xcconfig). Do not add other keys
+  here — standard keys remain owned by the generator.
+-->
+<plist version="1.0">
+<dict>
+	<key>GIT_DESCRIBE</key>
+	<string>$(GIT_DESCRIBE)</string>
+</dict>
+</plist>

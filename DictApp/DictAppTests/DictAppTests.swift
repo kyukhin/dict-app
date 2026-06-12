@@ -833,110 +833,118 @@ final class DictAppTests: XCTestCase {
         )
     }
 
-    // MARK: - Issue #25: Build version information
+    // MARK: - Issue #39: Build version from `git describe`
     //
-    // `AppVersion` is a pure value type with no UIKit/SwiftUI dependencies,
-    // so we exercise it by injecting a controlled `Bundle` and an explicit
-    // `ReleaseChannel` instead of relying on runtime detection.
+    // `AppVersion` is a pure value type with no UIKit/SwiftUI dependencies.
+    // The `init(describeOutput:)` seam feeds synthetic `git describe` strings
+    // (no live git, no bundle), so we test the deterministic half — shape
+    // classification (`isCleanTag`) and `displayString` — for each case the
+    // build script can produce.
 
-    /// `displayString` must drop the `-unreleased` suffix only for the
-    /// `.appStore` channel; every other channel must include it.
-    func testAppVersionDisplayStringSuffixByChannel() throws {
-        let info: [String: Any] = [
-            "CFBundleShortVersionString": "1.1.0",
-            "CFBundleVersion": "2"
-        ]
+    /// The describe-shape classifier and display rule, across every case the
+    /// build script (`generate_build_info.sh`) can emit. `displayString`
+    /// returns the describe verbatim except for a single stripped leading `v`
+    /// (App Store / iOS Settings convention).
+    func testAppVersionClassifiesDescribeShapes() throws {
+        // Clean tag — HEAD exactly on a semantic-version tag. This is also the
+        // "uncommitted changes on a tagged commit" case: the script omits
+        // `--dirty`, so it yields the same bare tag input.
+        let cleanTag = AppVersion(describeOutput: "v1.3.0")
+        XCTAssertTrue(cleanTag.isCleanTag, "'v1.3.0' is a clean semantic-version tag")
+        XCTAssertEqual(cleanTag.displayString, "1.3.0",
+                       "Clean tag must display verbatim with the leading 'v' stripped")
 
-        // App Store is the *only* channel that hides the suffix.
-        let appStore = AppVersion(infoDictionary: info, channel: .appStore)
-        XCTAssertEqual(appStore.displayString, "1.1.0",
-                       "App Store builds must display the bare marketing version")
+        // Tag without a leading 'v' — still clean, still displayed bare.
+        let cleanNoV = AppVersion(describeOutput: "1.3.0")
+        XCTAssertTrue(cleanNoV.isCleanTag, "'1.3.0' (no v) is a clean tag")
+        XCTAssertEqual(cleanNoV.displayString, "1.3.0")
 
-        // All other channels must include the suffix — pin every one of
-        // them so a future case added without an `isUnreleased` update is
-        // caught here.
-        let unreleased: [ReleaseChannel] = [.debug, .testFlight, .development]
-        for channel in unreleased {
-            let av = AppVersion(infoDictionary: info, channel: channel)
-            XCTAssertEqual(
-                av.displayString, "1.1.0-unreleased",
-                "Channel \(channel) must display with the '-unreleased' suffix"
-            )
-        }
+        // Post-tag dev build — full `git describe` with the -<N>-g<sha> suffix.
+        let postTag = AppVersion(describeOutput: "v1.2.0-22-g27714a2")
+        XCTAssertFalse(postTag.isCleanTag, "A -<N>-g<sha> describe suffix is not a clean tag")
+        XCTAssertEqual(postTag.displayString, "1.2.0-22-g27714a2",
+                       "Dev build must display the full describe (leading 'v' stripped)")
+
+        // No-tags dev build — a bare abbreviated commit SHA.
+        let bareSHA = AppVersion(describeOutput: "27714a2")
+        XCTAssertFalse(bareSHA.isCleanTag, "A bare commit SHA is not a clean tag")
+        XCTAssertEqual(bareSHA.displayString, "27714a2",
+                       "A no-tags build displays the bare SHA verbatim")
     }
 
-    /// `verboseString` must always include the build number in
-    /// parentheses, e.g. `"1.1.0-unreleased (build 2)"`.
+    /// `verboseString` must always append the build number in parentheses,
+    /// e.g. `"1.2.0-22-g27714a2 (build 3)"`.
     func testAppVersionVerboseStringIncludesBuild() throws {
-        let info: [String: Any] = [
-            "CFBundleShortVersionString": "1.1.0",
-            "CFBundleVersion": "2"
-        ]
-
-        let unreleased = AppVersion(infoDictionary: info, channel: .debug)
+        let dev = AppVersion(describeOutput: "v1.2.0-22-g27714a2", buildNumber: "3")
         XCTAssertEqual(
-            unreleased.verboseString, "1.1.0-unreleased (build 2)",
-            "Non-App-Store verboseString must include the suffix AND the build number"
+            dev.verboseString, "1.2.0-22-g27714a2 (build 3)",
+            "verboseString must be '<displayString> (build <n>)'"
         )
 
-        let released = AppVersion(infoDictionary: info, channel: .appStore)
-        XCTAssertEqual(
-            released.verboseString, "1.1.0 (build 2)",
-            "App Store verboseString must drop the suffix but keep the build number"
-        )
+        let clean = AppVersion(describeOutput: "v1.3.0", buildNumber: "1")
+        XCTAssertEqual(clean.verboseString, "1.3.0 (build 1)")
 
-        // Multi-digit build — guard against any "single-character only"
-        // formatting bug.
-        let bigBuild: [String: Any] = [
-            "CFBundleShortVersionString": "2.0.0",
-            "CFBundleVersion": "1024"
-        ]
-        XCTAssertEqual(
-            AppVersion(infoDictionary: bigBuild, channel: .appStore).verboseString,
-            "2.0.0 (build 1024)"
-        )
+        // Multi-digit build — guard against any "single-character only" bug.
+        let bigBuild = AppVersion(describeOutput: "v2.0.0", buildNumber: "1024")
+        XCTAssertEqual(bigBuild.verboseString, "2.0.0 (build 1024)")
     }
 
-    /// Missing `CFBundleShortVersionString` and `CFBundleVersion`
-    /// fall back to `"unknown"` and `"0"` respectively rather than
-    /// crashing or returning empty strings.
+    /// Missing keys fall back visibly: `gitDescribe` empty → `displayString`
+    /// uses `marketingVersion`; `CFBundleShortVersionString`/`CFBundleVersion`
+    /// fall back to `"unknown"`/`"0"` rather than crashing or returning empty.
     func testAppVersionFallsBackWhenInfoPlistMissing() throws {
         // Case 1: infoDictionary is nil (no Info.plist at all).
-        let nilVersion = AppVersion(infoDictionary: nil, channel: .appStore)
+        let nilVersion = AppVersion(infoDictionary: nil)
+        XCTAssertEqual(nilVersion.gitDescribe, "",
+                       "Missing GIT_DESCRIBE must read as empty")
         XCTAssertEqual(nilVersion.marketingVersion, "unknown",
                        "Missing CFBundleShortVersionString must fall back to 'unknown'")
         XCTAssertEqual(nilVersion.buildNumber, "0",
                        "Missing CFBundleVersion must fall back to '0'")
         XCTAssertEqual(nilVersion.displayString, "unknown",
-                       "displayString on appStore channel must still surface the fallback marketing string")
+                       "Empty gitDescribe must fall back to the marketing version")
         XCTAssertEqual(nilVersion.verboseString, "unknown (build 0)",
                        "verboseString must compose cleanly with the fallback values")
+        XCTAssertFalse(nilVersion.isCleanTag, "An empty describe is not a clean tag")
 
         // Case 2: infoDictionary exists but the keys we care about are absent.
-        let emptyVersion = AppVersion(infoDictionary: [:], channel: .debug)
+        let emptyVersion = AppVersion(infoDictionary: [:])
         XCTAssertEqual(emptyVersion.marketingVersion, "unknown")
         XCTAssertEqual(emptyVersion.buildNumber, "0")
+        XCTAssertEqual(emptyVersion.gitDescribe, "")
 
-        // Case 3: keys exist but the values aren't strings (wrong types in
-        // a malformed plist). The lookup is `info?[...] as? String`, so we
-        // expect the fallback to kick in rather than a runtime crash.
+        // Case 3: GIT_DESCRIBE present, so displayString uses it even when the
+        // marketing version is also present — gitDescribe is the source of truth.
+        let withDescribe = AppVersion(infoDictionary: [
+            "GIT_DESCRIBE": "v1.2.0-8-gc7238e0",
+            "CFBundleShortVersionString": "1.2.0",
+            "CFBundleVersion": "3"
+        ])
+        XCTAssertEqual(withDescribe.displayString, "1.2.0-8-gc7238e0",
+                       "A present GIT_DESCRIBE must drive displayString, not the marketing version")
+
+        // Case 4: keys exist but the values aren't strings (malformed plist).
+        // The lookup is `info?[...] as? String`, so the fallback kicks in
+        // rather than crashing.
         let wrongType: [String: Any] = [
+            "GIT_DESCRIBE": 99,
             "CFBundleShortVersionString": 1.0,
             "CFBundleVersion": 42
         ]
-        let wrongTypeVersion = AppVersion(infoDictionary: wrongType, channel: .appStore)
+        let wrongTypeVersion = AppVersion(infoDictionary: wrongType)
+        XCTAssertEqual(wrongTypeVersion.gitDescribe, "",
+                       "Non-string GIT_DESCRIBE must fall back to empty, not crash")
         XCTAssertEqual(wrongTypeVersion.marketingVersion, "unknown",
                        "Non-string CFBundleShortVersionString must fall back to 'unknown', not crash")
         XCTAssertEqual(wrongTypeVersion.buildNumber, "0",
                        "Non-string CFBundleVersion must fall back to '0', not crash")
     }
 
-    /// `AppVersion.current.marketingVersion` matches the live
-    /// `CFBundleShortVersionString` in `Bundle.main.infoDictionary`,
-    /// guarding against future refactors that drop the lookup.
+    /// `AppVersion.current` mirrors the live values in the host bundle's
+    /// Info.plist — guarding against future refactors that drop a lookup.
     func testAppVersionCurrentMatchesBundle() throws {
-        // The host app bundle holds the real marketing version. The unit
-        // test target is hosted by the app, so resolve robustly.
+        // The host app bundle holds the real values. The unit-test target is
+        // hosted by the app, so resolve robustly.
         let hostBundle: Bundle = {
             if let url = Bundle.main.url(forResource: "DictApp", withExtension: "app") {
                 return Bundle(url: url) ?? .main
@@ -952,14 +960,32 @@ final class DictAppTests: XCTestCase {
         XCTAssertNotNil(bundleBuild,
                         "Host bundle must expose CFBundleVersion")
 
-        // AppVersion.current reads `Bundle.main`, which for the unit-test
-        // process is the host app (DictApp.app) — the same bundle whose
-        // CFBundleShortVersionString we just read.
         let current = AppVersion(bundle: hostBundle)
         XCTAssertEqual(current.marketingVersion, bundleVersion,
                        "AppVersion.marketingVersion must mirror the bundle's CFBundleShortVersionString")
         XCTAssertEqual(current.buildNumber, bundleBuild,
                        "AppVersion.buildNumber must mirror the bundle's CFBundleVersion")
+
+        // The git-describe read path is pinned regardless of whether the build
+        // wiring is in place yet: AppVersion must surface exactly the bundle's
+        // GIT_DESCRIBE (an empty string until the Info.plist substitution is
+        // wired; the real describe once it is).
+        let bundleDescribe = hostBundle.object(forInfoDictionaryKey: "GIT_DESCRIBE") as? String ?? ""
+        XCTAssertEqual(current.gitDescribe, bundleDescribe,
+                       "AppVersion.gitDescribe must mirror the bundle's GIT_DESCRIBE key")
+
+        // Issue #39 PM decision: `displayString` is the describe string with a
+        // single leading `v` stripped (App Store / iOS Settings convention).
+        // Pin it against the *live* bundle so a regression in the strip rule or
+        // the substitution chain is caught. A scheme-built test bundle carries
+        // a real describe because the Build pre-action runs for `test` too.
+        XCTAssertFalse(bundleDescribe.isEmpty,
+                       "A scheme-built test bundle must carry a non-empty GIT_DESCRIBE (the pre-action must run for the test scheme)")
+        XCTAssertFalse(current.displayString.hasPrefix("v"),
+                       "displayString must not carry a leading 'v' (got '\(current.displayString)')")
+        let strippedDescribe = bundleDescribe.hasPrefix("v") ? String(bundleDescribe.dropFirst()) : bundleDescribe
+        XCTAssertEqual(current.displayString, strippedDescribe,
+                       "displayString must equal GIT_DESCRIBE with an optional leading 'v' removed")
 
         // The shared `AppVersion.current` instance must agree with a freshly
         // constructed one against the same bundle — proves the singleton
@@ -967,20 +993,6 @@ final class DictAppTests: XCTestCase {
         XCTAssertEqual(AppVersion.current.marketingVersion, current.marketingVersion,
                        "AppVersion.current must equal a fresh AppVersion(bundle:) reading the same plist")
         XCTAssertEqual(AppVersion.current.buildNumber, current.buildNumber)
-    }
-
-    /// `ReleaseChannel.isUnreleased` is true for every channel except
-    /// `.appStore` — pins the display rule the rest of the system
-    /// depends on.
-    func testReleaseChannelIsUnreleasedRule() throws {
-        XCTAssertTrue(ReleaseChannel.debug.isUnreleased,
-                      "Debug channel must be marked unreleased")
-        XCTAssertTrue(ReleaseChannel.testFlight.isUnreleased,
-                      "TestFlight channel must be marked unreleased")
-        XCTAssertTrue(ReleaseChannel.development.isUnreleased,
-                      "Development/Ad-Hoc/Enterprise channel must be marked unreleased")
-        XCTAssertFalse(ReleaseChannel.appStore.isUnreleased,
-                       "App Store channel is the *only* released channel")
     }
 
 

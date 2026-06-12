@@ -33,15 +33,15 @@ final class VersionDisplayTests: XCTestCase {
 
     /// The version row must exist on Settings, be reachable via its
     /// accessibility identifier, and display a real version string —
-    /// not the old "1.0" placeholder and not an empty value.
+    /// not the old "1.0" placeholder, not an empty value, and (Issue #39)
+    /// never the retired `-unreleased` suffix.
     ///
-    /// The xcodebuild test target compiles in Debug, so the channel is
-    /// `.debug` → `displayString` must include the `-unreleased` suffix.
-    /// The marketing version itself is environment-dependent (declared
-    /// in MARKETING_VERSION), so we don't pin a specific number — we
-    /// only require that the displayed value contains the value
-    /// `Bundle.main.infoDictionary["CFBundleShortVersionString"]` plus
-    /// the suffix.
+    /// The test build runs from a git working copy, so the Build pre-action
+    /// stamps `GIT_DESCRIBE` with a dev describe (e.g. `v1.2.0-8-gc7238e0`)
+    /// and the row shows the stripped form (`1.2.0-8-gc7238e0`). The exact
+    /// string is environment-dependent, so we don't pin it — we require a
+    /// describe-shaped value (a numeric version, optionally a `-N-g<sha>`
+    /// suffix) and the absence of `-unreleased`.
     func testVersionRowDisplaysAppVersion() throws {
         // 1. Navigate to Settings.
         tabBarPage.tapSettingsTab()
@@ -94,22 +94,28 @@ final class VersionDisplayTests: XCTestCase {
             )
         }
 
-        // 5. Debug builds must surface the '-unreleased' suffix. This is
-        //    the visible signal that channel detection is wired up — if
-        //    the suffix were ever silently dropped, this fails loudly.
-        XCTAssertTrue(
+        // 5. The retired '-unreleased' suffix (Issue #25's buggy channel
+        //    machinery, removed in #39) must never appear. The version now
+        //    comes from `git describe`, so a tag build shows a bare version
+        //    and a dev build shows a `-N-g<sha>` describe — never the old
+        //    runtime-guessed suffix.
+        XCTAssertFalse(
             combined.contains("-unreleased"),
-            "Debug build must display the '-unreleased' suffix; got: \(combined)"
+            "Version row must not display the retired '-unreleased' suffix; got: \(combined)"
         )
 
-        // 6. The version string must look like a semantic version
-        //    (digit.digit at minimum). Cheap regex — guards against an
-        //    empty or "unknown" leaking into a properly-configured build.
-        let versionPattern = try NSRegularExpression(pattern: #"\d+\.\d+"#)
+        // 6. The version string must look like a `git describe` output:
+        //    either a semver/describe (digit.digit at minimum, optionally
+        //    with a `-N-g<sha>` dev suffix) OR a bare abbreviated SHA
+        //    (the `git describe --always` fallback documented for tagless
+        //    repos). Guards against an empty or "unknown" leaking through.
+        let versionPattern = try NSRegularExpression(
+            pattern: #"(\d+\.\d+(?:\.\d+)?(?:-\d+-g[0-9a-f]+)?|[0-9a-f]{7,})"#
+        )
         let range = NSRange(combined.startIndex..., in: combined)
         XCTAssertGreaterThan(
             versionPattern.numberOfMatches(in: combined, range: range), 0,
-            "Version row must contain a numeric version (e.g. '1.1.0'); got: \(combined)"
+            "Version row must contain a git-describe version or bare SHA; got: \(combined)"
         )
 
         // 7. Defensive: the literal fallback string 'unknown' would mean
