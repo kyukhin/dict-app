@@ -71,6 +71,9 @@
 		074837182FB75B7700E3EA41 /* SettingsViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsViewModel.swift; sourceTree = "<group>"; };
 		0748371A2FB75B8900E3EA41 /* SettingsService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsService.swift; sourceTree = "<group>"; };
 		0748371C2FB75BAA00E3EA41 /* UILanguage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UILanguage.swift; sourceTree = "<group>"; };
+		0759887D2FD1894B00D6BC17 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		0759887F2FD1897800D6BC17 /* Version.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Version.xcconfig; sourceTree = "<group>"; };
+		075988812FD1898B00D6BC17 /* BuildInfo.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = BuildInfo.xcconfig; sourceTree = "<group>"; };
 		079C758B2FBB15B400AC5AB3 /* ManageDictionariesViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ManageDictionariesViewModel.swift; sourceTree = "<group>"; };
 		079C758D2FBB15D700AC5AB3 /* ManageDictionariesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ManageDictionariesView.swift; sourceTree = "<group>"; };
 		079C77042FBDFB5500AC5AB3 /* LocalizationManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalizationManager.swift; sourceTree = "<group>"; };
@@ -151,6 +154,9 @@
 		A70000000000000000000002 /* DictApp */ = {
 			isa = PBXGroup;
 			children = (
+				075988812FD1898B00D6BC17 /* BuildInfo.xcconfig */,
+				0759887F2FD1897800D6BC17 /* Version.xcconfig */,
+				0759887D2FD1894B00D6BC17 /* Info.plist */,
 				A20000000000000000000001 /* DictApp.swift */,
 				A70000000000000000000003 /* Models */,
 				A70000000000000000000004 /* Services */,
@@ -285,6 +291,7 @@
 			isa = PBXNativeTarget;
 			buildConfigurationList = B30000000000000000000001 /* Build configuration list for PBXNativeTarget "DictApp" */;
 			buildPhases = (
+				075988832FD18EEB00D6BC17 /* ShellScript */,
 				A90000000000000000000001 /* Sources */,
 				A60000000000000000000001 /* Frameworks */,
 				AA0000000000000000000001 /* Resources */,
@@ -391,6 +398,27 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		075988832FD18EEB00D6BC17 /* ShellScript */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "cd \"$SRCROOT\" || { echo \"error: cannot cd to SRCROOT\"; exit 1; }\n  if ! git rev-parse --git-dir >/dev/null 2>&1; then\n    echo \"error: .git unavailable — run from a git working copy (git fetch --tags before archiving)\"; exit 1\n  fi\n  fresh=\"$(git describe --tags --exact-match 2>/dev/null || true)\"\n  [ -n \"$fresh\" ] || fresh=\"$(git describe --tags --always 2>/dev/null || true)\"\n  [ -n \"$fresh\" ] || { echo \"error: git describe produced no output\"; exit 1; }\n  if [ \"$fresh\" != \"$GIT_DESCRIBE\" ]; then\n    echo \"error: GIT_DESCRIBE ('$GIT_DESCRIBE') != HEAD ('$fresh') — build pre-action didn't run or wrote a stale value; build via the shared DictApp scheme\"; exit 1\n  fi\n  echo \"note: GIT_DESCRIBE validated = $GIT_DESCRIBE\"\n";
+		};
+/* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		074836772FB4632B00E3EA41 /* Sources */ = {
@@ -632,6 +660,7 @@
 		};
 		B20000000000000000000001 /* Debug */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = 0759887F2FD1897800D6BC17 /* Version.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
@@ -639,6 +668,7 @@
 				CURRENT_PROJECT_VERSION = 3;
 				DEVELOPMENT_TEAM = 8W78LNAP9K;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = DictApp/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = LibreDict;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
@@ -665,6 +695,7 @@
 		};
 		B20000000000000000000002 /* Release */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = 0759887F2FD1897800D6BC17 /* Version.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
@@ -672,6 +703,7 @@
 				CURRENT_PROJECT_VERSION = 3;
 				DEVELOPMENT_TEAM = 8W78LNAP9K;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = DictApp/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = LibreDict;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
