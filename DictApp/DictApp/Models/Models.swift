@@ -52,6 +52,11 @@ struct DictionaryEntry: Codable, Identifiable, Equatable, FetchableRecord, Persi
 struct HistoryItem: Codable, Identifiable, Equatable, FetchableRecord, PersistableRecord {
     var id: Int64?
     var word: String
+    /// Dictionary source of the entry that was last viewed for this word
+    /// (Issue #6). Defaults to "" for rows migrated before `history.source`
+    /// existed — those render the neutral `Sources/default` stripe until
+    /// the word is viewed again.
+    var source: String = ""
     var lookedAt: String?
 
     static let databaseTableName = "history"
@@ -59,8 +64,19 @@ struct HistoryItem: Codable, Identifiable, Equatable, FetchableRecord, Persistab
     enum CodingKeys: String, CodingKey {
         case id
         case word
+        case source
         case lookedAt = "looked_at"
     }
+}
+
+// MARK: - ResultSortMode (Issue #6)
+
+/// How search results are ordered. `.relevance` is FTS rank (the default);
+/// `.preferredDictionary` surfaces the top-N of each enabled dictionary in the
+/// user's configured order, then a relevance tail (see `DatabaseService`).
+enum ResultSortMode: String {
+    case relevance
+    case preferredDictionary
 }
 
 // MARK: - Bookmark

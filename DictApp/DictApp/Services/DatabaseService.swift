@@ -4,6 +4,39 @@
 import Foundation
 import GRDB
 
+/// Search constants + the pure result-assembly used by "Preferred dictionary
+/// first" (Issue #6). Kept out of the `actor` so `assemble` is testable without
+/// a database.
+enum Search {
+    /// Top-N rows surfaced per dictionary in preferred-dictionary mode (v1.3.0).
+    /// A future per-dictionary-N Settings control replaces this read with a
+    /// settings read — one line.
+    static let preferredDictionaryTopN = 4
+
+    /// Flattens per-dictionary `buckets` in `order`, then appends the relevance
+    /// `tail`. Deduplicates by entry `id` defensively (buckets are disjoint by
+    /// source and the tail SQL already excludes bucketed IDs, so this is a
+    /// belt-and-braces guarantee that the result never repeats a row). Order is
+    /// preserved: each ordered bucket, then the tail.
+    static func assemble(
+        buckets: [String: [DictionaryEntry]],
+        tail: [DictionaryEntry],
+        order: [String]
+    ) -> [DictionaryEntry] {
+        var seen = Set<Int64>()
+        var result: [DictionaryEntry] = []
+        func append(_ entries: [DictionaryEntry]) {
+            for entry in entries {
+                guard let id = entry.id else { result.append(entry); continue }
+                if seen.insert(id).inserted { result.append(entry) }
+            }
+        }
+        for source in order { append(buckets[source] ?? []) }
+        append(tail)
+        return result
+    }
+}
+
 actor DatabaseService {
     static let shared = DatabaseService()
 
@@ -55,6 +88,17 @@ actor DatabaseService {
             let columnNames = Set(columns.map { $0["name"] as String })
             if !columnNames.contains("description") {
                 try db.execute(sql: "ALTER TABLE dict_metadata ADD COLUMN description TEXT NOT NULL DEFAULT ''")
+            }
+
+            // Issue #6: history gains `source` (the dictionary of the last-viewed
+            // entry for the word) so the History row can show the per-source
+            // stripe. Pre-existing rows migrate with source='' (neutral stripe
+            // until re-viewed). Same shape as the dict_metadata.description
+            // migration above.
+            let historyColumns = try Row.fetchAll(db, sql: "PRAGMA table_info(history)")
+            let historyColumnNames = Set(historyColumns.map { $0["name"] as String })
+            if !historyColumnNames.contains("source") {
+                try db.execute(sql: "ALTER TABLE history ADD COLUMN source TEXT NOT NULL DEFAULT ''")
             }
 
             try Self.migrate(db)
@@ -168,6 +212,79 @@ actor DatabaseService {
         }
     }
 
+    /// "Preferred dictionary first" search (Issue #6, `ResultSortMode.preferredDictionary`).
+    ///
+    /// Runs one capped `MATCH` query per enabled dictionary **in user order**
+    /// (`LIMIT topN` each), then one relevance "tail" query over all enabled
+    /// sources excluding the rows already bucketed. Per-dict `LIMIT` is the
+    /// correct primitive (FTS5 has no window functions): a single global query
+    /// capped at `limit` could push a low-ranking dictionary's top rows past the
+    /// cutoff, so its top-N would be missing. Assembly is the pure
+    /// `Search.assemble` for testability.
+    func searchPreferred(
+        query: String,
+        order: [String],
+        enabledSources: Set<String>,
+        topN: Int = Search.preferredDictionaryTopN,
+        limit: Int = 50
+    ) async throws -> [DictionaryEntry] {
+        if enabledSources.isEmpty { return [] }
+        guard let pool = dbPool else { throw DBError.notConnected }
+        let sanitized = sanitizeFTS(query)
+        guard !sanitized.isEmpty else { return [] }
+
+        // Bucket only enabled sources, in user order. Enabled sources absent
+        // from `order` (e.g. a freshly-imported dict before reconciliation) get
+        // no bucket but still appear via the relevance tail.
+        let orderedEnabled = order.filter { enabledSources.contains($0) }
+        let match = sanitized + "*"
+        let prefix = sanitized + "%"
+
+        return try await pool.read { db in
+            var buckets: [String: [DictionaryEntry]] = [:]
+            var takenIds: [Int64] = []
+
+            for source in orderedEnabled {
+                let rows = try DictionaryEntry.fetchAll(db, sql: """
+                    SELECT e.*
+                    FROM entries_fts fts JOIN entries e ON e.id = fts.rowid
+                    WHERE entries_fts MATCH ? AND e.source = ?
+                    ORDER BY (e.word_normalized = ? COLLATE NOCASE) DESC,
+                             (e.word_normalized LIKE ? COLLATE NOCASE) DESC,
+                             rank
+                    LIMIT ?
+                    """, arguments: [match, source, sanitized, prefix, topN])
+                buckets[source] = rows
+                takenIds += rows.compactMap(\.id)
+            }
+
+            // Relevance tail over all enabled sources, excluding bucketed IDs.
+            var tail: [DictionaryEntry] = []
+            let remaining = limit - takenIds.count
+            if remaining > 0 {
+                let enabledArr = Array(enabledSources)
+                let srcPlaceholders = enabledArr.map { _ in "?" }.joined(separator: ", ")
+                let notIn = takenIds.isEmpty
+                    ? ""
+                    : " AND e.id NOT IN (\(takenIds.map { _ in "?" }.joined(separator: ", ")))"
+                var args = StatementArguments()
+                args += [match]
+                for s in enabledArr { args += [s] }
+                for tid in takenIds { args += [tid] }
+                args += [remaining]
+                tail = try DictionaryEntry.fetchAll(db, sql: """
+                    SELECT e.*
+                    FROM entries_fts fts JOIN entries e ON e.id = fts.rowid
+                    WHERE entries_fts MATCH ? AND e.source IN (\(srcPlaceholders))\(notIn)
+                    ORDER BY rank
+                    LIMIT ?
+                    """, arguments: args)
+            }
+
+            return Search.assemble(buckets: buckets, tail: tail, order: orderedEnabled)
+        }
+    }
+
     /// Exact lookup (case-insensitive).
     func lookup(word: String) async throws -> DictionaryEntry? {
         guard let pool = dbPool else { throw DBError.notConnected }
@@ -180,15 +297,17 @@ actor DatabaseService {
 
     // MARK: - History
 
-    func addToHistory(word: String) async throws {
+    /// Records a viewed word with the `source` of the entry that was viewed
+    /// (Issue #6). On a repeat view the last-viewed source wins (`excluded.source`).
+    func addToHistory(word: String, source: String) async throws {
         guard let pool = dbPool else { throw DBError.notConnected }
         try await pool.write { db in
             try db.execute(
                 sql: """
-                    INSERT INTO history(word, looked_at) VALUES (?, datetime('now'))
-                    ON CONFLICT(word) DO UPDATE SET looked_at = datetime('now')
+                    INSERT INTO history(word, source, looked_at) VALUES (?, ?, datetime('now'))
+                    ON CONFLICT(word) DO UPDATE SET source = excluded.source, looked_at = datetime('now')
                     """,
-                arguments: [word]
+                arguments: [word, source]
             )
         }
     }
@@ -651,6 +770,7 @@ actor DatabaseService {
         CREATE TABLE IF NOT EXISTS history (
             id          INTEGER PRIMARY KEY AUTOINCREMENT,
             word        TEXT    NOT NULL UNIQUE,
+            source      TEXT    NOT NULL DEFAULT '',
             looked_at   TEXT    DEFAULT (datetime('now'))
         );
         CREATE TABLE IF NOT EXISTS bookmarks (

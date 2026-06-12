@@ -18,7 +18,7 @@ final class DefinitionViewModel: ObservableObject {
     func onAppear() async {
         guard let id = entry.id else { return }
         do {
-            try await db.addToHistory(word: entry.word)
+            try await db.addToHistory(word: entry.word, source: entry.source)
             isBookmarked = try await db.isBookmarked(entryId: id)
         } catch {
             errorMessage = error.localizedDescription

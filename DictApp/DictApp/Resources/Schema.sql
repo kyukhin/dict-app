@@ -47,9 +47,12 @@ CREATE TRIGGER IF NOT EXISTS entries_au AFTER UPDATE ON entries BEGIN
 END;
 
 -- History table: tracks recently looked-up words (no duplicates).
+-- `source` (Issue #6) records the dictionary of the entry last viewed for the
+-- word, so the History row can show the same per-source colour stripe as Search.
 CREATE TABLE IF NOT EXISTS history (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     word        TEXT    NOT NULL UNIQUE,
+    source      TEXT    NOT NULL DEFAULT '',
     looked_at   TEXT    DEFAULT (datetime('now'))
 );
 
