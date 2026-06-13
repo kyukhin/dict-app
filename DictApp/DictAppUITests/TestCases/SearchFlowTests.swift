@@ -101,10 +101,14 @@ final class SearchFlowTests: XCTestCase {
         // passed on arch/OS combos that materialize the long-def cells (arm64 /
         // iOS 26 stays green). Production-thread investigation tracked in #60;
         // `ALLOW_LONG_DEF_FLAKE` re-enables the test there without editing it.
+        // Apple fixed the drop in the iOS 18.6 SDK runtime (re-verified on the
+        // 18.6 sim, both current master and pre-#6), so the skip is now narrowed
+        // to iOS 18.0–18.5; 18.6+ renders the long cells and runs the test.
         #if arch(x86_64)
+        let os = ProcessInfo.processInfo.operatingSystemVersion
         if ProcessInfo.processInfo.environment["ALLOW_LONG_DEF_FLAKE"] == nil,
-           ProcessInfo.processInfo.operatingSystemVersion.majorVersion == 18 {
-            throw XCTSkip("Intel x86_64 + iOS 18.x sim drops long-definition cells; see #60.")
+           os.majorVersion == 18, os.minorVersion < 6 {
+            throw XCTSkip("Intel x86_64 + iOS 18.0–18.5 sim drops long-definition cells (fixed by Apple in iOS 18.6); see #60.")
         }
         #endif
 
