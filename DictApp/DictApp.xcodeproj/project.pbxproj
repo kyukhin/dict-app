@@ -47,6 +47,7 @@
 		D10000000000000000000002 /* SupportViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = D20000000000000000000002 /* SupportViewModel.swift */; };
 		D10000000000000000000003 /* MailComposeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D20000000000000000000003 /* MailComposeView.swift */; };
 		D40000000000000000000001 /* AppVersion.swift in Sources */ = {isa = PBXBuildFile; fileRef = D50000000000000000000001 /* AppVersion.swift */; };
+		AE81000100000081000000F2 /* AppConstants.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE81000100000081000000F1 /* AppConstants.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -113,6 +114,7 @@
 		D20000000000000000000002 /* SupportViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SupportViewModel.swift; sourceTree = "<group>"; };
 		D20000000000000000000003 /* MailComposeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MailComposeView.swift; sourceTree = "<group>"; };
 		D50000000000000000000001 /* AppVersion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppVersion.swift; sourceTree = "<group>"; };
+		AE81000100000081000000F1 /* AppConstants.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppConstants.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -180,6 +182,7 @@
 				0748371C2FB75BAA00E3EA41 /* UILanguage.swift */,
 				A20000000000000000000002 /* Models.swift */,
 				D50000000000000000000001 /* AppVersion.swift */,
+				AE81000100000081000000F1 /* AppConstants.swift */,
 			);
 			path = Models;
 			sourceTree = "<group>";
@@ -469,6 +472,7 @@
 				A10000000000000000000014 /* AboutView.swift in Sources */,
 				A10000000000000000000015 /* DictionaryDetailView.swift in Sources */,
 				D40000000000000000000001 /* AppVersion.swift in Sources */,
+				AE81000100000081000000F2 /* AppConstants.swift in Sources */,
 				D10000000000000000000001 /* SupportService.swift in Sources */,
 				D10000000000000000000002 /* SupportViewModel.swift in Sources */,
 				D10000000000000000000003 /* MailComposeView.swift in Sources */,

@@ -148,6 +148,15 @@ struct SettingsView: View {
                 supportVM.startReportFlow(openURL: openURL)
             }
             .accessibilityIdentifier("report_bug_button")
+            // Issue #81: user-initiated "Write a review" deep link, alongside the
+            // other outward-facing Support actions. Independent of #12's
+            // heuristic-driven prompt.
+            if let reviewURL = AppConstants.writeReviewURL {
+                Link(destination: reviewURL) {
+                    Label("settings.writeReview", systemImage: "star")
+                }
+                .accessibilityIdentifier("settings_write_review_link")
+            }
             NavigationLink("settings.support.credits") {
                 CreditsView()
             }
