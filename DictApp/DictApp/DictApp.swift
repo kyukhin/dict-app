@@ -9,6 +9,11 @@ struct DictApp: App {
     @State private var setupError: String?
     @StateObject private var localization = LocalizationManager.shared
 
+    // Issue #12: cumulative active-foreground time feeds the review-prompt
+    // heuristic. The service tracks the active-interval start itself (and counts
+    // the in-progress interval live), so we only forward scene-phase edges.
+    @Environment(\.scenePhase) private var scenePhase
+
     var body: some Scene {
         WindowGroup {
             Group {
@@ -48,7 +53,20 @@ struct DictApp: App {
                              .characterDirection == .rightToLeft ? .rightToLeft : .leftToRight)
             .environmentObject(localization)
             .task {
+                // Launch begins an .active interval; onChange only fires on
+                // *transitions*, so the initial foreground is started here.
+                ReviewRequestService.shared.foregroundDidBecomeActive()
                 await initializeDatabase()
+            }
+            // Issue #12: forward scene-phase edges so the service accumulates
+            // only `.active` time (it banks the interval on resign and counts
+            // the running interval live).
+            .onChange(of: scenePhase) { _, newPhase in
+                if newPhase == .active {
+                    ReviewRequestService.shared.foregroundDidBecomeActive()
+                } else {
+                    ReviewRequestService.shared.foregroundDidResignActive()
+                }
             }
         }
     }
@@ -64,6 +82,10 @@ struct DictApp: App {
                 try await DatabaseService.shared.clearHistory()
                 // Reset per-source enable/disable preference to first-launch default.
                 SettingsService.shared.enabledSources = nil
+                // Issue #12: clear review-prompt counters so UI-test runs start
+                // clean (they persist across launches and would otherwise
+                // accumulate past the threshold mid-suite).
+                ReviewRequestService.shared.resetPersistedState()
             }
 
             // UI-test hook: scrub entries left over from a previous fixture

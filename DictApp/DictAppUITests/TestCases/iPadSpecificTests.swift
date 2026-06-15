@@ -39,6 +39,7 @@ final class iPadSpecificTests: XCTestCase {
                           "iPad-only tests; current destination is not iPad")
 
         app = XCUIApplication()
+        app.launchArguments.append("-disableReviewPrompt")
         app.launchArguments.append("-resetData")
 
         // iOS 26 surfaces an "Enable Dictation?" springboard alert the first

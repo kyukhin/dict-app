@@ -2229,3 +2229,159 @@ final class SearchAssembleTests: XCTestCase {
         XCTAssertEqual(Search.preferredDictionaryTopN, 4)
     }
 }
+
+// MARK: - Issue #12: ReviewRequestService heuristic
+
+/// Verifies the smart-trigger logic without invoking the actual review prompt
+/// (the prompt lives in the view layer; the service only decides whether).
+final class ReviewRequestServiceTests: XCTestCase {
+    private func make(args: [String] = []) -> ReviewRequestService {
+        ReviewRequestService(store: InMemoryKeyValueStore(), launchArguments: args)
+    }
+    private func searches(_ n: Int, on s: ReviewRequestService) {
+        for _ in 0..<n { s.recordDefinitionView() }
+    }
+
+    func testDoesNotFireOnFirstLaunch() {
+        XCTAssertFalse(make().shouldRequestReview())
+    }
+
+    func testDoesNotFireBelowForegroundThreshold() {
+        let s = make()
+        searches(5, on: s)
+        s.recordForeground(duration: 29)
+        XCTAssertFalse(s.shouldRequestReview(), "29s < 30s threshold")
+    }
+
+    func testDoesNotFireBelowSearchThreshold() {
+        let s = make()
+        searches(4, on: s)
+        s.recordForeground(duration: 30)
+        XCTAssertFalse(s.shouldRequestReview(), "4 < 5 searches")
+    }
+
+    func testFiresAtFirstThresholdOnceSearchesReached() {
+        let s = make()
+        searches(5, on: s)
+        s.recordForeground(duration: 30)
+        XCTAssertTrue(s.shouldRequestReview())
+    }
+
+    func testDoesNotFireTwiceInSameSession() {
+        let s = make()
+        searches(5, on: s)
+        s.recordForeground(duration: 30)
+        XCTAssertTrue(s.shouldRequestReview())
+        s.markPromptFired()
+        XCTAssertFalse(s.shouldRequestReview(), "once per session")
+        s.recordForeground(duration: 3600)   // even past the higher thresholds
+        XCTAssertFalse(s.shouldRequestReview())
+    }
+
+    func testLaunchArgGateSuppressesPrompt() {
+        let s = make(args: ["-disableReviewPrompt"])
+        searches(10, on: s)
+        s.recordForeground(duration: 7200)
+        XCTAssertFalse(s.shouldRequestReview())
+    }
+
+    func testCountersPersistAcrossInstances() {
+        let store = InMemoryKeyValueStore()
+        let s1 = ReviewRequestService(store: store, launchArguments: [])
+        searches(5, on: s1)
+        s1.recordForeground(duration: 30)
+        // A fresh instance (= relaunch) on the same store sees persisted counters.
+        let s2 = ReviewRequestService(store: store, launchArguments: [])
+        XCTAssertEqual(s2.successfulSearchCount, 5)
+        XCTAssertEqual(s2.cumulativeForegroundSeconds, 30, accuracy: 0.001)
+        XCTAssertTrue(s2.shouldRequestReview(),
+                      "promptFiredThisSession is per-session, so a fresh session at threshold fires")
+    }
+
+    // Interpretation B (PM Decisions: once per session; Apple's annual cap for
+    // long-term): up to three attempts across the install at escalating
+    // thresholds, latched after the third.
+    func testSecondAttemptFiresInLaterSessionAtHigherThreshold() {
+        let store = InMemoryKeyValueStore()
+        searches(5, on: ReviewRequestService(store: store, launchArguments: []))
+        let s1 = ReviewRequestService(store: store, launchArguments: [])
+        s1.recordForeground(duration: 30)
+        XCTAssertTrue(s1.shouldRequestReview())
+        s1.markPromptFired()
+        let s2 = ReviewRequestService(store: store, launchArguments: [])
+        s2.recordForeground(duration: 30)   // cumulative 60
+        XCTAssertFalse(s2.shouldRequestReview(), "attempt 1 already consumed; 60s < 600s")
+        s2.recordForeground(duration: 600)  // cumulative 660 ≥ 600
+        XCTAssertTrue(s2.shouldRequestReview(), "attempt 2 at the 10-minute threshold")
+    }
+
+    func testLatchesAfterThreeAttempts() {
+        let store = InMemoryKeyValueStore()
+        searches(5, on: ReviewRequestService(store: store, launchArguments: []))
+        for threshold in ReviewRequestService.foregroundThresholds {
+            let s = ReviewRequestService(store: store, launchArguments: [])
+            s.recordForeground(duration: threshold)
+            XCTAssertTrue(s.shouldRequestReview())
+            s.markPromptFired()
+        }
+        let s4 = ReviewRequestService(store: store, launchArguments: [])
+        s4.recordForeground(duration: 99999)
+        XCTAssertFalse(s4.shouldRequestReview(), "once-per-install latch after the 3-attempt schedule")
+    }
+
+    func testResetClearsPersistedState() {
+        let store = InMemoryKeyValueStore()
+        let s = ReviewRequestService(store: store, launchArguments: [])
+        searches(5, on: s)
+        s.recordForeground(duration: 30)
+        s.resetPersistedState()
+        XCTAssertEqual(s.successfulSearchCount, 0)
+        XCTAssertEqual(s.cumulativeForegroundSeconds, 0, accuracy: 0.001)
+        XCTAssertFalse(s.shouldRequestReview())
+    }
+
+    // Regression (CodeRabbit, PR #80): the in-progress active interval must count
+    // toward the threshold even while the app stays active — otherwise a user who
+    // never backgrounds the app never passes the time gate.
+    func testInProgressForegroundCountsWithoutBackgrounding() {
+        var clock = Date(timeIntervalSinceReferenceDate: 0)
+        let s = ReviewRequestService(store: InMemoryKeyValueStore(),
+                                     launchArguments: [], now: { clock })
+        searches(5, on: s)
+        s.foregroundDidBecomeActive()
+        XCTAssertFalse(s.shouldRequestReview(), "0s elapsed")
+        clock = clock.addingTimeInterval(30)   // 30s pass, still active (no background)
+        XCTAssertTrue(s.shouldRequestReview(),
+                      "in-progress 30s must count even without resigning active")
+    }
+
+    func testResignActiveBanksTheInterval() {
+        var clock = Date(timeIntervalSinceReferenceDate: 0)
+        let store = InMemoryKeyValueStore()
+        let s = ReviewRequestService(store: store, launchArguments: [], now: { clock })
+        searches(5, on: s)
+        s.foregroundDidBecomeActive()
+        clock = clock.addingTimeInterval(30)
+        s.foregroundDidResignActive()          // banks 30s
+        XCTAssertEqual(s.cumulativeForegroundSeconds, 30, accuracy: 0.001,
+                       "banked time survives once the interval ends")
+        XCTAssertTrue(s.shouldRequestReview())
+    }
+
+    // Regression (PR #80 manual smoke): `-resetData` calls `resetPersistedState()`
+    // during app init — AFTER the app root's `.task` started the foreground
+    // interval. Reset must clear persisted counters WITHOUT nuking the running
+    // in-memory interval, else foreground time never accrues (scene stays active,
+    // no later edge restarts it) and the prompt never fires.
+    func testResetPersistedStateKeepsRunningForegroundInterval() {
+        var clock = Date(timeIntervalSinceReferenceDate: 0)
+        let s = ReviewRequestService(store: InMemoryKeyValueStore(),
+                                     launchArguments: [], now: { clock })
+        s.foregroundDidBecomeActive()          // app root .task started the interval
+        s.resetPersistedState()                // -resetData during init
+        searches(5, on: s)
+        clock = clock.addingTimeInterval(30)   // 30s of foreground elapse
+        XCTAssertTrue(s.shouldRequestReview(),
+                      "foreground must keep accruing after a -resetData reset")
+    }
+}

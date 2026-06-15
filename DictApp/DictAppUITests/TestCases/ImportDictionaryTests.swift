@@ -20,6 +20,7 @@ final class ImportDictionaryTests: XCTestCase {
     override func setUpWithError() throws {
         continueAfterFailure = false
         app = XCUIApplication()
+        app.launchArguments.append("-disableReviewPrompt")
         app.launchArguments.append("-resetData")
 
         // Same Dictation-alert handler as the other Settings suites — iOS 26

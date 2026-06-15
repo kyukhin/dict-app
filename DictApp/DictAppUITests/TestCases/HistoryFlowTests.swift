@@ -8,6 +8,7 @@ final class HistoryFlowTests: XCTestCase {
     override func setUpWithError() throws {
         continueAfterFailure = false
         app = XCUIApplication()
+        app.launchArguments.append("-disableReviewPrompt")
         app.launchArguments.append("-resetData")
 
         // iOS 26 surfaces an "Enable Dictation?" springboard alert the first

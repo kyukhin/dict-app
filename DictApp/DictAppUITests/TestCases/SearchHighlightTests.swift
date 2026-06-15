@@ -11,7 +11,7 @@ final class SearchHighlightTests: XCTestCase {
     override func setUpWithError() throws {
         continueAfterFailure = false
         app = XCUIApplication()
-        app.launchArguments = ["-resetData"]
+        app.launchArguments = ["-resetData", "-disableReviewPrompt"]
         XCUIDevice.shared.orientation = .portrait
         app.launch()
     }
