@@ -42,6 +42,7 @@
 		A10000000000000000000053 /* SourceStripeRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000053 /* SourceStripeRow.swift */; };
 		A10000000000000000000F01 /* test_import_fixture.json in Resources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000F01 /* test_import_fixture.json */; };
 		A10000000000000000000F02 /* test_import_fixture.sqlite in Resources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000F02 /* test_import_fixture.sqlite */; };
+		AE12000100000012000000F2 /* ReviewRequestService.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE12000100000012000000F1 /* ReviewRequestService.swift */; };
 		D10000000000000000000001 /* SupportService.swift in Sources */ = {isa = PBXBuildFile; fileRef = D20000000000000000000001 /* SupportService.swift */; };
 		D10000000000000000000002 /* SupportViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = D20000000000000000000002 /* SupportViewModel.swift */; };
 		D10000000000000000000003 /* MailComposeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D20000000000000000000003 /* MailComposeView.swift */; };
@@ -107,6 +108,7 @@
 		A20000000000000000000053 /* SourceStripeRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceStripeRow.swift; sourceTree = "<group>"; };
 		A20000000000000000000F01 /* test_import_fixture.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = test_import_fixture.json; sourceTree = "<group>"; };
 		A20000000000000000000F02 /* test_import_fixture.sqlite */ = {isa = PBXFileReference; lastKnownFileType = file; path = test_import_fixture.sqlite; sourceTree = "<group>"; };
+		AE12000100000012000000F1 /* ReviewRequestService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReviewRequestService.swift; sourceTree = "<group>"; };
 		D20000000000000000000001 /* SupportService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SupportService.swift; sourceTree = "<group>"; };
 		D20000000000000000000002 /* SupportViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SupportViewModel.swift; sourceTree = "<group>"; };
 		D20000000000000000000003 /* MailComposeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MailComposeView.swift; sourceTree = "<group>"; };
@@ -187,6 +189,7 @@
 			children = (
 				079C77042FBDFB5500AC5AB3 /* LocalizationManager.swift */,
 				0748371A2FB75B8900E3EA41 /* SettingsService.swift */,
+				AE12000100000012000000F1 /* ReviewRequestService.swift */,
 				A20000000000000000000003 /* DatabaseService.swift */,
 				A20000000000000000000004 /* SpeechService.swift */,
 				D20000000000000000000001 /* SupportService.swift */,
@@ -450,6 +453,7 @@
 				A10000000000000000000007 /* BookmarksViewModel.swift in Sources */,
 				A10000000000000000000008 /* DefinitionViewModel.swift in Sources */,
 				0748371B2FB75B8900E3EA41 /* SettingsService.swift in Sources */,
+				AE12000100000012000000F2 /* ReviewRequestService.swift in Sources */,
 				A10000000000000000000052 /* DictionaryOrderView.swift in Sources */,
 				A10000000000000000000053 /* SourceStripeRow.swift in Sources */,
 				A10000000000000000000009 /* ContentView.swift in Sources */,

@@ -47,6 +47,7 @@ final class ArabicLocalizationTests: XCTestCase {
     override func setUpWithError() throws {
         continueAfterFailure = false
         app = XCUIApplication()
+        app.launchArguments.append("-disableReviewPrompt")
         app.launchArguments += ["-AppleLanguages", "(ar)"]
         app.launchArguments += ["-AppleLocale", "ar"]
         app.launchArguments.append("-resetData")
@@ -64,6 +65,7 @@ final class ArabicLocalizationTests: XCTestCase {
             app.terminate()
         }
         let cleanup = XCUIApplication()
+        cleanup.launchArguments.append("-disableReviewPrompt")
         cleanup.launchArguments += ["-AppleLanguages", "(en)"]
         cleanup.launchArguments.append("-resetData")
         cleanup.launch()

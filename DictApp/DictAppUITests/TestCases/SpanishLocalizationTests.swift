@@ -33,6 +33,7 @@ final class SpanishLocalizationTests: XCTestCase {
     override func setUpWithError() throws {
         continueAfterFailure = false
         app = XCUIApplication()
+        app.launchArguments.append("-disableReviewPrompt")
         app.launchArguments.append("-resetData")
         // Force portrait — sim orientation persists across sessions on Intel x86_64,
         // and landscape no-ops swipeUp against SwiftUI Form/List scroll views.

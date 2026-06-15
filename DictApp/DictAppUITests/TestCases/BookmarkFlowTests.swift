@@ -8,6 +8,7 @@ final class BookmarkFlowTests: XCTestCase {
     override func setUpWithError() throws {
         continueAfterFailure = false
         app = XCUIApplication()
+        app.launchArguments.append("-disableReviewPrompt")
         // Only add -resetData for tests that need clean state
         // testBookmarkPersistence will handle its own launch logic
         if name != "testBookmarkPersistence" {
@@ -155,7 +156,7 @@ final class BookmarkFlowTests: XCTestCase {
 
         // Manual initial reset - start with clean state
         app.terminate()
-        app.launchArguments = ["-resetData"]
+        app.launchArguments = ["-resetData", "-disableReviewPrompt"]
         app.launch()
         tabBarPage = TabBarPage(app: app)
 
@@ -181,7 +182,7 @@ final class BookmarkFlowTests: XCTestCase {
 
         // The persistence restart - launch WITHOUT reset argument
         app.terminate()
-        app.launchArguments = [] // Clear arguments to prevent reset
+        app.launchArguments = ["-disableReviewPrompt"] // Clear arguments to prevent reset
         app.launch()
 
         // Reinitialize page objects
