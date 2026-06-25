@@ -1,0 +1,21 @@
+App Store Screenshot Guide — Spanish (es)
+=========================================
+Palette & layout: see screenshot-guide-en.txt (language-agnostic).
+Each headline = Primary caption (first line) + Subcaption (second line).
+Accent word per headline marked with *asterisks* (render in Accent Blue #2D7FF9).
+
+HEADLINES
+---------
+1. 300 000+ palabras.
+   Sin anuncios.
+2. Busca en *milisegundos*.
+   No en segundos.
+3. Cinco diccionarios.
+   *Un* toque.
+4. Tus palabras.
+   *Siempre* sin conexión.
+5. Sin anuncios, sin rastreo.
+   *Solo* palabras.
+6. *Pantalla* grande.
+   Nada de más. Diccionarios sin conexión en una interfaz limpia.
+
