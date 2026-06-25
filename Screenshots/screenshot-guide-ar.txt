@@ -1,0 +1,21 @@
+App Store Screenshot Guide — Arabic (ar, RTL)
+=============================================
+Palette & layout: see screenshot-guide-en.txt (language-agnostic). Layout mirrors right-to-left.
+Each headline = Primary caption (first line) + Subcaption (second line).
+Accent word per headline marked with *asterisks* (render in Accent Blue #2D7FF9).
+
+HEADLINES
+---------
+1. أكثر من 300,000 كلمة.
+   *صفر* إنترنت.
+2. بحث خلال *أجزاء من الثانية*.
+   لا ثوانٍ.
+3. خمسة قواميس.
+   *لمسة* واحدة.
+4. كلماتك.
+   دائمًا *دون اتصال*.
+5. بلا إعلانات، بلا تتبّع.
+   *كلمات* فقط.
+6. *شاشة* كبيرة.
+   لا شيء زائد. قواميس دون اتصال بواجهة نظيفة.
+

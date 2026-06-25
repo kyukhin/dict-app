@@ -1,0 +1,21 @@
+App Store Screenshot Guide — Russian (ru)
+=========================================
+Palette & layout: see screenshot-guide-en.txt (language-agnostic).
+Each headline = Primary caption (first line) + Subcaption (second line).
+Accent word per headline marked with *asterisks* (render in Accent Blue #2D7FF9).
+
+HEADLINES
+---------
+1. 300 000+ слов.
+   *Ноль* интернета.
+2. Поиск за *миллисекунды*.
+   Не за секунды.
+3. Пять словарей.
+   *Одно* касание.
+4. Ваши слова.
+   *Всегда* офлайн.
+5. Без рекламы, без слежки.
+   *Только* слова.
+6. *Большой* экран.
+   Ничего лишнего. Офлайн-словари в чистом интерфейсе.
+
