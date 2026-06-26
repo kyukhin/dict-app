@@ -43,11 +43,11 @@
 		A10000000000000000000F01 /* test_import_fixture.json in Resources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000F01 /* test_import_fixture.json */; };
 		A10000000000000000000F02 /* test_import_fixture.sqlite in Resources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000F02 /* test_import_fixture.sqlite */; };
 		AE12000100000012000000F2 /* ReviewRequestService.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE12000100000012000000F1 /* ReviewRequestService.swift */; };
+		AE81000100000081000000F2 /* AppConstants.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE81000100000081000000F1 /* AppConstants.swift */; };
 		D10000000000000000000001 /* SupportService.swift in Sources */ = {isa = PBXBuildFile; fileRef = D20000000000000000000001 /* SupportService.swift */; };
 		D10000000000000000000002 /* SupportViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = D20000000000000000000002 /* SupportViewModel.swift */; };
 		D10000000000000000000003 /* MailComposeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D20000000000000000000003 /* MailComposeView.swift */; };
 		D40000000000000000000001 /* AppVersion.swift in Sources */ = {isa = PBXBuildFile; fileRef = D50000000000000000000001 /* AppVersion.swift */; };
-		AE81000100000081000000F2 /* AppConstants.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE81000100000081000000F1 /* AppConstants.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -110,11 +110,11 @@
 		A20000000000000000000F01 /* test_import_fixture.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = test_import_fixture.json; sourceTree = "<group>"; };
 		A20000000000000000000F02 /* test_import_fixture.sqlite */ = {isa = PBXFileReference; lastKnownFileType = file; path = test_import_fixture.sqlite; sourceTree = "<group>"; };
 		AE12000100000012000000F1 /* ReviewRequestService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReviewRequestService.swift; sourceTree = "<group>"; };
+		AE81000100000081000000F1 /* AppConstants.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppConstants.swift; sourceTree = "<group>"; };
 		D20000000000000000000001 /* SupportService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SupportService.swift; sourceTree = "<group>"; };
 		D20000000000000000000002 /* SupportViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SupportViewModel.swift; sourceTree = "<group>"; };
 		D20000000000000000000003 /* MailComposeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MailComposeView.swift; sourceTree = "<group>"; };
 		D50000000000000000000001 /* AppVersion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppVersion.swift; sourceTree = "<group>"; };
-		AE81000100000081000000F1 /* AppConstants.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppConstants.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -696,7 +696,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.2.0;
+				MARKETING_VERSION = 1.3.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.kyukhin.DictApp;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
@@ -731,7 +731,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.2.0;
+				MARKETING_VERSION = 1.3.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.kyukhin.DictApp;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
