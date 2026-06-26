@@ -7,16 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-06-25
+
 ### Added
-- [Issue #81] Added a "Write a review" link in Settings → Support that opens the App Store review page on demand, complementing #12's heuristic-driven prompt.
-- [Issue #12] After engaged use, the app now asks for an App Store rating via Apple's native review prompt. A heuristic gates it — at least five viewed definitions plus accumulated active foreground time, offered at escalating 30-second / 10-minute / 60-minute opportunities — so it never appears on first launch or interrupts a quick lookup, and it fires at most once per session. Apple's own (~3/year) cap is respected as the long-term ceiling, and a `-disableReviewPrompt` launch argument keeps the prompt out of automated test runs. All counters persist across launches through the `KeyValueStore` seam.
-- [Issue #6] Search results now carry a per-dictionary colour stripe and a configurable order: a Settings "Result sorting" picker chooses Relevance (default) or **Preferred dictionary first** — which surfaces each dictionary's top matches in your chosen order, then a relevance tail — and a drag-to-reorder list under Dictionaries sets that order (disabled dictionaries stay in place, greyed). Preference persistence now flows through a `KeyValueStore` seam in `SettingsService` (same UserDefaults keys, no data migration) so #73 can add iCloud sync without touching any consumer. The History tab shows the same stripe, which required a one-time `history.source` schema migration (rows recorded before it show a neutral stripe until re-viewed). The badge text remains the primary, VoiceOver-spoken source identity — colour is secondary — and the provisional palette lives in the Asset Catalog for a design follow-up.
-- [Issue #39] Settings → Version now shows the build's actual `git describe`: the bare release tag for a build cut exactly on a tag (e.g. `1.3.0`), or the full describe for a dev build (e.g. `1.2.0-8-gc7238e0`). This replaces the buggy runtime channel guess that mislabeled the App Store build `-unreleased`; the value is captured at build time by a scheme pre-action (`Scripts/generate_build_info.sh`) into a git-ignored xcconfig, substituted into the Info.plist as `GIT_DESCRIBE`, and read by `AppVersion`. A target build phase fails the build loudly if `.git` is missing or the stamped value is stale.
-- [Issue #10] Bundled an Arabic↔English dictionary (~17,785 headwords) built from Arabic WordNet via NLTK's Open Multilingual WordNet, with diacritic-insensitive search: vocalized Arabic headwords (69% carry harakat) are reachable by typing the bare form. This adds the project's first real schema migration — `entries` gains a `word_normalized` search key that FTS5 now indexes, applied to existing installs via a one-time `PRAGMA user_version`-gated migration in `DatabaseService` (`= word` for the four Latin/Cyrillic sources, harakat-stripped for Arabic; the build-side normalizer in `Scripts/arabic_normalize.py` is the single source of truth). Known limitation: Arabic dictionaries you import yourself are searched by their exact written form (diacritic-sensitive) — only the bundled Arabic dictionary supports diacritic-free search.
-- [Issue #9] Added Arabic (`ar`) as the app's first RTL UI language: all `Localizable.xcstrings` keys translated (incl. legacy DictionaryDetailView labels and Arabic CLDR plurals), `ar` added to `SupportedLocales.json` and `knownRegions`. The App root now derives `\.layoutDirection` from the active language's character direction so an in-app switch mirrors SwiftUI layout (`LocalizationManager` untouched); UIKit bar chrome still follows the process language. Numbers render in Western digits — bare `Locale("ar")` resolves to `latn`; Arabic-Indic digit support is a follow-up.
-- [Issue #23] Added Spanish (`es`) as a fully localized in-app UI language. Every string in the `Localizable.xcstrings` catalog now carries a Spanish translation (including plurals and the Dictionary Detail metadata labels), `es` joins `SupportedLocales.json` so the language picker offers Español, and the project's known regions gain `es` so Xcode compiles `es.lproj`. Resource-only change — no `LocalizationManager` edits; Spanish is LTR so no bidi work.
-- [Issue #42] Bundled a Spanish–English dictionary built from Spanish WordNet (MCR data via NLTK's Open Multilingual WordNet). The synset mapping the issue called for happens at build time in `Scripts/build_spanish_wordnet.py`: Spanish lemmas and their English glosses/synonyms are read from a single WordNet 3.0 instance, so synset IDs align by construction with no LKB parser and no cross-version risk. `build_seed.py` gains an `insert_spanish_wordnet()` step and a `--skip-spanish-wordnet` flag; the app picks up the new `wordnet-spa-eng` source with only a badge label and a Credits row. Also corrects the English `wordnet` metadata version from `3.1` to the actual `3.0`.
-- [Issue #24] Bundled an English–Spanish dictionary sourced from FreeDict's `eng-spa` TEI/XML release (~64k headwords, GPL-3.0). The conversion lives entirely in `Scripts/build_freedict_eng_spa.py` (TEI parser, POS normalisation, sense aggregation) and the existing `build_seed.py` orchestrator gains a `--skip-spanish` flag and a final FTS rebuild. The app's data layer needs no changes — the new source identifier `freedict-eng-spa` flows through the existing schema, Settings list, and search filter unchanged; the only Swift edits are a one-line badge label in `DictionaryEntry.sourceLabel` and two Credits rows.
+- [#24] English–Spanish dictionary (FreeDict `eng-spa`, ~64k headwords). Build in `Scripts/build_freedict_eng_spa.py`; new `freedict-eng-spa` source, no data-layer changes.
+- [#42] Spanish–English dictionary (Spanish WordNet via OMW). Build in `Scripts/build_spanish_wordnet.py`; new `wordnet-spa-eng` source. Corrects `wordnet` metadata version 3.1 → 3.0.
+- [#40, #23] Spanish (`es`) support + UI localization. Resource-only: full `Localizable.xcstrings` + `SupportedLocales.json` + `knownRegions`.
+- [#45, #9] Arabic (`ar`) support + UI localization — first RTL language. App root derives `\.layoutDirection` from language char direction. Western digits only.
+- [#10] Arabic↔English dictionary (~17,785 headwords, Arabic WordNet via OMW), diacritic-insensitive search. **Schema migration**: `entries.word_normalized` FTS5 key via `PRAGMA user_version` gate; build-side normalizer `Scripts/arabic_normalize.py`. Imported Arabic dicts stay diacritic-sensitive.
+- [#6] Per-dictionary colour stripe in search + History; "Result sorting" picker (Relevance default / Preferred-dictionary-first) and drag-to-reorder list. Prefs routed through new `KeyValueStore` seam in `SettingsService` (same keys, no migration; preps #73 iCloud). **Schema migration**: `history.source`. Badge stays primary a11y signal; palette provisional.
+- [#12] Native App Store review prompt, heuristic-gated (≥5 definitions + active foreground time, escalating 30s/10m/60m, once/session). `-disableReviewPrompt` for tests; counters via `KeyValueStore`.
+- [#81] "Write a review" link in Settings → Support (on-demand App Store review page).
+- [#41, #46, #79] App Store Connect metadata: Spanish + Arabic localizations, per-locale keywords.
+- [#19] UI test suite for core user flows (Page Object Model).
+
+### Fixed
+- [#39] Settings → Version showed wrong `-unreleased` suffix. Now stamps real `git describe` at build time (`Scripts/generate_build_info.sh` → xcconfig → `GIT_DESCRIBE` → `AppVersion`); build phase fails on missing `.git` / stale value.
+- [#60] SwiftUI `List` dropped long-definition result cells on iOS 18.5 sim.
+- [#56] `SearchPage` `waitForExistence` timing races on Intel x86_64 sim.
+- [#59] `getResultsCount` stable-count guard (latent race unmasked by #56).
+- [#55] Settings toggle-tap flake under expanded source list.
+- [#67] `HistoryFlowTests` isolation failure on arm64 (Xcode 26 / iPhone 15 Pro sim).
+
+### Changed
+- [#28] Switched to PR-based development (no direct pushes to master).
+- [#57] Unified `IPHONEOS_DEPLOYMENT_TARGET` to 17.0 across all targets.
+
+### Tests / CI
+- [#64] All UI tests green on Intel x86_64 Mac mini.
+- [#76] iPhone core-flow UITest suites pass on iPad regular size class.
+- [#52] Stabilized `HistoryFlowTests` under warm/sequential runs.
+- [#65] Force portrait in UI test `setUp` (Intel landscape no-ops `swipeUp`).
+- [#54, #62, #66] Bumped cold-seed tab-bar timeouts (Spanish/Arabic suites).
 
 ## [1.2.0] - 2026-05-25
 
