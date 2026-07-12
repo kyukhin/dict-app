@@ -46,7 +46,8 @@ Scripts/.cache/
 *~
 
 # --- Claude Code ---
-.claude/
+.claude/*
+!.claude/agents/
 
 # --- Generated build info (Issue #39) ---
 # Written by Scripts/generate_build_info.sh on every build; reflects HEAD's
