@@ -141,3 +141,35 @@ final class SettingsService {
         set { store.set(newValue.rawValue, forKey: resultSortModeKey) }
     }
 }
+
+// MARK: - Default dictionary order (Issue #74)
+
+/// Pure default-value logic for the first-launch dictionary order. No
+/// persistence: `SettingsViewModel.loadDictionaries()` calls this only when
+/// `SettingsService.dictionaryOrder` is still `nil`, so a user-configured order
+/// is never overridden. Kept in this file (not a new one) because the app target
+/// is not a synchronized folder and adding a file would require a pbxproj edit.
+enum DictionaryDefaults {
+    /// Source IDs that serve a given UI language, in preferred order.
+    /// Languages not listed (or IDs not present in `sources`) fall through to
+    /// the incoming order unchanged.
+    static let preferredSources: [String: [String]] = [
+        "en": ["wordnet"],
+        "ru": ["openrussian"],
+        "es": ["wordnet-spa-eng", "freedict-eng-spa"],
+        "ar": ["wordnet-arb-eng"],
+    ]
+
+    /// Returns `sources` reordered so the language's preferred dictionaries
+    /// come first (in mapping order), followed by the remaining sources in
+    /// their original relative order. Preferred IDs absent from `sources` are
+    /// skipped; the result is always a permutation of `sources`.
+    static func defaultOrder(for language: UILanguage, sources: [String]) -> [String] {
+        defaultOrder(forLanguageCode: language.code, sources: sources)
+    }
+
+    static func defaultOrder(forLanguageCode code: String, sources: [String]) -> [String] {
+        let preferred = (preferredSources[code] ?? []).filter { sources.contains($0) }
+        return preferred + sources.filter { !preferred.contains($0) }
+    }
+}

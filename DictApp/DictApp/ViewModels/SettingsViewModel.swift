@@ -62,8 +62,8 @@ class SettingsViewModel: ObservableObject {
 
     func loadDictionaries() async {
         do {
-            // `fetchSourceStats()` is the count-desc default order (§6); #74 will
-            // swap in device-language ordering.
+            // `fetchSourceStats()` is the count-desc base order (§6); on first
+            // launch #74 promotes the active UI language's dictionaries to the top.
             let stats = try await DatabaseService.shared.fetchSourceStats()
             let existing = stats.map(\.source)
 
@@ -76,7 +76,11 @@ class SettingsViewModel: ObservableObject {
                 effectiveOrder = stored.filter { existing.contains($0) }
                     + existing.filter { !stored.contains($0) }
             } else {
-                effectiveOrder = existing
+                // First launch (Issue #74): no stored order → derive the default
+                // from the UI language. Never reached once an order is persisted.
+                effectiveOrder = DictionaryDefaults.defaultOrder(
+                    for: localization.currentLanguage, sources: existing
+                )
             }
             settingsService.dictionaryOrder = effectiveOrder
 

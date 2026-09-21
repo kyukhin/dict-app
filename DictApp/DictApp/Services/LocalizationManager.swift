@@ -37,6 +37,13 @@ final class LocalizationManager: ObservableObject {
         let supported = Self.loadSupportedLanguages(from: bundle)
         self.supportedLanguages = supported
 
+        // UI-test hook (#74): `shared` is built before `DictApp.initializeDatabase`
+        // runs its `-resetData` block, so drop the stale in-app language choice
+        // here too; otherwise it shadows the `-AppleLanguages` override.
+        if CommandLine.arguments.contains("-resetData") {
+            settingsService.selectedUILanguageCode = nil
+        }
+
         let active = Self.resolveInitialLanguage(
             persistedCode: settingsService.selectedUILanguageCode,
             supported: supported
