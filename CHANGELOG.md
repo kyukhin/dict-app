@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- [#74] First-launch dictionary order now puts the UI language's dictionaries first (e.g. `openrussian` on Russian); a user-configured order is never overridden. `-resetData` now also clears the persisted UI language (test hook).
+
 ## [1.3.0] - 2026-06-25
 
 ### Added

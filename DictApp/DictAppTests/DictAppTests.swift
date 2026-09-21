@@ -2385,3 +2385,242 @@ final class ReviewRequestServiceTests: XCTestCase {
                       "foreground must keep accruing after a -resetData reset")
     }
 }
+
+// MARK: - Issue #74: Default dictionary order by UI language
+
+/// `DictionaryDefaults.defaultOrder(for:sources:)` is pure (language + full
+/// source list → ordered list), so the mapping cases need no mocking. The
+/// "stored order wins" / "nil → language default" cases go through the real
+/// `SettingsViewModel.loadDictionaries()` against a throwaway SQLite file
+/// opened on `DatabaseService.shared` (same pattern as `DictAppTests`), with an
+/// `InMemoryKeyValueStore`-backed `SettingsService` and a `LocalizationManager`
+/// pinned to a chosen language via the persisted `ui_language` key.
+final class DictionaryDefaultsTests: XCTestCase {
+    /// Count-desc order as `fetchSourceStats()` returns it for the bundled seed.
+    private let bundledSources = [
+        "wordnet", "openrussian", "freedict-eng-spa", "wordnet-spa-eng", "wordnet-arb-eng",
+    ]
+
+    private var tempDir: URL!
+
+    override func setUp() async throws {
+        try await super.setUp()
+        tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        try await DatabaseService.shared.setup(path: dbPath)
+    }
+
+    override func tearDown() async throws {
+        try? FileManager.default.removeItem(at: tempDir)
+        try await super.tearDown()
+    }
+
+    private var dbPath: String { tempDir.appendingPathComponent("test.sqlite").path }
+
+    private func language(_ code: String) -> UILanguage {
+        UILanguage(code: code, displayKey: "language.\(code)", nativeName: code)
+    }
+
+    /// Inserts `count` distinct rows for `source` so `fetchSourceStats()` ranks
+    /// sources by descending row count. Words are namespaced per source so the
+    /// (word, source) unique index never collides across sources.
+    private func seed(source: String, count: Int) async throws {
+        let pool = try DatabasePool(path: dbPath)
+        try await pool.writeWithoutTransaction { db in
+            for i in 0..<count {
+                try db.execute(
+                    sql: """
+                        INSERT OR IGNORE INTO entries(word, word_normalized, definition, phonetic, pos, source)
+                        VALUES (?, ?, ?, ?, ?, ?)
+                        """,
+                    arguments: ["\(source)-w\(i)", "\(source)-w\(i)", "def \(i)", "", "noun", source]
+                )
+            }
+        }
+    }
+
+    /// Asserts `result` is exactly a reordering of `input`: same length, same
+    /// multiset, no duplicates, no invented IDs.
+    private func assertPermutation(_ result: [String], of input: [String],
+                                   file: StaticString = #filePath, line: UInt = #line) {
+        XCTAssertEqual(result.count, input.count,
+                       "length must match input; got \(result)", file: file, line: line)
+        XCTAssertEqual(result.sorted(), input.sorted(),
+                       "must contain exactly the input IDs; got \(result)", file: file, line: line)
+        XCTAssertEqual(Set(result).count, result.count,
+                       "must not contain duplicates; got \(result)", file: file, line: line)
+    }
+
+    // MARK: - Per-language mappings (pure function)
+
+    func testEnglishKeepsWordnetFirst() {
+        // Bundled order already has wordnet first → identity.
+        XCTAssertEqual(DictionaryDefaults.defaultOrder(for: language("en"), sources: bundledSources),
+                       bundledSources)
+
+        // Wordnet buried in the middle must still be promoted, everything else
+        // keeps its relative order.
+        let shuffled = ["openrussian", "wordnet-arb-eng", "wordnet", "freedict-eng-spa"]
+        let result = DictionaryDefaults.defaultOrder(for: language("en"), sources: shuffled)
+        XCTAssertEqual(result, ["wordnet", "openrussian", "wordnet-arb-eng", "freedict-eng-spa"])
+        assertPermutation(result, of: shuffled)
+    }
+
+    func testRussianPromotesOpenRussian() {
+        let result = DictionaryDefaults.defaultOrder(for: language("ru"), sources: bundledSources)
+        XCTAssertEqual(result, ["openrussian", "wordnet", "freedict-eng-spa", "wordnet-spa-eng", "wordnet-arb-eng"])
+        XCTAssertEqual(result.first, "openrussian", "AC: Russian device → openrussian first")
+        assertPermutation(result, of: bundledSources)
+    }
+
+    func testSpanishPromotesBothSpanishSources() {
+        // In the bundled (count-desc) order freedict-eng-spa precedes
+        // wordnet-spa-eng; the mapping order must win over the incoming order.
+        let result = DictionaryDefaults.defaultOrder(for: language("es"), sources: bundledSources)
+        XCTAssertEqual(result, ["wordnet-spa-eng", "freedict-eng-spa", "wordnet", "openrussian", "wordnet-arb-eng"])
+        XCTAssertEqual(Array(result.prefix(2)), ["wordnet-spa-eng", "freedict-eng-spa"],
+                       "es must put BOTH Spanish dictionaries first, wordnet-spa-eng before freedict-eng-spa")
+        assertPermutation(result, of: bundledSources)
+    }
+
+    func testArabicPromotesArabicWordnet() {
+        let result = DictionaryDefaults.defaultOrder(for: language("ar"), sources: bundledSources)
+        XCTAssertEqual(result, ["wordnet-arb-eng", "wordnet", "openrussian", "freedict-eng-spa", "wordnet-spa-eng"])
+        assertPermutation(result, of: bundledSources)
+    }
+
+    /// The mapping must only reference IDs that actually ship in the seed;
+    /// a typo here would silently degrade to "no promotion" at runtime.
+    func testPreferredSourcesReferenceOnlyBundledIDs() {
+        for (code, ids) in DictionaryDefaults.preferredSources {
+            XCTAssertFalse(ids.isEmpty, "mapping for \(code) must not be empty")
+            XCTAssertEqual(Set(ids).count, ids.count, "mapping for \(code) has duplicates: \(ids)")
+            for id in ids {
+                XCTAssertTrue(bundledSources.contains(id),
+                              "mapping for \(code) references unknown source id '\(id)'")
+            }
+        }
+        XCTAssertEqual(Set(DictionaryDefaults.preferredSources.keys), ["en", "ru", "es", "ar"],
+                       "every shipped UI language (SupportedLocales.json) must have a mapping")
+    }
+
+    // MARK: - Edge cases
+
+    func testUnknownLanguageLeavesOrderUnchanged() {
+        for code in ["de", "zh-Hans", "", "RU"] {   // RU: lookup is case-sensitive, no sloppy match
+            XCTAssertEqual(DictionaryDefaults.defaultOrder(for: language(code), sources: bundledSources),
+                           bundledSources, "unmapped code '\(code)' must return input verbatim")
+            XCTAssertEqual(DictionaryDefaults.defaultOrder(forLanguageCode: code, sources: bundledSources),
+                           bundledSources)
+        }
+        // Empty input must not crash and must stay empty for any language.
+        XCTAssertEqual(DictionaryDefaults.defaultOrder(for: language("ru"), sources: []), [])
+        XCTAssertEqual(DictionaryDefaults.defaultOrder(for: language("xx"), sources: []), [])
+    }
+
+    func testPreferredSourceMissingFromListIsSkipped() {
+        // ru mapping present, but openrussian not installed → verbatim, not invented.
+        let noRussian = ["wordnet", "freedict-eng-spa", "wordnet-arb-eng"]
+        let ru = DictionaryDefaults.defaultOrder(for: language("ru"), sources: noRussian)
+        XCTAssertEqual(ru, noRussian)
+        XCTAssertFalse(ru.contains("openrussian"), "must never invent an ID absent from sources")
+
+        // es mapping lists two IDs; only the second is installed → it alone is
+        // promoted, the missing first one is skipped (no gap, no nil, no crash).
+        let onlyFreedict = ["wordnet", "openrussian", "freedict-eng-spa"]
+        let es = DictionaryDefaults.defaultOrder(for: language("es"), sources: onlyFreedict)
+        XCTAssertEqual(es, ["freedict-eng-spa", "wordnet", "openrussian"])
+        assertPermutation(es, of: onlyFreedict)
+
+        // Single-source list that IS the preferred one → unchanged singleton.
+        XCTAssertEqual(DictionaryDefaults.defaultOrder(for: language("ar"), sources: ["wordnet-arb-eng"]),
+                       ["wordnet-arb-eng"])
+    }
+
+    func testRemainingSourcesKeepRelativeOrder() {
+        // Preferred sits in the middle; the non-preferred subsequence must be
+        // untouched (this is what distinguishes "promote" from "re-sort").
+        let input = ["freedict-eng-spa", "wordnet-arb-eng", "openrussian", "wordnet", "wordnet-spa-eng"]
+        let result = DictionaryDefaults.defaultOrder(for: language("ru"), sources: input)
+        XCTAssertEqual(result.first, "openrussian")
+        XCTAssertEqual(Array(result.dropFirst()), input.filter { $0 != "openrussian" },
+                       "non-preferred sources must keep their incoming relative order")
+        assertPermutation(result, of: input)
+    }
+
+    // MARK: - Integration: SettingsViewModel.loadDictionaries() branch
+
+    /// Builds a VM whose `LocalizationManager` is pinned to `languageCode`
+    /// (via the persisted `ui_language` key) and whose `dictionaryOrder`
+    /// starts as `storedOrder`. Returns the VM and its settings service.
+    @MainActor
+    private func makeViewModel(languageCode: String,
+                               storedOrder: [String]?) -> (SettingsViewModel, SettingsService) {
+        let settings = SettingsService(store: InMemoryKeyValueStore())
+        settings.selectedUILanguageCode = languageCode
+        settings.dictionaryOrder = storedOrder
+        let localization = LocalizationManager(settingsService: settings, bundle: .main)
+        XCTAssertEqual(localization.currentLanguage.code, languageCode,
+                       "precondition: LocalizationManager must resolve the pinned language")
+        return (SettingsViewModel(settingsService: settings, localization: localization), settings)
+    }
+
+    @MainActor
+    func testStoredOrderIsNotOverriddenByLanguageDefault() async throws {
+        // Count-desc from the DB: wordnet(3) > openrussian(2) > wordnet-arb-eng(1).
+        try await seed(source: "wordnet", count: 3)
+        try await seed(source: "openrussian", count: 2)
+        try await seed(source: "wordnet-arb-eng", count: 1)
+
+        // A user-configured order that is neither count-desc nor the ru default.
+        let userOrder = ["wordnet-arb-eng", "wordnet", "openrussian"]
+        let (vm, settings) = makeViewModel(languageCode: "ru", storedOrder: userOrder)
+
+        await vm.loadDictionaries()
+
+        XCTAssertEqual(settings.dictionaryOrder, userOrder,
+                       "a persisted order must survive loadDictionaries() even when the UI language is ru")
+        XCTAssertEqual(vm.dictionaries.map(\.source), userOrder,
+                       "the published list must reflect the stored order, not the language default")
+        XCTAssertNotEqual(vm.dictionaries.first?.source, "openrussian",
+                          "guard: the ru default would have put openrussian first — it must not apply here")
+    }
+
+    @MainActor
+    func testNilStoredOrderProducesRussianDefaultAndPersistsIt() async throws {
+        try await seed(source: "wordnet", count: 3)
+        try await seed(source: "openrussian", count: 2)
+        try await seed(source: "wordnet-arb-eng", count: 1)
+
+        let (vm, settings) = makeViewModel(languageCode: "ru", storedOrder: nil)
+        XCTAssertNil(settings.dictionaryOrder, "precondition: first launch has no stored order")
+
+        await vm.loadDictionaries()
+
+        let expected = ["openrussian", "wordnet", "wordnet-arb-eng"]
+        XCTAssertEqual(vm.dictionaries.map(\.source), expected,
+                       "first launch on ru must promote openrussian above the count-desc base order")
+        XCTAssertEqual(settings.dictionaryOrder, expected,
+                       "the derived default must be persisted so later launches take the stored branch")
+        XCTAssertEqual(vm.dictionaries.map(\.count), [2, 3, 1],
+                       "row counts must travel with their source through the reorder")
+
+        // Second load now hits the stored branch and must be idempotent.
+        await vm.loadDictionaries()
+        XCTAssertEqual(vm.dictionaries.map(\.source), expected)
+    }
+
+    @MainActor
+    func testNilStoredOrderWithoutMappedSourcesKeepsCountDescOrder() async throws {
+        // Spanish UI, but no Spanish dictionary installed → base order is kept.
+        try await seed(source: "wordnet", count: 2)
+        try await seed(source: "openrussian", count: 1)
+
+        let (vm, settings) = makeViewModel(languageCode: "es", storedOrder: nil)
+        await vm.loadDictionaries()
+
+        XCTAssertEqual(vm.dictionaries.map(\.source), ["wordnet", "openrussian"])
+        XCTAssertEqual(settings.dictionaryOrder, ["wordnet", "openrussian"])
+    }
+}

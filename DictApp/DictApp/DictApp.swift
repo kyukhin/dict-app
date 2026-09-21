@@ -82,6 +82,12 @@ struct DictApp: App {
                 try await DatabaseService.shared.clearHistory()
                 // Reset per-source enable/disable preference to first-launch default.
                 SettingsService.shared.enabledSources = nil
+                // Issue #74: also drop the persisted dictionary order so the
+                // UI-language default is re-derived on this launch (a prior
+                // reorder test would otherwise pin the order for the whole sim
+                // install). `SettingsViewModel` is created after `isReady`, so
+                // this runs before the first `loadDictionaries()`.
+                SettingsService.shared.dictionaryOrder = nil
                 // Issue #12: clear review-prompt counters so UI-test runs start
                 // clean (they persist across launches and would otherwise
                 // accumulate past the threshold mid-suite).
