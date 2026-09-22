@@ -5,6 +5,7 @@ import XCTest
 @testable import DictApp
 import GRDB
 import MessageUI
+import Combine
 
 final class DictAppTests: XCTestCase {
 
@@ -2383,6 +2384,129 @@ final class ReviewRequestServiceTests: XCTestCase {
         clock = clock.addingTimeInterval(30)   // 30s of foreground elapse
         XCTAssertTrue(s.shouldRequestReview(),
                       "foreground must keep accruing after a -resetData reset")
+    }
+}
+
+// MARK: - Issue #5: ReadingModeService
+
+/// Records every write through the `IdleTimerControlling` seam so tests can
+/// assert not only the final flag but that the service never touches the idle
+/// timer spuriously (idempotency, no-op background from the off state).
+final class FakeIdleTimer: IdleTimerControlling {
+    var writes: [Bool] = []
+    var isIdleTimerDisabled = false {
+        didSet { writes.append(isIdleTimerDisabled) }
+    }
+}
+
+/// `ReadingModeService` is the only writer of `UIApplication.isIdleTimerDisabled`;
+/// these tests drive a fresh instance on a fake seam. `ReadingModeService.shared`
+/// (bound to the live `UIApplication`) is deliberately never referenced here.
+@MainActor
+final class ReadingModeServiceTests: XCTestCase {
+    private var fake: FakeIdleTimer!
+    private var service: ReadingModeService!
+
+    override func setUp() {
+        super.setUp()
+        fake = FakeIdleTimer()
+        service = ReadingModeService(idleTimer: fake)
+    }
+
+    override func tearDown() {
+        service = nil
+        fake = nil
+        super.tearDown()
+    }
+
+    func testDefaultsOffAndDoesNotTouchSeam() {
+        XCTAssertFalse(service.isEnabled, "reading mode must start off")
+        XCTAssertFalse(fake.isIdleTimerDisabled, "the idle timer must not be disabled on init")
+        XCTAssertTrue(fake.writes.isEmpty, "init must not write to the seam at all; got \(fake.writes)")
+    }
+
+    func testToggleOnFlipsSeam() {
+        service.toggle()
+        XCTAssertTrue(service.isEnabled)
+        XCTAssertTrue(fake.isIdleTimerDisabled, "enabling must disable the idle timer")
+        XCTAssertEqual(fake.writes, [true], "exactly one seam write on enable")
+    }
+
+    func testToggleTwiceRestoresSeam() {
+        service.toggle()
+        service.toggle()
+        XCTAssertFalse(service.isEnabled)
+        XCTAssertFalse(fake.isIdleTimerDisabled, "disabling must re-arm the idle timer")
+        XCTAssertEqual(fake.writes, [true, false])
+    }
+
+    func testSetEnabledIsIdempotent() {
+        service.setEnabled(true)
+        service.setEnabled(true)
+        XCTAssertTrue(service.isEnabled)
+        XCTAssertEqual(fake.writes, [true], "a repeated setEnabled(true) must not re-write the seam")
+
+        service.setEnabled(false)
+        service.setEnabled(false)
+        XCTAssertFalse(service.isEnabled)
+        XCTAssertEqual(fake.writes, [true, false], "a repeated setEnabled(false) must not re-write the seam")
+    }
+
+    func testBackgroundTurnsOffAndReleasesSeam() {
+        service.toggle()
+        XCTAssertTrue(fake.isIdleTimerDisabled, "precondition: mode armed")
+
+        service.sceneDidEnterBackground()
+        XCTAssertFalse(service.isEnabled, "backgrounding must turn reading mode off")
+        XCTAssertFalse(fake.isIdleTimerDisabled, "a backgrounded app must never hold the device awake")
+        XCTAssertEqual(fake.writes, [true, false])
+
+        // Second background edge (e.g. .background after a brief foreground
+        // without re-enabling) must be a pure no-op.
+        service.sceneDidEnterBackground()
+        XCTAssertEqual(fake.writes, [true, false], "background from the off state must not write")
+    }
+
+    func testBackgroundWhenOffIsNoOp() {
+        service.sceneDidEnterBackground()
+        service.sceneDidEnterBackground()
+        XCTAssertFalse(service.isEnabled)
+        XCTAssertFalse(fake.isIdleTimerDisabled)
+        XCTAssertTrue(fake.writes.isEmpty, "no seam write when nothing changes; got \(fake.writes)")
+    }
+
+    func testReEnableAfterBackgroundArmsSeamAgain() {
+        service.toggle()
+        service.sceneDidEnterBackground()
+        service.toggle()
+        XCTAssertTrue(service.isEnabled, "the user can deliberately re-enable after a background reset")
+        XCTAssertTrue(fake.isIdleTimerDisabled)
+        XCTAssertEqual(fake.writes, [true, false, true])
+    }
+
+    func testTogglePublishesOncePerEffectiveChange() {
+        var publishes = 0
+        let cancellable = service.objectWillChange.sink { _ in publishes += 1 }
+        defer { cancellable.cancel() }
+
+        service.toggle()                    // off → on: publish
+        service.setEnabled(true)            // unchanged: no publish
+        service.sceneDidEnterBackground()   // on → off: publish
+        service.sceneDidEnterBackground()   // unchanged: no publish
+
+        XCTAssertEqual(publishes, 2, "objectWillChange must fire exactly once per effective change")
+        XCTAssertEqual(fake.writes, [true, false], "publish count must track seam writes 1:1")
+    }
+
+    func testInstancesAreIndependent() {
+        let otherFake = FakeIdleTimer()
+        let other = ReadingModeService(idleTimer: otherFake)
+
+        service.toggle()
+
+        XCTAssertFalse(other.isEnabled, "state is per instance, not global")
+        XCTAssertTrue(otherFake.writes.isEmpty, "a second seam must not observe another instance's writes")
+        XCTAssertEqual(fake.writes, [true])
     }
 }
 
