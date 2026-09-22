@@ -42,6 +42,43 @@ class BasePage {
         XCTAssertTrue(element.waitForExistence(timeout: timeout), "TabBar not found within \(timeout) seconds")
         return element
     }
+
+    // MARK: - Reading Mode (Issue #5)
+    //
+    // The toggle is rendered by both SearchView and DefinitionView, so the
+    // helpers live on BasePage rather than being duplicated on two pages.
+
+    var readingModeToggle: XCUIElement {
+        app.buttons[AccessibilityIdentifiers.ReadingMode.toggle]
+    }
+
+    func verifyReadingModeToggleExists(timeout: TimeInterval = TestData.Timeouts.medium) -> Bool {
+        readingModeToggle.waitForExistence(timeout: timeout)
+    }
+
+    func tapReadingModeToggle() {
+        XCTAssertTrue(readingModeToggle.waitForExistence(timeout: TestData.Timeouts.medium),
+                      "Reading mode toggle should exist before tapping")
+        readingModeToggle.tap()
+    }
+
+    /// Mirrors `TabBarPage.verifySearchTabSelected`: the button exposes its
+    /// on/off state via the `.isSelected` accessibility trait.
+    func isReadingModeSelected() -> Bool {
+        readingModeToggle.isSelected
+    }
+
+    /// Polls `.isSelected` at ~0.15 s cadence (same as `SearchPage.waitForCondition`)
+    /// so a caller does not sample the AX tree before SwiftUI has re-rendered.
+    func waitForReadingModeSelected(_ expected: Bool,
+                                    timeout: TimeInterval = TestData.Timeouts.medium) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if readingModeToggle.exists && readingModeToggle.isSelected == expected { return true }
+            Thread.sleep(forTimeInterval: 0.15)
+        }
+        return readingModeToggle.exists && readingModeToggle.isSelected == expected
+    }
 }
 
 extension XCUIElement {

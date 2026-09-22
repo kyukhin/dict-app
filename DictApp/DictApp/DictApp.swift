@@ -67,6 +67,10 @@ struct DictApp: App {
                 } else {
                     ReviewRequestService.shared.foregroundDidResignActive()
                 }
+                // Issue #5: reset Reading Mode on real backgrounding only.
+                if newPhase == .background {
+                    ReadingModeService.shared.sceneDidEnterBackground()
+                }
             }
         }
     }

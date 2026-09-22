@@ -67,7 +67,8 @@ struct DefinitionView: View {
         .navigationTitle(vm.entry.word)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
+            ToolbarItemGroup(placement: .topBarTrailing) {
+                ReadingModeToolbarButton()
                 Button {
                     Task { await vm.toggleBookmark() }
                 } label: {
@@ -109,5 +110,23 @@ struct DefinitionView: View {
             return parsed
         }
         return AttributedString(vm.entry.definition)
+    }
+}
+
+// MARK: - Issue #5: Reading Mode toolbar button (shared by SearchView + DefinitionView)
+
+struct ReadingModeToolbarButton: View {
+    @ObservedObject private var readingMode = ReadingModeService.shared
+
+    var body: some View {
+        Button {
+            readingMode.toggle()
+        } label: {
+            Image(systemName: readingMode.isEnabled ? "cup.and.saucer.fill" : "cup.and.saucer")
+        }
+        .accessibilityLabel(Text(readingMode.isEnabled ? "readingMode.a11y.disable"
+                                                       : "readingMode.a11y.enable"))
+        .accessibilityAddTraits(readingMode.isEnabled ? .isSelected : [])
+        .accessibilityIdentifier("reading_mode_toggle")
     }
 }
