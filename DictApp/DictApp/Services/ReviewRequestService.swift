@@ -15,6 +15,7 @@
 // injectable so the clock is mockable in tests.
 
 import Foundation
+import UIKit   // Issue #5: UIApplication.isIdleTimerDisabled seam
 
 final class ReviewRequestService {
     static let shared = ReviewRequestService()
@@ -166,4 +167,39 @@ final class ReviewRequestService {
         // stays active, so no later edge restarts it) and the prompt would never
         // fire. `activeSince` is in-memory session state, not persisted state.
     }
+}
+
+// MARK: - Issue #5: Reading Mode
+
+/// Seam over `UIApplication.isIdleTimerDisabled` so the toggle is unit-testable
+/// without a live app. `UIApplication` already has the property → free conformance.
+protocol IdleTimerControlling: AnyObject {
+    var isIdleTimerDisabled: Bool { get set }
+}
+
+extension UIApplication: IdleTimerControlling {}
+
+/// Single source of truth for Reading Mode. In-memory, per-session: not persisted,
+/// no `-resetData` handling. The ONLY place that writes `isIdleTimerDisabled`.
+@MainActor
+final class ReadingModeService: ObservableObject {
+    static let shared = ReadingModeService(idleTimer: UIApplication.shared)
+
+    @Published private(set) var isEnabled = false
+    private let idleTimer: IdleTimerControlling
+
+    init(idleTimer: IdleTimerControlling) { self.idleTimer = idleTimer }
+
+    func toggle() { setEnabled(!isEnabled) }
+
+    /// Idempotent: no publish and no seam write when the value is unchanged.
+    func setEnabled(_ enabled: Bool) {
+        guard enabled != isEnabled else { return }
+        isEnabled = enabled
+        idleTimer.isIdleTimerDisabled = enabled
+    }
+
+    /// Scene went `.background` (not `.inactive`): a backgrounded app must never
+    /// hold the device awake. `.inactive` (call, Control Center) keeps the mode.
+    func sceneDidEnterBackground() { setEnabled(false) }
 }

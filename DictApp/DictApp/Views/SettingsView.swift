@@ -15,7 +15,6 @@ struct SettingsView: View {
                 sortingSection
                 dictionaryManagementSection
                 learningModeSection
-                readingModeSection
                 supportSection
                 aboutSection
                 versionSection
@@ -131,13 +130,6 @@ struct SettingsView: View {
     private var learningModeSection: some View {
         Section("settings.learningMode.section") {
             Label("common.comingSoon", systemImage: "brain")
-                .foregroundStyle(.secondary)
-        }
-    }
-
-    private var readingModeSection: some View {
-        Section("settings.readingMode.section") {
-            Label("common.comingSoon", systemImage: "book")
                 .foregroundStyle(.secondary)
         }
     }

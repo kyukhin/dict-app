@@ -122,6 +122,28 @@ func searchFor(_ term: String) {
         }
     }
 
+    /// Leaves the active `.searchable()` session via the search bar's dismiss
+    /// button (clears the query and drops focus). While a search is presented
+    /// SwiftUI renders only the search field and that button in the navigation
+    /// bar and hides the trailing toolbar items, so any test that asserts on a
+    /// root toolbar button (e.g. `reading_mode_toggle`, Issue #5) after a
+    /// `navigateBack()` pop must call this first. The button is labelled
+    /// "Cancel" on iOS 17/18 and "Close" on iOS 26 (verified from the AX
+    /// hierarchy on the 26.4 sim). No-op when no search is active.
+    func cancelSearch() {
+        let nav = app.navigationBars.firstMatch
+        for label in ["Cancel", "Close"] {
+            let dismiss = nav.buttons[label]
+            if dismiss.waitForExistence(timeout: 1.0) {
+                dismiss.tap()
+                _ = dismiss.waitForNonExistence(timeout: TestData.Timeouts.short)
+                _ = app.keyboards.firstMatch.waitForNonExistence(timeout: TestData.Timeouts.short)
+                return
+            }
+        }
+        dismissKeyboard()
+    }
+
     /// Convenience: clears anything that could be blocking the tab bar after
     /// a `.searchable()` interaction (keyboard + Siri privacy sheet).
     func clearOverlaysBeforeTabSwitch() {
@@ -254,4 +276,3 @@ func searchFor(_ term: String) {
         return app.descendants(matching: .any)["search_no_results"].exists
     }
 }
-

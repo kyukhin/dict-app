@@ -36,6 +36,11 @@ struct SearchView: View {
             }
             .navigationTitle("search.title")
             .searchable(text: $vm.query, prompt: Text("search.prompt"))
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    ReadingModeToolbarButton()
+                }
+            }
             .onChange(of: vm.query) {
                 vm.onQueryChanged()
             }

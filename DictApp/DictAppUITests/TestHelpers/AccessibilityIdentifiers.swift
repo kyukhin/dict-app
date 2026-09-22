@@ -30,6 +30,12 @@ struct AccessibilityIdentifiers {
         static let definitionContent = "definition_content"
     }
 
+    // MARK: - Reading Mode (Issue #5)
+    struct ReadingMode {
+        /// Cup-and-saucer toolbar toggle shared by the Search root and Definition.
+        static let toggle = "reading_mode_toggle"
+    }
+
     // MARK: - History View
     struct History {
         static let historyList = "history_list"
