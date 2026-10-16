@@ -43,6 +43,9 @@ struct TestData {
             spanish: ["freedict-eng-spa", "wordnet-spa-eng"],
             arabic: ["wordnet-arb-eng"],
         ]
+
+        /// Issue #105 — the bundled import fixture's custom pair (not in `all`).
+        static let importFixture = "custom:test_import_fixture"
     }
 
     /// Issue #91 — bundled source IDs used by the info-detail ids.
@@ -52,6 +55,8 @@ struct TestData {
         static let wordnetSpaEng = "wordnet-spa-eng"
         static let freedictEngSpa = "freedict-eng-spa"
         static let wordnetArbEng = "wordnet-arb-eng"
+        /// Issue #105 — source ID of `test_import_fixture.{json,sqlite}`.
+        static let importFixture = "test_import_fixture"
     }
 
     // Timeout values for different operations

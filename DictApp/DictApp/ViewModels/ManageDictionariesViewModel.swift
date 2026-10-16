@@ -13,14 +13,18 @@ final class ManageDictionariesViewModel: ObservableObject {
     @Published var isImporting = false
     @Published var importResult: String?
 
+    private let settingsService: SettingsService
     private let localization: LocalizationManager
 
     /// `LocalizationManager.shared` is `@MainActor`-isolated, so passing it
     /// as a default-value expression would be evaluated in the caller's
     /// context — Swift 6 can't prove every caller is on the main actor.
     /// Accept `nil` and resolve `.shared` inside the `@MainActor`-isolated
-    /// body instead.
-    init(localization: LocalizationManager? = nil) {
+    /// body instead. `SettingsService` is not actor-isolated, so `.shared`
+    /// is a plain default.
+    init(settingsService: SettingsService = .shared,
+         localization: LocalizationManager? = nil) {
+        self.settingsService = settingsService
         self.localization = localization ?? .shared
     }
 
@@ -38,7 +42,9 @@ final class ManageDictionariesViewModel: ObservableObject {
         }
     }
 
-    private func performImport(url: URL) async {
+    /// Not `private` so unit tests can await it (`handleImport` starts a
+    /// `Task` it does not wait for).
+    func performImport(url: URL) async {
         isImporting = true
         defer { isImporting = false }
 
@@ -61,6 +67,11 @@ final class ManageDictionariesViewModel: ObservableObject {
                 )
                 return
             }
+            // Issue #105: reached only after a successful import. Turn the
+            // source ON and give it a slot in a stored order, so it is
+            // searchable before the Dictionary order screen reloads.
+            settingsService.enableImportedSource(source)
+            settingsService.appendImportedSourceToOrder(source)
             // String Catalog handles plural variants for the current locale.
             importResult = String(
                 localized: "manageDictionaries.import.result.success \(count) \(source)",

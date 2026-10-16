@@ -395,7 +395,9 @@ final class DictAppTests: XCTestCase {
     /// resolves to the bundled `test_import_fixture.json` (10 entries).
     @MainActor
     func testHandleImportJSONFixtureInsertsEntries() async throws {
-        let vm = ManageDictionariesViewModel()
+        // In-memory prefs: since #105 a successful import writes the enabled
+        // set / order, which must not leak into the host app's UserDefaults.
+        let vm = ManageDictionariesViewModel(settingsService: SettingsService(store: InMemoryKeyValueStore()))
         let url = try XCTUnwrap(
             Bundle.main.url(forResource: "test_import_fixture", withExtension: "json"),
             "Bundled JSON fixture must exist"
@@ -422,7 +424,7 @@ final class DictAppTests: XCTestCase {
     /// (10 entries) and asserts the unique word "zarboom" becomes searchable.
     @MainActor
     func testHandleImportSQLiteFixtureInsertsEntries() async throws {
-        let vm = ManageDictionariesViewModel()
+        let vm = ManageDictionariesViewModel(settingsService: SettingsService(store: InMemoryKeyValueStore()))
         let url = try XCTUnwrap(
             Bundle.main.url(forResource: "test_import_fixture", withExtension: "sqlite"),
             "Bundled SQLite fixture must exist"
@@ -4186,6 +4188,629 @@ final class DictionaryInfoDetailTests: XCTestCase {
                 XCTAssertEqual(only.map(\.source), [source], "\(code): \(id)")
                 XCTAssertFalse(only.first?.license.isEmpty ?? true, "\(code): \(source) license")
             }
+        }
+    }
+}
+
+// MARK: - Issue #105: Dictionary order refresh
+//
+// DESIGN_DOC.md §7a plus PM decisions 2 and 3. Same-file extensions, so the
+// bodies can use each class's private helpers. Imports go through the real
+// user path: `ManageDictionariesViewModel(settingsService:)` + `await
+// performImport(url:)` with the bundled `test_import_fixture` (.json = 10
+// rows, .sqlite = 10 other rows, both source `test_import_fixture`), sharing
+// the `SettingsService` of the VM under test. Reload the SAME
+// `SettingsViewModel`; a fresh one is a relaunch.
+
+extension SettingsServiceTests {
+    /// §3b, nil case: `nil` means "all enabled". An import must not
+    /// materialise it, or today's source list would be frozen into the store.
+    func testEnableImportedSourceLeavesNilUntouched() throws {
+        let (s, store) = service()
+        XCTAssertNil(s.enabledSources, "precondition: nothing stored (all enabled)")
+
+        s.enableImportedSource("x")
+
+        XCTAssertNil(s.enabledSources, "nil stays nil")
+        XCTAssertTrue(s.isEnabled(source: "x"), "the import is ON through the nil default")
+        XCTAssertTrue(s.isEnabled(source: "wordnet"), "and so is every other source")
+        XCTAssertEqual(store.writeLog, [], "no store write at all")
+        XCTAssertTrue(store.keys.isEmpty, "no key materialised; got \(store.keys)")
+    }
+
+    /// PR #107 review: an import named like one direction of a bundled pair
+    /// switches the whole pair on, so search never sees half a pair.
+    func testEnableImportedSourceNamedLikeBundledEnablesWholePair() throws {
+        let (s, store) = service()
+        s.enabledSources = ["wordnet"]
+        let seeded = store.writeLog.count
+
+        s.enableImportedSource("wordnet-spa-eng")
+        XCTAssertEqual(s.enabledSources, ["wordnet", "wordnet-spa-eng", "freedict-eng-spa"])
+        XCTAssertFalse(s.isEnabled(source: "openrussian"), "other pairs stay OFF")
+        XCTAssertEqual(Array(store.writeLog.dropFirst(seeded)), ["enabled_sources"], "exactly one write")
+
+        s.enableImportedSource("freedict-eng-spa")
+        XCTAssertEqual(Array(store.writeLog.dropFirst(seeded)), ["enabled_sources"], "no churn when the pair is already on")
+    }
+
+    /// §3b, non-nil case: `{"wordnet"}` + "x" → `{"wordnet", "x"}` in exactly
+    /// one `["enabled_sources"]` write; a repeat call and an already-present
+    /// ID write nothing; `dictionary_order` is never written.
+    func testEnableImportedSourceAddsToMaterialisedSet() throws {
+        let (s, store) = service()
+        s.enabledSources = ["wordnet"]
+        let seeded = store.writeLog.count
+
+        s.enableImportedSource("x")
+        XCTAssertEqual(s.enabledSources, ["wordnet", "x"])
+        XCTAssertTrue(s.isEnabled(source: "x"))
+        XCTAssertFalse(s.isEnabled(source: "openrussian"), "a source the user had OFF stays OFF")
+        XCTAssertEqual(Array(store.writeLog.dropFirst(seeded)), ["enabled_sources"], "exactly one write")
+
+        // Idempotent: a repeat call and an ID already in the set write nothing.
+        s.enableImportedSource("x")
+        s.enableImportedSource("wordnet")
+        XCTAssertEqual(s.enabledSources, ["wordnet", "x"])
+        XCTAssertEqual(Array(store.writeLog.dropFirst(seeded)), ["enabled_sources"], "no churn on a repeat")
+
+        // The enable rule never touches the order.
+        XCTAssertFalse(store.writeLog.contains("dictionary_order"), "got \(store.writeLog)")
+        XCTAssertNil(s.dictionaryOrder)
+
+        // Edge: every dictionary OFF (`[]`) is a materialised set too; the
+        // import turns on itself and nothing else.
+        s.enabledSources = []
+        let emptied = store.writeLog.count
+        s.enableImportedSource("y")
+        XCTAssertEqual(s.enabledSources, ["y"])
+        XCTAssertFalse(s.isEnabled(source: "wordnet"))
+        XCTAssertEqual(Array(store.writeLog.dropFirst(emptied)), ["enabled_sources"])
+        // The stored shape is unchanged: a JSON array of source IDs.
+        let raw = try JSONDecoder().decode([String].self, from: XCTUnwrap(store.data(forKey: "enabled_sources")))
+        XCTAssertEqual(raw, ["y"])
+    }
+
+    /// PM decision 3, nil case: `appendImportedSourceToOrder("x")` keeps
+    /// `dictionaryOrder` nil and writes nothing.
+    func testAppendImportedSourceToOrderLeavesNilUntouched() throws {
+        let (s, store) = service()
+        XCTAssertNil(s.dictionaryOrder, "precondition: no order stored yet")
+
+        s.appendImportedSourceToOrder("x")
+
+        XCTAssertNil(s.dictionaryOrder, "the first Settings load derives the default, not the import")
+        XCTAssertEqual(store.writeLog, [])
+        XCTAssertTrue(store.keys.isEmpty, "no key materialised; got \(store.keys)")
+
+        // A materialised enabled set changes nothing, and is not touched.
+        s.enabledSources = ["wordnet"]
+        let seeded = store.writeLog.count
+        s.appendImportedSourceToOrder("x")
+        XCTAssertNil(s.dictionaryOrder)
+        XCTAssertEqual(s.enabledSources, ["wordnet"])
+        XCTAssertEqual(store.writeLog.count, seeded, "got \(store.writeLog.dropFirst(seeded))")
+    }
+
+    /// PM decision 3, non-nil case: a stored order lacking "x" gets it at the
+    /// end in exactly one `["dictionary_order"]` write; a repeat call and an
+    /// already-present ID write nothing; `enabled_sources` is never written.
+    func testAppendImportedSourceToOrderAppendsOnceAtEnd() throws {
+        let (s, store) = service()
+        let bundled = ["wordnet", "openrussian", "freedict-eng-spa", "wordnet-spa-eng", "wordnet-arb-eng"]
+        s.dictionaryOrder = bundled
+        let seeded = store.writeLog.count
+
+        s.appendImportedSourceToOrder("x")
+        XCTAssertEqual(s.dictionaryOrder, bundled + ["x"], "appended after every pair")
+        XCTAssertEqual(Array(store.writeLog.dropFirst(seeded)), ["dictionary_order"], "exactly one write")
+
+        s.appendImportedSourceToOrder("x")
+        s.appendImportedSourceToOrder("openrussian")
+        XCTAssertEqual(s.dictionaryOrder, bundled + ["x"], "no duplicate, nothing moves")
+        XCTAssertEqual(Array(store.writeLog.dropFirst(seeded)), ["dictionary_order"], "no churn on a repeat")
+
+        // A second import lands after the first (import order, not count).
+        s.appendImportedSourceToOrder("y")
+        XCTAssertEqual(s.dictionaryOrder, bundled + ["x", "y"])
+
+        XCTAssertFalse(store.writeLog.contains("enabled_sources"), "got \(store.writeLog)")
+        XCTAssertNil(s.enabledSources)
+
+        // Edge: a file named like a missing bundled direction joins its pair
+        // (I2 via `groupedOrder`) instead of landing at the end.
+        s.dictionaryOrder = ["wordnet", "freedict-eng-spa", "openrussian"]
+        s.appendImportedSourceToOrder("wordnet-spa-eng")
+        XCTAssertEqual(s.dictionaryOrder, ["wordnet", "freedict-eng-spa", "wordnet-spa-eng", "openrussian"],
+                       "pair members stay contiguous")
+    }
+}
+
+extension SettingsViewModelPairTests {
+    private var fixtureSource: String { "test_import_fixture" }
+    private var fixturePair: String { "custom:test_import_fixture" }
+    /// The four bundled rows in the `en` default order.
+    private var bundledPairs: [String] { ["eng", "eng-rus", "eng-spa", "arb-eng"] }
+    /// What a user who switched Russian OFF has stored.
+    private var allButRussian: Set<String> { Set(bundledSources).subtracting(["openrussian"]) }
+
+    /// `SettingsViewModel.init` starts a load in a `Task` nobody awaits. Wait
+    /// until it has published before importing: a load whose fetch predates
+    /// the import but whose prefs read follows it would briefly drop the
+    /// import from the stored order. That is a test artefact; in the app the
+    /// init load is long done by the time Manage Dictionaries is reachable.
+    @MainActor
+    private func waitForInitialLoad(_ vm: SettingsViewModel,
+                                    file: StaticString = #filePath, line: UInt = #line) async throws {
+        let deadline = Date().addingTimeInterval(10)
+        while vm.dictionaries.isEmpty, Date() < deadline {
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        XCTAssertFalse(vm.dictionaries.isEmpty, "the init load must publish the bundled rows",
+                       file: file, line: line)
+    }
+
+    /// A new VM over the SAME stored prefs: what a relaunch builds.
+    @MainActor
+    private func relaunchedViewModel(over settings: SettingsService) async throws -> SettingsViewModel {
+        let localization = LocalizationManager(settingsService: settings, bundle: .main)
+        let vm = SettingsViewModel(settingsService: settings, localization: localization)
+        try await waitForInitialLoad(vm)
+        return vm
+    }
+
+    /// Imports the bundled fixture through the Manage Dictionaries view model
+    /// (the real user path) and checks it succeeded.
+    @MainActor
+    private func importFixture(_ ext: String, into settings: SettingsService,
+                               file: StaticString = #filePath, line: UInt = #line) async throws {
+        let url = try XCTUnwrap(Bundle.main.url(forResource: "test_import_fixture", withExtension: ext),
+                                "bundled .\(ext) fixture", file: file, line: line)
+        let manage = ManageDictionariesViewModel(
+            settingsService: settings,
+            localization: LocalizationManager(settingsService: settings, bundle: .main)
+        )
+        await manage.performImport(url: url)
+        XCTAssertEqual(manage.importResult, "Imported 10 entries from test_import_fixture",
+                       "the .\(ext) import must succeed", file: file, line: line)
+        XCTAssertFalse(manage.isImporting, file: file, line: line)
+    }
+
+    /// Runs `query` through the real `SearchViewModel` and waits for the
+    /// debounced search to finish.
+    @MainActor
+    private func searchResults(_ search: SearchViewModel, for query: String,
+                               file: StaticString = #filePath, line: UInt = #line) async throws -> [DictionaryEntry] {
+        search.query = query
+        search.onQueryChanged()
+        let deadline = Date().addingTimeInterval(5)
+        while search.isSearching, Date() < deadline {
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+        XCTAssertFalse(search.isSearching, "search for '\(query)' did not finish", file: file, line: line)
+        XCTAssertNil(search.errorMessage, file: file, line: line)
+        return search.results
+    }
+
+    /// PM decision 2, non-nil case, JSON and SQLite: stored set = bundled
+    /// minus `openrussian`; load; import; the set gains `test_import_fixture`
+    /// and still lacks `openrussian`; reload the same VM: custom row ON,
+    /// `eng-rus` OFF.
+    @MainActor
+    func testImportEnablesSourceWhenUserHasDisabledOthers() async throws {
+        try await seedBundled()
+        for ext in ["json", "sqlite"] {
+            // Fresh prefs and no fixture rows for each run.
+            try await DatabaseService.shared.clearEntries(fromSource: fixtureSource)
+            let (vm, settings, store) = makeViewModel(languageCode: "en", storedOrder: bundledSources,
+                                                      storedEnabled: allButRussian)
+            try await waitForInitialLoad(vm)
+            XCTAssertEqual(vm.dictionaries.map(\.id), bundledPairs, "[\(ext)] precondition: no custom row")
+            XCTAssertEqual(vm.dictionaries.map(\.isEnabled), [true, false, true, true], "[\(ext)] Russian OFF")
+            let beforeImport = store.writeLog.count
+
+            try await importFixture(ext, into: settings)
+
+            XCTAssertEqual(settings.enabledSources, allButRussian.union([fixtureSource]),
+                           "[\(ext)] the import is ON, Russian stays OFF")
+            XCTAssertEqual(store.writeLog.dropFirst(beforeImport).filter { $0 == "enabled_sources" }.count, 1,
+                           "[\(ext)] one enabled-set write")
+            XCTAssertEqual(settings.dictionaryOrder, bundledSources + [fixtureSource],
+                           "[\(ext)] appended to the stored order (PM decision 3)")
+
+            await vm.loadDictionaries()   // the order screen's `.task`, same VM
+
+            XCTAssertEqual(vm.dictionaries.map(\.id), bundledPairs + [fixturePair], "[\(ext)]")
+            XCTAssertEqual(vm.dictionaries.map(\.isEnabled), [true, false, true, true, true],
+                           "[\(ext)] custom row ON, eng-rus still OFF")
+            XCTAssertEqual(vm.dictionaries.last?.count, 10, "[\(ext)] all fixture rows counted")
+            XCTAssertEqual(settings.enabledSources, allButRussian.union([fixtureSource]),
+                           "[\(ext)] the reload's normalisation keeps it")
+            XCTAssertFalse(settings.isEnabled(source: "openrussian"), "[\(ext)]")
+        }
+    }
+
+    /// PM decision 2, nil case: load, import (JSON), reload: custom row ON,
+    /// `enabledSources` still nil, no `enabled_sources` in `writeLog`.
+    @MainActor
+    func testImportLeavesAllEnabledNil() async throws {
+        try await seedBundled()
+        let (vm, settings, store) = makeViewModel(languageCode: "en")
+        try await waitForInitialLoad(vm)
+        XCTAssertNil(settings.enabledSources, "precondition: all enabled")
+        XCTAssertEqual(settings.dictionaryOrder, bundledSources, "precondition: the init load stored the default")
+        let afterLoad = store.writeLog.count
+
+        try await importFixture("json", into: settings)
+        let importWrites = Array(store.writeLog.dropFirst(afterLoad))
+        XCTAssertEqual(importWrites, ["dictionary_order"],
+                       "the import only appends to the order (PM decision 3) and never materialises nil")
+        XCTAssertEqual(settings.dictionaryOrder, bundledSources + [fixtureSource])
+        let afterImport = store.writeLog.count
+
+        await vm.loadDictionaries()
+
+        let custom = try XCTUnwrap(vm.dictionaries.first { $0.id == fixturePair }, "the reload lists the import")
+        XCTAssertTrue(custom.isEnabled)
+        XCTAssertTrue(vm.dictionaries.allSatisfy(\.isEnabled))
+        XCTAssertNil(settings.enabledSources, "nil stays nil: nothing frozen into the store")
+        XCTAssertTrue(settings.isEnabled(source: fixtureSource))
+        XCTAssertEqual(store.writeLog.count, afterImport,
+                       "the reload writes nothing; got \(store.writeLog.dropFirst(afterImport))")
+    }
+
+    /// Unsupported `.txt`, a missing `.json`, a malformed `.json` and a
+    /// `.sqlite` that is not a database: `enabledSources` and
+    /// `dictionaryOrder` unchanged, no store writes, `importResult` set.
+    @MainActor
+    func testFailedImportDoesNotEnable() async throws {
+        try await seedBundled()
+        let (vm, settings, store) = makeViewModel(languageCode: "en", storedOrder: bundledSources,
+                                                  storedEnabled: allButRussian)
+        try await waitForInitialLoad(vm)
+        let before = store.writeLog.count
+        let manage = ManageDictionariesViewModel(
+            settingsService: settings,
+            localization: LocalizationManager(settingsService: settings, bundle: .main)
+        )
+
+        // 1) Unsupported extension: rejected before any read.
+        let txt = tempDir.appendingPathComponent("test_import_fixture.txt")
+        try Data("qaflux,a word".utf8).write(to: txt)
+        await manage.performImport(url: txt)
+        XCTAssertEqual(manage.importResult, "Unsupported file type: .txt")
+
+        // 2) A .json that does not exist: `importJSON` throws on read.
+        await manage.performImport(url: tempDir.appendingPathComponent("test_import_fixture.json"))
+        let missing = try XCTUnwrap(manage.importResult, "a missing file must surface an error")
+        XCTAssertFalse(missing.contains("Imported"), "got \(missing)")
+        XCTAssertNotEqual(missing, "Unsupported file type: .txt", "the message is replaced")
+
+        // 3) A .json that is not a word array: decoding throws.
+        let malformed = tempDir.appendingPathComponent("malformed_dict.json")
+        try Data(#"{"word": "qaflux"}"#.utf8).write(to: malformed)
+        await manage.performImport(url: malformed)
+        let decodeError = try XCTUnwrap(manage.importResult)
+        XCTAssertFalse(decodeError.contains("Imported"), "got \(decodeError)")
+
+        // 4) A .sqlite that is not a database.
+        let notADB = tempDir.appendingPathComponent("not_a_db.sqlite")
+        try Data("plain text, not SQLite".utf8).write(to: notADB)
+        await manage.performImport(url: notADB)
+        let sqliteError = try XCTUnwrap(manage.importResult)
+        XCTAssertFalse(sqliteError.contains("Imported"), "got \(sqliteError)")
+
+        XCTAssertFalse(manage.isImporting, "no failure leaves the spinner on")
+        XCTAssertEqual(settings.enabledSources, allButRussian, "no failed import enables anything")
+        XCTAssertEqual(settings.dictionaryOrder, bundledSources, "no failed import touches the order")
+        XCTAssertEqual(store.writeLog.count, before, "no store write; got \(store.writeLog.dropFirst(before))")
+
+        // Nothing reached the database, so the reload lists no new row.
+        await vm.loadDictionaries()
+        XCTAssertEqual(vm.dictionaries.map(\.id), bundledPairs)
+        XCTAssertEqual(vm.dictionaries.map(\.isEnabled), [true, false, true, true])
+    }
+
+    /// Edge: a JSON import with zero rows succeeds and enables its ID, but the
+    /// reload lists no row for it and drops it from the order again (no
+    /// entries → not a live source). Nothing else changes.
+    @MainActor
+    func testZeroRowImportListsNoRow() async throws {
+        try await seedBundled()
+        let (vm, settings, _) = makeViewModel(languageCode: "en", storedOrder: bundledSources,
+                                              storedEnabled: allButRussian)
+        try await waitForInitialLoad(vm)
+        let empty = tempDir.appendingPathComponent("empty_dict.json")
+        try Data("[]".utf8).write(to: empty)
+        let manage = ManageDictionariesViewModel(
+            settingsService: settings,
+            localization: LocalizationManager(settingsService: settings, bundle: .main)
+        )
+
+        await manage.performImport(url: empty)
+
+        XCTAssertEqual(manage.importResult, "Imported 0 entries from empty_dict")
+        XCTAssertEqual(settings.enabledSources, allButRussian.union(["empty_dict"]), "harmless: an ID with no rows")
+        XCTAssertEqual(settings.dictionaryOrder, bundledSources + ["empty_dict"])
+
+        await vm.loadDictionaries()
+        XCTAssertEqual(vm.dictionaries.map(\.id), bundledPairs, "no row for a source without entries")
+        XCTAssertEqual(vm.dictionaries.map(\.isEnabled), [true, false, true, true])
+        XCTAssertEqual(settings.dictionaryOrder, bundledSources, "the reload drops the empty source from the order")
+    }
+
+    /// Import, load, `togglePair("custom:test_import_fixture")` OFF, import
+    /// again, reload: the row is ON.
+    @MainActor
+    func testReimportTurnsDisabledImportBackOn() async throws {
+        try await seedBundled()
+        let (vm, settings, store) = makeViewModel(languageCode: "en")
+        try await waitForInitialLoad(vm)
+        try await importFixture("json", into: settings)
+        await vm.loadDictionaries()
+        XCTAssertEqual(vm.dictionaries.map(\.id), bundledPairs + [fixturePair], "precondition")
+
+        vm.togglePair(id: fixturePair)   // the user switches the import OFF
+        XCTAssertEqual(settings.enabledSources, Set(bundledSources), "materialised without the import")
+        XCTAssertEqual(vm.dictionaries.last?.isEnabled, false)
+        let orderBefore = settings.dictionaryOrder
+        let beforeReimport = store.writeLog.count
+
+        try await importFixture("json", into: settings)   // the same file again
+
+        XCTAssertTrue(settings.isEnabled(source: fixtureSource), "a re-import turns it back ON (PM decision 2)")
+        XCTAssertEqual(settings.enabledSources, Set(bundledSources).union([fixtureSource]))
+        XCTAssertEqual(Array(store.writeLog.dropFirst(beforeReimport)), ["enabled_sources"],
+                       "one write; the order already holds the ID")
+        XCTAssertEqual(settings.dictionaryOrder, orderBefore, "no duplicate in the order")
+
+        await vm.loadDictionaries()
+        XCTAssertEqual(vm.dictionaries.map(\.id), bundledPairs + [fixturePair], "still one row, still last")
+        XCTAssertEqual(vm.dictionaries.last?.isEnabled, true, "the reload shows it ON")
+        XCTAssertEqual(vm.dictionaries.last?.count, 10, "rows are deduplicated (unique word + source)")
+        XCTAssertTrue(vm.dictionaries.allSatisfy(\.isEnabled))
+    }
+
+    /// AC1 data level: load (no custom row), import, reload the same VM: ids
+    /// `[eng, eng-rus, eng-spa, arb-eng, custom:test_import_fixture]`; row ON,
+    /// `count == 10`, `displayName == "test_import_fixture"`;
+    /// `dictionaryOrder` == bundled order + `["test_import_fixture"]`.
+    @MainActor
+    func testReloadAfterImportAppendsEnabledCustomRow() async throws {
+        try await seedBundled()
+        let (vm, settings, _) = makeViewModel(languageCode: "en")
+        try await waitForInitialLoad(vm)
+        await vm.loadDictionaries()
+        XCTAssertEqual(vm.dictionaries.map(\.id), bundledPairs, "no custom row before the import")
+
+        try await importFixture("json", into: settings)
+        XCTAssertEqual(vm.dictionaries.map(\.id), bundledPairs, "nothing reloads until the order screen appears")
+
+        await vm.loadDictionaries()
+
+        XCTAssertEqual(vm.dictionaries.map(\.id), bundledPairs + [fixturePair],
+                       "appended last although its 10 rows outnumber every seeded source")
+        XCTAssertEqual(vm.orderedDictionaries.map(\.id), vm.dictionaries.map(\.id))
+        let custom = try XCTUnwrap(vm.dictionaries.last)
+        XCTAssertTrue(custom.isEnabled)
+        XCTAssertEqual(custom.count, 10)
+        XCTAssertEqual(custom.displayName, fixtureSource)
+        XCTAssertTrue(custom.pair.isCustom)
+        XCTAssertEqual(custom.pair.sourceIDs, [fixtureSource])
+        XCTAssertEqual(settings.dictionaryOrder, bundledSources + [fixtureSource])
+
+        // The (i) detail data is there too (#91): one block titled by the
+        // source ID, no provider, no license.
+        let stat = try XCTUnwrap(custom.pair.sources.first)
+        XCTAssertEqual(SettingsViewModel.infoSources(for: custom.pair).map(\.source), [fixtureSource])
+        XCTAssertNil(SettingsViewModel.providerName(for: stat))
+        XCTAssertEqual(SettingsViewModel.infoBlockTitle(for: stat), fixtureSource)
+        XCTAssertEqual(stat.license, "")
+    }
+
+    /// (a) `enabled_sources` nil, (b) bundled minus `openrussian`. Each: load,
+    /// import, reload the same VM, then load a fresh VM over the same
+    /// `SettingsService`: identical `dictionaries` and `dictionaryOrder`,
+    /// custom row ON in both.
+    @MainActor
+    func testReloadMatchesRelaunch() async throws {
+        try await seedBundled()
+        let cases: [(name: String, enabled: Set<String>?, states: [Bool])] = [
+            ("nil", nil, [true, true, true, true, true]),
+            ("Russian OFF", allButRussian, [true, false, true, true, true]),
+        ]
+        for c in cases {
+            try await DatabaseService.shared.clearEntries(fromSource: fixtureSource)
+            let (vm, settings, store) = makeViewModel(languageCode: "en", storedEnabled: c.enabled)
+            try await waitForInitialLoad(vm)
+            try await importFixture("json", into: settings)
+            await vm.loadDictionaries()
+
+            let inSession = vm.dictionaries
+            let order = settings.dictionaryOrder
+            let enabled = settings.enabledSources
+            XCTAssertEqual(inSession.map(\.id), bundledPairs + [fixturePair], "[\(c.name)]")
+            XCTAssertEqual(inSession.map(\.isEnabled), c.states, "[\(c.name)] custom row ON")
+            let writesBeforeRelaunch = store.writeLog.count
+
+            let relaunched = try await relaunchedViewModel(over: settings)
+
+            XCTAssertEqual(relaunched.dictionaries, inSession, "[\(c.name)] same rows, states, counts")
+            XCTAssertEqual(settings.dictionaryOrder, order, "[\(c.name)]")
+            XCTAssertEqual(settings.enabledSources, enabled, "[\(c.name)]")
+            XCTAssertEqual(store.writeLog.count, writesBeforeRelaunch,
+                           "[\(c.name)] the relaunch load had nothing left to persist")
+        }
+    }
+
+    /// AC2 data level (PM decision 1): import with a materialised set, load,
+    /// `clearEntries(fromSource: "test_import_fixture")`, reload the same VM:
+    /// row gone, ID dropped from `dictionaryOrder`, still in `enabledSources`;
+    /// a fresh VM matches.
+    @MainActor
+    func testReloadAfterRemovalDropsRowLikeRelaunch() async throws {
+        try await seedBundled()
+        let (vm, settings, _) = makeViewModel(languageCode: "en", storedOrder: bundledSources,
+                                              storedEnabled: allButRussian)
+        try await waitForInitialLoad(vm)
+        try await importFixture("json", into: settings)
+        await vm.loadDictionaries()
+        XCTAssertEqual(vm.dictionaries.map(\.id), bundledPairs + [fixturePair], "precondition: listed")
+        XCTAssertEqual(settings.enabledSources?.contains(fixtureSource), true, "precondition: in the set")
+
+        try await DatabaseService.shared.clearEntries(fromSource: fixtureSource)
+        await vm.loadDictionaries()
+
+        XCTAssertEqual(vm.dictionaries.map(\.id), bundledPairs, "the row is gone without a relaunch")
+        XCTAssertEqual(vm.dictionaries.map(\.isEnabled), [true, false, true, true], "other rows keep their state")
+        XCTAssertEqual(settings.dictionaryOrder, bundledSources, "the ID is dropped from the stored order")
+        XCTAssertEqual(settings.enabledSources, allButRussian.union([fixtureSource]),
+                       "kept in the enabled set (#92 tolerance for removed sources)")
+
+        let relaunched = try await relaunchedViewModel(over: settings)
+        XCTAssertEqual(relaunched.dictionaries, vm.dictionaries, "a relaunch shows the same rows")
+        XCTAssertEqual(settings.dictionaryOrder, bundledSources)
+
+        // Importing it again brings the row back, last and ON.
+        try await importFixture("json", into: settings)
+        await vm.loadDictionaries()
+        XCTAssertEqual(vm.dictionaries.map(\.id), bundledPairs + [fixturePair])
+        XCTAssertEqual(vm.dictionaries.map(\.isEnabled), [true, false, true, true, true])
+    }
+
+    /// Load; `movePair` first → end and `togglePair("eng-spa")`; reload: ids,
+    /// `isEnabled` and `dictionaryOrder` unchanged. In-flight variant: start
+    /// the reload in a `Task`, `Task.yield()`, move + toggle, await: the move
+    /// and toggle survive.
+    @MainActor
+    func testReloadDoesNotRevertReorderOrToggle() async throws {
+        try await seedBundled()
+        let (vm, settings, _) = makeViewModel(languageCode: "en")
+        try await waitForInitialLoad(vm)
+        XCTAssertEqual(vm.dictionaries.map(\.id), bundledPairs, "precondition")
+
+        // Settled: move + toggle, then reload.
+        vm.movePair(from: IndexSet(integer: 0), to: vm.dictionaries.count)
+        vm.togglePair(id: "eng-spa")
+        let movedIDs = ["eng-rus", "eng-spa", "arb-eng", "eng"]
+        let movedOrder = ["openrussian", "freedict-eng-spa", "wordnet-spa-eng", "wordnet-arb-eng", "wordnet"]
+        XCTAssertEqual(vm.dictionaries.map(\.id), movedIDs, "precondition")
+        await vm.loadDictionaries()
+        XCTAssertEqual(vm.dictionaries.map(\.id), movedIDs, "a reload must not revert the move")
+        XCTAssertEqual(vm.dictionaries.map(\.isEnabled), [true, false, true, true], "nor the toggle")
+        XCTAssertEqual(settings.dictionaryOrder, movedOrder)
+        XCTAssertFalse(settings.isEnabled(source: "freedict-eng-spa"))
+        XCTAssertFalse(settings.isEnabled(source: "wordnet-spa-eng"))
+
+        // In flight: move + toggle while the reload's fetch is pending.
+        let reload = Task { await vm.loadDictionaries() }
+        await Task.yield()
+        vm.movePair(from: IndexSet(integer: vm.dictionaries.count - 1), to: 0)   // English back on top
+        vm.togglePair(id: "eng-rus")                                            // Russian OFF
+        await reload.value
+
+        XCTAssertEqual(vm.dictionaries.map(\.id), bundledPairs, "the in-flight reload kept the move")
+        XCTAssertEqual(vm.dictionaries.map(\.isEnabled), [true, false, false, true], "and both toggles")
+        XCTAssertEqual(settings.dictionaryOrder, bundledSources)
+        XCTAssertEqual(settings.enabledSources, ["wordnet", "wordnet-arb-eng"])
+    }
+
+    /// After the first load, a second load emits nothing on
+    /// `vm.$dictionaries.dropFirst()` and adds nothing to `writeLog`.
+    @MainActor
+    func testReloadWithoutChangesIsSilent() async throws {
+        try await seedBundled()
+        let (vm, settings, store) = makeViewModel(languageCode: "en", storedEnabled: allButRussian)
+        try await waitForInitialLoad(vm)
+
+        var emissions: [[DictionaryItem]] = []
+        let subscription = vm.$dictionaries.dropFirst().sink { emissions.append($0) }
+        defer { subscription.cancel() }
+        let writes = store.writeLog.count
+
+        await vm.loadDictionaries()
+        await vm.loadDictionaries()
+
+        XCTAssertTrue(emissions.isEmpty, "an unchanged reload publishes nothing; got \(emissions.count)")
+        XCTAssertEqual(store.writeLog.count, writes, "and writes nothing; got \(store.writeLog.dropFirst(writes))")
+
+        // Control, so the spy is not vacuous: a real change publishes once.
+        try await importFixture("json", into: settings)
+        await vm.loadDictionaries()
+        XCTAssertEqual(emissions.count, 1)
+        XCTAssertEqual(emissions.last?.map(\.id), bundledPairs + [fixturePair])
+
+        // …and the next reload is silent again.
+        let writesAfterImport = store.writeLog.count
+        await vm.loadDictionaries()
+        XCTAssertEqual(emissions.count, 1)
+        XCTAssertEqual(store.writeLog.count, writesAfterImport)
+    }
+
+    /// PM decision 3: `enabled_sources` nil + stored bundled order, import
+    /// (no reload): `test_import_fixture` is last in `dictionaryOrder`, and
+    /// `searchPreferred` with `groups: sourceGroups(order:)` and
+    /// `enabledSources: Set(order)` (what `SearchViewModel` passes) finds a
+    /// fixture word.
+    @MainActor
+    func testImportAppendsSourceToOrderForPreferredSearch() async throws {
+        try await seedBundled()
+        let (vm, settings, _) = makeViewModel(languageCode: "en", storedOrder: bundledSources)
+        try await waitForInitialLoad(vm)
+        XCTAssertNil(settings.enabledSources, "precondition: all enabled")
+        func preferred(order: [String]) async throws -> [DictionaryEntry] {
+            try await DatabaseService.shared.searchPreferred(
+                query: "qaflux", groups: DictionaryGrouping.sourceGroups(order: order), enabledSources: Set(order)
+            )
+        }
+
+        try await importFixture("json", into: settings)
+
+        let order = try XCTUnwrap(settings.dictionaryOrder)
+        XCTAssertEqual(order, bundledSources + [fixtureSource], "the import is last in the stored order")
+        let found = try await preferred(order: order)
+        XCTAssertEqual(found.first?.word, "qaflux")
+        XCTAssertEqual(found.first?.source, fixtureSource)
+        // Control: the order without the append misses the import entirely.
+        let missed = try await preferred(order: bundledSources)
+        XCTAssertTrue(missed.isEmpty, "without decision 3 preferred mode cannot see it; got \(missed.map(\.word))")
+        XCTAssertEqual(vm.dictionaries.map(\.id), bundledPairs, "no Settings reload happened")
+    }
+
+    /// AC (PM decision 3): a fresh import is found by the real
+    /// `SearchViewModel` right away, in relevance AND preferred mode, for a
+    /// nil and a materialised enabled set, and Dictionary order is never
+    /// reloaded in between.
+    @MainActor
+    func testImportedWordFoundInBothSortModesWithoutReload() async throws {
+        try await seedBundled()
+        let modes: [ResultSortMode] = [.relevance, .preferredDictionary]
+        for storedEnabled in [nil, allButRussian] as [Set<String>?] {
+            let label = storedEnabled == nil ? "nil set" : "Russian OFF"
+            try await DatabaseService.shared.clearEntries(fromSource: fixtureSource)
+            let (settingsVM, settings, _) = makeViewModel(languageCode: "en", storedEnabled: storedEnabled)
+            try await waitForInitialLoad(settingsVM)
+            let search = SearchViewModel(db: .shared, settings: settings)
+
+            for mode in modes {
+                settings.resultSortMode = mode
+                let before = try await searchResults(search, for: "qaflux")
+                XCTAssertTrue(before.isEmpty, "[\(label), \(mode)] precondition: not imported yet")
+            }
+
+            try await importFixture("json", into: settings)
+
+            for mode in modes {
+                settings.resultSortMode = mode
+                let results = try await searchResults(search, for: "qaflux")
+                XCTAssertEqual(results.first?.word, "qaflux", "[\(label), \(mode)] found right after the import")
+                XCTAssertEqual(results.first?.source, fixtureSource, "[\(label), \(mode)]")
+            }
+            // A bundled word is still found next to it (nothing else was filtered out).
+            settings.resultSortMode = .preferredDictionary
+            let bundledHit = try await searchResults(search, for: "wordnet")
+            XCTAssertEqual(bundledHit.first?.source, "wordnet", "[\(label)] English bucket still first")
+            XCTAssertEqual(settingsVM.dictionaries.map(\.id), bundledPairs, "[\(label)] Dictionary order never reloaded")
         }
     }
 }
