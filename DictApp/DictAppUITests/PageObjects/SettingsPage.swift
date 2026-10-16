@@ -56,6 +56,13 @@ class SettingsPage: BasePage {
         return orderView.waitForExistence(timeout: TestData.Timeouts.medium)
     }
 
+    /// Issue #105 — pops one screen (order screen or Manage Dictionaries back
+    /// to the Settings root). Taps the leading nav-bar button by index: its
+    /// label is the previous screen's localised title, not "Back".
+    func goBack() {
+        app.navigationBars.firstMatch.buttons.element(boundBy: 0).tap()
+    }
+
     /// Issue #91 — opens the order screen, taps the pair's (i) button and waits
     /// for the info detail. Scrolls by geometry only (never `.isHittable`).
     @discardableResult

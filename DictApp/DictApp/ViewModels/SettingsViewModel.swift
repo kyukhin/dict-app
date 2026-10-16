@@ -60,11 +60,18 @@ class SettingsViewModel: ObservableObject {
         localization.setLanguage(language)
     }
 
+    /// Loads the pair list. Runs once from `init` and again each time the
+    /// Dictionary order screen appears (Issue #105), so imports and removals
+    /// show without a relaunch. An unchanged reload writes nothing and
+    /// publishes nothing.
     func loadDictionaries() async {
         do {
             // `fetchSourceStats()` is the count-desc base order (§6); on first
             // launch #74 promotes the active UI language's dictionaries to the top.
             let stats = try await DatabaseService.shared.fetchSourceStats()
+            // Issue #105: this await is the only suspension point. Every
+            // `settingsService` read stays below it, so a reorder or toggle made
+            // while the fetch was in flight is picked up here, never reverted.
             let existing = stats.map(\.source)
 
             // Issue #92 §2b: re-establish the pair invariants (enabled-if-any,
@@ -76,8 +83,9 @@ class SettingsViewModel: ObservableObject {
             // for sources that still exist, append new/imported ones at the end
             // (in fetchSourceStats order), then re-persist so imports stick and a
             // first-launch default materializes. (§6 — lazy, persisted on first read.)
+            let storedOrder = settingsService.dictionaryOrder
             var sourceOrder: [String]
-            if let stored = settingsService.dictionaryOrder {
+            if let stored = storedOrder {
                 sourceOrder = stored.filter { existing.contains($0) }
                     + existing.filter { !stored.contains($0) }
             } else {
@@ -90,10 +98,14 @@ class SettingsViewModel: ObservableObject {
             // I2: pair members contiguous at the earliest member's position.
             // Canonical member order inside a pair = relative order here.
             sourceOrder = DictionaryGrouping.groupedOrder(sourceOrder)
-            settingsService.dictionaryOrder = sourceOrder
+            // Write only on change: this runs on every order-screen open (#105)
+            // and must not churn the store (#73 iCloud seam).
+            if sourceOrder != storedOrder {
+                settingsService.dictionaryOrder = sourceOrder
+            }
 
             let locale = localization.currentLocale
-            dictionaries = DictionaryGrouping.pairs(from: stats, order: sourceOrder).map { pair in
+            let items = DictionaryGrouping.pairs(from: stats, order: sourceOrder).map { pair in
                 DictionaryItem(
                     pair: pair,
                     displayName: Self.displayName(for: pair, locale: locale),
@@ -102,6 +114,13 @@ class SettingsViewModel: ObservableObject {
                     isEnabled: pair.sourceIDs.contains(where: settingsService.isEnabled(source:))
                 )
             }
+            // Publish only on change, so an unchanged reload leaves the List
+            // (and any drag in progress) untouched.
+            if items != dictionaries {
+                dictionaries = items
+            }
+        } catch is CancellationError {
+            // The order screen's `.task` was cancelled; keep the current list.
         } catch {
             print("SettingsViewModel: failed to load dictionaries: \(error)")
         }

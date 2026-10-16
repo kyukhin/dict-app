@@ -23,6 +23,11 @@ final class DictionaryInfoTests: XCTestCase {
         app = XCUIApplication()
         app.launchArguments.append("-disableReviewPrompt")
         app.launchArguments.append("-resetData")
+        // Issue #105: the custom-import test imports in-session (no relaunch).
+        // Both hooks are inert for the other tests: the clear deletes zero
+        // rows and the callback only fires when Import is tapped.
+        app.launchArguments.append("-clearFixtureImports")
+        app.launchArguments.append("-importFixtureViaCallback:json")
         // The detail's long license texts make every in-app XCTest query log
         // heavily; on the iOS 17.5 sim the app process then gets its os_log
         // quarantined and XCTAutomationSupport's own fault callback segfaults
@@ -43,6 +48,9 @@ final class DictionaryInfoTests: XCTestCase {
 
         XCUIDevice.shared.orientation = .portrait
         app.launch()
+        // A fresh install is still copying the seed: give the cold start the
+        // full budget (`TabBarPage` only waits 10 s).
+        XCTAssertTrue(app.tabBars.firstMatch.waitForExistence(timeout: 60), "tab bar after launch")
         tabBarPage = TabBarPage(app: app)
     }
 
@@ -245,8 +253,9 @@ final class DictionaryInfoTests: XCTestCase {
     }
 
     /// Imported fixture `custom:test_import_fixture`: header is the source ID,
-    /// `no_metadata` footer exists, no license / version rows. arm64-only if
-    /// the import flow is too slow on Intel.
+    /// `no_metadata` footer exists, no license / version rows. The import
+    /// happens in-session and the order screen reloads on appear (#105), so
+    /// there is no relaunch between the import and the detail.
     func testCustomImportInfoShowsNoMetadataNote() throws {
         let source = "test_import_fixture"
         let pair = "custom:\(source)"
@@ -262,32 +271,19 @@ final class DictionaryInfoTests: XCTestCase {
             app.terminate()
         }
 
-        // 1) Import the JSON fixture (bypasses the document picker). On a
-        //    fresh install the setUp launch is still copying the 100 MB seed:
-        //    let it finish before terminating, and give the relaunch the same
-        //    cold-start budget (TabBarPage only waits 10 s).
-        XCTAssertTrue(app.tabBars.firstMatch.waitForExistence(timeout: 60), "seed finished before relaunch")
-        app.terminate()
-        app.launchArguments = ["-disableReviewPrompt", "-resetData", "-clearFixtureImports",
-                               "-importFixtureViaCallback:json"]
-        app.launch()
-        XCTAssertTrue(app.tabBars.firstMatch.waitForExistence(timeout: 60), "tab bar after import relaunch")
-        tabBarPage = TabBarPage(app: app)
-        let manage = tabBarPage.tapSettingsTab().tapManageDictionariesLink()
+        // 1) Import the JSON fixture (bypasses the document picker).
+        let settings = tabBarPage.tapSettingsTab()
+        let manage = settings.tapManageDictionariesLink()
         manage.tapImportButton()
         let message = manage.waitForImportSuccessMessage(timeout: 20.0)
         XCTAssertTrue(message?.contains("Imported") ?? false, "fixture import must succeed; got \(message ?? "nil")")
 
-        // 2) Relaunch so the Settings view model reloads its pair list (it
-        //    loads once per launch; imports do not refresh it).
-        app.terminate()
-        app.launchArguments = ["-disableReviewPrompt"]
-        app.launch()
-        XCTAssertTrue(app.tabBars.firstMatch.waitForExistence(timeout: 60), "tab bar after relaunch")
-        tabBarPage = TabBarPage(app: app)
+        // 2) Back to the Settings root; no relaunch (#105).
+        settings.goBack()
+        XCTAssertTrue(app.navigationBars["Manage Dictionaries"].waitForNonExistence(timeout: TestData.Timeouts.medium),
+                      "back on the Settings root")
 
         // 3) Open the custom row's detail.
-        let settings = tabBarPage.tapSettingsTab()
         XCTAssertTrue(settings.openDictionaryOrder())
         let button = infoButton(pair)
         XCTAssertTrue(button.waitForExistence(timeout: TestData.Timeouts.medium) || app.scrollToElement(button),

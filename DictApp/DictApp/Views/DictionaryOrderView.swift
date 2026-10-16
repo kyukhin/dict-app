@@ -15,6 +15,10 @@ import SwiftUI
 /// The caption is the pair's summed entry count; provider / direction /
 /// license live behind the (i) button (#91, `dictionary_info_<pairKey>`),
 /// which pushes `DictionaryDetailView` onto the Settings `NavigationStack`.
+///
+/// The list reloads each time the screen appears (Issue #105), so a dictionary
+/// imported on Manage Dictionaries shows up without a relaunch. The view only
+/// triggers the reload; `SettingsViewModel.loadDictionaries()` owns the logic.
 struct DictionaryOrderView: View {
     @ObservedObject var vm: SettingsViewModel
     @State private var infoItem: DictionaryItem?
@@ -61,6 +65,8 @@ struct DictionaryOrderView: View {
             DictionaryDetailView(pair: item.pair, title: item.displayName)
                 .environment(\.editMode, .constant(.inactive))   // don't inherit the order list's forced edit mode
         }
+        // #105: pick up imports / removals made elsewhere. Cancelled on disappear.
+        .task { await vm.loadDictionaries() }
         .environment(\.editMode, .constant(.active))   // always-on drag grips, no Edit button
         .accessibilityIdentifier("dictionary_order_view")   // screen-level handle so page-object can waitForExistence before interacting (#6 review)
         .navigationTitle("settings.dictionaryOrder.title")

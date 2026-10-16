@@ -134,6 +134,36 @@ final class SettingsService {
         }
     }
 
+    // MARK: - Imported sources (Issue #105)
+    //
+    // Called by the import flow after a successful import, so the new source
+    // is ON and searchable before any screen reloads. Both rules leave `nil`
+    // alone and write only when the stored value changes (no churn for #73).
+
+    /// Enables a freshly imported source (PM decision 2). A materialised set
+    /// gains the ID in one write; `nil` (all enabled) stays `nil`, because
+    /// materialising it would freeze today's source list into the store. Not
+    /// `setEnabled(_:forSources:knownSources:)`, which materialises `nil`.
+    func enableImportedSource(_ source: String) {
+        guard let enabled = enabledSources else { return }
+        // A file named like a bundled source (e.g. `wordnet-spa-eng.json`)
+        // joins that pair, so switch the whole pair on (#92 invariant I1).
+        let key = DictionaryGrouping.pairKey(forSource: source)
+        let bundled = DictionaryGrouping.bundledSourceIDs.union(DictionaryGrouping.legacyBareIDs.keys)
+        let updated = enabled.union([source]).union(bundled.filter { DictionaryGrouping.pairKey(forSource: $0) == key })
+        if updated != enabled { enabledSources = updated }
+    }
+
+    /// Appends a freshly imported source to a stored order that lacks it, at
+    /// the end, where a Settings reload would put it (PM decision 3). Keeps
+    /// preferred-mode search, which uses `Set(dictionary_order)` as the
+    /// enabled set when `enabled_sources` is `nil`, from missing the import.
+    /// A `nil` order stays `nil`: the first Settings load derives the default.
+    func appendImportedSourceToOrder(_ source: String) {
+        guard let order = dictionaryOrder, !order.contains(source) else { return }
+        dictionaryOrder = DictionaryGrouping.groupedOrder(order + [source])
+    }
+
     // MARK: - Dictionary Order (Issue #6)
 
     /// The user's dictionary ordering as ordered source IDs. `nil` = not yet
