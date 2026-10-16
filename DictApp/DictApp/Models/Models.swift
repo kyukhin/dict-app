@@ -179,8 +179,9 @@ struct DictionaryPair: Identifiable, Hashable {
 
 // MARK: - DictionaryItem (Settings UI model with enabled state)
 
-/// One row of the Dictionary Order screen (Issue #92: pair-level).
-struct DictionaryItem: Identifiable, Equatable {
+/// One row of the Dictionary Order screen (Issue #92: pair-level). `Hashable`
+/// for `navigationDestination(item:)` (Issue #91).
+struct DictionaryItem: Identifiable, Hashable {
     var id: String { pair.id }
     let pair: DictionaryPair
     /// Localised row title, resolved by `SettingsViewModel.displayName(for:locale:)`.

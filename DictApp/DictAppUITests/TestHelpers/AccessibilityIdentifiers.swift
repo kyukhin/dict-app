@@ -69,6 +69,27 @@ struct AccessibilityIdentifiers {
         static func dictionaryOrderRow(pair: String) -> String {
             return "dictionary_order_row_\(pair)"
         }
+        /// Issue #91 — the (i) button on a pair row (on the `Button` itself).
+        static func dictionaryInfoButton(pair: String) -> String {
+            return "dictionary_info_\(pair)"
+        }
+    }
+
+    // MARK: - Dictionary Info detail (Issue #91)
+    //
+    // Per-source ids are keyed by source ID (`TestData.Sources`), not pair key.
+    struct DictionaryInfo {
+        static let view = "dictionary_info_view"
+        /// Section header (provider brand, or the source ID for a custom import).
+        static func sourceHeader(_ source: String) -> String { "dictionary_info_source_\(source)" }
+        static func direction(_ source: String) -> String { "dictionary_info_direction_\(source)" }
+        static func sourceID(_ source: String) -> String { "dictionary_info_source_id_\(source)" }
+        static func version(_ source: String) -> String { "dictionary_info_version_\(source)" }
+        static func entries(_ source: String) -> String { "dictionary_info_entries_\(source)" }
+        /// The license body `Text`.
+        static func license(_ source: String) -> String { "dictionary_info_license_\(source)" }
+        /// Footer of a custom-import block (no version / license metadata).
+        static func noMetadata(_ source: String) -> String { "dictionary_info_no_metadata_\(source)" }
     }
 
     // MARK: - Manage Dictionaries View

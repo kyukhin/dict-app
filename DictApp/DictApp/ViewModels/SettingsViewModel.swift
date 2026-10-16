@@ -188,13 +188,7 @@ class SettingsViewModel: ObservableObject {
         case 1:
             return languageName(iso3: pair.languages[0], locale: locale)
         case 2:
-            let first: String
-            let second: String
-            if pair.languages.contains("eng"), let other = pair.languages.first(where: { $0 != "eng" }) {
-                (first, second) = (other, "eng")
-            } else {
-                (first, second) = (pair.languages[0], pair.languages[1])
-            }
+            let (first, second) = titleLanguages(of: pair)
             let firstName = languageName(iso3: first, locale: locale)
             let secondName = languageName(iso3: second, locale: locale)
             return String(localized: "dictionaryPair.title \(firstName) \(secondName)",
@@ -202,5 +196,84 @@ class SettingsViewModel: ObservableObject {
         default:
             return pair.id
         }
+    }
+
+    /// A bilingual pair's languages in title order: the non-English language
+    /// first ("Spanish – English"), else the sorted pair order.
+    nonisolated private static func titleLanguages(of pair: DictionaryPair) -> (first: String, second: String) {
+        if pair.languages.contains("eng"), let other = pair.languages.first(where: { $0 != "eng" }) {
+            return (other, "eng")
+        }
+        return (pair.languages[0], pair.languages[1])
+    }
+
+    // MARK: - Dictionary info detail (Issue #91)
+    //
+    // Pure presentation helpers for `DictionaryDetailView` and the (i) button.
+    // No DB access: everything is derived from the already-loaded `SourceStat`s.
+
+    /// Brand names by `SourceStat.provider`. Not translated (like "LibreDict").
+    nonisolated private static let providerBrands: [String: String] = [
+        "wordnet": "WordNet", "freedict": "FreeDict", "openrussian": "OpenRussian",
+    ]
+
+    /// The pair's sources in a fixed, title-consistent order, independent of
+    /// the user's dictionary order (PM decision #1): the direction that reads
+    /// like the title first (Spanish → English), then the reverse direction,
+    /// then monolingual / custom sources. Stable; never adds or drops a source.
+    nonisolated static func infoSources(for pair: DictionaryPair) -> [SourceStat] {
+        let titleFirst = pair.languages.count == 2 ? titleLanguages(of: pair).first : nil
+        func rank(_ stat: SourceStat) -> Int {
+            guard let direction = stat.direction else { return 2 }
+            return direction.from == titleFirst ? 0 : 1
+        }
+        return pair.sources.enumerated()
+            .sorted { (rank($0.element), $0.offset) < (rank($1.element), $1.offset) }
+            .map(\.element)
+    }
+
+    /// Provider brand name ("WordNet", "FreeDict", "OpenRussian"); the raw
+    /// provider for an unknown bundled one; `nil` for custom imports.
+    nonisolated static func providerName(for stat: SourceStat) -> String? {
+        let parsed = DictionaryGrouping.parse(sourceID: stat.source)
+        if parsed.isCustom { return nil }
+        return providerBrands[parsed.provider] ?? parsed.provider
+    }
+
+    /// Header of a source block in the info detail (PM decision #4): the
+    /// provider brand, or the source ID for a custom import. Never the seed's
+    /// untranslated English `display_name`.
+    nonisolated static func infoBlockTitle(for stat: SourceStat) -> String {
+        providerName(for: stat) ?? stat.source
+    }
+
+    /// "Spanish → English" for a bilingual source (Arabic: "←", see the
+    /// catalog comment), the language name for a monolingual one, `nil` for
+    /// a custom import.
+    nonisolated static func languageSummary(for stat: SourceStat, locale: Locale) -> String? {
+        let parsed = DictionaryGrouping.parse(sourceID: stat.source)
+        switch parsed.languages.count {
+        case 1:
+            return languageName(iso3: parsed.languages[0], locale: locale)
+        case 2:
+            let from = languageName(iso3: parsed.languages[0], locale: locale)
+            let to = languageName(iso3: parsed.languages[1], locale: locale)
+            return String(localized: "dictionaryInfo.direction.value \(from) \(to)",
+                          bundle: localizedBundle(for: locale), locale: locale)
+        default:
+            return nil
+        }
+    }
+
+    /// Accessibility label of the (i) button: "Details for Spanish – English".
+    nonisolated static func infoButtonLabel(for title: String, locale: Locale) -> String {
+        String(localized: "dictionaryInfo.button.accessibilityLabel \(title)",
+               bundle: localizedBundle(for: locale), locale: locale)
+    }
+
+    /// A plain (non-format) catalog string resolved against the in-app
+    /// language's lproj, not the device language.
+    nonisolated static func localizedString(_ key: String, locale: Locale) -> String {
+        localizedBundle(for: locale).localizedString(forKey: key, value: key, table: nil)
     }
 }

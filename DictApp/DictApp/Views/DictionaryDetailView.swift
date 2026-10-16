@@ -1,70 +1,78 @@
 // DictionaryDetailView.swift
-// Detail view for a single dictionary source.
+// Info detail for one Dictionary order row (Issue #91): every underlying
+// source of the pair stacked, one section each.
 
 import SwiftUI
 
+/// Pure renderer of an already-loaded `DictionaryPair`: no DB access, no view
+/// model. Single-source rows are pairs with one source (same code path).
+/// Strings resolve through `SettingsViewModel`'s in-app-language helpers so
+/// they follow `LocalizationManager`, not the device language.
 struct DictionaryDetailView: View {
-    let source: String
-    @State private var metadata: DictMetadata?
-    @State private var entryCount: Int = 0
+    let pair: DictionaryPair
+    /// Localised pair title, e.g. "Spanish – English".
+    let title: String
+
+    @Environment(\.locale) private var locale
 
     var body: some View {
         List {
-            if let meta = metadata {
-                Section("General") {
-                    LabeledContent("Full Name", value: meta.displayName)
-                    LabeledContent("Source ID", value: meta.source)
-                    if !meta.version.isEmpty {
-                        LabeledContent("Version", value: meta.version)
-                    }
-                }
-
-                Section("Statistics") {
-                    LabeledContent("Word Count", value: entryCount.formatted())
-                }
-
-                if !meta.description.isEmpty {
-                    Section("Description") {
-                        Text(meta.description)
-                            .font(.subheadline)
-                    }
-                }
-
-                if !meta.license.isEmpty {
-                    Section("License") {
-                        Text(meta.license)
-                            .font(.caption)
-                    }
-                }
-
-                if !meta.url.isEmpty {
-                    Section("Source URL") {
-                        Link(meta.url, destination: URL(string: meta.url)!)
-                            .font(.subheadline)
-                    }
-                }
-
-                if let builtAt = meta.builtAt, !builtAt.isEmpty {
-                    Section("Build Info") {
-                        LabeledContent("Built At", value: builtAt)
-                    }
-                }
-            } else {
+            ForEach(SettingsViewModel.infoSources(for: pair)) { stat in
                 Section {
-                    LabeledContent("Source", value: source)
-                    LabeledContent("Word Count", value: entryCount.formatted())
-                }
-                Section {
-                    Text("No detailed metadata available for this dictionary.")
-                        .foregroundStyle(.secondary)
-                        .font(.subheadline)
+                    rows(for: stat)
+                } header: {
+                    Text(verbatim: SettingsViewModel.infoBlockTitle(for: stat))
+                        .textCase(nil)
+                        .accessibilityIdentifier("dictionary_info_source_\(stat.source)")
+                } footer: {
+                    if stat.license.isEmpty && stat.version.isEmpty {
+                        Text(verbatim: label("dictionaryInfo.noMetadata"))
+                            .accessibilityIdentifier("dictionary_info_no_metadata_\(stat.source)")
+                    }
                 }
             }
         }
-        .navigationTitle(metadata?.displayName ?? source.capitalized)
-        .task {
-            metadata = try? await DatabaseService.shared.fetchMetadata(source: source)
-            entryCount = (try? await DatabaseService.shared.entryCount(source: source)) ?? 0
+        .accessibilityIdentifier("dictionary_info_view")
+        .navigationTitle(title)
+    }
+
+    @ViewBuilder
+    private func rows(for stat: SourceStat) -> some View {
+        if let summary = SettingsViewModel.languageSummary(for: stat, locale: locale) {
+            let key = stat.direction == nil ? "dictionaryInfo.language" : "dictionaryInfo.direction"
+            row(key, value: summary, id: "dictionary_info_direction_\(stat.source)")
         }
+        row("dictionaryInfo.sourceID", value: stat.source, id: "dictionary_info_source_id_\(stat.source)")
+        if !stat.version.isEmpty {
+            row("dictionaryInfo.version", value: stat.version, id: "dictionary_info_version_\(stat.source)")
+        }
+        row("dictionaryInfo.entries",
+            value: stat.count.formatted(.number.locale(locale)),
+            id: "dictionary_info_entries_\(stat.source)")
+        if !stat.license.isEmpty {
+            VStack(alignment: .leading, spacing: 6) {
+                Text(verbatim: label("dictionaryInfo.license"))
+                Text(verbatim: stat.license)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+                    .accessibilityIdentifier("dictionary_info_license_\(stat.source)")
+            }
+        }
+    }
+
+    /// Label/value row with the identifier on the value leaf, not the
+    /// container (a container id would shadow it, #6).
+    private func row(_ key: String, value: String, id: String) -> some View {
+        LabeledContent {
+            Text(verbatim: value)
+                .accessibilityIdentifier(id)
+        } label: {
+            Text(verbatim: label(key))
+        }
+    }
+
+    private func label(_ key: String) -> String {
+        SettingsViewModel.localizedString(key, locale: locale)
     }
 }
