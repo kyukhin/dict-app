@@ -132,19 +132,61 @@ struct DictMetadata: Codable, Identifiable, Equatable, FetchableRecord, Persista
 
 // MARK: - SourceStat (lightweight per-source count)
 
-struct SourceStat: Identifiable, Equatable {
+struct SourceStat: Identifiable, Hashable {
     var id: String { source }
     let source: String
     let displayName: String
     let count: Int
+    /// From `dict_metadata` (Issue #92); `""` for custom imports, which have
+    /// no metadata row. Defaulted so the memberwise init stays source-compatible.
+    var license: String = ""
+    var version: String = ""
+
+    /// Provider name derived from the source ID (`wordnet`, `freedict`, …);
+    /// the raw ID for custom imports. See `DictionaryGrouping.parse(sourceID:)`.
+    var provider: String { DictionaryGrouping.parse(sourceID: source).provider }
+
+    /// Translation direction (ISO-639-3) for bilingual bundled sources;
+    /// `nil` for monolingual and custom sources.
+    var direction: (from: String, to: String)? {
+        let languages = DictionaryGrouping.parse(sourceID: source).languages
+        guard languages.count == 2 else { return nil }
+        return (from: languages[0], to: languages[1])
+    }
+}
+
+// MARK: - DictionaryPair (Issue #92)
+
+/// A language pair as shown on the Dictionary Order screen: one row, one
+/// toggle, one drag slot. Bundled sources that serve the same pair of
+/// languages in either direction (e.g. `freedict-eng-spa` and
+/// `wordnet-spa-eng`) share one pair; monolingual and custom sources are
+/// single-member pairs. `sources` is the #91 detail-view API: each member
+/// exposes provider / direction / license / version on its own.
+struct DictionaryPair: Identifiable, Hashable {
+    /// Pair key from `DictionaryGrouping.pairKey(forSource:)`
+    /// (`eng`, `eng-spa`, `custom:<id>`). Runtime-only, never persisted.
+    let id: String
+    /// ISO-639-3 codes, sorted; empty for custom sources.
+    let languages: [String]
+    let isCustom: Bool
+    /// Underlying sources in canonical (user-order) order.
+    let sources: [SourceStat]
+
+    var sourceIDs: [String] { sources.map(\.source) }
+    var count: Int { sources.reduce(0) { $0 + $1.count } }
 }
 
 // MARK: - DictionaryItem (Settings UI model with enabled state)
 
+/// One row of the Dictionary Order screen (Issue #92: pair-level).
 struct DictionaryItem: Identifiable, Equatable {
-    var id: String { source }
-    let source: String
+    var id: String { pair.id }
+    let pair: DictionaryPair
+    /// Localised row title, resolved by `SettingsViewModel.displayName(for:locale:)`.
     let displayName: String
-    let count: Int
     var isEnabled: Bool
+
+    /// Summed entry count across the pair's sources.
+    var count: Int { pair.count }
 }

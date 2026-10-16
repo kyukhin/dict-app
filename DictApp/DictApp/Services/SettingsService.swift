@@ -98,14 +98,40 @@ final class SettingsService {
 
     /// Enables or disables a specific source and persists the change.
     func setEnabled(_ enabled: Bool, for source: String, knownSources: Set<String>) {
-        // Materialise the current set from all known sources if not yet stored.
+        setEnabled(enabled, forSources: [source], knownSources: knownSources)
+    }
+
+    /// Enables or disables every source in `sources` in one write (Issue #92:
+    /// one toggle per language pair). Materialises the current set from
+    /// `knownSources` if nothing is stored yet, like the single-source variant.
+    func setEnabled(_ enabled: Bool, forSources sources: [String], knownSources: Set<String>) {
         var current = enabledSources ?? knownSources
         if enabled {
-            current.insert(source)
+            current.formUnion(sources)
         } else {
-            current.remove(source)
+            current.subtract(sources)
         }
         enabledSources = current
+    }
+
+    /// Idempotent pair-level normalisation of the stored prefs (Issue #92 §2b):
+    /// I1 — all members of a pair share one enabled state (enabled-if-any);
+    /// I2 — members of a pair are contiguous at the earliest member's position.
+    /// Runs at launch and on every Settings load; a fresh install (nil / nil)
+    /// is a no-op. Each value is written back only when it actually changed,
+    /// so there is no store churn (relevant for the #73 iCloud seam).
+    func normalizeDictionaryPreferences(knownSources: [String]) {
+        let enabled = enabledSources
+        let normalizedEnabled = DictionaryGrouping.enabledIfAny(enabled, knownSources: knownSources)
+        if normalizedEnabled != enabled {
+            enabledSources = normalizedEnabled
+        }
+
+        let order = dictionaryOrder
+        let normalizedOrder = order.map(DictionaryGrouping.groupedOrder)
+        if normalizedOrder != order {
+            dictionaryOrder = normalizedOrder
+        }
     }
 
     // MARK: - Dictionary Order (Issue #6)
@@ -171,5 +197,112 @@ enum DictionaryDefaults {
     static func defaultOrder(forLanguageCode code: String, sources: [String]) -> [String] {
         let preferred = (preferredSources[code] ?? []).filter { sources.contains($0) }
         return preferred + sources.filter { !preferred.contains($0) }
+    }
+}
+
+// MARK: - Language-pair grouping (Issue #92)
+
+/// Pure pair→sources grouping over source IDs. No persistence, no database,
+/// no locale: the pair of a source is a function of its ID alone, following
+/// the `Scripts/build_seed.py` naming convention (bare provider name for the
+/// legacy monolingual / unambiguous bundles, `provider-src-tgt` with ISO-639-3
+/// codes for bilingual ones). Kept in this file next to `DictionaryDefaults`
+/// for the same reason (the app target is not a synchronized folder).
+///
+/// Pair keys (`eng`, `eng-spa`, `custom:<id>`) are runtime-only: they serve as
+/// UI model ids, accessibility ids and search bucket keys, and are never
+/// persisted — `enabled_sources` / `dictionary_order` stay keyed by source ID.
+enum DictionaryGrouping {
+    /// Legacy bare IDs that predate the `provider-src-tgt` convention.
+    /// Languages are in translation direction (source → target).
+    static let legacyBareIDs: [String: [String]] = [
+        "wordnet": ["eng"],
+        "openrussian": ["rus", "eng"],
+    ]
+
+    /// Exact bilingual `provider-src-tgt` IDs shipped in the seed. Only these
+    /// may merge into a pair: imports take their ID from the file name and
+    /// write no `dict_metadata` row, so `freedict-spa-eng.json` must stay
+    /// custom (PM decision #2). A new bundled dictionary is one entry here.
+    static let bundledSourceIDs: Set<String> = ["wordnet-spa-eng", "freedict-eng-spa", "wordnet-arb-eng"]
+
+    /// Splits a source ID into provider, languages (in translation direction,
+    /// ISO-639-3) and whether it is a custom import. Custom sources report the
+    /// raw ID as provider and no languages.
+    static func parse(sourceID id: String) -> (provider: String, languages: [String], isCustom: Bool) {
+        if let languages = legacyBareIDs[id] {
+            return (id, languages, false)
+        }
+        if bundledSourceIDs.contains(id) {
+            let parts = id.split(separator: "-").map(String.init)
+            return (parts[0], [parts[1], parts[2]], false)
+        }
+        return (id, [], true)
+    }
+
+    /// Direction-agnostic pair key: sorted languages joined by `-` for bundled
+    /// sources (`wordnet-spa-eng` and `freedict-eng-spa` both → `eng-spa`),
+    /// `custom:<id>` for everything else (the prefix rules out a collision
+    /// with an import named like a key, e.g. `eng.json`).
+    static func pairKey(forSource id: String) -> String {
+        let parsed = parse(sourceID: id)
+        if parsed.isCustom { return "custom:" + id }
+        return parsed.languages.sorted().joined(separator: "-")
+    }
+
+    /// `order` split into pair groups by first occurrence; members keep their
+    /// relative order from `order`. Used by preferred-dictionary search (one
+    /// bucket per group).
+    static func sourceGroups(order: [String]) -> [[String]] {
+        let keys = order.map(pairKey(forSource:))
+        var taken = [Bool](repeating: false, count: order.count)
+        var groups: [[String]] = []
+        for i in order.indices where !taken[i] {
+            var group: [String] = []
+            for j in i..<order.count where !taken[j] && keys[j] == keys[i] {
+                group.append(order[j])
+                taken[j] = true
+            }
+            groups.append(group)
+        }
+        return groups
+    }
+
+    /// Permutation of `order` enforcing I2: when a pair's earliest member is
+    /// reached, it is emitted followed by the pair's later members (in their
+    /// existing relative order), which are skipped where they originally
+    /// stood. Idempotent; already-grouped input is returned unchanged.
+    static func groupedOrder(_ order: [String]) -> [String] {
+        sourceGroups(order: order).flatMap { $0 }
+    }
+
+    /// Enforces I1 (enabled-if-any) on a stored enabled set: every known or
+    /// listed source whose pair has at least one enabled member becomes
+    /// enabled. `nil` (all enabled) stays `nil`; `{}` stays `{}`. IDs present
+    /// in `enabled` but absent from `knownSources` are kept verbatim (the
+    /// pre-existing tolerance for removed sources).
+    static func enabledIfAny(_ enabled: Set<String>?, knownSources: [String]) -> Set<String>? {
+        guard let enabled else { return nil }
+        let enabledKeys = Set(enabled.map(pairKey(forSource:)))
+        let universe = Set(knownSources).union(enabled)
+        return Set(universe.filter { enabledKeys.contains(pairKey(forSource: $0)) })
+    }
+
+    /// One `DictionaryPair` per group of `sourceGroups(order:)`, with `sources`
+    /// resolved from `stats` in group order. IDs missing from `stats` are
+    /// dropped; a group with no resolvable member yields no pair.
+    static func pairs(from stats: [SourceStat], order: [String]) -> [DictionaryPair] {
+        let bySource = Dictionary(stats.map { ($0.source, $0) }, uniquingKeysWith: { a, _ in a })
+        return sourceGroups(order: order).compactMap { group in
+            let members = group.compactMap { bySource[$0] }
+            guard let first = members.first else { return nil }
+            let parsed = parse(sourceID: first.source)
+            return DictionaryPair(
+                id: pairKey(forSource: first.source),
+                languages: parsed.isCustom ? [] : parsed.languages.sorted(),
+                isCustom: parsed.isCustom,
+                sources: members
+            )
+        }
     }
 }

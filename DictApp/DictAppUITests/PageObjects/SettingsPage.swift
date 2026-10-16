@@ -3,9 +3,13 @@ import XCTest
 class SettingsPage: BasePage {
 
     // MARK: - UI Elements
+    //
+    // Issue #92: the order screen lists language PAIRS, not sources. Every
+    // `pair` parameter below is a pair key (`TestData.Pairs`: "eng",
+    // "eng-rus", "eng-spa", "arb-eng"; a custom import is "custom:<id>").
 
-    private func toggle(for source: String) -> XCUIElement {
-        app.switches[AccessibilityIdentifiers.Settings.dictionaryToggle(source: source)]
+    private func toggle(for pair: String) -> XCUIElement {
+        app.switches[AccessibilityIdentifiers.Settings.dictionaryToggle(pair: pair)]
     }
 
     // MARK: - Dictionary Order navigation (Issue #6)
@@ -25,8 +29,8 @@ class SettingsPage: BasePage {
     // and inner views, so an unqualified `[id]` lookup matches multiple elements
     // and raises on `.frame`/`.tap`. `.firstMatch` (the outermost / row
     // container) disambiguates and is stable for frame-ordering and dragging.
-    private func orderRow(_ source: String) -> XCUIElement {
-        let id = AccessibilityIdentifiers.Settings.dictionaryOrderRow(source: source)
+    private func orderRow(_ pair: String) -> XCUIElement {
+        let id = AccessibilityIdentifiers.Settings.dictionaryOrderRow(pair: pair)
         // The row id lives on the leading label (kept off the HStack so it can't
         // shadow the row's switch — that breaks `dictionary_toggle_*`). The
         // enclosing CELL is the reliable frame anchor and drag target; a bare
@@ -54,8 +58,8 @@ class SettingsPage: BasePage {
 
     /// Ensures we're on the DictionaryOrderView (where the toggles + order rows
     /// live). If no toggle is materialized, push the order screen.
-    private func ensureOnOrderScreen(for source: String) {
-        if !toggle(for: source).exists && !orderRow(source).exists {
+    private func ensureOnOrderScreen(for pair: String) {
+        if !toggle(for: pair).exists && !orderRow(pair).exists {
             _ = openDictionaryOrder()
         }
     }
@@ -68,15 +72,15 @@ class SettingsPage: BasePage {
     /// to change, and try the next strategy if it didn't. Returns the (possibly
     /// unchanged) order so the caller can assert.
     @discardableResult
-    func reorderFirstToLast(sources: [String]) -> [String] {
-        let before = currentOrder(of: sources)
+    func reorderFirstToLast(pairs: [String]) -> [String] {
+        let before = currentOrder(of: pairs)
         guard before.count >= 2 else { return before }
         // (dx, press-duration) pairs, ordered most-likely-first per arch.
         let strategies: [(CGFloat, TimeInterval)] = [
             (0.97, 1.0), (0.5, 1.2), (0.85, 1.0), (0.5, 1.6), (0.92, 1.3)
         ]
         let changed = NSPredicate { [weak self] _, _ in
-            self.map { $0.currentOrder(of: sources) != before } ?? false
+            self.map { $0.currentOrder(of: pairs) != before } ?? false
         }
         for (dx, duration) in strategies {
             let src = orderRow(before[0])
@@ -89,12 +93,12 @@ class SettingsPage: BasePage {
             let exp = XCTNSPredicateExpectation(predicate: changed, object: nil)
             if XCTWaiter.wait(for: [exp], timeout: 8) == .completed { break }
         }
-        return currentOrder(of: sources)
+        return currentOrder(of: pairs)
     }
 
-    /// The on-screen order of the given sources, top-to-bottom by row frame.
-    func currentOrder(of sources: [String]) -> [String] {
-        sources
+    /// The on-screen order of the given pairs, top-to-bottom by row frame.
+    func currentOrder(of pairs: [String]) -> [String] {
+        pairs
             .map { ($0, orderRow($0)) }
             .filter { $0.1.exists }
             .sorted { $0.1.frame.minY < $1.1.frame.minY }
@@ -103,33 +107,33 @@ class SettingsPage: BasePage {
 
     // MARK: - Actions
 
-    /// Taps the toggle for the given source and verifies its state flipped.
+    /// Taps the toggle for the given pair and verifies its state flipped.
     /// Each test launches with `-resetData`, which resets all toggles to ON.
     /// If the first tap doesn't change the accessibility value (some SwiftUI
     /// Toggle hit-targets in iOS 26 don't toggle on label-area taps), we
     /// retry on the right-edge coordinate where the switch handle lives.
-    func tapToggle(source: String) {
-        ensureOnOrderScreen(for: source)
-        let sw = toggle(for: source)
+    func tapToggle(pair: String) {
+        ensureOnOrderScreen(for: pair)
+        let sw = toggle(for: pair)
         XCTAssertTrue(
             app.scrollToElement(sw),
-            "Toggle for '\(source)' should be reachable in Settings after scrolling"
+            "Toggle for '\(pair)' should be reachable in Settings after scrolling"
         )
-        let before = isDictionaryEnabled(source: source)
+        let before = isDictionaryEnabled(pair: pair)
         sw.tap()
-        if !waitForStateChange(source: source, from: before, timeout: 3.0) {
+        if !waitForStateChange(pair: pair, from: before, timeout: 3.0) {
             // Fallback: tap the right edge where the switch handle is rendered.
             sw.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.5)).tap()
             XCTAssertTrue(
-                waitForStateChange(source: source, from: before, timeout: 3.0),
-                "Toggle for '\(source)' did not change state after tap (was \(before ?? false))"
+                waitForStateChange(pair: pair, from: before, timeout: 3.0),
+                "Toggle for '\(pair)' did not change state after tap (was \(before ?? false))"
             )
         }
     }
 
-    private func waitForStateChange(source: String, from before: Bool?, timeout: TimeInterval) -> Bool {
+    private func waitForStateChange(pair: String, from before: Bool?, timeout: TimeInterval) -> Bool {
         let pred = NSPredicate { _, _ in
-            self.isDictionaryEnabled(source: source) != before
+            self.isDictionaryEnabled(pair: pair) != before
         }
         let exp = XCTNSPredicateExpectation(predicate: pred, object: nil)
         return XCTWaiter.wait(for: [exp], timeout: timeout) == .completed
@@ -137,7 +141,7 @@ class SettingsPage: BasePage {
 
     // MARK: - Verification
 
-    /// Waits for the toggle for the given source to appear and become
+    /// Waits for the toggle for the given pair to appear and become
     /// hittable. Delegates the scroll search to `XCUIApplication.
     /// scrollToElement`, which sweeps up then down with a swipe budget
     /// that handles the SwiftUI Form virtualisation case where the
@@ -149,15 +153,15 @@ class SettingsPage: BasePage {
     /// existing callers; the underlying scroll loop is bounded by swipe
     /// count rather than wall-clock time, and finishes well within the
     /// previous default budget.
-    func waitForToggle(source: String, timeout: TimeInterval = TestData.Timeouts.medium) -> Bool {
-        ensureOnOrderScreen(for: source)
-        return app.scrollToElement(toggle(for: source))
+    func waitForToggle(pair: String, timeout: TimeInterval = TestData.Timeouts.medium) -> Bool {
+        ensureOnOrderScreen(for: pair)
+        return app.scrollToElement(toggle(for: pair))
     }
 
     /// Returns the SwiftUI Toggle's "on" state, tried via several XCUI
     /// value representations. Returns nil if the toggle isn't found.
-    func isDictionaryEnabled(source: String) -> Bool? {
-        let sw = toggle(for: source)
+    func isDictionaryEnabled(pair: String) -> Bool? {
+        let sw = toggle(for: pair)
         guard sw.exists else { return nil }
         if let s = sw.value as? String { return s == "1" || s.lowercased() == "true" }
         if let b = sw.value as? Bool   { return b }

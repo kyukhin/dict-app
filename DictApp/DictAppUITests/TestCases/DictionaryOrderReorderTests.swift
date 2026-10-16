@@ -19,13 +19,13 @@ final class DictionaryOrderReorderTests: XCTestCase {
         XCTAssertTrue(settings.openDictionaryOrder(),
                       "Dictionary-order link should push the order screen")
 
-        let sources = ["wordnet", "openrussian", "freedict-eng-spa",
-                       "wordnet-spa-eng", "wordnet-arb-eng"]
-        let before = settings.currentOrder(of: sources)
+        // Issue #92: rows are language pairs.
+        let pairs = TestData.Pairs.all
+        let before = settings.currentOrder(of: pairs)
         XCTAssertGreaterThanOrEqual(before.count, 2,
             "Need ≥2 dictionaries present to exercise reorder; got \(before)")
 
-        let after = settings.reorderFirstToLast(sources: sources)
+        let after = settings.reorderFirstToLast(pairs: pairs)
         XCTAssertNotEqual(after, before,
             "Drag-to-reorder must change the visible order. before=\(before) after=\(after)")
     }

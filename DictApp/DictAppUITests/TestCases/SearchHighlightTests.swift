@@ -5,8 +5,8 @@ import XCTest
 final class SearchHighlightTests: XCTestCase {
     private var app: XCUIApplication!
 
-    private let seedSources = ["wordnet", "openrussian", "freedict-eng-spa",
-                               "wordnet-spa-eng", "wordnet-arb-eng"]
+    /// Issue #92: the order screen lists language pairs; stripes stay per source.
+    private let seedPairs = TestData.Pairs.all
 
     override func setUpWithError() throws {
         continueAfterFailure = false
@@ -68,11 +68,15 @@ final class SearchHighlightTests: XCTestCase {
         // Open the order list, move the first dictionary to the end so a new
         // dictionary becomes first.
         XCTAssertTrue(settings.openDictionaryOrder(), "Open dictionary order")
-        let before = settings.currentOrder(of: seedSources)
+        let before = settings.currentOrder(of: seedPairs)
         XCTAssertGreaterThanOrEqual(before.count, 2, "Need ≥2 dictionaries; got \(before)")
-        let after = settings.reorderFirstToLast(sources: seedSources)
+        let after = settings.reorderFirstToLast(pairs: seedPairs)
         XCTAssertNotEqual(before, after, "Reorder must change the visible order")
         let newFirst = after[0]
+        // Issue #92: a pair bucket merges its directions, so the top result may
+        // come from ANY member of the now-first pair (e.g. `freedict-eng-spa`
+        // or `wordnet-spa-eng` when `eng-spa` is first).
+        let newFirstSources = TestData.Pairs.sources[newFirst] ?? [newFirst]
 
         // Search a broad term that matches multiple dictionaries; the FIRST
         // result's stripe must be the now-first dictionary. Scoping to the
@@ -87,9 +91,12 @@ final class SearchHighlightTests: XCTestCase {
         let firstResultCell = app.cells.firstMatch
         XCTAssertTrue(firstResultCell.waitForExistence(timeout: TestData.Timeouts.medium),
                       "First result cell must exist")
-        let firstCellStripe = firstResultCell.descendants(matching: .any)
-            .matching(identifier: "source_stripe_\(newFirst)").firstMatch
-        XCTAssertTrue(firstCellStripe.exists,
-                      "After reorder, the FIRST result's stripe must be source_stripe_\(newFirst) (top-result preferred-ordering contract); first cell did not contain it")
+        let firstCellHasPairStripe = newFirstSources.contains { source in
+            firstResultCell.descendants(matching: .any)
+                .matching(identifier: AccessibilityIdentifiers.Search.sourceStripe(source: source))
+                .firstMatch.exists
+        }
+        XCTAssertTrue(firstCellHasPairStripe,
+                      "After reorder, the FIRST result's stripe must belong to the now-first pair '\(newFirst)' (one of \(newFirstSources)) (top-result preferred-ordering contract); first cell did not contain it")
     }
 }

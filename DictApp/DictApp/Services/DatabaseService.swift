@@ -214,16 +214,18 @@ actor DatabaseService {
 
     /// "Preferred dictionary first" search (Issue #6, `ResultSortMode.preferredDictionary`).
     ///
-    /// Runs one capped `MATCH` query per enabled dictionary **in user order**
-    /// (`LIMIT topN` each), then one relevance "tail" query over all enabled
-    /// sources excluding the rows already bucketed. Per-dict `LIMIT` is the
-    /// correct primitive (FTS5 has no window functions): a single global query
-    /// capped at `limit` could push a low-ranking dictionary's top rows past the
-    /// cutoff, so its top-N would be missing. Assembly is the pure
-    /// `Search.assemble` for testability.
+    /// Runs one capped `MATCH` query per **pair group** in user order (Issue
+    /// #92: `groups` are the language-pair groups from
+    /// `DictionaryGrouping.sourceGroups(order:)`; a pair's directions share one
+    /// bucket and one `LIMIT topN`, merged by the shared ORDER BY), then one
+    /// relevance "tail" query over all enabled sources excluding the rows
+    /// already bucketed. Per-bucket `LIMIT` is the correct primitive (FTS5 has
+    /// no window functions): a single global query capped at `limit` could push
+    /// a low-ranking dictionary's top rows past the cutoff, so its top-N would
+    /// be missing. Assembly is the pure `Search.assemble` for testability.
     func searchPreferred(
         query: String,
-        order: [String],
+        groups: [[String]],
         enabledSources: Set<String>,
         topN: Int = Search.preferredDictionaryTopN,
         limit: Int = 50
@@ -233,28 +235,39 @@ actor DatabaseService {
         let sanitized = sanitizeFTS(query)
         guard !sanitized.isEmpty else { return [] }
 
-        // Bucket only enabled sources, in user order. Enabled sources absent
-        // from `order` (e.g. a freshly-imported dict before reconciliation) get
-        // no bucket but still appear via the relevance tail.
-        let orderedEnabled = order.filter { enabledSources.contains($0) }
+        // Bucket only enabled members, group by group in user order. Enabled
+        // sources absent from `groups` (e.g. a freshly-imported dict before
+        // reconciliation) get no bucket but still appear via the relevance tail.
+        let enabledGroups = groups
+            .map { $0.filter { enabledSources.contains($0) } }
+            .filter { !$0.isEmpty }
         let match = sanitized + "*"
         let prefix = sanitized + "%"
 
         return try await pool.read { db in
             var buckets: [String: [DictionaryEntry]] = [:]
+            var bucketOrder: [String] = []
             var takenIds: [Int64] = []
 
-            for source in orderedEnabled {
+            for (index, members) in enabledGroups.enumerated() {
+                // Index, not joined IDs: a custom ID may contain any separator.
+                let key = String(index)
+                let placeholders = members.map { _ in "?" }.joined(separator: ", ")
+                var args = StatementArguments()
+                args += [match]
+                for member in members { args += [member] }
+                args += [sanitized, prefix, topN]
                 let rows = try DictionaryEntry.fetchAll(db, sql: """
                     SELECT e.*
                     FROM entries_fts fts JOIN entries e ON e.id = fts.rowid
-                    WHERE entries_fts MATCH ? AND e.source = ?
+                    WHERE entries_fts MATCH ? AND e.source IN (\(placeholders))
                     ORDER BY (e.word_normalized = ? COLLATE NOCASE) DESC,
                              (e.word_normalized LIKE ? COLLATE NOCASE) DESC,
                              rank
                     LIMIT ?
-                    """, arguments: [match, source, sanitized, prefix, topN])
-                buckets[source] = rows
+                    """, arguments: args)
+                buckets[key] = rows
+                bucketOrder.append(key)
                 takenIds += rows.compactMap(\.id)
             }
 
@@ -281,7 +294,7 @@ actor DatabaseService {
                     """, arguments: args)
             }
 
-            return Search.assemble(buckets: buckets, tail: tail, order: orderedEnabled)
+            return Search.assemble(buckets: buckets, tail: tail, order: bucketOrder)
         }
     }
 
@@ -422,13 +435,18 @@ actor DatabaseService {
         }
     }
 
-    /// Per-source entry counts, with display names from metadata where available.
+    /// Per-source entry counts, with display name / license / version from
+    /// metadata where available (empty strings for custom imports, which have
+    /// no `dict_metadata` row). License and version feed the #91 detail via
+    /// `DictionaryPair.sources` (Issue #92).
     func fetchSourceStats() async throws -> [SourceStat] {
         guard let pool = dbPool else { throw DBError.notConnected }
         return try await pool.read { db in
             let sql = """
                 SELECT e.source,
                        COALESCE(m.display_name, e.source) AS display_name,
+                       COALESCE(m.license, '') AS license,
+                       COALESCE(m.version, '') AS version,
                        COUNT(*) AS cnt
                 FROM entries e
                 LEFT JOIN dict_metadata m ON m.source = e.source
@@ -440,7 +458,9 @@ actor DatabaseService {
                 SourceStat(
                     source: row["source"],
                     displayName: row["display_name"],
-                    count: row["cnt"]
+                    count: row["cnt"],
+                    license: row["license"],
+                    version: row["version"]
                 )
             }
         }
