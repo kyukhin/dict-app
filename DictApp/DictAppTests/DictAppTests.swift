@@ -2084,7 +2084,7 @@ final class DictAppTests: XCTestCase {
         try await seedSourcedEntries(source: "srcB", words: (0..<(topN + 2)).map { "term_b\($0)" })
 
         let results = try await db.searchPreferred(
-            query: "term", order: ["srcB", "srcA"], enabledSources: ["srcA", "srcB"]
+            query: "term", groups: [["srcB"], ["srcA"]], enabledSources: ["srcA", "srcB"]
         )
 
         XCTAssertGreaterThanOrEqual(results.count, topN * 2, "Both buckets should fill")
@@ -2099,8 +2099,212 @@ final class DictAppTests: XCTestCase {
     /// An explicit empty enabled set returns nothing (mirrors `search`).
     func testSearchPreferredEmptyEnabledReturnsEmpty() async throws {
         try await seedSourcedEntries(source: "srcA", words: ["term_a1"])
-        let results = try await db.searchPreferred(query: "term", order: ["srcA"], enabledSources: [])
+        let results = try await db.searchPreferred(query: "term", groups: [["srcA"]], enabledSources: [])
         XCTAssertTrue(results.isEmpty)
+    }
+
+    // MARK: - Issue #92: Language-pair grouping (DatabaseService integration)
+    //
+    // `searchPreferred(query:groups:…)` runs ONE capped query per pair group.
+    // The seeds below exploit the bucket's ORDER BY — `(exact) DESC,
+    // (word_normalized LIKE 'term%') DESC, rank` — to tell "one merged bucket"
+    // apart from "one bucket per member": a headword like "x term_a0" still
+    // FTS-matches `term*` (unicode61 tokenises it as "x" + "term" + "a0", and
+    // the definition text contains "term" too) but fails the LIKE prefix
+    // boost, so it must sort BELOW any sibling's "term_bN" rows inside a
+    // shared bucket, regardless of member order in the group.
+
+    /// Inserts a `dict_metadata` row the way `build_seed.py` does for bundled
+    /// sources (custom imports never get one).
+    private func insertMetadata(source: String, displayName: String,
+                                license: String, version: String) async throws {
+        let path = tempDir.appendingPathComponent("test.sqlite").path
+        let pool = try DatabasePool(path: path)
+        try await pool.write { dbConn in
+            try dbConn.execute(
+                sql: "INSERT INTO dict_metadata(source, display_name, license, version) VALUES (?, ?, ?, ?)",
+                arguments: [source, displayName, license, version]
+            )
+        }
+    }
+
+    /// groups `[[srcA, srcB], [srcC]]`, each source with > topN matches →
+    /// first `topN` rows ⊆ {A, B} ranked by the shared ORDER BY (not A-then-B),
+    /// next `topN` all C, no duplicate IDs.
+    func testSearchPreferredMergesPairMembersIntoOneBucket() async throws {
+        let topN = Search.preferredDictionaryTopN
+        // A is listed FIRST in its group but its rows miss the prefix boost;
+        // B's rows satisfy it. Per-source buckets would put A's rows first.
+        try await seedSourcedEntries(source: "srcA", words: (0..<(topN + 2)).map { "x term_a\($0)" })
+        try await seedSourcedEntries(source: "srcB", words: (0..<(topN + 2)).map { "term_b\($0)" })
+        try await seedSourcedEntries(source: "srcC", words: (0..<(topN + 2)).map { "term_c\($0)" })
+
+        let results = try await db.searchPreferred(
+            query: "term", groups: [["srcA", "srcB"], ["srcC"]],
+            enabledSources: ["srcA", "srcB", "srcC"]
+        )
+
+        XCTAssertEqual(results.count, 3 * (topN + 2),
+                       "every seeded row matches 'term*' and fits under the default limit")
+
+        let pairBucket = results.prefix(topN).map(\.source)
+        XCTAssertTrue(pairBucket.allSatisfy { ["srcA", "srcB"].contains($0) },
+                      "first \(topN) rows must come from the pair group; got \(pairBucket)")
+        XCTAssertEqual(pairBucket, Array(repeating: "srcB", count: topN),
+                       "the pair's directions share ONE ORDER BY: B's prefix matches outrank A's "
+                       + "non-prefix matches even though A is listed first in the group; got \(pairBucket)")
+
+        let secondBucket = results.dropFirst(topN).prefix(topN).map(\.source)
+        XCTAssertEqual(secondBucket, Array(repeating: "srcC", count: topN),
+                       "the next \(topN) rows must be the second group's bucket; got \(secondBucket)")
+
+        // A got no bucket slot, so all of its rows surface via the relevance tail only.
+        XCTAssertEqual(results.filter { $0.source == "srcA" }.count, topN + 2,
+                       "A's rows are still returned (tail), not dropped")
+        XCTAssertNil(results.prefix(2 * topN).first { $0.source == "srcA" },
+                     "A must not appear before both buckets are exhausted")
+
+        let ids = results.compactMap(\.id)
+        XCTAssertEqual(ids.count, results.count, "every row carries an id")
+        XCTAssertEqual(ids.count, Set(ids).count, "no duplicate IDs across buckets and tail")
+    }
+
+    /// A custom ID equal to a pair's joined members must not overwrite that
+    /// pair's bucket (PR #100 review: keys were `members.joined("|")`).
+    func testSearchPreferredBucketKeysDoNotCollide() async throws {
+        let topN = Search.preferredDictionaryTopN
+        try await seedSourcedEntries(source: "srcA", words: (0..<(topN + 2)).map { "term_a\($0)" })
+        try await seedSourcedEntries(source: "srcB", words: (0..<(topN + 2)).map { "term_b\($0)" })
+        try await seedSourcedEntries(source: "srcA|srcB", words: (0..<(topN + 2)).map { "term_c\($0)" })
+
+        let results = try await db.searchPreferred(
+            query: "term", groups: [["srcA", "srcB"], ["srcA|srcB"]],
+            enabledSources: ["srcA", "srcB", "srcA|srcB"]
+        )
+
+        let first = results.prefix(topN).map(\.source)
+        XCTAssertTrue(first.allSatisfy { ["srcA", "srcB"].contains($0) },
+                      "the pair's bucket must lead; got \(first)")
+        let second = results.dropFirst(topN).prefix(topN).map(\.source)
+        XCTAssertEqual(second, Array(repeating: "srcA|srcB", count: topN),
+                       "the custom group keeps its own bucket; got \(second)")
+    }
+
+    /// A two-source pair yields at most `topN` bucket rows, never `2·topN`.
+    func testSearchPreferredTopNIsPerPairNotPerSource() async throws {
+        let topN = Search.preferredDictionaryTopN
+        try await seedSourcedEntries(source: "srcA", words: (0..<(topN + 2)).map { "term_a\($0)" })
+        try await seedSourcedEntries(source: "srcB", words: (0..<(topN + 2)).map { "term_b\($0)" })
+
+        // `limit == topN` leaves no room for the relevance tail (`remaining`
+        // is 0), so every returned row is a bucket row.
+        let paired = try await db.searchPreferred(
+            query: "term", groups: [["srcA", "srcB"]], enabledSources: ["srcA", "srcB"],
+            topN: topN, limit: topN
+        )
+        XCTAssertEqual(paired.count, topN,
+                       "one bucket per PAIR: a two-member group is capped at topN, not 2·topN; got \(paired.map(\.source))")
+        XCTAssertTrue(paired.allSatisfy { ["srcA", "srcB"].contains($0.source) })
+        XCTAssertEqual(Set(paired.compactMap(\.id)).count, topN, "no duplicates inside the bucket")
+
+        // Control: the same two sources as separate groups DO get a bucket each.
+        let separate = try await db.searchPreferred(
+            query: "term", groups: [["srcA"], ["srcB"]], enabledSources: ["srcA", "srcB"],
+            topN: topN, limit: 2 * topN
+        )
+        XCTAssertEqual(separate.count, 2 * topN)
+        XCTAssertEqual(separate.prefix(topN).map(\.source), Array(repeating: "srcA", count: topN))
+        XCTAssertEqual(separate.dropFirst(topN).map(\.source), Array(repeating: "srcB", count: topN))
+
+        // A custom topN is honoured per pair as well.
+        let small = try await db.searchPreferred(
+            query: "term", groups: [["srcA", "srcB"]], enabledSources: ["srcA", "srcB"],
+            topN: 1, limit: 1
+        )
+        XCTAssertEqual(small.count, 1)
+    }
+
+    /// group `[srcA, srcB]`, enabled `{srcB}` → bucket holds only B.
+    func testSearchPreferredSkipsDisabledMembersWithinGroup() async throws {
+        let topN = Search.preferredDictionaryTopN
+        // Give the DISABLED member the better-ranked rows (prefix matches): if
+        // it were not filtered out of the bucket, A would win every slot.
+        try await seedSourcedEntries(source: "srcA", words: (0..<(topN + 2)).map { "term_a\($0)" })
+        try await seedSourcedEntries(source: "srcB", words: (0..<(topN + 2)).map { "x term_b\($0)" })
+
+        let results = try await db.searchPreferred(
+            query: "term", groups: [["srcA", "srcB"]], enabledSources: ["srcB"],
+            topN: topN, limit: topN
+        )
+        XCTAssertEqual(results.count, topN, "the group still gets its bucket from the enabled member")
+        XCTAssertEqual(results.map(\.source), Array(repeating: "srcB", count: topN),
+                       "a disabled member must contribute nothing to its pair's bucket; got \(results.map(\.source))")
+
+        // With a tail allowed, the disabled member must stay absent there too.
+        let withTail = try await db.searchPreferred(
+            query: "term", groups: [["srcA", "srcB"]], enabledSources: ["srcB"]
+        )
+        XCTAssertEqual(withTail.count, topN + 2)
+        XCTAssertTrue(withTail.allSatisfy { $0.source == "srcB" })
+
+        // A group whose members are ALL disabled yields no bucket; the
+        // remaining group's bucket is unaffected.
+        let groupOff = try await db.searchPreferred(
+            query: "term", groups: [["srcA"], ["srcB"]], enabledSources: ["srcB"],
+            topN: topN, limit: topN
+        )
+        XCTAssertEqual(groupOff.map(\.source), Array(repeating: "srcB", count: topN))
+
+        // Enabled sources absent from `groups` (e.g. a fresh import before
+        // reconciliation) get no bucket but still surface through the tail.
+        try await seedSourcedEntries(source: "srcNew", words: ["term_new"])
+        let unlisted = try await db.searchPreferred(
+            query: "term", groups: [["srcB"]], enabledSources: ["srcB", "srcNew"], topN: 1
+        )
+        XCTAssertEqual(unlisted.first?.source, "srcB", "bucket first")
+        XCTAssertTrue(unlisted.contains { $0.source == "srcNew" }, "unlisted enabled source reaches the tail")
+    }
+
+    /// Source with a metadata row → `license` / `version` populated;
+    /// custom source (no metadata row) → `""`.
+    func testFetchSourceStatsCarriesLicenseAndVersion() async throws {
+        // Distinct counts (3 > 2 > 1) so the count-desc order is deterministic.
+        try await seedSourcedEntries(source: "wordnet", words: ["alpha", "beta", "delta"])
+        try await seedSourcedEntries(source: "freedict-eng-spa", words: ["gato", "perro"])
+        try await seedSourcedEntries(source: "test_import_fixture", words: ["gamma"])
+        try await insertMetadata(source: "wordnet", displayName: "WordNet",
+                                 license: "WordNet 3.0 License", version: "3.0")
+        try await insertMetadata(source: "freedict-eng-spa", displayName: "English – Spanish (FreeDict)",
+                                 license: "GPL", version: "2023.05.23")
+
+        let stats = try await db.fetchSourceStats()
+        XCTAssertEqual(stats.map(\.source), ["wordnet", "freedict-eng-spa", "test_import_fixture"],
+                       "count-desc order is unchanged by the extra columns")
+        let bySource = Dictionary(uniqueKeysWithValues: stats.map { ($0.source, $0) })
+
+        let wordnet = try XCTUnwrap(bySource["wordnet"])
+        XCTAssertEqual(wordnet.displayName, "WordNet")
+        XCTAssertEqual(wordnet.license, "WordNet 3.0 License")
+        XCTAssertEqual(wordnet.version, "3.0")
+        XCTAssertEqual(wordnet.count, 3)
+        XCTAssertEqual(wordnet.provider, "wordnet")
+        XCTAssertNil(wordnet.direction, "monolingual WordNet has no direction")
+
+        let freedict = try XCTUnwrap(bySource["freedict-eng-spa"])
+        XCTAssertEqual(freedict.license, "GPL")
+        XCTAssertEqual(freedict.version, "2023.05.23")
+        XCTAssertEqual(freedict.provider, "freedict")
+        XCTAssertEqual(freedict.direction?.from, "eng")
+        XCTAssertEqual(freedict.direction?.to, "spa")
+
+        let custom = try XCTUnwrap(bySource["test_import_fixture"])
+        XCTAssertEqual(custom.displayName, "test_import_fixture",
+                       "no metadata row → COALESCE falls back to the source ID")
+        XCTAssertEqual(custom.license, "", "no metadata row → empty, never nil or a crash")
+        XCTAssertEqual(custom.version, "")
+        XCTAssertEqual(custom.count, 1)
+        XCTAssertEqual(custom.provider, "test_import_fixture")
+        XCTAssertNil(custom.direction)
     }
 
     /// `addToHistory` records the viewed source; last-viewed source wins (§5).
@@ -2132,13 +2336,18 @@ final class DictAppTests: XCTestCase {
 // MARK: - Issue #6: KeyValueStore seam + SettingsService
 
 /// In-memory `KeyValueStore` for injecting into `SettingsService` under test.
+/// Also a write spy (Issue #92): `writeLog` records every `set` / `remove` by
+/// key so tests can prove `normalizeDictionaryPreferences` does not churn the
+/// store, and `keys` lets them assert no new preference key ever appears.
 final class InMemoryKeyValueStore: KeyValueStore {
     private var storage: [String: Any] = [:]
+    private(set) var writeLog: [String] = []
+    var keys: Set<String> { Set(storage.keys) }
     func data(forKey key: String) -> Data? { storage[key] as? Data }
-    func set(_ data: Data?, forKey key: String) { storage[key] = data }
+    func set(_ data: Data?, forKey key: String) { storage[key] = data; writeLog.append(key) }
     func string(forKey key: String) -> String? { storage[key] as? String }
-    func set(_ string: String?, forKey key: String) { storage[key] = string }
-    func removeObject(forKey key: String) { storage.removeValue(forKey: key) }
+    func set(_ string: String?, forKey key: String) { storage[key] = string; writeLog.append(key) }
+    func removeObject(forKey key: String) { storage.removeValue(forKey: key); writeLog.append(key) }
 }
 
 final class SettingsServiceTests: XCTestCase {
@@ -2186,7 +2395,9 @@ final class SettingsServiceTests: XCTestCase {
     }
 
     // Migration-safety (#73): the exact UserDefaults key strings are preserved,
-    // so swapping the adapter needs no data migration.
+    // so swapping the adapter needs no data migration. Issue #92 extends this:
+    // the pair layer writes through the SAME two dictionary keys — pair keys
+    // are runtime-only and never persisted — so no new key may appear.
     func testUserDefaultsKeyStringsUnchanged() {
         let (s, store) = service()
         s.selectedUILanguageCode = "ru"
@@ -2197,6 +2408,169 @@ final class SettingsServiceTests: XCTestCase {
         XCTAssertNotNil(store.data(forKey: "enabled_sources"))
         XCTAssertNotNil(store.data(forKey: "dictionary_order"))
         XCTAssertNotNil(store.string(forKey: "result_sort_mode"))
+
+        let allKeys: Set<String> = ["ui_language", "enabled_sources", "dictionary_order", "result_sort_mode"]
+        XCTAssertEqual(store.keys, allKeys)
+
+        // Issue #92: pair-level writes and normalisation reuse the same keys.
+        let known = ["wordnet", "freedict-eng-spa", "wordnet-spa-eng", "x"]
+        s.setEnabled(false, forSources: ["freedict-eng-spa", "wordnet-spa-eng"], knownSources: Set(known))
+        s.dictionaryOrder = ["wordnet", "freedict-eng-spa", "x", "wordnet-spa-eng"]
+        s.normalizeDictionaryPreferences(knownSources: known)
+        XCTAssertEqual(store.keys, allKeys, "no new preference key after the #92 pair layer ran")
+        XCTAssertTrue(store.writeLog.allSatisfy(allKeys.contains),
+                      "every write went to a pre-existing key; got \(store.writeLog)")
+        // …and the stored shapes are unchanged: a JSON array of source IDs.
+        let enabled = try? JSONDecoder().decode([String].self, from: store.data(forKey: "enabled_sources") ?? Data())
+        // `x` was disabled from a materialised {x} above, so the set is `{}`
+        // and stays `{}` (normalisation never switches anything on).
+        XCTAssertEqual(enabled, [])
+        let order = try? JSONDecoder().decode([String].self, from: store.data(forKey: "dictionary_order") ?? Data())
+        XCTAssertEqual(order, ["wordnet", "freedict-eng-spa", "wordnet-spa-eng", "x"],
+                       "order is persisted as source IDs, grouped — never as pair keys")
+    }
+
+    // MARK: - Issue #92: Language-pair grouping (SettingsService)
+
+    /// `setEnabled(_:forSources:knownSources:)` materialises from `knownSources`
+    /// and removes / adds both IDs in one write.
+    func testSetEnabledForSourcesWritesAllMembers() {
+        let (s, store) = service()
+        let known: Set<String> = ["wordnet", "openrussian", "freedict-eng-spa", "wordnet-spa-eng"]
+        XCTAssertNil(s.enabledSources, "precondition: nothing stored yet (all enabled)")
+
+        // Disabling a pair materialises the set from `knownSources` minus BOTH
+        // members, in a single write.
+        s.setEnabled(false, forSources: ["freedict-eng-spa", "wordnet-spa-eng"], knownSources: known)
+        XCTAssertEqual(s.enabledSources, ["wordnet", "openrussian"])
+        XCTAssertFalse(s.isEnabled(source: "freedict-eng-spa"))
+        XCTAssertFalse(s.isEnabled(source: "wordnet-spa-eng"))
+        XCTAssertTrue(s.isEnabled(source: "wordnet"))
+        XCTAssertTrue(s.isEnabled(source: "openrussian"))
+        XCTAssertEqual(store.writeLog, ["enabled_sources"], "both members removed in ONE write")
+
+        // Re-enabling adds both back; the other sources are untouched.
+        s.setEnabled(true, forSources: ["freedict-eng-spa", "wordnet-spa-eng"], knownSources: known)
+        XCTAssertEqual(s.enabledSources, known)
+        XCTAssertEqual(store.writeLog, ["enabled_sources", "enabled_sources"])
+
+        // An ID outside `knownSources` (e.g. a freshly-imported dictionary) is
+        // stored verbatim, nothing else is invented.
+        s.setEnabled(true, forSources: ["my_import"], knownSources: known)
+        XCTAssertTrue(s.isEnabled(source: "my_import"))
+        XCTAssertEqual(s.enabledSources, known.union(["my_import"]))
+
+        // Disabling an already-disabled pair is stable (set semantics).
+        s.setEnabled(false, forSources: ["freedict-eng-spa", "wordnet-spa-eng"], knownSources: known)
+        s.setEnabled(false, forSources: ["freedict-eng-spa", "wordnet-spa-eng"], knownSources: known)
+        XCTAssertEqual(s.enabledSources, ["wordnet", "openrussian", "my_import"])
+
+        // An empty member list leaves the set as it is.
+        s.setEnabled(false, forSources: [], knownSources: known)
+        XCTAssertEqual(s.enabledSources, ["wordnet", "openrussian", "my_import"])
+
+        // The single-source variant delegates to the same code path.
+        s.setEnabled(false, for: "wordnet", knownSources: known)
+        XCTAssertEqual(s.enabledSources, ["openrussian", "my_import"])
+
+        // Once a stored set exists, `knownSources` is no longer consulted.
+        s.setEnabled(true, forSources: ["wordnet"], knownSources: ["wordnet", "ghost"])
+        XCTAssertEqual(s.enabledSources, ["openrussian", "my_import", "wordnet"])
+        XCTAssertFalse(s.isEnabled(source: "ghost"))
+    }
+
+    /// nil/nil → store untouched; partial pair → `enabled_sources` rewritten;
+    /// already-grouped input → no write (spy on the store).
+    func testNormalizeWritesOnlyWhenChanged() {
+        let known = ["wordnet", "openrussian", "freedict-eng-spa", "wordnet-spa-eng", "wordnet-arb-eng"]
+
+        // 1) Fresh install: nil / nil → no-op, not a single write.
+        do {
+            let (s, store) = service()
+            s.normalizeDictionaryPreferences(knownSources: known)
+            XCTAssertNil(s.enabledSources)
+            XCTAssertNil(s.dictionaryOrder)
+            XCTAssertEqual(store.writeLog, [], "nil/nil must not touch the store")
+            XCTAssertEqual(store.keys, [])
+        }
+
+        // 2) Legacy 1.3.x prefs (§2b worked example): FreeDict disabled while
+        //    its sibling is enabled, and the pair interleaved in the order →
+        //    each value rewritten exactly once, then idempotent.
+        do {
+            let (s, store) = service()
+            s.enabledSources = ["wordnet", "openrussian", "wordnet-spa-eng", "wordnet-arb-eng"]
+            s.dictionaryOrder = ["wordnet", "freedict-eng-spa", "openrussian", "wordnet-arb-eng", "wordnet-spa-eng"]
+            let seeded = store.writeLog.count
+
+            s.normalizeDictionaryPreferences(knownSources: known)
+            XCTAssertEqual(s.enabledSources,
+                           ["wordnet", "openrussian", "wordnet-spa-eng", "wordnet-arb-eng", "freedict-eng-spa"],
+                           "enabled-if-any: FreeDict joins its enabled sibling")
+            XCTAssertEqual(s.dictionaryOrder,
+                           ["wordnet", "freedict-eng-spa", "wordnet-spa-eng", "openrussian", "wordnet-arb-eng"],
+                           "the pair joins its earliest member")
+            XCTAssertEqual(Array(store.writeLog.dropFirst(seeded)), ["enabled_sources", "dictionary_order"],
+                           "one write per changed value, nothing else")
+
+            let afterFirst = store.writeLog.count
+            s.normalizeDictionaryPreferences(knownSources: known)
+            XCTAssertEqual(store.writeLog.count, afterFirst, "already-normalised prefs must not be rewritten")
+            XCTAssertEqual(s.enabledSources?.count, 5)
+        }
+
+        // 3) Only the enabled set needs fixing → the order key is not written.
+        do {
+            let (s, store) = service()
+            s.enabledSources = ["freedict-eng-spa"]
+            s.dictionaryOrder = ["wordnet", "freedict-eng-spa", "wordnet-spa-eng", "openrussian", "wordnet-arb-eng"]
+            let seeded = store.writeLog.count
+            s.normalizeDictionaryPreferences(knownSources: known)
+            XCTAssertEqual(Array(store.writeLog.dropFirst(seeded)), ["enabled_sources"])
+            XCTAssertEqual(s.enabledSources, ["freedict-eng-spa", "wordnet-spa-eng"])
+        }
+
+        // 4) Only the order needs fixing → the enabled key is not written and
+        //    nil (all enabled) stays nil.
+        do {
+            let (s, store) = service()
+            s.dictionaryOrder = ["wordnet-spa-eng", "wordnet", "freedict-eng-spa"]
+            let seeded = store.writeLog.count
+            s.normalizeDictionaryPreferences(knownSources: known)
+            XCTAssertEqual(Array(store.writeLog.dropFirst(seeded)), ["dictionary_order"])
+            XCTAssertEqual(s.dictionaryOrder, ["wordnet-spa-eng", "freedict-eng-spa", "wordnet"])
+            XCTAssertNil(s.enabledSources)
+            XCTAssertNil(store.data(forKey: "enabled_sources"))
+        }
+
+        // 5) Fully-disabled pair stays disabled and `{}` stays `{}` — no write.
+        do {
+            let (s, store) = service()
+            s.enabledSources = ["wordnet", "openrussian", "wordnet-arb-eng"]
+            let seeded = store.writeLog.count
+            s.normalizeDictionaryPreferences(knownSources: known)
+            XCTAssertEqual(s.enabledSources, ["wordnet", "openrussian", "wordnet-arb-eng"])
+            XCTAssertEqual(store.writeLog.count, seeded)
+
+            s.enabledSources = []
+            let emptied = store.writeLog.count
+            s.normalizeDictionaryPreferences(knownSources: known)
+            XCTAssertEqual(s.enabledSources, [], "everything-off is a valid, stable state")
+            XCTAssertEqual(store.writeLog.count, emptied)
+        }
+
+        // 6) A removed source lingering in prefs is preserved, not scrubbed
+        //    (pre-existing tolerance), and does not force a rewrite by itself.
+        do {
+            let (s, store) = service()
+            s.enabledSources = ["wordnet", "ghost"]
+            s.dictionaryOrder = ["ghost", "wordnet"]
+            let seeded = store.writeLog.count
+            s.normalizeDictionaryPreferences(knownSources: known)
+            XCTAssertEqual(s.enabledSources, ["wordnet", "ghost"])
+            XCTAssertEqual(s.dictionaryOrder, ["ghost", "wordnet"])
+            XCTAssertEqual(store.writeLog.count, seeded)
+        }
     }
 }
 
@@ -2705,9 +3079,10 @@ final class DictionaryDefaultsTests: XCTestCase {
 
         XCTAssertEqual(settings.dictionaryOrder, userOrder,
                        "a persisted order must survive loadDictionaries() even when the UI language is ru")
-        XCTAssertEqual(vm.dictionaries.map(\.source), userOrder,
+        // Issue #92: rows are language pairs, keyed by pair id.
+        XCTAssertEqual(vm.dictionaries.map(\.id), ["arb-eng", "eng", "eng-rus"],
                        "the published list must reflect the stored order, not the language default")
-        XCTAssertNotEqual(vm.dictionaries.first?.source, "openrussian",
+        XCTAssertNotEqual(vm.dictionaries.first?.id, "eng-rus",
                           "guard: the ru default would have put openrussian first — it must not apply here")
     }
 
@@ -2723,7 +3098,9 @@ final class DictionaryDefaultsTests: XCTestCase {
         await vm.loadDictionaries()
 
         let expected = ["openrussian", "wordnet", "wordnet-arb-eng"]
-        XCTAssertEqual(vm.dictionaries.map(\.source), expected,
+        // Issue #92: rows are language pairs, keyed by pair id.
+        let expectedPairs = ["eng-rus", "eng", "arb-eng"]
+        XCTAssertEqual(vm.dictionaries.map(\.id), expectedPairs,
                        "first launch on ru must promote openrussian above the count-desc base order")
         XCTAssertEqual(settings.dictionaryOrder, expected,
                        "the derived default must be persisted so later launches take the stored branch")
@@ -2732,7 +3109,7 @@ final class DictionaryDefaultsTests: XCTestCase {
 
         // Second load now hits the stored branch and must be idempotent.
         await vm.loadDictionaries()
-        XCTAssertEqual(vm.dictionaries.map(\.source), expected)
+        XCTAssertEqual(vm.dictionaries.map(\.id), expectedPairs)
     }
 
     @MainActor
@@ -2744,7 +3121,709 @@ final class DictionaryDefaultsTests: XCTestCase {
         let (vm, settings) = makeViewModel(languageCode: "es", storedOrder: nil)
         await vm.loadDictionaries()
 
-        XCTAssertEqual(vm.dictionaries.map(\.source), ["wordnet", "openrussian"])
+        XCTAssertEqual(vm.dictionaries.map(\.id), ["eng", "eng-rus"])
         XCTAssertEqual(settings.dictionaryOrder, ["wordnet", "openrussian"])
+    }
+}
+
+// MARK: - Issue #92: Language-pair grouping
+
+/// `DictionaryGrouping` is pure (source IDs → pairs / grouped order / expanded
+/// enabled set), so these need no database or mocking. Contracts in
+/// DESIGN_DOC.md §1a, §1d and §7a; PM decisions #1–#3 at the end of the doc.
+final class DictionaryGroupingTests: XCTestCase {
+    /// The five bundled IDs in the seed's count-desc order (= the `en` default).
+    private let bundled = ["wordnet", "openrussian", "freedict-eng-spa", "wordnet-spa-eng", "wordnet-arb-eng"]
+    private let bundledKeys: Set<String> = ["eng", "eng-rus", "eng-spa", "arb-eng"]
+
+    private func stat(_ source: String, count: Int = 1) -> SourceStat {
+        SourceStat(source: source, displayName: source.uppercased(), count: count)
+    }
+
+    /// The five bundled IDs → `eng`, `eng-rus`, `eng-spa`, `eng-spa`, `arb-eng` (§1b).
+    func testPairKeyForBundledSources() {
+        let keys = bundled.map(DictionaryGrouping.pairKey(forSource:))
+        XCTAssertEqual(keys, ["eng", "eng-rus", "eng-spa", "eng-spa", "arb-eng"])
+        XCTAssertEqual(Set(keys), bundledKeys, "five sources → four pairs")
+        XCTAssertEqual(DictionaryGrouping.pairKey(forSource: "wordnet"), "eng",
+                       "legacy bare monolingual ID → single-language key, not 'eng-eng'")
+        XCTAssertEqual(DictionaryGrouping.pairKey(forSource: "openrussian"), "eng-rus",
+                       "legacy bare bilingual ID → sorted codes ('eng' < 'rus'), not translation order")
+        XCTAssertEqual(DictionaryGrouping.pairKey(forSource: "wordnet-arb-eng"), "arb-eng",
+                       "'arb' sorts before 'eng', so English is not always first in the key")
+        XCTAssertFalse(keys.contains { $0.hasPrefix("custom:") }, "no bundled source is custom")
+    }
+
+    /// `pairKey("wordnet-spa-eng") == pairKey("freedict-eng-spa")`.
+    func testPairKeyIsDirectionAgnostic() {
+        XCTAssertEqual(DictionaryGrouping.pairKey(forSource: "wordnet-spa-eng"),
+                       DictionaryGrouping.pairKey(forSource: "freedict-eng-spa"))
+        XCTAssertEqual(DictionaryGrouping.pairKey(forSource: "wordnet-spa-eng"), "eng-spa")
+        // Only seed-registered IDs merge. A convention-named import (its ID
+        // is the file name) stays its own row (PM decision #2, PR #100 review).
+        for id in ["freedict-spa-eng", "wordnet-eng-spa", "freedict-eng-rus", "wordnet-eng-eng", "freedict-deu-eng"] {
+            XCTAssertTrue(DictionaryGrouping.parse(sourceID: id).isCustom, id)
+            XCTAssertEqual(DictionaryGrouping.pairKey(forSource: id), "custom:" + id)
+        }
+        XCTAssertNotEqual(DictionaryGrouping.pairKey(forSource: "freedict-eng-rus"),
+                          DictionaryGrouping.pairKey(forSource: "openrussian"))
+    }
+
+    /// `test_import_fixture`, `my dict`, `eng`, `eng-spa`, `mydict-eng-spa`,
+    /// `wordnet-es-en` → each `custom:<id>`, all distinct, none equal to a bundled key.
+    func testCustomSourcesAreOwnGroups() {
+        let custom = [
+            "test_import_fixture",   // the UI-test import fixture
+            "my dict",               // whitespace, no convention at all
+            "eng",                   // a file named like a pair KEY
+            "eng-spa",               // a file named like a pair KEY
+            "mydict-eng-spa",        // convention-shaped but unknown provider (PM decision #2)
+            "wordnet-es-en",         // bundled provider but alpha-2 codes
+            "wordnet--eng-spa",      // empty provider segment → provider "wordnet-"
+            "wordnet-ENG-SPA",       // upper-case codes are not ^[a-z]{3}$
+            "freedict-eng",          // too few segments
+            "wordnet-eng-spa-extra", // trailing segment: "spa"/"extra" are not both alpha-3
+            "",                      // degenerate
+        ]
+        let keys = custom.map(DictionaryGrouping.pairKey(forSource:))
+        for (id, key) in zip(custom, keys) {
+            XCTAssertEqual(key, "custom:\(id)", "'\(id)' must be its own group")
+            XCTAssertFalse(bundledKeys.contains(key), "'\(id)' must never collide with a bundled key")
+            let parsed = DictionaryGrouping.parse(sourceID: id)
+            XCTAssertTrue(parsed.isCustom, "'\(id)' must parse as custom")
+            XCTAssertEqual(parsed.provider, id, "custom provider is the raw ID")
+            XCTAssertEqual(parsed.languages, [], "custom sources carry no languages")
+        }
+        XCTAssertEqual(Set(keys).count, custom.count, "all distinct")
+
+        // PM decision #2, spelled out: a custom import named like a bundled
+        // pair stays separate from that pair.
+        XCTAssertNotEqual(DictionaryGrouping.pairKey(forSource: "mydict-eng-spa"),
+                          DictionaryGrouping.pairKey(forSource: "freedict-eng-spa"))
+        XCTAssertNotEqual(DictionaryGrouping.pairKey(forSource: "eng-spa"), "eng-spa")
+        XCTAssertNotEqual(DictionaryGrouping.pairKey(forSource: "eng"), "eng")
+        XCTAssertEqual(DictionaryGrouping.sourceGroups(order: ["freedict-eng-spa", "mydict-eng-spa", "wordnet-spa-eng"]),
+                       [["freedict-eng-spa", "wordnet-spa-eng"], ["mydict-eng-spa"]])
+    }
+
+    /// `freedict-eng-spa` → (freedict, eng→spa); `openrussian` → (openrussian, rus→eng);
+    /// `wordnet` → direction nil; custom → direction nil.
+    func testParseExposesProviderAndDirection() {
+        let fd = DictionaryGrouping.parse(sourceID: "freedict-eng-spa")
+        XCTAssertEqual(fd.provider, "freedict")
+        XCTAssertEqual(fd.languages, ["eng", "spa"])
+        XCTAssertFalse(fd.isCustom)
+
+        let wn = DictionaryGrouping.parse(sourceID: "wordnet-spa-eng")
+        XCTAssertEqual(wn.provider, "wordnet")
+        XCTAssertEqual(wn.languages, ["spa", "eng"],
+                       "`languages` keeps translation direction; only the pair KEY is sorted")
+
+        let ru = DictionaryGrouping.parse(sourceID: "openrussian")
+        XCTAssertEqual(ru.provider, "openrussian")
+        XCTAssertEqual(ru.languages, ["rus", "eng"])
+        XCTAssertFalse(ru.isCustom)
+
+        let en = DictionaryGrouping.parse(sourceID: "wordnet")
+        XCTAssertEqual(en.provider, "wordnet")
+        XCTAssertEqual(en.languages, ["eng"])
+        XCTAssertFalse(en.isCustom)
+
+        let custom = DictionaryGrouping.parse(sourceID: "test_import_fixture")
+        XCTAssertTrue(custom.isCustom)
+        XCTAssertEqual(custom.provider, "test_import_fixture")
+        XCTAssertEqual(custom.languages, [])
+
+        // The bilingual allowlist matches the seed's dict_metadata exactly.
+        XCTAssertEqual(DictionaryGrouping.bundledSourceIDs, ["wordnet-spa-eng", "freedict-eng-spa", "wordnet-arb-eng"],
+                       "allowlist is the one place a future bundled dictionary is added")
+
+        // `SourceStat` surfaces the same facts for the #91 detail.
+        XCTAssertEqual(stat("freedict-eng-spa").provider, "freedict")
+        XCTAssertEqual(stat("freedict-eng-spa").direction?.from, "eng")
+        XCTAssertEqual(stat("freedict-eng-spa").direction?.to, "spa")
+        XCTAssertEqual(stat("wordnet-spa-eng").direction?.from, "spa")
+        XCTAssertEqual(stat("wordnet-spa-eng").direction?.to, "eng")
+        XCTAssertEqual(stat("openrussian").direction?.from, "rus")
+        XCTAssertEqual(stat("openrussian").direction?.to, "eng")
+        XCTAssertNil(stat("wordnet").direction, "monolingual → no direction")
+        XCTAssertNil(stat("test_import_fixture").direction, "custom → no direction")
+        XCTAssertEqual(stat("test_import_fixture").provider, "test_import_fixture")
+        XCTAssertEqual(stat("wordnet").license, "", "defaulted stored fields keep the memberwise init source-compatible")
+        XCTAssertEqual(stat("wordnet").version, "")
+    }
+
+    /// §2b worked example; result is a permutation; idempotent; already-grouped
+    /// input unchanged; `[]` → `[]`.
+    func testGroupedOrderPullsLaterMembersUpToEarliest() {
+        let before = ["wordnet", "freedict-eng-spa", "openrussian", "wordnet-arb-eng", "wordnet-spa-eng"]
+        let after = ["wordnet", "freedict-eng-spa", "wordnet-spa-eng", "openrussian", "wordnet-arb-eng"]
+        let grouped = DictionaryGrouping.groupedOrder(before)
+        XCTAssertEqual(grouped, after)
+        XCTAssertEqual(grouped.sorted(), before.sorted(), "permutation: nothing added or dropped")
+        XCTAssertEqual(Set(grouped).count, grouped.count, "no duplicates")
+        XCTAssertEqual(DictionaryGrouping.groupedOrder(grouped), grouped, "idempotent")
+        XCTAssertEqual(DictionaryGrouping.groupedOrder(after), after, "already-grouped input unchanged")
+        XCTAssertEqual(DictionaryGrouping.groupedOrder(bundled), bundled, "the en default is already grouped")
+        XCTAssertEqual(DictionaryGrouping.groupedOrder([]), [])
+        XCTAssertEqual(DictionaryGrouping.groupedOrder(["wordnet"]), ["wordnet"])
+
+        // The EARLIEST member wins the slot whichever direction it is, and the
+        // later member keeps its place inside the pair.
+        XCTAssertEqual(DictionaryGrouping.groupedOrder(["wordnet-spa-eng", "wordnet", "openrussian", "freedict-eng-spa"]),
+                       ["wordnet-spa-eng", "freedict-eng-spa", "wordnet", "openrussian"])
+        // A convention-named import is not pulled into the bundled pair.
+        XCTAssertEqual(DictionaryGrouping.groupedOrder(["freedict-eng-spa", "a", "wordnet-spa-eng", "b", "freedict-spa-eng"]),
+                       ["freedict-eng-spa", "wordnet-spa-eng", "a", "b", "freedict-spa-eng"])
+        // Custom IDs never join a bundled pair, even when interleaved with it.
+        XCTAssertEqual(DictionaryGrouping.groupedOrder(["freedict-eng-spa", "mydict-eng-spa", "wordnet-spa-eng"]),
+                       ["freedict-eng-spa", "wordnet-spa-eng", "mydict-eng-spa"])
+        // Unknown / single-member IDs are left where they stand.
+        XCTAssertEqual(DictionaryGrouping.groupedOrder(["zzz", "wordnet", "openrussian"]), ["zzz", "wordnet", "openrussian"])
+    }
+
+    /// `[wordnet, freedict-eng-spa, openrussian, wordnet-spa-eng]` →
+    /// `[[wordnet], [freedict-eng-spa, wordnet-spa-eng], [openrussian]]`.
+    func testSourceGroupsSplitByFirstOccurrence() {
+        XCTAssertEqual(DictionaryGrouping.sourceGroups(order: ["wordnet", "freedict-eng-spa", "openrussian", "wordnet-spa-eng"]),
+                       [["wordnet"], ["freedict-eng-spa", "wordnet-spa-eng"], ["openrussian"]])
+        XCTAssertEqual(DictionaryGrouping.sourceGroups(order: []), [])
+        XCTAssertEqual(DictionaryGrouping.sourceGroups(order: ["wordnet-spa-eng"]), [["wordnet-spa-eng"]])
+        // Members keep their relative order from `order` (canonical member order, §2c).
+        XCTAssertEqual(DictionaryGrouping.sourceGroups(order: ["wordnet-spa-eng", "wordnet", "freedict-eng-spa"]),
+                       [["wordnet-spa-eng", "freedict-eng-spa"], ["wordnet"]])
+        // Groups line up with pair keys (search keys buckets by group index).
+        let groups = DictionaryGrouping.sourceGroups(order: bundled)
+        XCTAssertEqual(groups.map { DictionaryGrouping.pairKey(forSource: $0[0]) }, ["eng", "eng-rus", "eng-spa", "arb-eng"])
+        XCTAssertEqual(groups.flatMap { $0 }, DictionaryGrouping.groupedOrder(bundled),
+                       "groupedOrder is exactly the flattened groups")
+        // Every member of a group shares one key; no key appears in two groups.
+        for group in groups {
+            XCTAssertEqual(Set(group.map(DictionaryGrouping.pairKey(forSource:))).count, 1, "mixed group \(group)")
+        }
+        XCTAssertEqual(Set(groups.map { DictionaryGrouping.pairKey(forSource: $0[0]) }).count, groups.count)
+    }
+
+    /// `{wordnet-spa-eng}` + the five known → contains `freedict-eng-spa`;
+    /// nil → nil; `{}` → `{}`; unknown ID preserved; fully-disabled pair stays disabled.
+    func testEnabledIfAnyExpandsPartialPair() {
+        let known = bundled
+
+        // Partial pair → the sibling joins; nothing else is switched on.
+        XCTAssertEqual(DictionaryGrouping.enabledIfAny(["wordnet-spa-eng"], knownSources: known),
+                       ["wordnet-spa-eng", "freedict-eng-spa"])
+        XCTAssertEqual(DictionaryGrouping.enabledIfAny(["freedict-eng-spa", "wordnet"], knownSources: known),
+                       ["freedict-eng-spa", "wordnet-spa-eng", "wordnet"])
+
+        // nil → nil (all enabled, first launch); {} → {} (everything off).
+        XCTAssertNil(DictionaryGrouping.enabledIfAny(nil, knownSources: known))
+        XCTAssertEqual(DictionaryGrouping.enabledIfAny([], knownSources: known), [])
+
+        // An ID present in `enabled` but unknown is preserved verbatim
+        // (removed-source tolerance) and does not drag anything else in.
+        XCTAssertEqual(DictionaryGrouping.enabledIfAny(["ghost", "openrussian"], knownSources: known),
+                       ["ghost", "openrussian"])
+
+        // A fully-disabled pair stays disabled.
+        let withoutSpanish: Set<String> = ["wordnet", "openrussian", "wordnet-arb-eng"]
+        XCTAssertEqual(DictionaryGrouping.enabledIfAny(withoutSpanish, knownSources: known), withoutSpanish)
+
+        // Already-consistent input comes back equal (lets normalisation skip the write).
+        let full = Set(known)
+        XCTAssertEqual(DictionaryGrouping.enabledIfAny(full, knownSources: known), full)
+
+        // Empty known universe: only the enabled IDs themselves survive.
+        XCTAssertEqual(DictionaryGrouping.enabledIfAny(["wordnet-spa-eng"], knownSources: []), ["wordnet-spa-eng"])
+
+        // A custom import named like the pair is NOT pulled in (PM decision #2),
+        // and an enabled custom import does not pull the bundled pair in either.
+        XCTAssertEqual(DictionaryGrouping.enabledIfAny(["wordnet-spa-eng"], knownSources: known + ["mydict-eng-spa"]),
+                       ["wordnet-spa-eng", "freedict-eng-spa"])
+        XCTAssertEqual(DictionaryGrouping.enabledIfAny(["mydict-eng-spa"], knownSources: known + ["mydict-eng-spa"]),
+                       ["mydict-eng-spa"])
+    }
+
+    /// Five stats → four pairs; `eng-spa.count` is the sum; members in `order`
+    /// order; IDs missing from stats are dropped.
+    func testPairsFromStatsSumCountsAndKeepMemberOrder() throws {
+        let stats = [
+            stat("wordnet", count: 100), stat("openrussian", count: 50),
+            stat("freedict-eng-spa", count: 30), stat("wordnet-spa-eng", count: 20),
+            stat("wordnet-arb-eng", count: 10),
+        ]
+        // The `es` first-launch order: Spanish WordNet above FreeDict.
+        let order = ["wordnet-spa-eng", "freedict-eng-spa", "wordnet", "openrussian", "wordnet-arb-eng"]
+        let pairs = DictionaryGrouping.pairs(from: stats, order: order)
+
+        XCTAssertEqual(pairs.map(\.id), ["eng-spa", "eng", "eng-rus", "arb-eng"], "five stats → four pairs")
+        XCTAssertEqual(pairs.map(\.count), [50, 100, 50, 10], "eng-spa = 30 + 20")
+        XCTAssertEqual(pairs.map(\.isCustom), [false, false, false, false])
+        XCTAssertEqual(pairs.map(\.languages), [["eng", "spa"], ["eng"], ["eng", "rus"], ["arb", "eng"]], "sorted codes")
+
+        let spanish = try XCTUnwrap(pairs.first)
+        XCTAssertEqual(spanish.sourceIDs, ["wordnet-spa-eng", "freedict-eng-spa"], "members in `order` order")
+        XCTAssertEqual(spanish.sources.map(\.count), [20, 30])
+        XCTAssertEqual(spanish.sources.map(\.displayName), ["WORDNET-SPA-ENG", "FREEDICT-ENG-SPA"],
+                       "#91 API: the full SourceStat per member, untouched")
+        XCTAssertEqual(spanish.sources.map(\.provider), ["wordnet", "freedict"])
+
+        // Reversed member order in `order` → reversed members, same pair id and count.
+        let reversed = DictionaryGrouping.pairs(from: stats, order: bundled)
+        XCTAssertEqual(reversed.map(\.id), ["eng", "eng-rus", "eng-spa", "arb-eng"])
+        XCTAssertEqual(reversed[2].sourceIDs, ["freedict-eng-spa", "wordnet-spa-eng"])
+        XCTAssertEqual(reversed[2].count, 50)
+
+        // IDs in `order` but missing from stats are dropped; a group with no
+        // resolvable member yields no pair at all.
+        let dropped = DictionaryGrouping.pairs(from: stats, order: ["ghost", "wordnet-spa-eng", "freedict-eng-spa", "wordnet"])
+        XCTAssertEqual(dropped.map(\.id), ["eng-spa", "eng"])
+        let partialStats = stats.filter { $0.source != "wordnet-spa-eng" }
+        let partial = DictionaryGrouping.pairs(from: partialStats, order: order)
+        XCTAssertEqual(partial.map(\.id), ["eng-spa", "eng", "eng-rus", "arb-eng"])
+        XCTAssertEqual(partial[0].sourceIDs, ["freedict-eng-spa"], "the missing member is dropped, the pair survives")
+        XCTAssertEqual(partial[0].count, 30)
+
+        // Stats absent from `order` are not invented (reconciliation is the VM's job).
+        XCTAssertEqual(DictionaryGrouping.pairs(from: stats, order: ["wordnet"]).map(\.id), ["eng"])
+
+        // Custom → own pair, no languages, raw stat kept.
+        let custom = DictionaryGrouping.pairs(from: [stat("test_import_fixture", count: 7)], order: ["test_import_fixture"])
+        XCTAssertEqual(custom.map(\.id), ["custom:test_import_fixture"])
+        XCTAssertEqual(custom.first?.isCustom, true)
+        XCTAssertEqual(custom.first?.languages, [])
+        XCTAssertEqual(custom.first?.count, 7)
+        XCTAssertEqual(custom.first?.sources.first?.displayName, "TEST_IMPORT_FIXTURE")
+
+        // Empty inputs.
+        XCTAssertEqual(DictionaryGrouping.pairs(from: [], order: order), [])
+        XCTAssertEqual(DictionaryGrouping.pairs(from: stats, order: []), [])
+
+        // `DictionaryItem` derives id / count from the pair.
+        let item = DictionaryItem(pair: spanish, displayName: "Spanish – English", isEnabled: true)
+        XCTAssertEqual(item.id, "eng-spa")
+        XCTAssertEqual(item.count, 50)
+    }
+
+    /// #74 interplay: for every `DictionaryDefaults.preferredSources` list,
+    /// `Set(ids.map(pairKey)).count == 1`.
+    func testPreferredSourcesMembersCollapseToSinglePair() {
+        XCTAssertFalse(DictionaryDefaults.preferredSources.isEmpty)
+        for (lang, ids) in DictionaryDefaults.preferredSources {
+            let keys = Set(ids.map(DictionaryGrouping.pairKey(forSource:)))
+            XCTAssertEqual(keys.count, 1,
+                           "preferredSources[\(lang)] = \(ids) must all belong to one pair; got \(keys)")
+            XCTAssertFalse(keys.contains { $0.hasPrefix("custom:") },
+                           "preferredSources[\(lang)] must reference bundled IDs only")
+        }
+        // The #74 default for every shipped UI language already satisfies I2,
+        // so the first-launch order is never reshuffled by grouping.
+        for lang in ["en", "ru", "es", "ar"] {
+            let d = DictionaryDefaults.defaultOrder(forLanguageCode: lang, sources: bundled)
+            XCTAssertEqual(DictionaryGrouping.groupedOrder(d), d, "\(lang) default must already be grouped")
+        }
+        // And a preferred list naming only ONE member still promotes the whole
+        // pair once grouped (bonus property, §2c).
+        let partialPreferred = DictionaryGrouping.groupedOrder(["freedict-eng-spa"] + bundled.filter { $0 != "freedict-eng-spa" })
+        XCTAssertEqual(Array(partialPreferred.prefix(2)), ["freedict-eng-spa", "wordnet-spa-eng"])
+    }
+}
+
+/// `SettingsViewModel` pair-level integration (pattern of
+/// `DictionaryDefaultsTests`: throwaway SQLite on `DatabaseService.shared`,
+/// in-memory settings, `LocalizationManager` pinned via `ui_language`), seeded
+/// with the five bundled IDs plus custom sources. DESIGN_DOC.md §7a,
+/// "SettingsViewModel integration".
+final class SettingsViewModelPairTests: XCTestCase {
+    /// Count-desc as `fetchSourceStats()` returns the bundled seed (= the `en`
+    /// default order). Counts are distinct so the DB order is deterministic.
+    private let bundledSources = ["wordnet", "openrussian", "freedict-eng-spa", "wordnet-spa-eng", "wordnet-arb-eng"]
+    private let counts: [String: Int] = [
+        "wordnet": 7, "openrussian": 6, "freedict-eng-spa": 5, "wordnet-spa-eng": 4, "wordnet-arb-eng": 3,
+        "mydict-eng-spa": 2, "test_import_fixture": 1,
+    ]
+
+    private var tempDir: URL!
+    private var dbPath: String { tempDir.appendingPathComponent("test.sqlite").path }
+
+    override func setUp() async throws {
+        try await super.setUp()
+        tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        try await DatabaseService.shared.setup(path: dbPath)
+    }
+
+    override func tearDown() async throws {
+        try? FileManager.default.removeItem(at: tempDir)
+        try await super.tearDown()
+    }
+
+    private func seed(source: String) async throws {
+        let count = try XCTUnwrap(counts[source], "no seed count for \(source)")
+        let pool = try DatabasePool(path: dbPath)
+        try await pool.writeWithoutTransaction { db in
+            for i in 0..<count {
+                try db.execute(
+                    sql: """
+                        INSERT OR IGNORE INTO entries(word, word_normalized, definition, phonetic, pos, source)
+                        VALUES (?, ?, ?, ?, ?, ?)
+                        """,
+                    arguments: ["\(source)-w\(i)", "\(source)-w\(i)", "def \(i)", "", "noun", source]
+                )
+            }
+        }
+    }
+
+    private func seedBundled() async throws {
+        for source in bundledSources { try await seed(source: source) }
+    }
+
+    private func insertMetadata(source: String, displayName: String) async throws {
+        let pool = try DatabasePool(path: dbPath)
+        try await pool.write { db in
+            try db.execute(sql: "INSERT INTO dict_metadata(source, display_name) VALUES (?, ?)",
+                           arguments: [source, displayName])
+        }
+    }
+
+    /// Builds a VM whose `LocalizationManager` is pinned to `languageCode` and
+    /// whose stored prefs start as given. Returns the VM, its settings
+    /// service and the spy store behind it.
+    @MainActor
+    private func makeViewModel(languageCode: String, storedOrder: [String]? = nil,
+                               storedEnabled: Set<String>? = nil)
+        -> (SettingsViewModel, SettingsService, InMemoryKeyValueStore) {
+        let store = InMemoryKeyValueStore()
+        let settings = SettingsService(store: store)
+        settings.selectedUILanguageCode = languageCode
+        settings.dictionaryOrder = storedOrder
+        settings.enabledSources = storedEnabled
+        let localization = LocalizationManager(settingsService: settings, bundle: .main)
+        XCTAssertEqual(localization.currentLanguage.code, languageCode,
+                       "precondition: LocalizationManager must resolve the pinned language")
+        return (SettingsViewModel(settingsService: settings, localization: localization), settings, store)
+    }
+
+    private func assertGrouped(_ order: [String]?, permutationOf expected: [String],
+                               file: StaticString = #filePath, line: UInt = #line) {
+        let order = order ?? []
+        XCTAssertEqual(order.sorted(), expected.sorted(), "must be a permutation of the live sources; got \(order)",
+                       file: file, line: line)
+        XCTAssertEqual(DictionaryGrouping.groupedOrder(order), order, "pair members must be contiguous; got \(order)",
+                       file: file, line: line)
+    }
+
+    /// 7 sources → 6 items; `map(\.id)`; `eng-spa` count = sum; custom items
+    /// `custom:<id>` with the raw display name (metadata name or source ID).
+    @MainActor
+    func testLoadDictionariesGroupsBundledPairs() async throws {
+        try await seedBundled()
+        try await seed(source: "mydict-eng-spa")        // custom named like a bundled pair
+        try await seed(source: "test_import_fixture")   // custom without a metadata row
+        try await insertMetadata(source: "mydict-eng-spa", displayName: "My Spanish Dict")
+        try await insertMetadata(source: "freedict-eng-spa", displayName: "English – Spanish (FreeDict)")
+
+        let (vm, settings, _) = makeViewModel(languageCode: "en")
+        await vm.loadDictionaries()
+
+        XCTAssertEqual(vm.dictionaries.map(\.id),
+                       ["eng", "eng-rus", "eng-spa", "arb-eng", "custom:mydict-eng-spa", "custom:test_import_fixture"],
+                       "7 sources → 6 rows: the two Spanish directions share one row, customs stay apart")
+        XCTAssertEqual(vm.dictionaries.map(\.displayName),
+                       ["English", "Russian – English", "Spanish – English", "Arabic – English",
+                        "My Spanish Dict", "test_import_fixture"],
+                       "pair titles are localised language names; customs show their raw name (PM #2/#3)")
+        XCTAssertEqual(vm.dictionaries.map(\.count), [7, 6, 9, 3, 2, 1], "eng-spa = 5 + 4")
+        XCTAssertTrue(vm.dictionaries.allSatisfy(\.isEnabled), "fresh install: every row ON")
+
+        let spanish = try XCTUnwrap(vm.dictionaries.first { $0.id == "eng-spa" })
+        XCTAssertEqual(spanish.pair.sourceIDs, ["freedict-eng-spa", "wordnet-spa-eng"])
+        XCTAssertEqual(spanish.pair.sources.map(\.count), [5, 4])
+        XCTAssertEqual(spanish.pair.sources.map(\.displayName), ["English – Spanish (FreeDict)", "wordnet-spa-eng"],
+                       "#91 API: per-source stats stay available behind the row")
+        XCTAssertEqual(spanish.pair.languages, ["eng", "spa"])
+
+        let custom = try XCTUnwrap(vm.dictionaries.first { $0.id == "custom:mydict-eng-spa" })
+        XCTAssertTrue(custom.pair.isCustom)
+        XCTAssertEqual(custom.pair.sourceIDs, ["mydict-eng-spa"])
+        XCTAssertEqual(custom.pair.languages, [])
+
+        // Persistence stays source-level: order materialised as source IDs, enabled left nil.
+        XCTAssertEqual(settings.dictionaryOrder,
+                       ["wordnet", "openrussian", "freedict-eng-spa", "wordnet-spa-eng", "wordnet-arb-eng",
+                        "mydict-eng-spa", "test_import_fixture"])
+        XCTAssertNil(settings.enabledSources, "nil (all enabled) is not materialised by a load")
+        XCTAssertEqual(vm.orderedDictionaries.map(\.id), vm.dictionaries.map(\.id))
+    }
+
+    /// Toggle `eng-spa` → `isEnabled(source:)` false for both members; toggling
+    /// back restores both.
+    @MainActor
+    func testTogglePairDisablesBothDirections() async throws {
+        try await seedBundled()
+        let (vm, settings, store) = makeViewModel(languageCode: "en")
+        await vm.loadDictionaries()
+        XCTAssertNil(settings.enabledSources, "precondition")
+
+        let writesBeforeToggle = store.writeLog.filter { $0 == "enabled_sources" }.count
+        vm.togglePair(id: "eng-spa")
+
+        XCTAssertFalse(settings.isEnabled(source: "freedict-eng-spa"))
+        XCTAssertFalse(settings.isEnabled(source: "wordnet-spa-eng"))
+        XCTAssertEqual(settings.enabledSources, ["wordnet", "openrussian", "wordnet-arb-eng"],
+                       "materialised from the live sources minus BOTH members")
+        XCTAssertEqual(vm.dictionaries.map(\.isEnabled), [true, true, false, true])
+        XCTAssertFalse(vm.binding(for: "eng-spa").wrappedValue)
+        XCTAssertEqual(store.writeLog.filter { $0 == "enabled_sources" }.count, writesBeforeToggle + 1,
+                       "one write for the pair")
+
+        // The persisted state survives a reload (what the order screen shows
+        // after navigating away and back).
+        await vm.loadDictionaries()
+        XCTAssertEqual(vm.dictionaries.map(\.isEnabled), [true, true, false, true])
+
+        // Toggling back through the SwiftUI binding restores both members.
+        vm.binding(for: "eng-spa").wrappedValue = true
+        XCTAssertTrue(settings.isEnabled(source: "freedict-eng-spa"))
+        XCTAssertTrue(settings.isEnabled(source: "wordnet-spa-eng"))
+        XCTAssertEqual(settings.enabledSources, Set(bundledSources))
+        XCTAssertTrue(vm.dictionaries.allSatisfy(\.isEnabled))
+
+        // Setting the binding to its current value is a no-op (no extra write).
+        let writes = store.writeLog.count
+        vm.binding(for: "eng-spa").wrappedValue = true
+        XCTAssertEqual(store.writeLog.count, writes)
+
+        // Unknown pair id: no crash, no write; its binding reads false.
+        vm.togglePair(id: "custom:ghost")
+        XCTAssertEqual(store.writeLog.count, writes)
+        XCTAssertFalse(vm.binding(for: "custom:ghost").wrappedValue)
+
+        // A single-source pair toggles exactly its one member.
+        vm.togglePair(id: "eng-rus")
+        XCTAssertEqual(settings.enabledSources, ["wordnet", "freedict-eng-spa", "wordnet-spa-eng", "wordnet-arb-eng"])
+    }
+
+    /// After a move, `dictionaryOrder` has pair members contiguous and is a
+    /// permutation of existing.
+    @MainActor
+    func testMovePairPersistsGroupedSourceOrder() async throws {
+        try await seedBundled()
+        let (vm, settings, _) = makeViewModel(languageCode: "en")
+        await vm.loadDictionaries()
+        XCTAssertEqual(vm.dictionaries.map(\.id), ["eng", "eng-rus", "eng-spa", "arb-eng"], "precondition")
+
+        // Spanish pair (row 2) to the top: both members move as one slot.
+        vm.movePair(from: IndexSet(integer: 2), to: 0)
+        XCTAssertEqual(vm.dictionaries.map(\.id), ["eng-spa", "eng", "eng-rus", "arb-eng"])
+        XCTAssertEqual(settings.dictionaryOrder,
+                       ["freedict-eng-spa", "wordnet-spa-eng", "wordnet", "openrussian", "wordnet-arb-eng"])
+        assertGrouped(settings.dictionaryOrder, permutationOf: bundledSources)
+
+        // Then to the bottom (`toOffset == count` moves past the last row).
+        vm.movePair(from: IndexSet(integer: 0), to: vm.dictionaries.count)
+        XCTAssertEqual(vm.dictionaries.map(\.id), ["eng", "eng-rus", "arb-eng", "eng-spa"])
+        XCTAssertEqual(settings.dictionaryOrder,
+                       ["wordnet", "openrussian", "wordnet-arb-eng", "freedict-eng-spa", "wordnet-spa-eng"])
+        assertGrouped(settings.dictionaryOrder, permutationOf: bundledSources)
+
+        // Reload reads the persisted order back: same rows, members still in
+        // their canonical (FreeDict-first) order.
+        await vm.loadDictionaries()
+        XCTAssertEqual(vm.dictionaries.map(\.id), ["eng", "eng-rus", "arb-eng", "eng-spa"])
+        XCTAssertEqual(vm.dictionaries.last?.pair.sourceIDs, ["freedict-eng-spa", "wordnet-spa-eng"])
+        XCTAssertEqual(settings.dictionaryOrder,
+                       ["wordnet", "openrussian", "wordnet-arb-eng", "freedict-eng-spa", "wordnet-spa-eng"])
+
+        // A no-op move keeps everything in place.
+        vm.movePair(from: IndexSet(integer: 1), to: 1)
+        XCTAssertEqual(vm.dictionaries.map(\.id), ["eng", "eng-rus", "arb-eng", "eng-spa"])
+    }
+
+    /// Pre-store `{wordnet-spa-eng}` only → after load the row is ON and
+    /// `enabled_sources` contains `freedict-eng-spa`.
+    @MainActor
+    func testLegacyPartialPairMigratesEnabledIfAny() async throws {
+        try await seedBundled()
+
+        // 1.3.x user who had FreeDict OFF but Spanish WordNet ON (the §2b example).
+        let legacyEnabled: Set<String> = ["wordnet", "openrussian", "wordnet-spa-eng", "wordnet-arb-eng"]
+        let legacyOrder = ["wordnet", "freedict-eng-spa", "openrussian", "wordnet-arb-eng", "wordnet-spa-eng"]
+        let (vm, settings, store) = makeViewModel(languageCode: "en", storedOrder: legacyOrder, storedEnabled: legacyEnabled)
+        let seededWrites = store.writeLog.count
+        await vm.loadDictionaries()
+
+        let spanish = try XCTUnwrap(vm.dictionaries.first { $0.id == "eng-spa" })
+        XCTAssertTrue(spanish.isEnabled, "enabled-if-any: the row is ON because one direction was ON")
+        XCTAssertTrue(vm.dictionaries.allSatisfy(\.isEnabled))
+        XCTAssertEqual(settings.enabledSources, Set(bundledSources),
+                       "the stored set now holds BOTH directions — relevance search needs no change")
+        XCTAssertTrue(settings.isEnabled(source: "freedict-eng-spa"))
+        XCTAssertEqual(store.writeLog.dropFirst(seededWrites).filter { $0 == "enabled_sources" }.count, 1,
+                       "migrated once; a load must not churn the enabled set")
+
+        // Second load: already migrated → no further enabled-set write.
+        let afterFirst = store.writeLog.filter { $0 == "enabled_sources" }.count
+        await vm.loadDictionaries()
+        XCTAssertEqual(store.writeLog.filter { $0 == "enabled_sources" }.count, afterFirst)
+
+        // Contrast: a user who had the WHOLE Spanish pair off (and Russian off)
+        // stays off — migration never switches a fully-disabled pair on.
+        let (vm2, settings2, _) = makeViewModel(languageCode: "en", storedOrder: legacyOrder,
+                                                storedEnabled: ["wordnet", "wordnet-arb-eng"])
+        await vm2.loadDictionaries()
+        XCTAssertEqual(vm2.dictionaries.map(\.id), ["eng", "eng-spa", "eng-rus", "arb-eng"])
+        XCTAssertEqual(vm2.dictionaries.map(\.isEnabled), [true, false, false, true])
+        XCTAssertEqual(settings2.enabledSources, ["wordnet", "wordnet-arb-eng"])
+    }
+
+    /// Pre-store the §2b "before" order → persisted "after" order.
+    @MainActor
+    func testLegacyInterleavedOrderIsGroupedOnLoad() async throws {
+        try await seedBundled()
+        let before = ["wordnet", "freedict-eng-spa", "openrussian", "wordnet-arb-eng", "wordnet-spa-eng"]
+        let after = ["wordnet", "freedict-eng-spa", "wordnet-spa-eng", "openrussian", "wordnet-arb-eng"]
+        let (vm, settings, _) = makeViewModel(languageCode: "en", storedOrder: before)
+
+        await vm.loadDictionaries()
+
+        XCTAssertEqual(settings.dictionaryOrder, after, "pair joins its earliest member; everything else keeps its order")
+        XCTAssertEqual(vm.dictionaries.map(\.id), ["eng", "eng-spa", "eng-rus", "arb-eng"])
+        XCTAssertEqual(vm.dictionaries[1].pair.sourceIDs, ["freedict-eng-spa", "wordnet-spa-eng"],
+                       "FreeDict was the earliest member, so it leads the pair")
+        assertGrouped(settings.dictionaryOrder, permutationOf: bundledSources)
+
+        // Idempotent on the next load.
+        await vm.loadDictionaries()
+        XCTAssertEqual(settings.dictionaryOrder, after)
+        XCTAssertEqual(vm.dictionaries.map(\.id), ["eng", "eng-spa", "eng-rus", "arb-eng"])
+
+        // A stored order that references a removed source and misses a new
+        // one is reconciled first, then grouped: the stale ID is dropped and
+        // the newcomer appended — with its sibling pulled up beside it.
+        let (vm2, settings2, _) = makeViewModel(languageCode: "en",
+                                                storedOrder: ["ghost", "wordnet-spa-eng", "wordnet", "openrussian"])
+        await vm2.loadDictionaries()
+        XCTAssertEqual(settings2.dictionaryOrder,
+                       ["wordnet-spa-eng", "freedict-eng-spa", "wordnet", "openrussian", "wordnet-arb-eng"])
+        XCTAssertEqual(vm2.dictionaries.map(\.id), ["eng-spa", "eng", "eng-rus", "arb-eng"])
+    }
+
+    /// #74: nil order, `es` → ids `[eng-spa, eng, eng-rus, arb-eng]`, members
+    /// `wordnet-spa-eng` before `freedict-eng-spa`; second load idempotent.
+    @MainActor
+    func testFirstLaunchSpanishPutsSpanishPairFirst() async throws {
+        try await seedBundled()
+        let (vm, settings, _) = makeViewModel(languageCode: "es")
+
+        await vm.loadDictionaries()
+
+        XCTAssertEqual(vm.dictionaries.map(\.id), ["eng-spa", "eng", "eng-rus", "arb-eng"])
+        XCTAssertEqual(settings.dictionaryOrder,
+                       ["wordnet-spa-eng", "freedict-eng-spa", "wordnet", "openrussian", "wordnet-arb-eng"],
+                       "the #74 es default is persisted unchanged — it is already grouped")
+        XCTAssertEqual(vm.dictionaries.first?.pair.sourceIDs, ["wordnet-spa-eng", "freedict-eng-spa"],
+                       "Spanish WordNet stacks above FreeDict (the #91 detail order)")
+        XCTAssertEqual(vm.dictionaries.map(\.displayName),
+                       ["Español – Inglés", "Inglés", "Ruso – Inglés", "Árabe – Inglés"],
+                       "titles follow the in-app UI language, not the process locale")
+        XCTAssertTrue(vm.dictionaries.allSatisfy(\.isEnabled))
+
+        await vm.loadDictionaries()
+        XCTAssertEqual(vm.dictionaries.map(\.id), ["eng-spa", "eng", "eng-rus", "arb-eng"], "second load idempotent")
+        XCTAssertEqual(settings.dictionaryOrder,
+                       ["wordnet-spa-eng", "freedict-eng-spa", "wordnet", "openrussian", "wordnet-arb-eng"])
+
+        // The other shipped languages, same seed (table in DESIGN_DOC §2c).
+        let (ru, _, _) = makeViewModel(languageCode: "ru")
+        await ru.loadDictionaries()
+        XCTAssertEqual(ru.dictionaries.map(\.id), ["eng-rus", "eng", "eng-spa", "arb-eng"])
+        XCTAssertEqual(ru.dictionaries.map(\.displayName),
+                       ["Русский – Английский", "Английский", "Испанский – Английский", "Арабский – Английский"])
+        let ar = makeViewModel(languageCode: "ar").0
+        await ar.loadDictionaries()
+        XCTAssertEqual(ar.dictionaries.map(\.id), ["arb-eng", "eng", "eng-rus", "eng-spa"])
+        // RTL: Foundation wraps each format argument in bidi isolates
+        // (U+2068 FSI … U+2069 PDI) so the names never reorder across the dash.
+        XCTAssertEqual(ar.dictionaries.first?.displayName, "\u{2068}العربية\u{2069} – \u{2068}الإنجليزية\u{2069}")
+    }
+
+    /// Static, no DB: `eng-spa` → "Spanish – English" (en) /
+    /// "Испанский – Английский" (ru); `eng` → "English"; custom → raw name;
+    /// unknown `deu` → "German" (ICU resolves alpha-3; pinned here).
+    func testDisplayNamesPerLocale() {
+        func pair(_ id: String, _ languages: [String], _ sources: [String], custom: Bool = false) -> DictionaryPair {
+            DictionaryPair(id: id, languages: languages, isCustom: custom,
+                           sources: sources.map { SourceStat(source: $0, displayName: "Raw \($0)", count: 1) })
+        }
+        let spanish = pair("eng-spa", ["eng", "spa"], ["freedict-eng-spa", "wordnet-spa-eng"])
+        let english = pair("eng", ["eng"], ["wordnet"])
+        let russian = pair("eng-rus", ["eng", "rus"], ["openrussian"])
+        let arabic = pair("arb-eng", ["arb", "eng"], ["wordnet-arb-eng"])
+        let custom = pair("custom:test_import_fixture", [], ["test_import_fixture"], custom: true)
+        let en = Locale(identifier: "en"), ru = Locale(identifier: "ru")
+        let es = Locale(identifier: "es"), ar = Locale(identifier: "ar")
+
+        // English UI.
+        XCTAssertEqual(SettingsViewModel.displayName(for: spanish, locale: en), "Spanish – English")
+        XCTAssertEqual(SettingsViewModel.displayName(for: russian, locale: en), "Russian – English")
+        XCTAssertEqual(SettingsViewModel.displayName(for: arabic, locale: en), "Arabic – English",
+                       "the non-English language leads even though 'arb' sorts before 'eng' in the key")
+        XCTAssertEqual(SettingsViewModel.displayName(for: english, locale: en), "English",
+                       "PM decision #1: never 'English – English'")
+        XCTAssertTrue(SettingsViewModel.displayName(for: spanish, locale: en).contains("\u{2013}"),
+                      "U+2013 en dash with spaces, matching the seed's display names")
+        XCTAssertFalse(SettingsViewModel.displayName(for: spanish, locale: en).contains("("),
+                       "PM decision #3: no provider parenthetical in the row title")
+
+        // Other shipped UI languages use the catalog names.
+        XCTAssertEqual(SettingsViewModel.displayName(for: spanish, locale: ru), "Испанский – Английский")
+        XCTAssertEqual(SettingsViewModel.displayName(for: english, locale: ru), "Английский")
+        XCTAssertEqual(SettingsViewModel.displayName(for: arabic, locale: ru), "Арабский – Английский")
+        XCTAssertEqual(SettingsViewModel.displayName(for: spanish, locale: es), "Español – Inglés")
+        XCTAssertEqual(SettingsViewModel.displayName(for: english, locale: es), "Inglés")
+        XCTAssertEqual(SettingsViewModel.displayName(for: spanish, locale: ar),
+                       "\u{2068}الإسبانية\u{2069} – \u{2068}الإنجليزية\u{2069}",
+                       "Arabic: catalog names, each bidi-isolated by Foundation's RTL formatting")
+        XCTAssertEqual(SettingsViewModel.displayName(for: english, locale: ar), "الإنجليزية")
+
+        // Custom → raw metadata name, never a pair title, in every locale.
+        for locale in [en, ru, es, ar] {
+            XCTAssertEqual(SettingsViewModel.displayName(for: custom, locale: locale), "Raw test_import_fixture")
+        }
+        let namedLikePair = pair("custom:mydict-eng-spa", [], ["mydict-eng-spa"], custom: true)
+        XCTAssertEqual(SettingsViewModel.displayName(for: namedLikePair, locale: en), "Raw mydict-eng-spa")
+        let noSources = DictionaryPair(id: "custom:ghost", languages: [], isCustom: true, sources: [])
+        XCTAssertEqual(SettingsViewModel.displayName(for: noSources, locale: en), "custom:ghost",
+                       "a custom pair with no resolvable source falls back to its id")
+
+        // Unknown ISO-639-3 code. Pinned behaviour of
+        // `Locale.localizedString(forLanguageCode:)` on this toolchain: ICU
+        // accepts alpha-3 and resolves it to the display name (verified on
+        // iOS 26 / Xcode 26.4). If a future SDK stops resolving alpha-3, the
+        // production fallback is the raw code and this expectation moves to it.
+        XCTAssertEqual(SettingsViewModel.languageName(iso3: "deu", locale: en), "German")
+        XCTAssertEqual(SettingsViewModel.languageName(iso3: "deu", locale: ru), "немецкий")
+        XCTAssertEqual(SettingsViewModel.languageName(iso3: "fra", locale: es), "francés")
+        XCTAssertEqual(SettingsViewModel.languageName(iso3: "zzz", locale: en), "zzz",
+                       "an unresolvable code degrades to the raw code — never empty, never a crash")
+        XCTAssertEqual(SettingsViewModel.languageName(iso3: "", locale: en), "")
+        let german = pair("deu-eng", ["deu", "eng"], ["freedict-deu-eng"])
+        XCTAssertEqual(SettingsViewModel.displayName(for: german, locale: en), "German – English")
+        let frenchGerman = pair("deu-fra", ["deu", "fra"], ["freedict-fra-deu"])
+        XCTAssertEqual(SettingsViewModel.displayName(for: frenchGerman, locale: en), "German – French",
+                       "a pair without English keeps sorted-key order")
+
+        // Shipped codes go through the catalog, not ICU (capitalisation differs).
+        XCTAssertEqual(SettingsViewModel.languageName(iso3: "rus", locale: ru), "Русский")
+        XCTAssertEqual(SettingsViewModel.languageName(iso3: "spa", locale: es), "Español")
+        XCTAssertEqual(SettingsViewModel.languageName(iso3: "arb", locale: ar), "العربية")
+        XCTAssertEqual(SettingsViewModel.languageName(iso3: "eng", locale: en), "English")
+
+        // Degenerate pair shapes never crash: 3+ languages fall back to the id.
+        let odd = pair("deu-eng-fra", ["deu", "eng", "fra"], ["x"])
+        XCTAssertEqual(SettingsViewModel.displayName(for: odd, locale: en), "deu-eng-fra")
+        let empty = DictionaryPair(id: "eng", languages: [], isCustom: false, sources: [])
+        XCTAssertEqual(SettingsViewModel.displayName(for: empty, locale: en), "eng")
     }
 }

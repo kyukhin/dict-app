@@ -46,8 +46,11 @@ final class SearchViewModel: ObservableObject {
         let enabledSources: Set<String>? = settings.enabledSources
         let mode = settings.resultSortMode
         let order = settings.dictionaryOrder ?? []
+        // Issue #92: preferred mode buckets per language pair, so split the
+        // source order into pair groups (pure, no DB) at keystroke time.
+        let groups = DictionaryGrouping.sourceGroups(order: order)
 
-        searchTask = Task { [trimmed, db, enabledSources, mode, order] in
+        searchTask = Task { [trimmed, db, enabledSources, mode, order, groups] in
             // Debounce: wait briefly so we don't hammer the DB on every keystroke.
             try? await Task.sleep(for: debounceInterval)
             guard !Task.isCancelled else { return }
@@ -58,7 +61,7 @@ final class SearchViewModel: ObservableObject {
                     // nil enabledSources = all enabled → all known (ordered) sources.
                     let effectiveEnabled = enabledSources ?? Set(order)
                     found = try await db.searchPreferred(
-                        query: trimmed, order: order, enabledSources: effectiveEnabled
+                        query: trimmed, groups: groups, enabledSources: effectiveEnabled
                     )
                 } else {
                     found = try await db.search(query: trimmed, enabledSources: enabledSources)

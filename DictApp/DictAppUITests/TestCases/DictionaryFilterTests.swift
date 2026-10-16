@@ -25,9 +25,15 @@ final class DictionaryFilterTests: XCTestCase {
     var app: XCUIApplication!
     var tabBarPage: TabBarPage!
 
-    /// The four sources shipped in the seed database.
-    private let englishSource = "wordnet"
-    private let russianSource = "openrussian"
+    /// Language-pair keys as rendered on the Dictionary Order screen (Issue
+    /// #92): one row / one toggle per pair. `spanishPair` covers BOTH
+    /// `freedict-eng-spa` and `wordnet-spa-eng`.
+    private let englishPair = TestData.Pairs.english
+    private let russianPair = TestData.Pairs.russian
+    private let spanishPair = TestData.Pairs.spanish
+
+    /// Source IDs, used only in badge-provenance messages (badges and
+    /// stripes stay per source).
     private let englishSpanishSource = "freedict-eng-spa"
     private let spanishEnglishSource = "wordnet-spa-eng"
 
@@ -131,7 +137,7 @@ final class DictionaryFilterTests: XCTestCase {
 
         // 2) Disable the Russian dictionary.
         let settingsPage = tabBarPage.tapSettingsTab()
-        settingsPage.tapToggle(source: russianSource)
+        settingsPage.tapToggle(pair: russianPair)
 
         // 3) Re-run the same search. Results must be empty because "яблоко"
         //    only exists in the (now-disabled) Russian source.
@@ -141,7 +147,7 @@ final class DictionaryFilterTests: XCTestCase {
 
         XCTAssertTrue(
             searchPageAgain.waitForNoResults(),
-            "After disabling '\(russianSource)', search for '\(russianOnlyTerm)' must show ContentUnavailableView"
+            "After disabling '\(russianPair)', search for '\(russianOnlyTerm)' must show ContentUnavailableView"
         )
     }
 
@@ -153,8 +159,8 @@ final class DictionaryFilterTests: XCTestCase {
     func testDisablingAllDictionariesReturnsEmpty() throws {
         // 1) Disable both dictionaries in Settings.
         let settingsPage = tabBarPage.tapSettingsTab()
-        settingsPage.tapToggle(source: englishSource)
-        settingsPage.tapToggle(source: russianSource)
+        settingsPage.tapToggle(pair: englishPair)
+        settingsPage.tapToggle(pair: russianPair)
 
         // 2) Search for a word that would normally hit at least one dict.
         let searchPage = tabBarPage.tapSearchTab()
@@ -192,9 +198,14 @@ final class DictionaryFilterTests: XCTestCase {
         )
     }
 
-    /// Disabling `freedict-eng-spa` must eliminate Spanish-only hits, and
+    /// Disabling the Spanish pair must eliminate Spanish-only hits, and
     /// re-enabling must bring them back. Round-trips the toggle so we
     /// cover both edges of the per-source filter for the new source.
+    ///
+    /// Issue #92: `freedict-eng-spa` and `wordnet-spa-eng` share the single
+    /// `eng-spa` row, so the one toggle must also hide the Spanish-WordNet
+    /// probe (`atacar`) — asserted here because both directions now
+    /// exercise the same row.
     ///
     /// Probing with a term that exists exclusively in `freedict-eng-spa`
     /// keeps the empty-state assertion meaningful — without an
@@ -211,9 +222,9 @@ final class DictionaryFilterTests: XCTestCase {
         )
         searchPage.clearOverlaysBeforeTabSwitch()
 
-        // 2) Disable freedict-eng-spa.
+        // 2) Disable the Spanish pair (freedict-eng-spa AND wordnet-spa-eng).
         var settingsPage = tabBarPage.tapSettingsTab()
-        settingsPage.tapToggle(source: englishSpanishSource)
+        settingsPage.tapToggle(pair: spanishPair)
 
         // 3) The same search now drops to ContentUnavailableView — the
         //    Spanish-only term has no remaining home in the enabled set.
@@ -222,20 +233,27 @@ final class DictionaryFilterTests: XCTestCase {
         searchPage.searchFor(spanishOnlyTerm)
         XCTAssertTrue(
             searchPage.waitForNoResults(),
-            "After disabling '\(englishSpanishSource)', '\(spanishOnlyTerm)' must show ContentUnavailableView"
+            "After disabling the '\(spanishPair)' pair, '\(spanishOnlyTerm)' must show ContentUnavailableView"
+        )
+        //    …and so does the other direction's probe (same row, Issue #92).
+        searchPage.clearSearch()
+        searchPage.searchFor(spanishHeadwordTerm)
+        XCTAssertTrue(
+            searchPage.waitForNoResults(),
+            "After disabling the '\(spanishPair)' pair, '\(spanishHeadwordTerm)' (\(spanishEnglishSource)) must also show ContentUnavailableView"
         )
         searchPage.clearOverlaysBeforeTabSwitch()
 
-        // 4) Re-enable freedict-eng-spa; results must come back.
+        // 4) Re-enable the Spanish pair; results must come back.
         settingsPage = tabBarPage.tapSettingsTab()
-        settingsPage.tapToggle(source: englishSpanishSource)
+        settingsPage.tapToggle(pair: spanishPair)
 
         searchPage = tabBarPage.tapSearchTab()
         searchPage.clearSearch()
         searchPage.searchFor(spanishOnlyTerm)
         XCTAssertTrue(
             searchPage.waitForResults(),
-            "After re-enabling '\(englishSpanishSource)', '\(spanishOnlyTerm)' must return results again"
+            "After re-enabling the '\(spanishPair)' pair, '\(spanishOnlyTerm)' must return results again"
         )
     }
 
@@ -266,10 +284,15 @@ final class DictionaryFilterTests: XCTestCase {
         )
     }
 
-    /// Disabling `wordnet-spa-eng` must eliminate the Spanish-headword
+    /// Disabling the Spanish pair must eliminate the Spanish-headword
     /// hits, and re-enabling must restore them. Round-trips the toggle so
     /// both edges of the per-source filter are covered for the fourth
     /// source.
+    ///
+    /// Issue #92: `wordnet-spa-eng` shares the single `eng-spa` row with
+    /// `freedict-eng-spa`, so the one toggle must also hide the FreeDict
+    /// probe (`niños`) — asserted here because both directions now
+    /// exercise the same row.
     ///
     /// Probing with a term exclusive to `wordnet-spa-eng` keeps the
     /// empty-state assertion meaningful: without exclusivity, leftover
@@ -286,9 +309,9 @@ final class DictionaryFilterTests: XCTestCase {
         )
         searchPage.clearOverlaysBeforeTabSwitch()
 
-        // 2) Disable wordnet-spa-eng.
+        // 2) Disable the Spanish pair (wordnet-spa-eng AND freedict-eng-spa).
         var settingsPage = tabBarPage.tapSettingsTab()
-        settingsPage.tapToggle(source: spanishEnglishSource)
+        settingsPage.tapToggle(pair: spanishPair)
 
         // 3) The same search now drops to ContentUnavailableView — the
         //    term has no remaining home in the enabled set.
@@ -297,20 +320,27 @@ final class DictionaryFilterTests: XCTestCase {
         searchPage.searchFor(spanishHeadwordTerm)
         XCTAssertTrue(
             searchPage.waitForNoResults(),
-            "After disabling '\(spanishEnglishSource)', '\(spanishHeadwordTerm)' must show ContentUnavailableView"
+            "After disabling the '\(spanishPair)' pair, '\(spanishHeadwordTerm)' must show ContentUnavailableView"
+        )
+        //    …and so does the other direction's probe (same row, Issue #92).
+        searchPage.clearSearch()
+        searchPage.searchFor(spanishOnlyTerm)
+        XCTAssertTrue(
+            searchPage.waitForNoResults(),
+            "After disabling the '\(spanishPair)' pair, '\(spanishOnlyTerm)' (\(englishSpanishSource)) must also show ContentUnavailableView"
         )
         searchPage.clearOverlaysBeforeTabSwitch()
 
-        // 4) Re-enable wordnet-spa-eng; results must come back.
+        // 4) Re-enable the Spanish pair; results must come back.
         settingsPage = tabBarPage.tapSettingsTab()
-        settingsPage.tapToggle(source: spanishEnglishSource)
+        settingsPage.tapToggle(pair: spanishPair)
 
         searchPage = tabBarPage.tapSearchTab()
         searchPage.clearSearch()
         searchPage.searchFor(spanishHeadwordTerm)
         XCTAssertTrue(
             searchPage.waitForResults(),
-            "After re-enabling '\(spanishEnglishSource)', '\(spanishHeadwordTerm)' must return results again"
+            "After re-enabling the '\(spanishPair)' pair, '\(spanishHeadwordTerm)' must return results again"
         )
     }
 
@@ -319,26 +349,26 @@ final class DictionaryFilterTests: XCTestCase {
     func testReEnablingDictionaryRestoresResults() throws {
         // 1) Disable, search, expect empty.
         var settingsPage = tabBarPage.tapSettingsTab()
-        settingsPage.tapToggle(source: russianSource)
+        settingsPage.tapToggle(pair: russianPair)
 
         var searchPage = tabBarPage.tapSearchTab()
         searchPage.searchFor(russianOnlyTerm)
         XCTAssertTrue(
             searchPage.waitForNoResults(),
-            "Search must show ContentUnavailableView while '\(russianSource)' is disabled"
+            "Search must show ContentUnavailableView while '\(russianPair)' is disabled"
         )
         searchPage.clearOverlaysBeforeTabSwitch()
 
         // 2) Re-enable, search again, expect results.
         settingsPage = tabBarPage.tapSettingsTab()
-        settingsPage.tapToggle(source: russianSource)
+        settingsPage.tapToggle(pair: russianPair)
 
         searchPage = tabBarPage.tapSearchTab()
         searchPage.clearSearch()
         searchPage.searchFor(russianOnlyTerm)
         XCTAssertTrue(
             searchPage.waitForResults(),
-            "Search must return results after '\(russianSource)' is re-enabled"
+            "Search must return results after '\(russianPair)' is re-enabled"
         )
     }
 }

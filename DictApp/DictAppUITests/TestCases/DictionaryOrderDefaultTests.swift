@@ -52,16 +52,15 @@ final class DictionaryOrderDefaultTests: XCTestCase {
         XCTAssertTrue(settings.openDictionaryOrder(),
                       "Dictionary-order link should push the order screen")
 
-        let sources = ["wordnet", "openrussian", "freedict-eng-spa",
-                       "wordnet-spa-eng", "wordnet-arb-eng"]
-        let order = settings.currentOrder(of: sources)
+        // Issue #92: rows are language pairs (`eng-rus` = openrussian, `eng` = wordnet).
+        let order = settings.currentOrder(of: TestData.Pairs.all)
         XCTAssertGreaterThanOrEqual(order.count, 2,
             "Need >=2 dictionaries present to make 'first' meaningful; got \(order)")
-        XCTAssertEqual(order.first, "openrussian",
-            "Fresh install on a Russian device must list openrussian first; got \(order)")
+        XCTAssertEqual(order.first, TestData.Pairs.russian,
+            "Fresh install on a Russian device must list the Russian – English pair first; got \(order)")
         // The remaining rows must keep the count-desc base order (wordnet is the
         // largest bundled dictionary), proving this is a promotion, not a re-sort.
-        XCTAssertEqual(order.dropFirst().first, "wordnet",
+        XCTAssertEqual(order.dropFirst().first, TestData.Pairs.english,
             "Non-promoted dictionaries must keep their count-desc order; got \(order)")
     }
 }

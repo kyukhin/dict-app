@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - [#74] First-launch dictionary order now puts the UI language's dictionaries first (e.g. `openrussian` on Russian); a user-configured order is never overridden. `-resetData` now also clears the persisted UI language (test hook).
+- [#92] Dictionary Order shows one row per language pair (e.g. "Spanish – English") with a single toggle and drag slot covering both directions; existing per-source preferences migrate as enabled-if-any. "Preferred dictionary first" now ranks per pair.
 
 ## [1.3.0] - 2026-06-25
 

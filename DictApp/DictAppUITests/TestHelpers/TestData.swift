@@ -24,6 +24,27 @@ struct TestData {
     static let bookmarkTestWords = ["apple", "test"]
     static let historyTestWords = ["example", "word", "book"]
 
+    /// Issue #92 — language-pair keys as rendered on the Dictionary Order
+    /// screen (`DictionaryGrouping.pairKey(forSource:)`): sorted ISO-639-3
+    /// codes joined by `-`. One row / toggle / drag slot per pair.
+    struct Pairs {
+        static let english = "eng"        // wordnet
+        static let russian = "eng-rus"    // openrussian
+        static let spanish = "eng-spa"    // freedict-eng-spa + wordnet-spa-eng
+        static let arabic = "arb-eng"     // wordnet-arb-eng
+        /// All bundled pairs (lookup set; not the on-screen order).
+        static let all = [english, russian, spanish, arabic]
+
+        /// Underlying source IDs per pair (for `source_stripe_<source>` /
+        /// badge assertions, which stay per source).
+        static let sources: [String: [String]] = [
+            english: ["wordnet"],
+            russian: ["openrussian"],
+            spanish: ["freedict-eng-spa", "wordnet-spa-eng"],
+            arabic: ["wordnet-arb-eng"],
+        ]
+    }
+
     // Timeout values for different operations
     struct Timeouts {
         static let short: TimeInterval = 2.0

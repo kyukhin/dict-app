@@ -58,12 +58,16 @@ struct AccessibilityIdentifiers {
         static let dictionaryOrderLink = "dictionary_order_link"      // Issue #6
         static let resultSortModePicker = "result_sort_mode_picker"  // Issue #6
         static let versionValue = "version_value"
-        static func dictionaryToggle(source: String) -> String {
-            return "dictionary_toggle_\(source)"
+        /// Issue #92 — one toggle per language pair (`TestData.Pairs`), e.g.
+        /// `dictionary_toggle_eng-spa` covers both `freedict-eng-spa` and
+        /// `wordnet-spa-eng`.
+        static func dictionaryToggle(pair: String) -> String {
+            return "dictionary_toggle_\(pair)"
         }
-        /// Issue #6 — a row in the reorderable DictionaryOrderView list.
-        static func dictionaryOrderRow(source: String) -> String {
-            return "dictionary_order_row_\(source)"
+        /// Issue #6 / #92 — a pair row in the reorderable DictionaryOrderView
+        /// list (identifier lives on the leading `Text`).
+        static func dictionaryOrderRow(pair: String) -> String {
+            return "dictionary_order_row_\(pair)"
         }
     }
 

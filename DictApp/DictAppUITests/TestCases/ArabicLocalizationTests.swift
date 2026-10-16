@@ -191,15 +191,19 @@ final class ArabicLocalizationTests: XCTestCase {
         // Source-exists guard (§5): if the Arabic dictionary wasn't bundled
         // (e.g. a `--skip-arabic-wordnet` build), fail here with a clear cause
         // rather than later with a confusing render assertion.
-        let arabicToggle = app.switches["dictionary_toggle_wordnet-arb-eng"]
+        // Issue #92: toggles are per language pair (`arb-eng` = wordnet-arb-eng).
+        let arabicToggle = app.switches[
+            AccessibilityIdentifiers.Settings.dictionaryToggle(pair: TestData.Pairs.arabic)
+        ]
         XCTAssertTrue(
             app.scrollToElement(arabicToggle),
-            "The 'wordnet-arb-eng' source is missing from the seed — was it built with --skip-arabic-wordnet?"
+            "The 'wordnet-arb-eng' source (pair '\(TestData.Pairs.arabic)') is missing from the seed — was it built with --skip-arabic-wordnet?"
         )
 
-        // Isolate the Arabic source so an English query surfaces its rows.
-        for other in ["wordnet", "openrussian", "freedict-eng-spa", "wordnet-spa-eng"] {
-            settings.tapToggle(source: other)
+        // Isolate the Arabic pair so an English query surfaces its rows. The
+        // Spanish pair toggle covers both freedict-eng-spa and wordnet-spa-eng.
+        for other in [TestData.Pairs.english, TestData.Pairs.russian, TestData.Pairs.spanish] {
+            settings.tapToggle(pair: other)
         }
 
         tapTab(ArabicTab.search)

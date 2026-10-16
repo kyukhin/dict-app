@@ -106,6 +106,15 @@ struct DictApp: App {
                 try? await DatabaseService.shared.clearEntries(fromSource: "test_import_fixture")
             }
 
+            // Issue #92: migrate per-source prefs to the pair invariants
+            // (enabled-if-any, contiguous pair members) before the first search
+            // can read them. Runs after the `-resetData` block (nil / nil is a
+            // no-op). Bundled sources from the 5-row metadata table are enough:
+            // custom imports are singleton pairs and never need sibling
+            // expansion, and this avoids a full `entries` scan at launch.
+            let knownSources = try await DatabaseService.shared.fetchMetadata().map(\.source)
+            SettingsService.shared.normalizeDictionaryPreferences(knownSources: knownSources)
+
             isReady = true
         } catch {
             setupError = error.localizedDescription
