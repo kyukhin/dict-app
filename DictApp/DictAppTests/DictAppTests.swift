@@ -3827,3 +3827,365 @@ final class SettingsViewModelPairTests: XCTestCase {
         XCTAssertEqual(SettingsViewModel.displayName(for: empty, locale: en), "eng")
     }
 }
+
+// MARK: - Issue #91: Dictionary info (i) detail
+
+/// Pure presentation helpers behind the (i) detail (`SettingsViewModel`
+/// statics) plus seed-backed license checks. Skeleton for QA, DESIGN_DOC §6a.
+final class DictionaryInfoDetailTests: XCTestCase {
+
+    // MARK: Fixtures
+
+    private let en = Locale(identifier: "en")
+    private let ru = Locale(identifier: "ru")
+    private let es = Locale(identifier: "es")
+    private let ar = Locale(identifier: "ar")
+
+    private let bundledSourceIDs = ["wordnet", "openrussian", "freedict-eng-spa", "wordnet-spa-eng", "wordnet-arb-eng"]
+
+    private func stat(_ source: String, count: Int = 1, license: String = "", version: String = "") -> SourceStat {
+        SourceStat(source: source, displayName: "Raw \(source)", count: count, license: license, version: version)
+    }
+
+    private func pair(_ id: String, _ languages: [String], _ sources: [SourceStat], custom: Bool = false) -> DictionaryPair {
+        DictionaryPair(id: id, languages: languages, isCustom: custom, sources: sources)
+    }
+
+    /// Foundation wraps format arguments in bidi isolates (U+2068 … U+2069)
+    /// for RTL locales; strip them to compare the visible text.
+    private func stripIsolates(_ s: String) -> String {
+        s.replacingOccurrences(of: "\u{2068}", with: "").replacingOccurrences(of: "\u{2069}", with: "")
+    }
+
+    // MARK: infoSources
+
+    /// `eng-spa` with sources [freedict-eng-spa, wordnet-spa-eng] → WordNet
+    /// first; reversed input gives the same result.
+    func testInfoSourcesPutTitleDirectionFirst() throws {
+        let freedict = stat("freedict-eng-spa", count: 58_946, license: "GPL", version: "2023")
+        let wordnet = stat("wordnet-spa-eng", count: 36_371, license: "WN", version: "1.0")
+
+        // en/ru/ar default member order (count-desc): FreeDict first.
+        let enOrder = pair("eng-spa", ["eng", "spa"], [freedict, wordnet])
+        XCTAssertEqual(SettingsViewModel.infoSources(for: enOrder).map(\.source),
+                       ["wordnet-spa-eng", "freedict-eng-spa"],
+                       "title-direction (Spanish → English) block first, regardless of user order")
+        // es default member order: WordNet first — same detail order.
+        let esOrder = pair("eng-spa", ["eng", "spa"], [wordnet, freedict])
+        XCTAssertEqual(SettingsViewModel.infoSources(for: esOrder).map(\.source),
+                       ["wordnet-spa-eng", "freedict-eng-spa"],
+                       "detail order must not depend on the member order")
+
+        // The full SourceStat values travel unchanged (no field is dropped).
+        let first = try XCTUnwrap(SettingsViewModel.infoSources(for: enOrder).first)
+        XCTAssertEqual(first, wordnet)
+
+        // Rank 3: a source without a direction (monolingual / custom) goes
+        // after both directions. Bundled IDs are an exact allowlist, so a
+        // custom import never parses as a direction.
+        let stray = stat("mydict-eng-spa")
+        let mixed = pair("eng-spa", ["eng", "spa"], [stray, freedict, wordnet])
+        XCTAssertEqual(SettingsViewModel.infoSources(for: mixed).map(\.source),
+                       ["wordnet-spa-eng", "freedict-eng-spa", "mydict-eng-spa"])
+
+        // Arabic: key `arb-eng` sorts arb first and the title is Arabic –
+        // English, so the arb → eng source ranks as the title direction.
+        let arabic = pair("arb-eng", ["arb", "eng"], [stray, stat("wordnet-arb-eng")])
+        XCTAssertEqual(SettingsViewModel.infoSources(for: arabic).map(\.source),
+                       ["wordnet-arb-eng", "mydict-eng-spa"])
+    }
+
+    /// Single-source, monolingual and custom pairs unchanged; output is a
+    /// permutation of the input.
+    func testInfoSourcesIsStablePermutation() throws {
+        let english = pair("eng", ["eng"], [stat("wordnet")])
+        XCTAssertEqual(SettingsViewModel.infoSources(for: english).map(\.source), ["wordnet"])
+
+        let russian = pair("eng-rus", ["eng", "rus"], [stat("openrussian")])
+        XCTAssertEqual(SettingsViewModel.infoSources(for: russian).map(\.source), ["openrussian"],
+                       "legacy bare-ID bilingual source survives untouched")
+
+        let custom = pair("custom:test_import_fixture", [], [stat("test_import_fixture")], custom: true)
+        XCTAssertEqual(SettingsViewModel.infoSources(for: custom).map(\.source), ["test_import_fixture"])
+
+        // Empty pair: no crash, no invented source.
+        let empty = pair("custom:ghost", [], [], custom: true)
+        XCTAssertTrue(SettingsViewModel.infoSources(for: empty).isEmpty)
+
+        // Stability among equal ranks: sources without a direction keep
+        // their relative order behind the two directions.
+        let x = stat("custom_x"), y = stat("custom_y")
+        let freedict = stat("freedict-eng-spa"), wordnet = stat("wordnet-spa-eng")
+        let cases: [([SourceStat], [String])] = [
+            ([x, freedict, y, wordnet], ["wordnet-spa-eng", "freedict-eng-spa", "custom_x", "custom_y"]),
+            ([y, wordnet, x, freedict], ["wordnet-spa-eng", "freedict-eng-spa", "custom_y", "custom_x"]),
+            ([wordnet, freedict, x, y], ["wordnet-spa-eng", "freedict-eng-spa", "custom_x", "custom_y"]),
+        ]
+        for (input, expected) in cases {
+            let output = SettingsViewModel.infoSources(for: pair("eng-spa", ["eng", "spa"], input))
+            XCTAssertEqual(output.map(\.source), expected, "input \(input.map(\.source))")
+            XCTAssertEqual(output.count, input.count, "never adds or drops a source")
+            XCTAssertEqual(Set(output), Set(input), "output is a permutation of the input")
+        }
+    }
+
+    // MARK: providerName / infoBlockTitle
+
+    /// wordnet* → "WordNet", freedict-eng-spa → "FreeDict", openrussian →
+    /// "OpenRussian", custom → nil; `infoBlockTitle` falls back to the source ID.
+    func testProviderNameBrands() throws {
+        let expected: [String: String] = [
+            "wordnet": "WordNet",
+            "wordnet-spa-eng": "WordNet",
+            "wordnet-arb-eng": "WordNet",
+            "freedict-eng-spa": "FreeDict",
+            "openrussian": "OpenRussian",
+        ]
+        for (source, brand) in expected {
+            XCTAssertEqual(SettingsViewModel.providerName(for: stat(source)), brand, source)
+            XCTAssertEqual(SettingsViewModel.infoBlockTitle(for: stat(source)), brand,
+                           "PM decision #4: header is the brand, not the seed display_name")
+        }
+
+        // Custom imports: no provider, header is the raw source ID (never
+        // the metadata display name, which may carry a parenthetical).
+        for source in ["test_import_fixture", "mydict-eng-spa", "WordNet"] {
+            let custom = SourceStat(source: source, displayName: "Fancy (Provider)", count: 3)
+            XCTAssertNil(SettingsViewModel.providerName(for: custom), "'\(source)' is custom")
+            XCTAssertEqual(SettingsViewModel.infoBlockTitle(for: custom), source)
+        }
+
+        // The brand is independent of the seed's display_name.
+        let seeded = SourceStat(source: "freedict-eng-spa", displayName: "English – Spanish (FreeDict)", count: 1)
+        XCTAssertEqual(SettingsViewModel.infoBlockTitle(for: seeded), "FreeDict")
+        XCTAssertFalse(SettingsViewModel.infoBlockTitle(for: seeded).contains("("))
+    }
+
+    // MARK: languageSummary
+
+    /// en/ru direction strings ("Spanish → English", "Испанский → Английский"),
+    /// monolingual → language name, custom → nil.
+    func testLanguageSummaryPerLocale() throws {
+        let freedict = stat("freedict-eng-spa")
+        let wordnetSpa = stat("wordnet-spa-eng")
+        let openrussian = stat("openrussian")
+        let wordnet = stat("wordnet")
+        let custom = stat("test_import_fixture")
+
+        XCTAssertEqual(SettingsViewModel.languageSummary(for: freedict, locale: en), "English → Spanish")
+        XCTAssertEqual(SettingsViewModel.languageSummary(for: wordnetSpa, locale: en), "Spanish → English")
+        XCTAssertEqual(SettingsViewModel.languageSummary(for: openrussian, locale: en), "Russian → English")
+        XCTAssertEqual(SettingsViewModel.languageSummary(for: wordnet, locale: en), "English",
+                       "monolingual → just the language name, no arrow")
+
+        XCTAssertEqual(SettingsViewModel.languageSummary(for: wordnetSpa, locale: ru), "Испанский → Английский",
+                       "resolved through ru.lproj, not the test host's device language")
+        XCTAssertEqual(SettingsViewModel.languageSummary(for: freedict, locale: ru), "Английский → Испанский")
+        XCTAssertEqual(SettingsViewModel.languageSummary(for: wordnet, locale: ru), "Английский")
+
+        XCTAssertEqual(SettingsViewModel.languageSummary(for: wordnetSpa, locale: es), "Español → Inglés")
+        XCTAssertEqual(SettingsViewModel.languageSummary(for: wordnet, locale: es), "Inglés")
+
+        for locale in [en, ru, es, ar] {
+            XCTAssertNil(SettingsViewModel.languageSummary(for: custom, locale: locale),
+                         "custom import has no direction row in \(locale.identifier)")
+            XCTAssertNil(SettingsViewModel.languageSummary(for: stat("mydict-eng-spa"), locale: locale),
+                         "a custom ID that merely looks like a pair is still custom")
+        }
+    }
+
+    /// `wordnet-arb-eng` with `ar` contains "←" and no "→"; Arabic names.
+    func testLanguageSummaryArabicUsesLeftArrow() throws {
+        let arabic = try XCTUnwrap(SettingsViewModel.languageSummary(for: stat("wordnet-arb-eng"), locale: ar))
+        XCTAssertTrue(arabic.contains("\u{2190}"), "Arabic uses U+2190 ←; got \(arabic)")
+        XCTAssertFalse(arabic.contains("\u{2192}"), "no → in RTL; got \(arabic)")
+        XCTAssertEqual(stripIsolates(arabic), "العربية ← الإنجليزية",
+                       "from-language first in logical order, both names Arabic")
+
+        let spanish = try XCTUnwrap(SettingsViewModel.languageSummary(for: stat("freedict-eng-spa"), locale: ar))
+        XCTAssertEqual(stripIsolates(spanish), "الإنجليزية ← الإسبانية")
+
+        // The LTR locales keep →, never ←.
+        for locale in [en, ru, es] {
+            let summary = try XCTUnwrap(SettingsViewModel.languageSummary(for: stat("wordnet-arb-eng"), locale: locale))
+            XCTAssertTrue(summary.contains("\u{2192}"), "\(locale.identifier): \(summary)")
+            XCTAssertFalse(summary.contains("\u{2190}"), "\(locale.identifier): \(summary)")
+        }
+        XCTAssertEqual(SettingsViewModel.languageSummary(for: stat("wordnet-arb-eng"), locale: en), "Arabic → English")
+    }
+
+    // MARK: Catalog
+
+    /// Every `dictionaryInfo.*` key resolves in en/ru/es/ar lproj.
+    func testDictionaryInfoKeysResolveInAllLocales() throws {
+        let keys = [
+            "dictionaryInfo.button.accessibilityLabel %@",
+            "dictionaryInfo.direction",
+            "dictionaryInfo.direction.value %@ %@",
+            "dictionaryInfo.language",
+            "dictionaryInfo.sourceID",
+            "dictionaryInfo.version",
+            "dictionaryInfo.entries",
+            "dictionaryInfo.license",
+            "dictionaryInfo.noMetadata",
+        ]
+        // Keys whose value is legitimately identical across locales.
+        let sameAsEnglishAllowed: Set<String> = ["dictionaryInfo.direction.value %@ %@"]
+
+        var english: [String: String] = [:]
+        for code in ["en", "ru", "es", "ar"] {
+            let path = try XCTUnwrap(Bundle.main.path(forResource: code, ofType: "lproj"),
+                                     "'\(code).lproj' must be compiled into the app bundle")
+            let bundle = try XCTUnwrap(Bundle(path: path))
+            for key in keys {
+                let value = bundle.localizedString(forKey: key, value: "\u{0}MISSING", table: nil)
+                XCTAssertNotEqual(value, "\u{0}MISSING", "'\(key)' missing in \(code).lproj")
+                XCTAssertNotEqual(value, key, "'\(key)' renders the raw key in \(code).lproj")
+                XCTAssertFalse(value.isEmpty, "'\(key)' is empty in \(code).lproj")
+                if code == "en" {
+                    english[key] = value
+                } else if !sameAsEnglishAllowed.contains(key) {
+                    XCTAssertNotEqual(value, english[key], "'\(key)' in \(code).lproj falls back to English")
+                }
+                // The SwiftUI view resolves plain labels through this helper.
+                if !key.contains("%") {
+                    XCTAssertEqual(SettingsViewModel.localizedString(key, locale: Locale(identifier: code)), value,
+                                   "in-app-language helper must read \(code).lproj for '\(key)'")
+                }
+            }
+        }
+
+        // The retired provider row key and the old view's literal keys are gone.
+        let enPath = try XCTUnwrap(Bundle.main.path(forResource: "en", ofType: "lproj"))
+        let enBundle = try XCTUnwrap(Bundle(path: enPath))
+        for removed in ["dictionaryInfo.provider", "Full Name", "Word Count",
+                        "No detailed metadata available for this dictionary."] {
+            XCTAssertEqual(enBundle.localizedString(forKey: removed, value: "\u{0}MISSING", table: nil), "\u{0}MISSING",
+                           "'\(removed)' must no longer be in the catalog")
+        }
+
+        // Spot-check concrete values the UI shows.
+        XCTAssertEqual(SettingsViewModel.localizedString("dictionaryInfo.license", locale: ru), "Лицензия")
+        XCTAssertEqual(SettingsViewModel.localizedString("dictionaryInfo.license", locale: es), "Licencia")
+        XCTAssertEqual(SettingsViewModel.localizedString("dictionaryInfo.license", locale: ar), "الترخيص")
+        XCTAssertEqual(SettingsViewModel.infoButtonLabel(for: "Spanish – English", locale: en),
+                       "Details for Spanish – English")
+        XCTAssertEqual(SettingsViewModel.infoButtonLabel(for: "Испанский – Английский", locale: ru),
+                       "Подробнее: Испанский – Английский")
+        XCTAssertEqual(SettingsViewModel.infoButtonLabel(for: "Español – Inglés", locale: es),
+                       "Detalles de Español – Inglés")
+        XCTAssertEqual(stripIsolates(SettingsViewModel.infoButtonLabel(for: "العربية", locale: ar)), "تفاصيل العربية")
+        // An unshipped locale falls back to the base table, never the raw key.
+        XCTAssertEqual(SettingsViewModel.localizedString("dictionaryInfo.license", locale: Locale(identifier: "de")),
+                       "License")
+    }
+
+    // MARK: DictionaryItem
+
+    /// Items differing only in `isEnabled` are unequal; equal items hash equal.
+    func testDictionaryItemIsHashable() throws {
+        let spanish = pair("eng-spa", ["eng", "spa"], [stat("freedict-eng-spa"), stat("wordnet-spa-eng")])
+        let on = DictionaryItem(pair: spanish, displayName: "Spanish – English", isEnabled: true)
+        let onCopy = DictionaryItem(pair: spanish, displayName: "Spanish – English", isEnabled: true)
+        let off = DictionaryItem(pair: spanish, displayName: "Spanish – English", isEnabled: false)
+
+        XCTAssertEqual(on, onCopy)
+        XCTAssertEqual(on.hashValue, onCopy.hashValue, "equal items must hash equal")
+        XCTAssertNotEqual(on, off, "isEnabled participates in equality")
+        XCTAssertEqual(on.id, off.id, "…but the Identifiable id is the pair key")
+
+        let renamed = DictionaryItem(pair: spanish, displayName: "Español – Inglés", isEnabled: true)
+        XCTAssertNotEqual(on, renamed)
+        let reorderedMembers = DictionaryItem(
+            pair: pair("eng-spa", ["eng", "spa"], [stat("wordnet-spa-eng"), stat("freedict-eng-spa")]),
+            displayName: "Spanish – English", isEnabled: true)
+        XCTAssertNotEqual(on, reorderedMembers, "member order is part of the pair value")
+
+        let set: Set<DictionaryItem> = [on, onCopy, off]
+        XCTAssertEqual(set.count, 2, "usable as a navigationDestination(item:) value")
+    }
+
+    // MARK: Seed-backed
+
+    private var tempDir: URL?
+
+    override func tearDown() async throws {
+        if let tempDir { try? FileManager.default.removeItem(at: tempDir) }
+        tempDir = nil
+        try await super.tearDown()
+    }
+
+    /// Clones the bundled seed (APFS clone, so no 100 MB copy) and opens it
+    /// on `DatabaseService.shared`, so the real `fetchSourceStats()` SQL runs
+    /// against the shipped metadata.
+    private func seedSourceStats() async throws -> [SourceStat] {
+        let hostBundle: Bundle = {
+            if let url = Bundle.main.url(forResource: "DictApp", withExtension: "app") {
+                return Bundle(url: url) ?? .main
+            }
+            return .main
+        }()
+        let seedURL = try XCTUnwrap(
+            hostBundle.url(forResource: "seed", withExtension: "sqlite")
+                ?? Bundle.main.url(forResource: "seed", withExtension: "sqlite"),
+            "Bundled seed.sqlite is missing from the app bundle"
+        )
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        tempDir = dir
+        let copy = dir.appendingPathComponent("seed.sqlite")
+        try FileManager.default.copyItem(at: seedURL, to: copy)
+        try await DatabaseService.shared.setup(path: copy.path)
+        return try await DatabaseService.shared.fetchSourceStats()
+    }
+
+    /// Seed: each of the five bundled sources has `license.count > 50` and a
+    /// non-empty `version`.
+    func testEveryBundledSourceStatCarriesLicenseAndVersion() async throws {
+        let stats = try await seedSourceStats()
+        let bySource = Dictionary(uniqueKeysWithValues: stats.map { ($0.source, $0) })
+        XCTAssertEqual(Set(stats.map(\.source)), Set(bundledSourceIDs),
+                       "the seed ships exactly the five bundled sources")
+        for source in bundledSourceIDs {
+            let s = try XCTUnwrap(bySource[source], "\(source) missing from fetchSourceStats()")
+            XCTAssertGreaterThan(s.license.count, 50, "\(source): license must be real text (AC 4)")
+            XCTAssertFalse(s.version.isEmpty, "\(source): version")
+            XCTAssertGreaterThan(s.count, 0, "\(source): entries")
+            XCTAssertNotNil(SettingsViewModel.providerName(for: s), "\(source): bundled → has a provider")
+            XCTAssertNotNil(SettingsViewModel.languageSummary(for: s, locale: en), "\(source): bundled → direction/language")
+        }
+    }
+
+    /// Seed: `eng-spa` has two sources, `infoSources` → WordNet then FreeDict,
+    /// both licenses non-empty, FreeDict mentions GPL.
+    func testSpanishPairInfoHasBothSourcesWithLicenses() async throws {
+        let stats = try await seedSourceStats()
+        for code in ["en", "ru", "es", "ar"] {
+            let order = DictionaryGrouping.groupedOrder(
+                DictionaryDefaults.defaultOrder(forLanguageCode: code, sources: stats.map(\.source)))
+            let pairs = DictionaryGrouping.pairs(from: stats, order: order)
+            XCTAssertEqual(Set(pairs.map(\.id)), ["eng", "eng-rus", "eng-spa", "arb-eng"], code)
+            let spanish = try XCTUnwrap(pairs.first { $0.id == "eng-spa" }, code)
+            XCTAssertEqual(Set(spanish.sourceIDs), ["wordnet-spa-eng", "freedict-eng-spa"], code)
+
+            let info = SettingsViewModel.infoSources(for: spanish)
+            XCTAssertEqual(info.map(\.source), ["wordnet-spa-eng", "freedict-eng-spa"],
+                           "\(code): WordNet (title direction) above FreeDict, whatever the member order")
+            XCTAssertEqual(info.map { SettingsViewModel.infoBlockTitle(for: $0) }, ["WordNet", "FreeDict"], code)
+            for s in info {
+                XCTAssertFalse(s.license.isEmpty, "\(code): \(s.source) license")
+            }
+            XCTAssertTrue(info[1].license.contains("GNU General Public License"),
+                          "FreeDict ships under the GPL; got: \(info[1].license.prefix(120))")
+            XCTAssertNotEqual(info[0].license, info[1].license, "each block carries its own license")
+
+            // Single-source pairs carry exactly their one licensed source.
+            for (id, source) in [("eng", "wordnet"), ("eng-rus", "openrussian"), ("arb-eng", "wordnet-arb-eng")] {
+                let p = try XCTUnwrap(pairs.first { $0.id == id })
+                let only = SettingsViewModel.infoSources(for: p)
+                XCTAssertEqual(only.map(\.source), [source], "\(code): \(id)")
+                XCTAssertFalse(only.first?.license.isEmpty ?? true, "\(code): \(source) license")
+            }
+        }
+    }
+}

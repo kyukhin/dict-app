@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - [#5] Reading Mode: a cup-and-saucer toggle in the Search and Definition toolbars keeps the screen awake. Per session; turns off when the app goes to background.
+- [#91] Dictionary Order rows have an (i) button that opens the pair's details. Each underlying dictionary shows its provider, direction, version, entry count and license.
 
 ### Changed
 - [#74] First-launch dictionary order now puts the UI language's dictionaries first (e.g. `openrussian` on Russian); a user-configured order is never overridden. `-resetData` now also clears the persisted UI language (test hook).

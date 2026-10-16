@@ -45,6 +45,15 @@ struct TestData {
         ]
     }
 
+    /// Issue #91 — bundled source IDs used by the info-detail ids.
+    struct Sources {
+        static let wordnet = "wordnet"
+        static let openrussian = "openrussian"
+        static let wordnetSpaEng = "wordnet-spa-eng"
+        static let freedictEngSpa = "freedict-eng-spa"
+        static let wordnetArbEng = "wordnet-arb-eng"
+    }
+
     // Timeout values for different operations
     struct Timeouts {
         static let short: TimeInterval = 2.0

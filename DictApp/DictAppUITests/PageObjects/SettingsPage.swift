@@ -56,6 +56,20 @@ class SettingsPage: BasePage {
         return orderView.waitForExistence(timeout: TestData.Timeouts.medium)
     }
 
+    /// Issue #91 — opens the order screen, taps the pair's (i) button and waits
+    /// for the info detail. Scrolls by geometry only (never `.isHittable`).
+    @discardableResult
+    func openInfo(pair: String) -> DictionaryInfoPage {
+        _ = openDictionaryOrder()
+        let button = app.buttons[AccessibilityIdentifiers.Settings.dictionaryInfoButton(pair: pair)].firstMatch
+        _ = button.waitForExistence(timeout: TestData.Timeouts.medium)
+        _ = app.scrollToElement(button)
+        button.tap()
+        let page = DictionaryInfoPage(app: app)
+        _ = page.waitForView()
+        return page
+    }
+
     /// Ensures we're on the DictionaryOrderView (where the toggles + order rows
     /// live). If no toggle is materialized, push the order screen.
     private func ensureOnOrderScreen(for pair: String) {
