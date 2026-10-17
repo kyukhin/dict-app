@@ -355,25 +355,25 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "FreeDict — English–Spanish, GNU GPL"
+            "value": "FreeDict — English–Spanish and Greek–English (WikDict, from Wiktionary); English–Greek (from Freelang); CC BY-SA 3.0"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "FreeDict — английский-испанский, GNU GPL"
+            "value": "FreeDict — англо-испанский и греческо-английский (WikDict, по данным Викисловаря); англо-греческий (по данным Freelang); CC BY-SA 3.0"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "FreeDict — inglés-español, GNU GPL"
+            "value": "FreeDict — inglés-español y griego-inglés (WikDict, a partir de Wikcionario); inglés-griego (a partir de Freelang); CC BY-SA 3.0"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "FreeDict — إنجليزي-إسباني، GNU GPL"
+            "value": "FreeDict — إنجليزي-إسباني ويوناني-إنجليزي (WikDict، من ويكاموس)؛ إنجليزي-يوناني (من Freelang)؛ CC BY-SA 3.0"
           }
         }
       }
@@ -2469,31 +2469,149 @@
         }
       }
     },
+    "language.el.name": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Greek"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Греческий"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Griego"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اليونانية"
+          }
+        }
+      }
+    },
     "credits.dataSources.arabicWordnet": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Arabic WordNet (AWN / OMW) — Arabic-English, CC BY 3.0"
+            "value": "Arabic WordNet (AWN / OMW) — Arabic-English, CC BY-SA 3.0"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Arabic WordNet (AWN / OMW) — арабско-английский, CC BY 3.0"
+            "value": "Arabic WordNet (AWN / OMW) — арабско-английский, CC BY-SA 3.0"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Arabic WordNet (AWN / OMW) — árabe-inglés, CC BY 3.0"
+            "value": "Arabic WordNet (AWN / OMW) — árabe-inglés, CC BY-SA 3.0"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Arabic WordNet (AWN / OMW) — عربي-إنجليزي، CC BY 3.0"
+            "value": "Arabic WordNet (AWN / OMW) — عربي-إنجليزي، CC BY-SA 3.0"
+          }
+        }
+      }
+    },
+    "credits.dataSources.greekWordnet": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Greek WordNet (OMW) — Greek-English, English-Greek, Apache 2.0"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Greek WordNet (OMW) — греческо-английский, англо-греческий, Apache 2.0"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Greek WordNet (OMW) — griego-inglés, inglés-griego, Apache 2.0"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Greek WordNet (OMW) — يوناني-إنجليزي، إنجليزي-يوناني، Apache 2.0"
+          }
+        }
+      }
+    },
+    "sourceBadge.accessibilityLabel.pair %@ %@ %@": {
+      "comment": "VoiceOver label of a search-result source badge: source language, target language (nominative language names), then the provider brand (FreeDict, WordNet, OpenRussian). No arrows: VoiceOver reads them as \"right arrow\".",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ to %2$@, %3$@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ – %2$@, %3$@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ a %2$@, %3$@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ إلى %2$@، %3$@"
+          }
+        }
+      }
+    },
+    "sourceBadge.accessibilityLabel.single %@ %@": {
+      "comment": "VoiceOver label of a search-result source badge for a single-language dictionary: language name, then the provider brand.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@, %2$@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@, %2$@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@, %2$@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@، %2$@"
           }
         }
       }

@@ -42,11 +42,13 @@ final class SearchHighlightTests: XCTestCase {
                       "Each result row must expose a source_stripe_<source> element (§7)")
 
         // Badge text stays the primary, spoken identity (§4d): a source badge
-        // must be on screen alongside the stripe. ('book' surfaces WordNet
-        // and/or the Arabic translation, depending on FTS ranking.)
-        let badges = ["WordNet", "OpenRussian", "En–Es", "Es–En", "Ar–En"]
-        let anyBadge = badges.contains { app.staticTexts[$0].firstMatch.exists }
-        XCTAssertTrue(anyBadge,
+        // must be on screen alongside the stripe. Matched by identifier
+        // (Issue #87): the badge's label is its VoiceOver text, not the
+        // visible abbreviation.
+        let anyBadge = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "identifier BEGINSWITH %@", "source_badge_"))
+            .firstMatch
+        XCTAssertTrue(anyBadge.waitForExistence(timeout: TestData.Timeouts.medium),
                       "A source badge (primary signal) must remain present (color is secondary)")
     }
 

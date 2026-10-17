@@ -32,8 +32,9 @@ struct TestData {
         static let russian = "eng-rus"    // openrussian
         static let spanish = "eng-spa"    // freedict-eng-spa + wordnet-spa-eng
         static let arabic = "arb-eng"     // wordnet-arb-eng
+        static let greek = "ell-eng"      // freedict-ell-eng + wordnet-ell-eng + freedict-eng-ell + wordnet-eng-ell
         /// All bundled pairs (lookup set; not the on-screen order).
-        static let all = [english, russian, spanish, arabic]
+        static let all = [english, russian, spanish, arabic, greek]
 
         /// Underlying source IDs per pair (for `source_stripe_<source>` /
         /// badge assertions, which stay per source).
@@ -42,6 +43,8 @@ struct TestData {
             russian: ["openrussian"],
             spanish: ["freedict-eng-spa", "wordnet-spa-eng"],
             arabic: ["wordnet-arb-eng"],
+            // Issue #87: in (i) detail order (title direction first, then ID).
+            greek: ["freedict-ell-eng", "wordnet-ell-eng", "freedict-eng-ell", "wordnet-eng-ell"],
         ]
 
         /// Issue #105 — the bundled import fixture's custom pair (not in `all`).
@@ -55,6 +58,11 @@ struct TestData {
         static let wordnetSpaEng = "wordnet-spa-eng"
         static let freedictEngSpa = "freedict-eng-spa"
         static let wordnetArbEng = "wordnet-arb-eng"
+        /// Issue #87 — the Greek pair's four sources.
+        static let freedictEllEng = "freedict-ell-eng"
+        static let wordnetEllEng = "wordnet-ell-eng"
+        static let freedictEngEll = "freedict-eng-ell"
+        static let wordnetEngEll = "wordnet-eng-ell"
         /// Issue #105 — source ID of `test_import_fixture.{json,sqlite}`.
         static let importFixture = "test_import_fixture"
     }

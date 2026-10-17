@@ -167,9 +167,11 @@ class SettingsViewModel: ObservableObject {
     // grouping layer. Both helpers are `nonisolated static` so unit tests and
     // the #91 detail view can call them without a view-model instance.
 
-    /// ISO-639-3 → catalog UI-language name table (`language.<code>.name`).
+    /// ISO-639-3 → catalog language name table (`language.<code>.name`).
+    /// `el` has a catalog name (Issue #87) before it is a UI language (#88):
+    /// ICU's ru/es names are lowercase, which reads wrong in a title.
     nonisolated private static let languageNameKeys: [String: String] = [
-        "eng": "en", "spa": "es", "rus": "ru", "arb": "ar",
+        "eng": "en", "spa": "es", "rus": "ru", "arb": "ar", "ell": "el",
     ]
 
     /// The `<lang>.lproj` bundle for `locale` (same rule as
@@ -239,24 +241,57 @@ class SettingsViewModel: ObservableObject {
     /// The pair's sources in a fixed, title-consistent order, independent of
     /// the user's dictionary order (PM decision #1): the direction that reads
     /// like the title first (Spanish → English), then the reverse direction,
-    /// then monolingual / custom sources. Stable; never adds or drops a source.
+    /// then monolingual / custom sources. Within a direction, sources sort by
+    /// ID (Issue #87: `freedict-ell-eng` before `wordnet-ell-eng`); sources
+    /// without a direction keep their input order. Never adds or drops a source.
     nonisolated static func infoSources(for pair: DictionaryPair) -> [SourceStat] {
         let titleFirst = pair.languages.count == 2 ? titleLanguages(of: pair).first : nil
         func rank(_ stat: SourceStat) -> Int {
             guard let direction = stat.direction else { return 2 }
             return direction.from == titleFirst ? 0 : 1
         }
+        func key(_ item: (offset: Int, element: SourceStat)) -> (Int, String, Int) {
+            let r = rank(item.element)
+            return (r, r < 2 ? item.element.source : "", item.offset)
+        }
         return pair.sources.enumerated()
-            .sorted { (rank($0.element), $0.offset) < (rank($1.element), $1.offset) }
+            .sorted { key($0) < key($1) }
             .map(\.element)
     }
 
     /// Provider brand name ("WordNet", "FreeDict", "OpenRussian"); the raw
     /// provider for an unknown bundled one; `nil` for custom imports.
     nonisolated static func providerName(for stat: SourceStat) -> String? {
-        let parsed = DictionaryGrouping.parse(sourceID: stat.source)
+        providerName(forSource: stat.source)
+    }
+
+    nonisolated private static func providerName(forSource source: String) -> String? {
+        let parsed = DictionaryGrouping.parse(sourceID: source)
         if parsed.isCustom { return nil }
         return providerBrands[parsed.provider] ?? parsed.provider
+    }
+
+    /// VoiceOver label of a search-result source badge (Issue #87):
+    /// "Greek to English, FreeDict" for a bilingual source, "English, WordNet"
+    /// for a monolingual one, in the in-app language. `nil` for a custom
+    /// import, whose visible badge text is read as is.
+    nonisolated static func badgeAccessibilityLabel(forSource source: String, locale: Locale) -> String? {
+        let parsed = DictionaryGrouping.parse(sourceID: source)
+        guard !parsed.isCustom, let brand = providerName(forSource: source) else { return nil }
+        let bundle = localizedBundle(for: locale)
+        switch parsed.languages.count {
+        case 1:
+            let name = languageName(iso3: parsed.languages[0], locale: locale)
+            return String(localized: "sourceBadge.accessibilityLabel.single \(name) \(brand)",
+                          bundle: bundle, locale: locale)
+        case 2:
+            let from = languageName(iso3: parsed.languages[0], locale: locale)
+            let to = languageName(iso3: parsed.languages[1], locale: locale)
+            return String(localized: "sourceBadge.accessibilityLabel.pair \(from) \(to) \(brand)",
+                          bundle: bundle, locale: locale)
+        default:
+            return nil
+        }
     }
 
     /// Header of a source block in the info detail (PM decision #4): the

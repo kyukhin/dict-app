@@ -32,16 +32,24 @@ struct DictionaryEntry: Codable, Identifiable, Equatable, FetchableRecord, Persi
         case createdAt = "created_at"
     }
 
-    /// Human-readable source label for display.
+    /// Human-readable source label for display (the search-result badge).
+    /// Bilingual bundled sources show direction + provider (Issue #87):
+    /// en dash U+2013, then " · " (U+00B7 between spaces), then `FD` / `WN`.
+    /// The visible text stays untranslated; VoiceOver reads the localized
+    /// `SettingsViewModel.badgeAccessibilityLabel(forSource:locale:)`.
     var sourceLabel: String {
         switch source {
         case "wordnet":          return "WordNet"
         case "openrussian":      return "OpenRussian"
         // Badge is space-constrained; the full name lives in
         // `dict_metadata.display_name` (Settings + DictionaryDetailView).
-        case "freedict-eng-spa": return "En–Es"
-        case "wordnet-spa-eng":  return "Es–En"
-        case "wordnet-arb-eng":  return "Ar–En"
+        case "freedict-eng-spa": return "En\u{2013}Es \u{00B7} FD"
+        case "wordnet-spa-eng":  return "Es\u{2013}En \u{00B7} WN"
+        case "wordnet-arb-eng":  return "Ar\u{2013}En \u{00B7} WN"
+        case "freedict-ell-eng": return "El\u{2013}En \u{00B7} FD"
+        case "wordnet-ell-eng":  return "El\u{2013}En \u{00B7} WN"
+        case "freedict-eng-ell": return "En\u{2013}El \u{00B7} FD"
+        case "wordnet-eng-ell":  return "En\u{2013}El \u{00B7} WN"
         default:                 return source.capitalized
         }
     }

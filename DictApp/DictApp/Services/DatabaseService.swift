@@ -35,6 +35,62 @@ enum Search {
         append(tail)
         return result
     }
+
+    // MARK: Greek folding (Issue #87)
+    //
+    // The bundled Greek sources store a folded `word_normalized` and their
+    // definitions' Greek decomposed (NFD), which the `unicode61
+    // remove_diacritics 2` tokenizer indexes accent-free. The query side only
+    // has to fold Greek the same way. Every step touches Greek code points
+    // only, so Russian й, Spanish ñ and Arabic harakat are never folded.
+
+    /// Greek and Coptic (U+0370–U+03FF) or Greek Extended (U+1F00–U+1FFF).
+    static func isGreek(_ scalar: Unicode.Scalar) -> Bool {
+        (0x0370...0x03FF).contains(scalar.value) || (0x1F00...0x1FFF).contains(scalar.value)
+    }
+
+    /// The accent-, case- and final-sigma-free search key of `s`. Must match
+    /// `normalize_greek` in `Scripts/build_greek.py` scalar for scalar:
+    /// 1. a string without a Greek code point is returned unchanged;
+    /// 2. otherwise NFC it, and for each Greek scalar NFD-decompose it, drop
+    ///    every nonspacing mark (Mn) and lowercase the rest;
+    /// 3. map final sigma ς (U+03C2) to σ (U+03C3).
+    /// Non-Greek scalars pass through unchanged.
+    static func foldGreek(_ s: String) -> String {
+        guard s.unicodeScalars.contains(where: isGreek) else { return s }
+        var out = String.UnicodeScalarView()
+        for scalar in s.precomposedStringWithCanonicalMapping.unicodeScalars {
+            guard isGreek(scalar) else {
+                out.append(scalar)
+                continue
+            }
+            let base = String(String.UnicodeScalarView(
+                String(scalar).decomposedStringWithCanonicalMapping.unicodeScalars
+                    .filter { $0.properties.generalCategory != .nonspacingMark }
+            ))
+            // Step 3 inline: ς only ever comes from a Greek scalar.
+            for folded in base.lowercased().unicodeScalars {
+                out.append(folded == "\u{03C2}" ? "\u{03C3}" : folded)
+            }
+        }
+        return String(out)
+    }
+
+    /// The FTS `MATCH` string and the `word_normalized` ranking key for a
+    /// sanitized query. A query that folding leaves unchanged (every
+    /// non-Greek query) keeps today's exact strings: `q*` and `q`. Otherwise
+    /// the raw branch still finds accented custom imports (stored NFC, not
+    /// folded) and the folded branch finds the bundled Greek sources.
+    static func ftsQuery(sanitized: String) -> (match: String, rankKey: String, rawKey: String) {
+        let folded = foldGreek(sanitized)
+        // Scalar comparison: `==` on String is canonical equivalence.
+        if folded.unicodeScalars.elementsEqual(sanitized.unicodeScalars) {
+            return (sanitized + "*", sanitized, sanitized)
+        }
+        // Rank on both keys: bundled Greek rows store the folded key, custom
+        // imports store the raw (NFC) headword (PR #113 review).
+        return ("(" + sanitized + "*) OR (" + folded + "*)", folded, sanitized)
+    }
 }
 
 actor DatabaseService {
@@ -181,6 +237,8 @@ actor DatabaseService {
         guard let pool = dbPool else { throw DBError.notConnected }
         let sanitized = sanitizeFTS(query)
         guard !sanitized.isEmpty else { return [] }
+        // Issue #87: Greek queries also match their folded form.
+        let fts = Search.ftsQuery(sanitized: sanitized)
         return try await pool.read { db in
             var sql = """
                 SELECT e.*
@@ -188,7 +246,7 @@ actor DatabaseService {
                 JOIN entries e ON e.id = fts.rowid
                 WHERE entries_fts MATCH ?
                 """
-            var arguments: [DatabaseValueConvertible] = [sanitized + "*"]
+            var arguments: [DatabaseValueConvertible] = [fts.match]
 
             if let sources = enabledSources, !sources.isEmpty {
                 let placeholders = sources.map { _ in "?" }.joined(separator: ", ")
@@ -199,12 +257,12 @@ actor DatabaseService {
             sql += """
 
                 ORDER BY
-                    (e.word_normalized = ? COLLATE NOCASE) DESC,
-                    (e.word_normalized LIKE ? COLLATE NOCASE) DESC,
+                    (e.word_normalized = ? COLLATE NOCASE OR e.word_normalized = ? COLLATE NOCASE) DESC,
+                    (e.word_normalized LIKE ? COLLATE NOCASE OR e.word_normalized LIKE ? COLLATE NOCASE) DESC,
                     rank
                 LIMIT ?
                 """
-            arguments += [sanitized, sanitized + "%", limit]
+            arguments += [fts.rankKey, fts.rawKey, fts.rankKey + "%", fts.rawKey + "%", limit]
 
             var statArgs = StatementArguments()
             for arg in arguments { statArgs += [arg] }
@@ -241,8 +299,11 @@ actor DatabaseService {
         let enabledGroups = groups
             .map { $0.filter { enabledSources.contains($0) } }
             .filter { !$0.isEmpty }
-        let match = sanitized + "*"
-        let prefix = sanitized + "%"
+        // Issue #87: Greek queries also match their folded form.
+        let fts = Search.ftsQuery(sanitized: sanitized)
+        let match = fts.match
+        let rankKey = fts.rankKey
+        let rawKey = fts.rawKey
 
         return try await pool.read { db in
             var buckets: [String: [DictionaryEntry]] = [:]
@@ -256,13 +317,13 @@ actor DatabaseService {
                 var args = StatementArguments()
                 args += [match]
                 for member in members { args += [member] }
-                args += [sanitized, prefix, topN]
+                args += [rankKey, rawKey, rankKey + "%", rawKey + "%", topN]
                 let rows = try DictionaryEntry.fetchAll(db, sql: """
                     SELECT e.*
                     FROM entries_fts fts JOIN entries e ON e.id = fts.rowid
                     WHERE entries_fts MATCH ? AND e.source IN (\(placeholders))
-                    ORDER BY (e.word_normalized = ? COLLATE NOCASE) DESC,
-                             (e.word_normalized LIKE ? COLLATE NOCASE) DESC,
+                    ORDER BY (e.word_normalized = ? COLLATE NOCASE OR e.word_normalized = ? COLLATE NOCASE) DESC,
+                             (e.word_normalized LIKE ? COLLATE NOCASE OR e.word_normalized LIKE ? COLLATE NOCASE) DESC,
                              rank
                     LIMIT ?
                     """, arguments: args)
@@ -442,16 +503,20 @@ actor DatabaseService {
     func fetchSourceStats() async throws -> [SourceStat] {
         guard let pool = dbPool else { throw DBError.notConnected }
         return try await pool.read { db in
+            // Count first, then join the metadata once per source. Joined
+            // inside the aggregate, the metadata columns were read for every
+            // entry row; with the full Apache 2.0 text of the Greek WordNet
+            // sources (Issue #87, ~9.8 KB on overflow pages) that left the
+            // Dictionary Order screen empty for 25+ s after launch.
             let sql = """
-                SELECT e.source,
-                       COALESCE(m.display_name, e.source) AS display_name,
+                SELECT c.source,
+                       COALESCE(m.display_name, c.source) AS display_name,
                        COALESCE(m.license, '') AS license,
                        COALESCE(m.version, '') AS version,
-                       COUNT(*) AS cnt
-                FROM entries e
-                LEFT JOIN dict_metadata m ON m.source = e.source
-                GROUP BY e.source
-                ORDER BY cnt DESC
+                       c.cnt
+                FROM (SELECT source, COUNT(*) AS cnt FROM entries GROUP BY source) c
+                LEFT JOIN dict_metadata m ON m.source = c.source
+                ORDER BY c.cnt DESC
                 """
             let rows = try Row.fetchAll(db, sql: sql)
             return rows.map { row in
@@ -533,12 +598,15 @@ actor DatabaseService {
     }
 
     /// Seed the database from the bundled seed.sqlite / seed.json.
-    /// Re-seeds any sources present in the bundle but missing from the app database.
-    func seedIfNeeded() async throws {
+    /// Re-seeds any sources present in the bundle but missing from the app
+    /// database, and updates bundled sources whose seed was rebuilt since this
+    /// install last synced (Issue #108). `bundledSeedURL` is a test seam: `nil`
+    /// means the app bundle's `seed.sqlite`.
+    func seedIfNeeded(bundledSeedURL: URL? = nil) async throws {
         guard let pool = dbPool else { throw DBError.notConnected }
 
         // Priority 1: bundled SQLite file.
-        if let sqliteURL = Bundle.main.url(forResource: "seed", withExtension: "sqlite") {
+        if let sqliteURL = bundledSeedURL ?? Bundle.main.url(forResource: "seed", withExtension: "sqlite") {
             // Find which sources exist in the bundled file.
             let bundledQueue = try DatabaseQueue(path: sqliteURL.path)
             let bundledSources: Set<String> = try await bundledQueue.read { db in
@@ -552,9 +620,31 @@ actor DatabaseService {
                 return Set(rows)
             }
 
+            // Issue #108: a bundled source the app already has is stale when its
+            // `built_at` differs from the bundle's (a missing app row counts).
+            // `refreshMetadata` below copies `built_at`, so it closes this gate
+            // only after a successful sync.
+            let bundleBuiltAt = try await bundledQueue.read { db in try Self.builtAtBySource(db) }
+            let appBuiltAt = try await pool.read { db in try Self.builtAtBySource(db) }
+            let staleSources = bundledSources.intersection(existingSources).filter {
+                appBuiltAt[$0] != bundleBuiltAt[$0]
+            }
+
             let missingSources = bundledSources.subtracting(existingSources)
             if !missingSources.isEmpty {
                 _ = try await importBundledSQLite(at: sqliteURL, sources: missingSources)
+            }
+
+            if !staleSources.isEmpty {
+                do {
+                    try await syncBundledSources(from: sqliteURL, sources: staleSources)
+                } catch {
+                    // Non-fatal: start on the old (still usable) data. Skipping
+                    // `refreshMetadata` keeps the old `built_at`, so the next
+                    // launch retries.
+                    print("DatabaseService: bundled source sync failed, retrying next launch: \(error)")
+                    return
+                }
             }
             // Always refresh metadata from the bundle (picks up new columns / richer content).
             try await refreshMetadata(from: bundledQueue)
@@ -568,6 +658,72 @@ actor DatabaseService {
         if isEmpty, let jsonURL = Bundle.main.url(forResource: "seed", withExtension: "json") {
             _ = try await importJSON(at: jsonURL, source: "bundled")
         }
+    }
+
+    /// Issue #108: brings existing `sources` up to date with the bundled seed at
+    /// `url`, in one transaction. Rows are matched on (source, word NOCASE) and
+    /// updated in place only when their content differs, so ids (and the
+    /// bookmarks that cascade from them) survive and `entries_au` re-indexes
+    /// just the changed rows. Bundle headwords the app lacks are inserted; app
+    /// rows the bundle lacks are kept. Pass bundled source names only, never
+    /// custom imports. Never use DELETE or REPLACE here: both change the id.
+    @discardableResult
+    func syncBundledSources(from url: URL, sources: Set<String>) async throws -> (updated: Int, inserted: Int) {
+        guard let pool = dbPool else { throw DBError.notConnected }
+        guard !sources.isEmpty else { return (0, 0) }
+        let sourceList = Array(sources)
+        let placeholders = sourceList.map { _ in "?" }.joined(separator: ", ")
+        let path = url.path
+        return try await pool.writeWithoutTransaction { db in
+            // ATTACH and DETACH stay outside the transaction: DETACH inside one
+            // fails with "database bundled is locked".
+            try db.execute(sql: "ATTACH DATABASE ? AS bundled", arguments: [path])
+            defer { try? db.execute(sql: "DETACH DATABASE bundled") }
+            var updated = 0
+            var inserted = 0
+            try db.inTransaction {
+                try db.execute(
+                    sql: """
+                        UPDATE main.entries AS e
+                        SET word = x.word, word_normalized = x.word_normalized,
+                            definition = x.definition, phonetic = x.phonetic, pos = x.pos
+                        FROM bundled.entries AS x
+                        WHERE x.source IN (\(placeholders))
+                          AND e.source = x.source
+                          AND e.word = x.word COLLATE NOCASE
+                          AND (e.word IS NOT x.word OR e.word_normalized IS NOT x.word_normalized
+                               OR e.definition IS NOT x.definition OR e.phonetic IS NOT x.phonetic
+                               OR e.pos IS NOT x.pos)
+                        """,
+                    arguments: StatementArguments(sourceList)
+                )
+                updated = db.changesCount
+                try db.execute(
+                    sql: """
+                        INSERT OR IGNORE INTO main.entries(word, word_normalized, definition, phonetic, pos, source)
+                        SELECT word, word_normalized, definition, phonetic, pos, source
+                        FROM bundled.entries WHERE source IN (\(placeholders))
+                        """,
+                    arguments: StatementArguments(sourceList)
+                )
+                inserted = db.changesCount
+                return .commit
+            }
+            return (updated, inserted)
+        }
+    }
+
+    /// `source → built_at` from a database's `dict_metadata` (empty if the table
+    /// is missing). The per-source gate for `syncBundledSources` (Issue #108).
+    private static func builtAtBySource(_ db: Database) throws -> [String: String] {
+        guard try db.tableExists("dict_metadata") else { return [:] }
+        var result: [String: String] = [:]
+        for row in try Row.fetchAll(db, sql: "SELECT source, built_at FROM dict_metadata") {
+            if let source: String = row["source"] {
+                result[source] = (row["built_at"] as String?) ?? ""
+            }
+        }
+        return result
     }
 
     /// Imports entries (optionally filtered by source) and metadata from a bundled SQLite file.
