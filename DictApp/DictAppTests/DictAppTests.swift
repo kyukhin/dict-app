@@ -1265,9 +1265,9 @@ final class DictAppTests: XCTestCase {
     /// codepoints) only requires one edit.
     private static let freeDictEngSpaSource = "freedict-eng-spa"
 
-    /// `DictionaryEntry.sourceLabel` must return the terse "En–Es"
-    /// badge for the new source identifier, not the raw capitalised
-    /// fallback (e.g. "Freedict-Eng-Spa").
+    /// `DictionaryEntry.sourceLabel` must return the terse "En–Es · FD"
+    /// badge (direction + provider, Issue #87) for the new source
+    /// identifier, not the raw capitalised fallback (e.g. "Freedict-Eng-Spa").
     func testFreeDictSourceLabelIsTerseEnEs() throws {
         let entry = DictionaryEntry(
             id: 1,
@@ -1279,8 +1279,8 @@ final class DictAppTests: XCTestCase {
             createdAt: nil
         )
         XCTAssertEqual(
-            entry.sourceLabel, "En–Es",
-            "freedict-eng-spa must render as the terse 'En–Es' badge, not the .capitalized fallback"
+            entry.sourceLabel, "En\u{2013}Es \u{00B7} FD",
+            "freedict-eng-spa must render as the terse 'En–Es · FD' badge, not the .capitalized fallback"
         )
 
         // Negative control: the unknown-source fallback (`.capitalized`)
@@ -1363,12 +1363,13 @@ final class DictAppTests: XCTestCase {
         XCTAssertFalse(description.isEmpty,
                        "dict_metadata.description must explain the source")
 
-        // GPL text is a hard contract — the bundle ships GPL'd data and
-        // must surface the license text in-app (DictionaryDetailView).
+        // License text is a hard contract — the bundle ships CC BY-SA data
+        // (WikDict, #106; it was mislabelled GPL before #87) and must surface
+        // the license text in-app (DictionaryDetailView).
         XCTAssertFalse(license.isEmpty,
-                       "dict_metadata.license must contain the full GPL text")
-        XCTAssertTrue(license.uppercased().contains("GPL") || license.contains("GNU GENERAL PUBLIC LICENSE"),
-                      "License text must mention GPL — required for GPL compliance; got first 80 chars: \(license.prefix(80))")
+                       "dict_metadata.license must contain the license text")
+        XCTAssertTrue(license.contains("Attribution-ShareAlike 3.0"),
+                      "License text must name CC BY-SA 3.0 (#106); got first 80 chars: \(license.prefix(80))")
 
         // Success criterion #3 from the design doc: ≥ 50,000 entries.
         XCTAssertGreaterThanOrEqual(
@@ -1537,9 +1538,9 @@ final class DictAppTests: XCTestCase {
     /// future rename is a one-line edit.
     private static let spanishWordNetSource = "wordnet-spa-eng"
 
-    /// `DictionaryEntry.sourceLabel` must return the terse "Es–En" badge
-    /// for the Spanish WordNet source identifier, not the raw
-    /// capitalised fallback.
+    /// `DictionaryEntry.sourceLabel` must return the terse "Es–En · WN"
+    /// badge (direction + provider, Issue #87) for the Spanish WordNet
+    /// source identifier, not the raw capitalised fallback.
     func testSpanishWordNetSourceLabelIsTerseEsEn() throws {
         let entry = DictionaryEntry(
             id: 1, word: "casa",
@@ -1548,8 +1549,8 @@ final class DictAppTests: XCTestCase {
             source: Self.spanishWordNetSource, createdAt: nil
         )
         XCTAssertEqual(
-            entry.sourceLabel, "Es–En",
-            "wordnet-spa-eng must render as the terse 'Es–En' badge, not the .capitalized fallback"
+            entry.sourceLabel, "Es\u{2013}En \u{00B7} WN",
+            "wordnet-spa-eng must render as the terse 'Es–En · WN' badge, not the .capitalized fallback"
         )
 
         // The .capitalized fallback would produce 'Wordnet-Spa-Eng'. The
@@ -1570,8 +1571,8 @@ final class DictAppTests: XCTestCase {
         XCTAssertEqual(
             DictionaryEntry(id: nil, word: "x", definition: "", phonetic: "",
                             pos: "", source: "freedict-eng-spa", createdAt: nil).sourceLabel,
-            "En–Es",
-            "The #24 eng-spa source must keep its 'En–Es' badge (opposite direction)"
+            "En\u{2013}Es \u{00B7} FD",
+            "The #24 eng-spa source must keep its 'En–Es · FD' badge (opposite direction)"
         )
     }
 
@@ -1961,17 +1962,21 @@ final class DictAppTests: XCTestCase {
     /// Inserts one row with an explicit `word_normalized` (mimicking what the
     /// Python build does for Arabic), via a direct connection so the value
     /// isn't overwritten by the `= word` custom-import policy.
+    /// `decomposeGreekDefinition` stores the definition through
+    /// `decomposeGreek`, as the build does for the four Greek sources (#87).
     private func insertNormalizedEntry(word: String, normalized: String,
-                                       definition: String, source: String) async throws {
+                                       definition: String, source: String,
+                                       decomposeGreekDefinition: Bool = false) async throws {
         let path = tempDir.appendingPathComponent("test.sqlite").path
         let pool = try DatabasePool(path: path)
+        let stored = decomposeGreekDefinition ? Self.decomposeGreek(definition) : definition
         try await pool.writeWithoutTransaction { conn in
             try conn.execute(
                 sql: """
                     INSERT OR IGNORE INTO entries(word, word_normalized, definition, phonetic, pos, source)
                     VALUES (?, ?, ?, '', 'noun', ?)
                     """,
-                arguments: [word, normalized, definition, source])
+                arguments: [word, normalized, stored, source])
         }
     }
 
@@ -2993,16 +2998,21 @@ final class DictionaryDefaultsTests: XCTestCase {
     /// The mapping must only reference IDs that actually ship in the seed;
     /// a typo here would silently degrade to "no promotion" at runtime.
     func testPreferredSourcesReferenceOnlyBundledIDs() {
+        // Issue #87: the four Greek sources are bundled too (fixture above
+        // keeps the five pre-Greek IDs for the order tests).
+        let shipped = Set(bundledSources).union(DictAppTests.greekSourceIDs)
         for (code, ids) in DictionaryDefaults.preferredSources {
             XCTAssertFalse(ids.isEmpty, "mapping for \(code) must not be empty")
             XCTAssertEqual(Set(ids).count, ids.count, "mapping for \(code) has duplicates: \(ids)")
             for id in ids {
-                XCTAssertTrue(bundledSources.contains(id),
+                XCTAssertTrue(shipped.contains(id),
                               "mapping for \(code) references unknown source id '\(id)'")
             }
         }
-        XCTAssertEqual(Set(DictionaryDefaults.preferredSources.keys), ["en", "ru", "es", "ar"],
-                       "every shipped UI language (SupportedLocales.json) must have a mapping")
+        // Every shipped UI language (SupportedLocales.json) has a mapping;
+        // `el` is ready ahead of the Greek UI language (#88).
+        XCTAssertEqual(Set(DictionaryDefaults.preferredSources.keys), ["en", "ru", "es", "ar", "el"],
+                       "every shipped UI language (SupportedLocales.json) must have a mapping, plus el (#87)")
     }
 
     // MARK: - Edge cases
@@ -3236,8 +3246,11 @@ final class DictionaryGroupingTests: XCTestCase {
         XCTAssertEqual(custom.provider, "test_import_fixture")
         XCTAssertEqual(custom.languages, [])
 
-        // The bilingual allowlist matches the seed's dict_metadata exactly.
-        XCTAssertEqual(DictionaryGrouping.bundledSourceIDs, ["wordnet-spa-eng", "freedict-eng-spa", "wordnet-arb-eng"],
+        // The bilingual allowlist matches the seed's dict_metadata exactly
+        // (seven bilingual IDs since the four Greek sources of #87).
+        XCTAssertEqual(DictionaryGrouping.bundledSourceIDs,
+                       ["wordnet-spa-eng", "freedict-eng-spa", "wordnet-arb-eng",
+                        "wordnet-ell-eng", "wordnet-eng-ell", "freedict-ell-eng", "freedict-eng-ell"],
                        "allowlist is the one place a future bundled dictionary is added")
 
         // `SourceStat` surfaces the same facts for the #91 detail.
@@ -3843,7 +3856,8 @@ final class DictionaryInfoDetailTests: XCTestCase {
     private let es = Locale(identifier: "es")
     private let ar = Locale(identifier: "ar")
 
-    private let bundledSourceIDs = ["wordnet", "openrussian", "freedict-eng-spa", "wordnet-spa-eng", "wordnet-arb-eng"]
+    private let bundledSourceIDs = ["wordnet", "openrussian", "freedict-eng-spa", "wordnet-spa-eng", "wordnet-arb-eng",
+                                    "freedict-ell-eng", "wordnet-ell-eng", "freedict-eng-ell", "wordnet-eng-ell"]
 
     private func stat(_ source: String, count: Int = 1, license: String = "", version: String = "") -> SourceStat {
         SourceStat(source: source, displayName: "Raw \(source)", count: count, license: license, version: version)
@@ -4141,13 +4155,13 @@ final class DictionaryInfoDetailTests: XCTestCase {
         return try await DatabaseService.shared.fetchSourceStats()
     }
 
-    /// Seed: each of the five bundled sources has `license.count > 50` and a
+    /// Seed: each of the nine bundled sources has `license.count > 50` and a
     /// non-empty `version`.
     func testEveryBundledSourceStatCarriesLicenseAndVersion() async throws {
         let stats = try await seedSourceStats()
         let bySource = Dictionary(uniqueKeysWithValues: stats.map { ($0.source, $0) })
         XCTAssertEqual(Set(stats.map(\.source)), Set(bundledSourceIDs),
-                       "the seed ships exactly the five bundled sources")
+                       "the seed ships exactly the nine bundled sources (#87)")
         for source in bundledSourceIDs {
             let s = try XCTUnwrap(bySource[source], "\(source) missing from fetchSourceStats()")
             XCTAssertGreaterThan(s.license.count, 50, "\(source): license must be real text (AC 4)")
@@ -4159,14 +4173,14 @@ final class DictionaryInfoDetailTests: XCTestCase {
     }
 
     /// Seed: `eng-spa` has two sources, `infoSources` → WordNet then FreeDict,
-    /// both licenses non-empty, FreeDict mentions GPL.
+    /// both licenses non-empty, FreeDict names CC BY-SA 3.0 (#106).
     func testSpanishPairInfoHasBothSourcesWithLicenses() async throws {
         let stats = try await seedSourceStats()
         for code in ["en", "ru", "es", "ar"] {
             let order = DictionaryGrouping.groupedOrder(
                 DictionaryDefaults.defaultOrder(forLanguageCode: code, sources: stats.map(\.source)))
             let pairs = DictionaryGrouping.pairs(from: stats, order: order)
-            XCTAssertEqual(Set(pairs.map(\.id)), ["eng", "eng-rus", "eng-spa", "arb-eng"], code)
+            XCTAssertEqual(Set(pairs.map(\.id)), ["eng", "eng-rus", "eng-spa", "arb-eng", "ell-eng"], code)
             let spanish = try XCTUnwrap(pairs.first { $0.id == "eng-spa" }, code)
             XCTAssertEqual(Set(spanish.sourceIDs), ["wordnet-spa-eng", "freedict-eng-spa"], code)
 
@@ -4177,8 +4191,8 @@ final class DictionaryInfoDetailTests: XCTestCase {
             for s in info {
                 XCTAssertFalse(s.license.isEmpty, "\(code): \(s.source) license")
             }
-            XCTAssertTrue(info[1].license.contains("GNU General Public License"),
-                          "FreeDict ships under the GPL; got: \(info[1].license.prefix(120))")
+            XCTAssertTrue(info[1].license.contains("Attribution-ShareAlike 3.0"),
+                          "FreeDict ships under CC BY-SA 3.0 (#106); got: \(info[1].license.prefix(120))")
             XCTAssertNotEqual(info[0].license, info[1].license, "each block carries its own license")
 
             // Single-source pairs carry exactly their one licensed source.
@@ -4811,6 +4825,1068 @@ extension SettingsViewModelPairTests {
             let bundledHit = try await searchResults(search, for: "wordnet")
             XCTAssertEqual(bundledHit.first?.source, "wordnet", "[\(label)] English bucket still first")
             XCTAssertEqual(settingsVM.dictionaries.map(\.id), bundledPairs, "[\(label)] Dictionary order never reloaded")
+        }
+    }
+}
+
+// MARK: - Issue #87: Greek ↔ English dictionaries
+//
+// DESIGN_DOC.md §8a, plus the data fixes that ride the same seed rebuild:
+// #106 (license labels) and #108 (FreeDict kept only the first translation).
+// The fold parity vectors are a straight port of `PARITY_FOLDS` /
+// `PARITY_IDENTITY` in `Scripts/build_greek.py` (keep the two lists in sync).
+
+/// Fixtures and seed-backed / temp-DB tests. An extension, so the bodies can
+/// use `db`, `tempDir`, `insertNormalizedEntry` and `openBundledSeedReadOnly`.
+extension DictAppTests {
+
+    // MARK: Fixtures
+
+    /// The four Greek sources, in (i) detail order (§5.1).
+    static let greekSourceIDs = ["freedict-ell-eng", "wordnet-ell-eng", "freedict-eng-ell", "wordnet-eng-ell"]
+    /// All nine bundled sources (§8a "The seed ships exactly nine sources").
+    static let allBundledSourceIDs = ["wordnet", "openrussian", "freedict-eng-spa", "wordnet-spa-eng",
+                                      "wordnet-arb-eng"] + greekSourceIDs
+
+    /// Mirror of `decompose_greek` in `Scripts/build_greek.py`: every Greek
+    /// code point becomes its NFD decomposition (ά → α + U+0301); every other
+    /// code point stays byte-identical. Lets a fixture store a definition the
+    /// way the build stores the Greek sources'.
+    static func decomposeGreek(_ s: String) -> String {
+        guard s.unicodeScalars.contains(where: Search.isGreek) else { return s }
+        var out = String.UnicodeScalarView()
+        for scalar in s.unicodeScalars {
+            if Search.isGreek(scalar) {
+                out.append(contentsOf: String(scalar).decomposedStringWithCanonicalMapping.unicodeScalars)
+            } else {
+                out.append(scalar)
+            }
+        }
+        return String(out)
+    }
+
+    /// `word|source` keys of a result list. `String` hashing is canonical-
+    /// equivalence aware, so an NFC fixture word matches an NFC row.
+    private static func hitKeys(_ rows: [DictionaryEntry]) -> Set<String> {
+        Set(rows.map { "\($0.word)|\($0.source)" })
+    }
+
+    /// The four rows every spelling of σκύλος must reach (§4.3).
+    private static let dogHits: Set<String> = [
+        "dog|wordnet-eng-ell", "dog|freedict-eng-ell", "σκύλος|freedict-ell-eng", "σκύλος|wordnet-ell-eng",
+    ]
+
+    /// "dog" in both En→El sources with the Greek of its definition stored
+    /// decomposed (as the build does), the `σκύλος` headwords of both El→En
+    /// sources with a folded `word_normalized`, and a Greek distractor that
+    /// must never match `σκυλ*`.
+    private func insertGreekDogFixtures() async throws {
+        try await insertNormalizedEntry(
+            word: "dog", normalized: "dog",
+            definition: "**noun**\n1. σκύλος γένους Canis familiaris — a member of the genus Canis",
+            source: "wordnet-eng-ell", decomposeGreekDefinition: true)
+        try await insertNormalizedEntry(
+            word: "dog", normalized: "dog", definition: "1. σκύλος",
+            source: "freedict-eng-ell", decomposeGreekDefinition: true)
+        try await insertNormalizedEntry(
+            word: "σκύλος", normalized: "σκυλοσ", definition: "**noun**\n1. dog, hound, canine",
+            source: "freedict-ell-eng")
+        try await insertNormalizedEntry(
+            word: "σκύλος", normalized: "σκυλοσ",
+            definition: "**noun**\n1. working dog — any of several breeds of usually large powerful dogs",
+            source: "wordnet-ell-eng")
+        try await insertNormalizedEntry(
+            word: "cat", normalized: "cat", definition: "1. γάτα — feline mammal",
+            source: "wordnet-eng-ell", decomposeGreekDefinition: true)
+    }
+
+    /// The stored `definition` of one fixture row, read back raw.
+    private func storedDefinition(word: String, source: String) async throws -> String {
+        let pool = try DatabasePool(path: tempDir.appendingPathComponent("test.sqlite").path)
+        return try await pool.read { conn in
+            try String.fetchOne(conn, sql: "SELECT definition FROM entries WHERE word = ? AND source = ?",
+                                arguments: [word, source]) ?? ""
+        }
+    }
+
+    /// The bundled seed's URL (same host-bundle resolution as
+    /// `openBundledSeedReadOnly`).
+    private static func greekSeedURL() throws -> URL {
+        let hostBundle: Bundle = {
+            if let url = Bundle.main.url(forResource: "DictApp", withExtension: "app") {
+                return Bundle(url: url) ?? .main
+            }
+            return .main
+        }()
+        return try XCTUnwrap(
+            hostBundle.url(forResource: "seed", withExtension: "sqlite")
+                ?? Bundle.main.url(forResource: "seed", withExtension: "sqlite"),
+            "Bundled seed.sqlite is missing from the app bundle")
+    }
+
+    /// Clones the bundled seed into `tempDir` (APFS clone, no 130 MB copy) and
+    /// points `db` at it, so the app's real `search` SQL runs on shipped rows.
+    private func useSeedClone() async throws {
+        let copy = tempDir.appendingPathComponent("seed-clone.sqlite")
+        try FileManager.default.copyItem(at: try Self.greekSeedURL(), to: copy)
+        try await db.setup(path: copy.path)
+    }
+
+    /// One seed row's definition (NFC, for contains-checks: Greek-source
+    /// definitions are stored decomposed).
+    private static func seedDefinition(_ queue: DatabaseQueue, word: String, source: String) throws -> String {
+        let raw = try queue.read { conn in
+            try String.fetchOne(conn, sql: "SELECT definition FROM entries WHERE word = ? AND source = ?",
+                                arguments: [word, source])
+        }
+        return try XCTUnwrap(raw, "seed row '\(word)' / \(source) missing").precomposedStringWithCanonicalMapping
+    }
+
+    private static func seedLicense(_ queue: DatabaseQueue, _ source: String) throws -> String {
+        let raw = try queue.read { conn in
+            try String.fetchOne(conn, sql: "SELECT license FROM dict_metadata WHERE source = ?", arguments: [source])
+        }
+        return try XCTUnwrap(raw, "dict_metadata row for \(source) missing")
+    }
+
+    // MARK: Search integration (temp DB)
+
+    /// `σκυλος` → "dog" from `wordnet-eng-ell` (`σκύλος γένους Canis
+    /// familiaris — …`) and `freedict-eng-ell` (`1. σκύλος`), both stored
+    /// decomposed, plus the `σκύλος` headwords of both El→En sources: all four,
+    /// and nothing else.
+    func testGreekAccentFreeQueryFindsDogInAllFourSources() async throws {
+        try await insertGreekDogFixtures()
+
+        // Precondition: the fixture really stores the definition decomposed
+        // (otherwise this test would not exercise the NFD path at all).
+        let stored = try await storedDefinition(word: "dog", source: "freedict-eng-ell")
+        XCTAssertTrue(stored.unicodeScalars.contains("\u{0301}"),
+                      "fixture definition must hold a combining tonos; got \(stored.unicodeScalars.map(\.value))")
+        XCTAssertFalse(stored.unicodeScalars.contains("\u{03CD}"), "no precomposed ύ left in the stored definition")
+
+        let hits = Self.hitKeys(try await db.search(query: "σκυλος"))
+        XCTAssertEqual(hits, Self.dogHits,
+                       "accent-free σκυλος must reach both El→En headwords and 'dog' in both En→El sources, and only them")
+    }
+
+    /// `σκύλος` returns the same four rows; an NFC accented custom-import row
+    /// (`word_normalized = word`) is also found (raw branch). The accent-free
+    /// query does not reach that custom row: custom imports stay accent-exact
+    /// (the documented limit, §4.3).
+    func testGreekAccentedQueryFindsDogAndAccentedCustomImport() async throws {
+        try await insertGreekDogFixtures()
+        try await insertNormalizedEntry(word: "σκύλος", normalized: "σκύλος",
+                                        definition: "a custom Greek import", source: "my_greek_import")
+
+        let accented = Self.hitKeys(try await db.search(query: "σκύλος"))
+        XCTAssertEqual(accented, Self.dogHits.union(["σκύλος|my_greek_import"]),
+                       "accented σκύλος: the four bundled rows via the folded branch + the custom NFC row via the raw branch")
+
+        let bare = Self.hitKeys(try await db.search(query: "σκυλος"))
+        XCTAssertEqual(bare, Self.dogHits,
+                       "accent-free σκυλος finds no accented custom import (custom imports are accent-exact, §4.3)")
+    }
+
+    /// Same fixtures: `ΣΚΥΛΟΣ`, `ΣΚΎΛΟΣ`, `σκυλοσ`, the prefix `σκυλ`, and a
+    /// query typed/pasted decomposed (NFD) all reach the same four rows; a
+    /// different Greek stem reaches none of them.
+    func testGreekCaseFinalSigmaAndPrefixVariants() async throws {
+        try await insertGreekDogFixtures()
+
+        let variants = ["ΣΚΥΛΟΣ", "ΣΚΎΛΟΣ", "σκυλοσ", "σκυλ", "Σκύλος", "σκύλος".decomposedStringWithCanonicalMapping]
+        for query in variants {
+            let hits = Self.hitKeys(try await db.search(query: query))
+            XCTAssertEqual(hits, Self.dogHits, "query '\(query)' (\(query.unicodeScalars.map(\.value)))")
+        }
+
+        let other = try await db.search(query: "σκυλα")
+        XCTAssertTrue(other.isEmpty, "σκυλα* is a different stem; got \(Self.hitKeys(other))")
+        let cat = Self.hitKeys(try await db.search(query: "γατα"))
+        XCTAssertEqual(cat, ["cat|wordnet-eng-ell"], "the distractor is reachable by its own Greek, accent-free")
+    }
+
+    /// `προιον` / `προϊόν` → "product"; `σαιτα` / `σαΐτα` → "arrow" (ΐ);
+    /// `καταπραυνω` / `καταπραΰνω` → "allay" (ΰ). Greek in decomposed definitions.
+    func testGreekDialytikaAndTonosFoldInDefinitions() async throws {
+        try await insertNormalizedEntry(
+            word: "product", normalized: "product", definition: "**noun**\n1. προϊόν — commodities offered for sale",
+            source: "wordnet-eng-ell", decomposeGreekDefinition: true)
+        try await insertNormalizedEntry(
+            word: "product", normalized: "product", definition: "1. προϊόν, παράγωγο",
+            source: "freedict-eng-ell", decomposeGreekDefinition: true)
+        try await insertNormalizedEntry(
+            word: "arrow", normalized: "arrow", definition: "**noun**\n1. βέλος, σαΐτα — a projectile with a straight thin shaft",
+            source: "wordnet-eng-ell", decomposeGreekDefinition: true)
+        try await insertNormalizedEntry(
+            word: "allay", normalized: "allay", definition: "**verb**\n1. καταπραΰνω — lessen the intensity of",
+            source: "wordnet-eng-ell", decomposeGreekDefinition: true)
+
+        // ΐ and ΰ carry dialytika AND tonos: NFD keeps both as combining marks.
+        let arrow = try await storedDefinition(word: "arrow", source: "wordnet-eng-ell")
+        XCTAssertTrue(arrow.unicodeScalars.contains("\u{0308}") && arrow.unicodeScalars.contains("\u{0301}"),
+                      "ΐ must be stored as ι + U+0308 + U+0301")
+
+        let expectations: [(String, Set<String>)] = [
+            ("προιον", ["product|wordnet-eng-ell", "product|freedict-eng-ell"]),
+            ("προϊόν", ["product|wordnet-eng-ell", "product|freedict-eng-ell"]),
+            ("ΠΡΟΪΟΝ", ["product|wordnet-eng-ell", "product|freedict-eng-ell"]),
+            ("σαιτα", ["arrow|wordnet-eng-ell"]),
+            ("σαΐτα", ["arrow|wordnet-eng-ell"]),
+            ("καταπραυνω", ["allay|wordnet-eng-ell"]),
+            ("καταπραΰνω", ["allay|wordnet-eng-ell"]),
+        ]
+        for (query, expected) in expectations {
+            let hits = Self.hitKeys(try await db.search(query: query))
+            XCTAssertEqual(hits, expected, "query '\(query)'")
+        }
+    }
+
+    /// For an accented query the exact (folded) headword ranks first, then a
+    /// headword that only starts with it (prefix boost), then rows that only
+    /// match in their definitions — even though the definition rows were
+    /// inserted first and mention the word several times. Both boosts use the
+    /// folded `rankKey`; with the raw accented key neither would fire.
+    func testGreekExactHeadwordOutranksDefinitionMatches() async throws {
+        try await insertNormalizedEntry(
+            word: "dog", normalized: "dog", definition: "1. σκύλος, σκύλος φύλακας, σκύλος κυνηγιού",
+            source: "wordnet-eng-ell", decomposeGreekDefinition: true)
+        try await insertNormalizedEntry(
+            word: "hound", normalized: "hound", definition: "1. σκύλος, λαγωνικό",
+            source: "freedict-eng-ell", decomposeGreekDefinition: true)
+        try await insertNormalizedEntry(
+            word: "σκυλόσπιτο", normalized: "σκυλοσπιτο", definition: "**noun**\n1. doghouse, kennel",
+            source: "freedict-ell-eng")
+        try await insertNormalizedEntry(
+            word: "σκύλος", normalized: "σκυλοσ", definition: "**noun**\n1. dog, hound, canine",
+            source: "freedict-ell-eng")
+
+        for query in ["σκύλος", "ΣΚΎΛΟΣ", "σκυλος"] {
+            let words = try await db.search(query: query).map(\.word)
+            XCTAssertEqual(words.count, 4, "\(query): all four rows match; got \(words)")
+            XCTAssertEqual(words.first, "σκύλος", "\(query): exact folded headword first; got \(words)")
+            XCTAssertEqual(words.dropFirst().first, "σκυλόσπιτο", "\(query): prefix headword second; got \(words)")
+            XCTAssertEqual(Set(words.dropFirst(2)), ["dog", "hound"], "\(query): definition-only matches last")
+        }
+    }
+
+    /// Russian regression: fixture `йод` and `иод`; `search("йод")` returns
+    /// `йод` and not `иод`, `search("иод")` returns `иод` and not `йод`. A fold
+    /// leaking outside Greek (NFD + drop marks) would merge the two.
+    func testRussianShortIDoesNotFoldIntoI() async throws {
+        try await insertNormalizedEntry(word: "йод", normalized: "йод",
+                                        definition: "**noun**\n1. iodine", source: "openrussian")
+        try await insertNormalizedEntry(word: "иод", normalized: "иод",
+                                        definition: "**noun**\n1. obsolete spelling", source: "openrussian")
+
+        let short = try await db.search(query: "йод").map(\.word)
+        let plain = try await db.search(query: "иод").map(\.word)
+        let upper = try await db.search(query: "ЙОД").map(\.word)
+        XCTAssertEqual(short, ["йод"], "й must stay й")
+        XCTAssertEqual(plain, ["иод"], "и must not reach й")
+        XCTAssertEqual(upper, ["йод"], "case folding still works for Cyrillic")
+    }
+
+    /// `searchPreferred`: the four Greek sources share one bucket. Member order
+    /// puts both En→El sources first, so per-source buckets would surface their
+    /// definition rows first; one shared bucket ranks the two exact `σκύλος`
+    /// headwords first, holds exactly `topN` rows across all four sources, and
+    /// the next group's bucket follows right after it.
+    func testSearchPreferredGreekSourcesShareOneBucket() async throws {
+        let topN = Search.preferredDictionaryTopN
+        XCTAssertEqual(topN, 4, "fixture sized for topN == 4")
+        let custom = "my_greek_import"
+        let order = ["wordnet-eng-ell", "freedict-eng-ell", "wordnet-ell-eng", "freedict-ell-eng", custom]
+        let groups = DictionaryGrouping.sourceGroups(order: order)
+        XCTAssertEqual(groups, [Array(order.prefix(4)), [custom]], "the four Greek IDs form one group")
+
+        for i in 1...3 {
+            try await insertNormalizedEntry(
+                word: "dog\(i)", normalized: "dog\(i)", definition: "1. σκύλος \(i)",
+                source: "wordnet-eng-ell", decomposeGreekDefinition: true)
+            try await insertNormalizedEntry(
+                word: "hound\(i)", normalized: "hound\(i)", definition: "1. σκύλος \(i)",
+                source: "freedict-eng-ell", decomposeGreekDefinition: true)
+        }
+        try await insertNormalizedEntry(word: "σκύλος", normalized: "σκυλοσ",
+                                        definition: "1. working dog", source: "wordnet-ell-eng")
+        try await insertNormalizedEntry(word: "σκύλος", normalized: "σκυλοσ",
+                                        definition: "1. dog", source: "freedict-ell-eng")
+        try await insertNormalizedEntry(word: "σκυλος", normalized: "σκυλος",
+                                        definition: "custom", source: custom)
+
+        let results = try await db.searchPreferred(query: "σκύλος", groups: groups, enabledSources: Set(order))
+        let greek = Set(Self.greekSourceIDs)
+
+        XCTAssertEqual(results.count, 9, "8 Greek rows + 1 custom row; got \(Self.hitKeys(results))")
+        XCTAssertEqual(Set(results.prefix(2).map(\.source)), ["wordnet-ell-eng", "freedict-ell-eng"],
+                       "one shared bucket: the exact headwords lead, whatever the member order")
+        XCTAssertTrue(results.prefix(2).allSatisfy { $0.word == "σκύλος" })
+        XCTAssertTrue(results.prefix(topN).allSatisfy { greek.contains($0.source) },
+                      "the Greek bucket fills first; got \(results.prefix(topN).map(\.source))")
+        XCTAssertEqual(results[topN].source, custom,
+                       "the Greek bucket holds exactly topN rows in total, then the next group's bucket")
+        XCTAssertTrue(results.dropFirst(topN + 1).allSatisfy { greek.contains($0.source) }, "tail: the remaining Greek rows")
+        let ids = results.compactMap(\.id)
+        XCTAssertEqual(ids.count, Set(ids).count, "no duplicate rows")
+    }
+
+    /// 100,000 rows, 10% with decomposed Greek definitions; `search("σκύλος")`
+    /// (two-branch MATCH) under the `testSearchPerformance100K` budget of
+    /// 16 ms. Median of five timed runs after a warm-up, so one scheduler
+    /// hiccup does not fail the build. 20 definitions mention σκύλος (the real
+    /// seed has 19 `σκυλ*` hits).
+    func testGreekSearchPerformance100K() async throws {
+        XCTAssertTrue(Search.ftsQuery(sanitized: "σκύλος").match.contains(" OR "),
+                      "precondition: the measured query takes the two-branch path")
+        let vocabulary = ["λόγος", "θάλασσα", "άνθρωπος", "προϊόν", "σαΐτα", "καταπραΰνω", "καλημέρα", "αύριο",
+                          "γρήγορα", "βιβλίο", "νερό", "σπίτι", "γάτα", "δρόμος", "ουρανός", "ήλιος",
+                          "φεγγάρι", "πόλη", "χώρα", "γλώσσα"]
+        let pool = try DatabasePool(path: tempDir.appendingPathComponent("test.sqlite").path)
+        try await pool.write { conn in
+            let insert = try conn.makeStatement(sql: """
+                INSERT INTO entries(word, word_normalized, definition, phonetic, pos, source)
+                VALUES (?, ?, ?, '', 'noun', ?)
+                """)
+            for i in 0..<89_999 {
+                try insert.execute(arguments: ["word\(i)", "word\(i)",
+                                               "Definition for word number \(i). This is a sample definition.", "test"])
+            }
+            for i in 0..<10_000 {
+                let a = vocabulary[i % vocabulary.count]
+                let b = vocabulary[(i / vocabulary.count) % vocabulary.count]
+                let mention = i % 500 == 0 ? ", σκύλος" : ""
+                let definition = Self.decomposeGreek("**noun**\n1. \(a), \(b)\(mention) — gloss number \(i)")
+                try insert.execute(arguments: ["gword\(i)", "gword\(i)", definition, "wordnet-eng-ell"])
+            }
+            try insert.execute(arguments: ["σκύλος", "σκυλοσ", "**noun**\n1. dog, hound", "freedict-ell-eng"])
+        }
+        let count = try await db.entryCount()
+        XCTAssertEqual(count, 100_000, "Database should contain 100k entries")
+
+        _ = try await db.search(query: "θάλασσα")   // warm-up, also two-branch
+        var timings: [Double] = []
+        var results: [DictionaryEntry] = []
+        for _ in 0..<5 {
+            let start = CFAbsoluteTimeGetCurrent()
+            results = try await db.search(query: "σκύλος")
+            timings.append((CFAbsoluteTimeGetCurrent() - start) * 1000)
+        }
+        let median = timings.sorted()[timings.count / 2]
+        print("⏱ Greek FTS5 search on 100k entries: median \(String(format: "%.2f", median))ms of \(timings.map { String(format: "%.2f", $0) })")
+
+        XCTAssertEqual(results.count, 21, "1 headword + 20 decomposed definitions")
+        XCTAssertEqual(results.first?.word, "σκύλος", "the exact headword ranks first")
+        XCTAssertLessThan(median, 16.0, "Greek search must complete in under 16ms (median \(median)ms)")
+    }
+
+    // MARK: Seed-backed
+    //
+    // Counts are read from the seed, never hard-coded; definitions are
+    // compared after NFC with contains-checks (Greek-source definitions are
+    // stored decomposed, and #108 appends translations to FreeDict lines).
+
+    /// `Search.foldGreek(word) == word_normalized`, scalar for scalar, for every
+    /// row of the four Greek sources (Swift/Python fold parity on real data).
+    func testSeedGreekWordNormalizedMatchesFoldGreek() throws {
+        let queue = try Self.openBundledSeedReadOnly()
+        let placeholders = Self.greekSourceIDs.map { _ in "?" }.joined(separator: ", ")
+        let rows = try queue.read { conn in
+            try Row.fetchAll(conn, sql: "SELECT word, word_normalized, source FROM entries WHERE source IN (\(placeholders))",
+                             arguments: StatementArguments(Self.greekSourceIDs))
+        }
+        XCTAssertGreaterThan(rows.count, 100_000, "the four Greek sources ship ~110k rows; got \(rows.count)")
+
+        var mismatches: [String] = []
+        var checked: [String: Int] = [:]
+        for row in rows {
+            let word: String = row["word"]
+            let normalized: String = row["word_normalized"]
+            let source: String = row["source"]
+            checked[source, default: 0] += 1
+            if !Search.foldGreek(word).unicodeScalars.elementsEqual(normalized.unicodeScalars) {
+                mismatches.append("\(source): '\(word)' → '\(normalized)', Swift '\(Search.foldGreek(word))'")
+            }
+        }
+        XCTAssertEqual(Set(checked.keys), Set(Self.greekSourceIDs), "every Greek source was checked")
+        XCTAssertTrue(mismatches.isEmpty, "\(mismatches.count) parity mismatches, e.g. \(mismatches.prefix(5))")
+    }
+
+    /// No `definition` of a Greek source contains a precomposed Greek scalar
+    /// that has a canonical decomposition; no `word` contains a combining mark
+    /// and every `word` is NFC. Non-vacuous: thousands of definitions do carry
+    /// a combining tonos.
+    func testSeedGreekDefinitionsAreDecomposed() throws {
+        // Greek scalars whose NFD differs from themselves (ά, ΐ, ΰ, ᾳ, …).
+        var decomposable = Set<UInt32>()
+        for value in Array(0x0370...0x03FF) + Array(0x1F00...0x1FFF) {
+            guard let scalar = Unicode.Scalar(UInt32(value)) else { continue }
+            let nfd = String(scalar).decomposedStringWithCanonicalMapping.unicodeScalars
+            if !nfd.elementsEqual([scalar]) { decomposable.insert(scalar.value) }
+        }
+        XCTAssertTrue(decomposable.contains(0x03AC) && decomposable.contains(0x0390), "ά and ΐ are decomposable")
+
+        let queue = try Self.openBundledSeedReadOnly()
+        let placeholders = Self.greekSourceIDs.map { _ in "?" }.joined(separator: ", ")
+        let rows = try queue.read { conn in
+            try Row.fetchAll(conn, sql: "SELECT word, definition, source FROM entries WHERE source IN (\(placeholders))",
+                             arguments: StatementArguments(Self.greekSourceIDs))
+        }
+        var precomposed: [String] = []
+        var markedWords: [String] = []
+        var withTonos = 0
+        for row in rows {
+            let word: String = row["word"]
+            let definition: String = row["definition"]
+            let source: String = row["source"]
+            if definition.unicodeScalars.contains(where: { decomposable.contains($0.value) }) {
+                precomposed.append("\(source): \(word)")
+            }
+            if definition.unicodeScalars.contains("\u{0301}") { withTonos += 1 }
+            if word.unicodeScalars.contains(where: { $0.properties.generalCategory == .nonspacingMark })
+                || !word.unicodeScalars.elementsEqual(word.precomposedStringWithCanonicalMapping.unicodeScalars) {
+                markedWords.append("\(source): \(word)")
+            }
+        }
+        XCTAssertTrue(precomposed.isEmpty, "\(precomposed.count) definitions keep precomposed Greek, e.g. \(precomposed.prefix(5))")
+        XCTAssertTrue(markedWords.isEmpty, "\(markedWords.count) words are not NFC, e.g. \(markedWords.prefix(5))")
+        XCTAssertGreaterThan(withTonos, 10_000, "decomposed accents must actually be present; got \(withTonos)")
+    }
+
+    /// `γρήγορα` headword only in `freedict-ell-eng`; `tomorrow` headword only
+    /// in `freedict-eng-ell` among the Greek sources (OMW lacks both). Through
+    /// the app's `search` on a seed clone: `γρηγορα` puts `γρήγορα` first and
+    /// `tomorrow` returns the `freedict-eng-ell` row first among the Greek rows.
+    func testSeedWordsOnlyInFreeDictGreekSources() async throws {
+        let queue = try Self.openBundledSeedReadOnly()
+        let placeholders = Self.greekSourceIDs.map { _ in "?" }.joined(separator: ", ")
+        func greekSources(word: String) throws -> [String] {
+            try queue.read { conn in
+                try String.fetchAll(conn, sql: """
+                    SELECT source FROM entries WHERE word = ? COLLATE NOCASE AND source IN (\(placeholders))
+                    """, arguments: StatementArguments([word] + Self.greekSourceIDs))
+            }
+        }
+        XCTAssertEqual(try greekSources(word: "γρήγορα"), ["freedict-ell-eng"])
+        XCTAssertEqual(try greekSources(word: "tomorrow"), ["freedict-eng-ell"])
+        XCTAssertTrue(try Self.seedDefinition(queue, word: "γρήγορα", source: "freedict-ell-eng").contains("quickly"))
+        XCTAssertTrue(try Self.seedDefinition(queue, word: "tomorrow", source: "freedict-eng-ell").contains("αύριο"))
+
+        try await useSeedClone()
+        let quick = try await db.search(query: "γρηγορα")
+        XCTAssertEqual(quick.first.map { "\($0.word)|\($0.source)" }, "γρήγορα|freedict-ell-eng",
+                       "accent-free γρηγορα puts the FreeDict headword first")
+
+        let tomorrowGreek = try await db.search(query: "tomorrow", enabledSources: Set(Self.greekSourceIDs))
+        XCTAssertEqual(tomorrowGreek.first.map { "\($0.word)|\($0.source)" }, "tomorrow|freedict-eng-ell")
+        let tomorrowAll = try await db.search(query: "tomorrow")
+        let firstGreek = tomorrowAll.first { Self.greekSourceIDs.contains($0.source) }
+        XCTAssertEqual(firstGreek.map { "\($0.word)|\($0.source)" }, "tomorrow|freedict-eng-ell",
+                       "with every source on, the first Greek row is still the FreeDict headword")
+        XCTAssertTrue(tomorrowAll.contains { $0.word == "tomorrow" && $0.source == "wordnet" }, "English WordNet keeps its row")
+    }
+
+    /// The AC on shipped data (PM follow-up 2): `σκυλος`, `σκύλος` and
+    /// `ΣΚΥΛΟΣ` reach "dog" in BOTH En→El sources and `σκύλος` in BOTH El→En
+    /// sources through the app's `search` (limit 50).
+    func testSeedGreekQueriesFindDogInAllFourSources() async throws {
+        try await useSeedClone()
+        for query in ["σκυλος", "σκύλος", "ΣΚΥΛΟΣ"] {
+            let hits = Self.hitKeys(try await db.search(query: query))
+            XCTAssertTrue(Self.dogHits.isSubset(of: hits),
+                          "\(query): missing \(Self.dogHits.subtracting(hits)) from the seed results")
+        }
+        // Non-Greek search is unaffected: English "dog" still finds WordNet first.
+        let english = try await db.search(query: "dog")
+        XCTAssertEqual(english.first?.word, "dog")
+    }
+
+    /// Merges: `λάτρης` (FreeDict El→En) keeps the suffix and the noun entry
+    /// ("later", "worshipper"); `ad` (FreeDict En→El) contains
+    /// "(AD) μετά Χριστόν" and "διαφήμηση"; `act` contains
+    /// "παίζω (από ηθοποιό)"; `sea` has exactly two numbered lines.
+    func testSeedFreeDictGreekHomographMerges() throws {
+        let queue = try Self.openBundledSeedReadOnly()
+
+        let latris = try Self.seedDefinition(queue, word: "λάτρης", source: "freedict-ell-eng")
+        for part in ["**suffix**", "later", "**noun**", "worshipper"] {
+            XCTAssertTrue(latris.contains(part), "λάτρης must keep '\(part)'; got \(latris)")
+        }
+
+        let ad = try Self.seedDefinition(queue, word: "ad", source: "freedict-eng-ell")
+        XCTAssertTrue(ad.contains("(AD) μετά Χριστόν"), "AD/ad merge keeps the AD spelling in parentheses; got \(ad)")
+        XCTAssertTrue(ad.contains("διαφήμηση"), "ad keeps its own translation; got \(ad)")
+
+        let act = try Self.seedDefinition(queue, word: "act", source: "freedict-eng-ell")
+        XCTAssertTrue(act.contains("παίζω (από ηθοποιό)"), "inline <note> rendered in parentheses; got \(act)")
+
+        let sea = try Self.seedDefinition(queue, word: "sea", source: "freedict-eng-ell")
+        let numbered = sea.split(separator: "\n").filter { $0.first?.isNumber == true }
+        XCTAssertEqual(numbered.count, 2, "two source entries → two numbered lines; got \(sea)")
+        XCTAssertTrue(sea.contains("θάλασσα"))
+    }
+
+    /// #108: FreeDict keeps every `<quote>` of a translation group, in file
+    /// order. λάτρης keeps "worshipper", "aficionado", "buff" (only the first
+    /// survived before); `freedict-eng-spa` "quickly" keeps "rápidamente"
+    /// after "deprisa", and "dog" keeps "can" after "perro".
+    func testSeedFreeDictKeepsEveryTranslation() throws {
+        let queue = try Self.openBundledSeedReadOnly()
+
+        let latris = try Self.seedDefinition(queue, word: "λάτρης", source: "freedict-ell-eng")
+        XCTAssertTrue(latris.contains("worshipper, aficionado, buff"), "λάτρης keeps the whole group; got \(latris)")
+
+        let quickly = try Self.seedDefinition(queue, word: "quickly", source: "freedict-eng-spa")
+        for translation in ["deprisa", "rápido", "rápidamente", "velozmente"] {
+            XCTAssertTrue(quickly.contains(translation), "quickly must keep '\(translation)'; got \(quickly)")
+        }
+        let first = try XCTUnwrap(quickly.range(of: "deprisa"))
+        let later = try XCTUnwrap(quickly.range(of: "rápidamente"))
+        XCTAssertLessThan(first.lowerBound, later.lowerBound, "file order kept")
+
+        let dog = try Self.seedDefinition(queue, word: "dog", source: "freedict-eng-spa")
+        XCTAssertTrue(dog.contains("perro, can"), "dog keeps its second translation; got \(dog)")
+        // A group never repeats a translation (the merge drops duplicates).
+        let firstLine = try XCTUnwrap(dog.split(separator: "\n").first { $0.hasPrefix("1. ") })
+        let items = firstLine.dropFirst(3).components(separatedBy: ", ")
+        XCTAssertEqual(items.count, Set(items).count, "no duplicate translation in '\(firstLine)'")
+    }
+
+    /// No duplicate `word COLLATE NOCASE` within any Greek source, the unique
+    /// index that enforces it ships in the seed, and each source's
+    /// `dict_metadata.word_count` equals its row count.
+    func testSeedGreekSourcesHaveNoNocaseDuplicates() throws {
+        let queue = try Self.openBundledSeedReadOnly()
+        let placeholders = Self.greekSourceIDs.map { _ in "?" }.joined(separator: ", ")
+        let duplicates = try queue.read { conn in
+            try Row.fetchAll(conn, sql: """
+                SELECT source, word, COUNT(*) AS n FROM entries WHERE source IN (\(placeholders))
+                GROUP BY source, word COLLATE NOCASE HAVING n > 1 LIMIT 5
+                """, arguments: StatementArguments(Self.greekSourceIDs))
+        }
+        XCTAssertTrue(duplicates.isEmpty, "NOCASE duplicates: \(duplicates)")
+
+        let indexSQL = try queue.read { conn in
+            try String.fetchOne(conn, sql: "SELECT sql FROM sqlite_master WHERE name = 'idx_entries_word_source'")
+        }
+        XCTAssertTrue(indexSQL?.contains("UNIQUE") == true && indexSQL?.contains("COLLATE NOCASE") == true,
+                      "the unique NOCASE index ships in the seed; got \(indexSQL ?? "nil")")
+
+        for source in Self.greekSourceIDs {
+            let rows = try queue.read { conn in
+                try Int.fetchOne(conn, sql: "SELECT COUNT(*) FROM entries WHERE source = ?", arguments: [source]) ?? 0
+            }
+            let declared = try queue.read { conn in
+                try Int.fetchOne(conn, sql: "SELECT word_count FROM dict_metadata WHERE source = ?", arguments: [source]) ?? -1
+            }
+            XCTAssertEqual(rows, declared, "\(source): word_count must equal its row count")
+        }
+    }
+
+    /// The seed ships exactly the nine bundled sources (`allBundledSourceIDs`),
+    /// each with a `dict_metadata` row whose `word_count` matches its rows.
+    /// Counts are read from the seed, never hard-coded (#108 may shift the
+    /// FreeDict numbers); the five pre-Greek sources keep their row counts.
+    func testSeedShipsExactlyNineSources() throws {
+        let queue = try Self.openBundledSeedReadOnly()
+        let counts = try queue.read { conn in
+            try Row.fetchAll(conn, sql: "SELECT source, COUNT(*) AS n FROM entries GROUP BY source")
+        }
+        let bySource = Dictionary(uniqueKeysWithValues: counts.map { ($0["source"] as String, $0["n"] as Int) })
+        XCTAssertEqual(Set(bySource.keys), Set(Self.allBundledSourceIDs), "entries hold exactly the nine sources")
+
+        let metadata = try queue.read { conn in
+            try Row.fetchAll(conn, sql: "SELECT source, word_count FROM dict_metadata")
+        }
+        let declared = Dictionary(uniqueKeysWithValues: metadata.map { ($0["source"] as String, $0["word_count"] as Int) })
+        XCTAssertEqual(Set(declared.keys), Set(Self.allBundledSourceIDs), "one dict_metadata row per bundled source")
+        for source in Self.allBundledSourceIDs {
+            XCTAssertEqual(declared[source], bySource[source], "\(source): word_count vs rows")
+            XCTAssertGreaterThan(bySource[source] ?? 0, 10_000, "\(source) is a real dictionary")
+        }
+        // §3.5 no-drift: the rebuild keeps the five existing sources' rows.
+        let unchanged = ["wordnet": 147_306, "openrussian": 45_647, "freedict-eng-spa": 58_946,
+                         "wordnet-spa-eng": 36_371, "wordnet-arb-eng": 17_785]
+        for (source, rows) in unchanged {
+            XCTAssertEqual(bySource[source], rows, "\(source) row count must not drift in the rebuild")
+        }
+    }
+
+    /// Greek WordNet (both directions) carries the full Apache 2.0 text;
+    /// `freedict-ell-eng` and `freedict-eng-spa` name CC BY-SA 3.0 (WikDict);
+    /// `freedict-eng-ell` credits Freelang under CC BY-SA 3.0; #106:
+    /// `wordnet-arb-eng` is CC BY-SA 3.0 (not CC BY 3.0) and `freedict-eng-spa`
+    /// no longer claims the GPL.
+    func testSeedLicenseTexts() throws {
+        let queue = try Self.openBundledSeedReadOnly()
+
+        for source in ["wordnet-ell-eng", "wordnet-eng-ell"] {
+            let text = try Self.seedLicense(queue, source)
+            for part in ["Apache License", "Version 2.0", "TERMS AND CONDITIONS", "END OF TERMS AND CONDITIONS",
+                         "Princeton WordNet 3.0", "LibreDict converted"] {
+                XCTAssertTrue(text.contains(part), "\(source) license must contain '\(part)'")
+            }
+            XCTAssertGreaterThan(text.count, 9_000, "\(source): the full Apache text ships (PM Q3)")
+        }
+        XCTAssertEqual(try Self.seedLicense(queue, "wordnet-ell-eng"), try Self.seedLicense(queue, "wordnet-eng-ell"))
+
+        for source in ["freedict-ell-eng", "freedict-eng-spa"] {
+            let text = try Self.seedLicense(queue, source)
+            XCTAssertTrue(text.contains("Attribution-ShareAlike 3.0"), "\(source): CC BY-SA 3.0")
+            XCTAssertTrue(text.contains("Wiktionary"), "\(source): credits Wiktionary contributors")
+            XCTAssertFalse(text.contains("GNU General Public License") || text.contains("GPL"),
+                           "\(source) must not claim the GPL (#106)")
+        }
+
+        let engEll = try Self.seedLicense(queue, "freedict-eng-ell")
+        for part in ["Freelang", "Attribution-ShareAlike 3.0", "Piotr Bański"] {
+            XCTAssertTrue(engEll.contains(part), "freedict-eng-ell license must contain '\(part)'")
+        }
+
+        let arabic = try Self.seedLicense(queue, "wordnet-arb-eng")
+        XCTAssertTrue(arabic.contains("ShareAlike") && arabic.contains("CC BY-SA 3.0"), "Arabic WordNet is CC BY-SA 3.0 (#106)")
+        XCTAssertFalse(arabic.contains("(CC BY 3.0)") || arabic.contains("Attribution 3.0"),
+                       "the old CC BY 3.0 label is gone (#106)")
+    }
+
+    /// `fetchSourceStats()` (the Settings / Dictionary Order load) on the
+    /// shipped seed returns one stat per source with the exact entry count and
+    /// the `dict_metadata` license / version, count-desc — and returns fast.
+    /// Regression found in #87 QA: with the metadata join inside the
+    /// aggregate, the two ~9.8 KB Apache texts were re-read for every one of
+    /// ~48k Greek WordNet rows, and the order screen stayed empty for 25+ s
+    /// on an iPhone 15 Pro simulator (7.7 s even on the Mac host).
+    func testFetchSourceStatsOnSeedIsCompleteAndFast() async throws {
+        let queue = try Self.openBundledSeedReadOnly()
+        var expectedCounts: [String: Int] = [:]
+        for row in try await queue.read({ try Row.fetchAll($0, sql: "SELECT source, COUNT(*) AS n FROM entries GROUP BY source") }) {
+            let source: String = row["source"]
+            let n: Int = row["n"]
+            expectedCounts[source] = n
+        }
+        var metadata: [String: (String, String, String)] = [:]
+        for row in try await queue.read({ try Row.fetchAll($0, sql: "SELECT source, license, version, display_name FROM dict_metadata") }) {
+            let source: String = row["source"]
+            let license: String = row["license"]
+            let version: String = row["version"]
+            let name: String = row["display_name"]
+            metadata[source] = (license, version, name)
+        }
+
+        try await useSeedClone()
+        _ = try await db.entryCount()   // open the clone before timing
+        let start = CFAbsoluteTimeGetCurrent()
+        let stats = try await db.fetchSourceStats()
+        let elapsed = CFAbsoluteTimeGetCurrent() - start
+        print("⏱ fetchSourceStats on the seed: \(String(format: "%.3f", elapsed))s")
+
+        XCTAssertEqual(stats.map(\.source).sorted(), Self.allBundledSourceIDs.sorted())
+        XCTAssertEqual(stats.map(\.count), stats.map(\.count).sorted(by: >), "count-desc base order")
+        for stat in stats {
+            XCTAssertEqual(stat.count, expectedCounts[stat.source], "\(stat.source) count")
+            let meta = try XCTUnwrap(metadata[stat.source], "\(stat.source) metadata")
+            XCTAssertEqual(stat.license, meta.0, "\(stat.source) license is the full metadata text")
+            XCTAssertEqual(stat.version, meta.1, "\(stat.source) version")
+            XCTAssertEqual(stat.displayName, meta.2, "\(stat.source) display name")
+        }
+        XCTAssertLessThan(elapsed, 3.0, "Settings must not wait seconds for the source list (got \(elapsed)s)")
+    }
+
+    /// Versions, display names and URLs (§5.2).
+    func testSeedGreekVersions() throws {
+        let queue = try Self.openBundledSeedReadOnly()
+        let rows = try queue.read { conn in
+            try Row.fetchAll(conn, sql: "SELECT source, version, display_name, url FROM dict_metadata")
+        }
+        let meta = Dictionary(uniqueKeysWithValues: rows.map {
+            ($0["source"] as String, ($0["version"] as String, $0["display_name"] as String, $0["url"] as String))
+        })
+        let expected: [String: (String, String, String)] = [
+            "freedict-ell-eng": ("2025.11.23", "Greek – English (FreeDict)", "https://freedict.org/freedict-database/ell-eng/"),
+            "wordnet-ell-eng": ("OMW 1.4 / WordNet 3.0", "Greek – English (WordNet)", "https://github.com/okfngr/wordnet"),
+            "freedict-eng-ell": ("0.1.1", "English – Greek (FreeDict)", "https://freedict.org/freedict-database/eng-ell/"),
+            "wordnet-eng-ell": ("OMW 1.4 / WordNet 3.0", "English – Greek (WordNet)", "https://github.com/okfngr/wordnet"),
+        ]
+        for (source, values) in expected {
+            let actual = try XCTUnwrap(meta[source], "\(source) metadata")
+            XCTAssertEqual(actual.0, values.0, "\(source) version")
+            XCTAssertEqual(actual.1, values.1, "\(source) display_name")
+            XCTAssertEqual(actual.2, values.2, "\(source) url")
+        }
+    }
+}
+
+/// Pure Greek fold / query helpers and the presentation contract (badges,
+/// grouping, names, catalog). No database.
+final class GreekFoldAndBadgeTests: XCTestCase {
+
+    private let en = Locale(identifier: "en")
+    private let ru = Locale(identifier: "ru")
+    private let es = Locale(identifier: "es")
+    private let ar = Locale(identifier: "ar")
+
+    /// Byte-level view: Swift `String ==` is canonical equivalence, which
+    /// would hide an NFC/NFD difference.
+    private func scalars(_ s: String) -> [UInt32] { s.unicodeScalars.map(\.value) }
+
+    /// Foundation wraps format arguments in bidi isolates (U+2068 … U+2069)
+    /// for RTL locales; strip them to compare the visible text.
+    private func stripIsolates(_ s: String) -> String {
+        s.replacingOccurrences(of: "\u{2068}", with: "").replacingOccurrences(of: "\u{2069}", with: "")
+    }
+
+    private let bundledSources = ["wordnet", "openrussian", "freedict-eng-spa", "wordnet-spa-eng", "wordnet-arb-eng",
+                                  "freedict-ell-eng", "wordnet-ell-eng", "freedict-eng-ell", "wordnet-eng-ell"]
+
+    // MARK: Fold parity (port of Scripts/build_greek.py)
+
+    /// `PARITY_FOLDS`. The Python side builds the NFD input with
+    /// `unicodedata.normalize("NFD", …)`; `decomposedStringWithCanonicalMapping`
+    /// is the same transform.
+    private let parityFolds: [(String, String)] = [
+        ("Λόγος", "λογοσ"),
+        ("ΆΝΘΡΩΠΟΣ", "ανθρωποσ"),
+        ("προϊόν", "προιον"),
+        ("ΐδιος", "ιδιοσ"),
+        ("ΰπνος", "υπνοσ"),
+        ("θάλασσα", "θαλασσα"),
+        ("λόγος".decomposedStringWithCanonicalMapping, "λογοσ"),
+        ("γένος Rudbeckia", "γενοσ Rudbeckia"),
+        ("σκύλος", "σκυλοσ"),
+        ("ΣΚΥΛΟΣ", "σκυλοσ"),
+        ("σοφός σοφός", "σοφοσ σοφοσ"),
+    ]
+
+    /// `PARITY_IDENTITY`: left byte-identical; the NFD spellings prove that
+    /// non-Greek text is not even re-normalised.
+    private let parityIdentity: [String] = [
+        "café", "йод", "ёлка", "niños", "كِتَاب", "كتاب", "apple",
+        "йод".decomposedStringWithCanonicalMapping,
+        "niños".decomposedStringWithCanonicalMapping,
+        "café".decomposedStringWithCanonicalMapping,
+    ]
+
+    func testFoldGreekParityFolds() {
+        for (raw, expected) in parityFolds {
+            let folded = Search.foldGreek(raw)
+            XCTAssertEqual(scalars(folded), scalars(expected), "fold(\(raw))")
+            XCTAssertEqual(scalars(Search.foldGreek(folded)), scalars(folded), "idempotent for \(raw)")
+        }
+    }
+
+    func testFoldGreekParityIdentity() {
+        for text in parityIdentity {
+            XCTAssertEqual(Array(Search.foldGreek(text).utf8), Array(text.utf8), "byte-identical: \(text)")
+            XCTAssertEqual(Array(DictAppTests.decomposeGreek(text).utf8), Array(text.utf8),
+                           "decomposeGreek is byte-identical on non-Greek: \(text)")
+        }
+    }
+
+    /// Edge cases: empty input, Greek Extended (polytonic, iota subscript),
+    /// and a mixed Greek + Cyrillic string whose Cyrillic half (й) must survive.
+    func testFoldGreekEdgeCases() {
+        XCTAssertEqual(Search.foldGreek(""), "")
+        XCTAssertEqual(scalars(Search.foldGreek("ᾄδω")), scalars("αδω"), "Greek Extended: marks and ypogegrammeni dropped")
+        XCTAssertEqual(scalars(Search.foldGreek("Ὅμηρος")), scalars("ομηροσ"), "polytonic breathing + accent dropped")
+        XCTAssertEqual(scalars(Search.foldGreek("йод λόγος")), scalars("йод λογοσ"), "only the Greek half folds")
+        XCTAssertEqual(scalars(Search.foldGreek("123")), scalars("123"))
+    }
+
+    // MARK: ftsQuery
+
+    /// `йод`, `ёлка`, `niños`, `كتاب`, `apple`, `word99999` (and a multi-word
+    /// and NFD spelling) → `match == q + "*"` and `rankKey == q`, byte for byte
+    /// (Russian й and Spanish / Arabic regression guard).
+    func testFtsQueryLeavesNonGreekQueriesByteIdentical() throws {
+        let queries = ["йод", "ёлка", "niños", "كتاب", "كِتَاب", "apple", "word99999", "кошка собака", "café",
+                       "niños".decomposedStringWithCanonicalMapping, "йод".decomposedStringWithCanonicalMapping]
+        for q in queries {
+            let fts = Search.ftsQuery(sanitized: q)
+            XCTAssertEqual(Array(fts.match.utf8), Array((q + "*").utf8), "match for '\(q)' must be q*")
+            XCTAssertEqual(Array(fts.rankKey.utf8), Array(q.utf8), "rankKey for '\(q)' must be q")
+        }
+    }
+
+    /// `σκύλος` and `σκυλος` → `(q*) OR (σκυλοσ*)` with `rankKey == "σκυλοσ"`;
+    /// an already-folded `σκυλοσ` stays single-branch; NFD input keeps its raw
+    /// branch byte-identical; mixed Greek/Latin folds only the Greek.
+    func testFtsQueryGreekUsesFoldedOrBranch() throws {
+        let accented = Search.ftsQuery(sanitized: "σκύλος")
+        XCTAssertEqual(scalars(accented.match), scalars("(σκύλος*) OR (σκυλοσ*)"))
+        XCTAssertEqual(scalars(accented.rankKey), scalars("σκυλοσ"))
+
+        let finalSigma = Search.ftsQuery(sanitized: "σκυλος")
+        XCTAssertEqual(scalars(finalSigma.match), scalars("(σκυλος*) OR (σκυλοσ*)"), "ς differs from σ → two branches")
+        XCTAssertEqual(scalars(finalSigma.rankKey), scalars("σκυλοσ"))
+
+        let folded = Search.ftsQuery(sanitized: "σκυλοσ")
+        XCTAssertEqual(scalars(folded.match), scalars("σκυλοσ*"), "already folded → single branch")
+        XCTAssertEqual(scalars(folded.rankKey), scalars("σκυλοσ"))
+
+        let nfd = "σκύλος".decomposedStringWithCanonicalMapping
+        let nfdQuery = Search.ftsQuery(sanitized: nfd)
+        XCTAssertEqual(scalars(nfdQuery.match), scalars("(" + nfd + "*) OR (σκυλοσ*)"), "raw branch keeps the typed bytes")
+
+        let mixed = Search.ftsQuery(sanitized: "γένος Rudbeckia")
+        XCTAssertEqual(scalars(mixed.match), scalars("(γένος Rudbeckia*) OR (γενοσ Rudbeckia*)"))
+        XCTAssertEqual(scalars(mixed.rankKey), scalars("γενοσ Rudbeckia"))
+    }
+
+    // MARK: Badges
+
+    private func entry(_ source: String) -> DictionaryEntry {
+        DictionaryEntry(id: nil, word: "x", definition: "", phonetic: "", pos: "", source: source, createdAt: nil)
+    }
+
+    /// `sourceLabel` for all nine bundled IDs, exact strings with U+2013 and
+    /// U+00B7 (§2); a custom source (including a look-alike of a bundled ID)
+    /// stays `.capitalized`.
+    func testSourceLabelForAllBundledSources() throws {
+        let expected: [String: String] = [
+            "freedict-ell-eng": "El\u{2013}En \u{00B7} FD",
+            "wordnet-ell-eng": "El\u{2013}En \u{00B7} WN",
+            "freedict-eng-ell": "En\u{2013}El \u{00B7} FD",
+            "wordnet-eng-ell": "En\u{2013}El \u{00B7} WN",
+            "freedict-eng-spa": "En\u{2013}Es \u{00B7} FD",
+            "wordnet-spa-eng": "Es\u{2013}En \u{00B7} WN",
+            "wordnet-arb-eng": "Ar\u{2013}En \u{00B7} WN",
+            "wordnet": "WordNet",
+            "openrussian": "OpenRussian",
+        ]
+        XCTAssertEqual(Set(expected.keys), Set(bundledSources))
+        for (source, label) in expected {
+            XCTAssertEqual(scalars(entry(source).sourceLabel), scalars(label), "\(source) badge")
+        }
+        // Byte-level shape of a bilingual badge: XX U+2013 YY U+0020 U+00B7 U+0020 ZZ.
+        XCTAssertEqual(scalars(entry("freedict-ell-eng").sourceLabel),
+                       [0x45, 0x6C, 0x2013, 0x45, 0x6E, 0x20, 0xB7, 0x20, 0x46, 0x44])
+
+        XCTAssertEqual(entry("test_import_fixture").sourceLabel, "Test_Import_Fixture")
+        XCTAssertEqual(entry("freedict-spa-eng").sourceLabel, "Freedict-Spa-Eng",
+                       "an import named like a bundled ID is not bundled")
+    }
+
+    /// `badgeAccessibilityLabel` (en) for every bundled ID per §2; `nil` for a
+    /// custom import (VoiceOver then reads the visible text).
+    func testBadgeAccessibilityLabelEnglish() throws {
+        let expected: [String: String] = [
+            "freedict-ell-eng": "Greek to English, FreeDict",
+            "wordnet-ell-eng": "Greek to English, WordNet",
+            "freedict-eng-ell": "English to Greek, FreeDict",
+            "wordnet-eng-ell": "English to Greek, WordNet",
+            "freedict-eng-spa": "English to Spanish, FreeDict",
+            "wordnet-spa-eng": "Spanish to English, WordNet",
+            "wordnet-arb-eng": "Arabic to English, WordNet",
+            "wordnet": "English, WordNet",
+            "openrussian": "Russian to English, OpenRussian",
+        ]
+        for source in bundledSources {
+            XCTAssertEqual(SettingsViewModel.badgeAccessibilityLabel(forSource: source, locale: en), expected[source],
+                           "\(source) VoiceOver label")
+        }
+        XCTAssertNil(SettingsViewModel.badgeAccessibilityLabel(forSource: "test_import_fixture", locale: en))
+        XCTAssertNil(SettingsViewModel.badgeAccessibilityLabel(forSource: "freedict-spa-eng", locale: en),
+                     "a custom import with a bundled-looking name has no label")
+    }
+
+    /// `badgeAccessibilityLabel` resolves in ru / es / ar: exact values for the
+    /// Greek pair, and for every bundled ID no raw key, no arrow, not the
+    /// English text, and the localized language names plus the brand.
+    func testBadgeAccessibilityLabelResolvesInAllLocales() throws {
+        let exact: [(Locale, String, String)] = [
+            (ru, "freedict-ell-eng", "Греческий – Английский, FreeDict"),
+            (ru, "wordnet-eng-ell", "Английский – Греческий, WordNet"),
+            (ru, "wordnet", "Английский, WordNet"),
+            (es, "freedict-ell-eng", "Griego a Inglés, FreeDict"),
+            (es, "wordnet-eng-ell", "Inglés a Griego, WordNet"),
+            (es, "wordnet", "Inglés, WordNet"),
+            (ar, "freedict-ell-eng", "اليونانية إلى الإنجليزية، FreeDict"),
+            (ar, "wordnet-eng-ell", "الإنجليزية إلى اليونانية، WordNet"),
+            (ar, "wordnet", "الإنجليزية، WordNet"),
+        ]
+        for (locale, source, value) in exact {
+            let label = try XCTUnwrap(SettingsViewModel.badgeAccessibilityLabel(forSource: source, locale: locale))
+            XCTAssertEqual(stripIsolates(label), value, "\(locale.identifier) \(source)")
+        }
+
+        for locale in [ru, es, ar] {
+            for source in bundledSources {
+                let label = try XCTUnwrap(SettingsViewModel.badgeAccessibilityLabel(forSource: source, locale: locale),
+                                          "\(locale.identifier) \(source)")
+                let visible = stripIsolates(label)
+                XCTAssertFalse(visible.contains("sourceBadge"), "\(locale.identifier) \(source): raw key '\(visible)'")
+                XCTAssertFalse(visible.contains("→") || visible.contains("←"), "no arrows for VoiceOver: '\(visible)'")
+                XCTAssertNotEqual(visible, SettingsViewModel.badgeAccessibilityLabel(forSource: source, locale: en),
+                                  "\(locale.identifier) \(source) must not fall back to English")
+                let parsed = DictionaryGrouping.parse(sourceID: source)
+                for iso in parsed.languages {
+                    let name = SettingsViewModel.languageName(iso3: iso, locale: locale)
+                    XCTAssertTrue(visible.contains(name), "\(locale.identifier) \(source): '\(visible)' lacks '\(name)'")
+                }
+                let brand = source.hasPrefix("freedict") ? "FreeDict" : (source == "openrussian" ? "OpenRussian" : "WordNet")
+                XCTAssertTrue(visible.hasSuffix(brand), "\(locale.identifier) \(source): brand last in '\(visible)'")
+            }
+        }
+    }
+
+    // MARK: Grouping and names
+
+    /// The four Greek IDs share pair key `ell-eng`; directions parse as
+    /// ell→eng / eng→ell; providers `freedict` / `wordnet`; `pairs(from:)`
+    /// yields one Greek pair with all four members. Look-alike imports stay
+    /// custom.
+    func testGreekSourcesShareEllEngPair() throws {
+        let expected: [String: (String, [String])] = [
+            "freedict-ell-eng": ("freedict", ["ell", "eng"]),
+            "wordnet-ell-eng": ("wordnet", ["ell", "eng"]),
+            "freedict-eng-ell": ("freedict", ["eng", "ell"]),
+            "wordnet-eng-ell": ("wordnet", ["eng", "ell"]),
+        ]
+        for (source, (provider, languages)) in expected {
+            let parsed = DictionaryGrouping.parse(sourceID: source)
+            XCTAssertFalse(parsed.isCustom, source)
+            XCTAssertEqual(parsed.provider, provider, source)
+            XCTAssertEqual(parsed.languages, languages, source)
+            XCTAssertEqual(DictionaryGrouping.pairKey(forSource: source), "ell-eng", source)
+            let direction = try XCTUnwrap(SourceStat(source: source, displayName: source, count: 1).direction)
+            XCTAssertEqual([direction.from, direction.to], languages, source)
+        }
+        for lookalike in ["wordnet-ell-eng-v2", "freedict-eng-el", "omw-ell-eng"] {
+            XCTAssertEqual(DictionaryGrouping.pairKey(forSource: lookalike), "custom:" + lookalike)
+        }
+
+        let stats = DictAppTests.allBundledSourceIDs.map { SourceStat(source: $0, displayName: $0, count: 1) }
+        let order = DictionaryGrouping.groupedOrder(stats.map(\.source))
+        let pairs = DictionaryGrouping.pairs(from: stats, order: order)
+        XCTAssertEqual(pairs.map(\.id).sorted(), ["arb-eng", "ell-eng", "eng", "eng-rus", "eng-spa"])
+        let greek = try XCTUnwrap(pairs.first { $0.id == "ell-eng" })
+        XCTAssertEqual(Set(greek.sourceIDs), Set(DictAppTests.greekSourceIDs))
+        XCTAssertEqual(greek.languages, ["ell", "eng"])
+        XCTAssertFalse(greek.isCustom)
+        // I1: one enabled Greek member enables the whole pair; none stays none.
+        XCTAssertEqual(DictionaryGrouping.enabledIfAny(["wordnet", "wordnet-eng-ell"], knownSources: order),
+                       Set(["wordnet"] + DictAppTests.greekSourceIDs))
+        XCTAssertEqual(DictionaryGrouping.enabledIfAny(["wordnet"], knownSources: order), ["wordnet"])
+    }
+
+    /// `defaultOrder(forLanguageCode: "el")` puts the four Greek IDs first, in
+    /// `preferredSources["el"]` order; the rest keep their relative order; the
+    /// result is a permutation. Without Greek sources (an old seed) it is a
+    /// no-op, and other UI languages do not promote Greek.
+    func testDefaultOrderForGreekPutsGreekSourcesFirst() throws {
+        let seedOrder = ["wordnet", "freedict-eng-spa", "openrussian", "freedict-ell-eng", "wordnet-spa-eng",
+                         "wordnet-eng-ell", "freedict-eng-ell", "wordnet-ell-eng", "wordnet-arb-eng"]
+        let el = DictionaryDefaults.defaultOrder(forLanguageCode: "el", sources: seedOrder)
+        XCTAssertEqual(Array(el.prefix(4)), DictionaryDefaults.preferredSources["el"])
+        XCTAssertEqual(Array(el.prefix(4)), DictAppTests.greekSourceIDs)
+        XCTAssertEqual(Array(el.dropFirst(4)), ["wordnet", "freedict-eng-spa", "openrussian", "wordnet-spa-eng", "wordnet-arb-eng"])
+        XCTAssertEqual(el.sorted(), seedOrder.sorted(), "permutation")
+
+        let preGreek = ["wordnet", "freedict-eng-spa", "openrussian", "wordnet-spa-eng", "wordnet-arb-eng"]
+        XCTAssertEqual(DictionaryDefaults.defaultOrder(forLanguageCode: "el", sources: preGreek), preGreek)
+
+        let english = DictionaryDefaults.defaultOrder(forLanguageCode: "en", sources: seedOrder)
+        XCTAssertEqual(english.first, "wordnet")
+        XCTAssertEqual(DictionaryGrouping.sourceGroups(order: DictionaryGrouping.groupedOrder(english))
+                           .first { $0.contains("freedict-ell-eng") }?.count, 4,
+                       "grouping keeps the four Greek members contiguous")
+    }
+
+    /// `languageName(iso3: "ell")` is capitalised in en / ru / es / ar; pair
+    /// title "Greek – English" (U+2013) in every locale; providers brand as
+    /// "FreeDict" / "WordNet"; directions read "Greek → English" (ar: ←).
+    func testGreekLanguageNameAndPairTitle() throws {
+        let names: [(Locale, String)] = [(en, "Greek"), (ru, "Греческий"), (es, "Griego"), (ar, "اليونانية")]
+        for (locale, name) in names {
+            XCTAssertEqual(SettingsViewModel.languageName(iso3: "ell", locale: locale), name, locale.identifier)
+        }
+        for locale in [en, ru, es] {
+            XCTAssertEqual(SettingsViewModel.languageName(iso3: "ell", locale: locale).first?.isUppercase, true,
+                           "\(locale.identifier): capitalised in a title")
+        }
+
+        let stats = DictAppTests.greekSourceIDs.map { SourceStat(source: $0, displayName: "Raw \($0)", count: 1) }
+        let pair = DictionaryPair(id: "ell-eng", languages: ["ell", "eng"], isCustom: false, sources: stats)
+        let titles: [(Locale, String)] = [(en, "Greek – English"), (ru, "Греческий – Английский"),
+                                          (es, "Griego – Inglés"), (ar, "اليونانية – الإنجليزية")]
+        for (locale, title) in titles {
+            XCTAssertEqual(stripIsolates(SettingsViewModel.displayName(for: pair, locale: locale)), title, locale.identifier)
+        }
+
+        XCTAssertEqual(stats.map(SettingsViewModel.infoBlockTitle(for:)), ["FreeDict", "WordNet", "FreeDict", "WordNet"])
+        XCTAssertEqual(SettingsViewModel.languageSummary(for: stats[0], locale: en), "Greek → English")
+        XCTAssertEqual(SettingsViewModel.languageSummary(for: stats[2], locale: en), "English → Greek")
+        XCTAssertEqual(stripIsolates(SettingsViewModel.languageSummary(for: stats[0], locale: ar) ?? ""),
+                       "اليونانية ← الإنجليزية")
+    }
+
+    /// `infoSources` gives `[freedict-ell-eng, wordnet-ell-eng,
+    /// freedict-eng-ell, wordnet-eng-ell]` for all 24 member permutations; a
+    /// custom member always goes last; Spanish keeps its #91 order.
+    func testInfoSourcesGreekOrderForAllPermutations() throws {
+        let expected = DictAppTests.greekSourceIDs
+        func permutations(_ items: [String]) -> [[String]] {
+            guard items.count > 1 else { return [items] }
+            return items.indices.flatMap { i -> [[String]] in
+                var rest = items
+                let head = rest.remove(at: i)
+                return permutations(rest).map { [head] + $0 }
+            }
+        }
+        let all = permutations(expected)
+        XCTAssertEqual(all.count, 24)
+        XCTAssertEqual(Set(all.map { $0.joined(separator: ",") }).count, 24, "24 distinct member orders")
+        for order in all {
+            let pair = DictionaryPair(id: "ell-eng", languages: ["ell", "eng"], isCustom: false,
+                                      sources: order.map { SourceStat(source: $0, displayName: $0, count: 1) })
+            XCTAssertEqual(SettingsViewModel.infoSources(for: pair).map(\.source), expected, "members \(order)")
+        }
+
+        let stray = SourceStat(source: "mydict-ell-eng", displayName: "x", count: 1)
+        let withStray = DictionaryPair(id: "ell-eng", languages: ["ell", "eng"], isCustom: false,
+                                       sources: [stray] + expected.reversed().map { SourceStat(source: $0, displayName: $0, count: 1) })
+        XCTAssertEqual(SettingsViewModel.infoSources(for: withStray).map(\.source), expected + ["mydict-ell-eng"])
+
+        let spanish = DictionaryPair(id: "eng-spa", languages: ["eng", "spa"], isCustom: false,
+                                     sources: ["freedict-eng-spa", "wordnet-spa-eng"].map { SourceStat(source: $0, displayName: $0, count: 1) })
+        XCTAssertEqual(SettingsViewModel.infoSources(for: spanish).map(\.source), ["wordnet-spa-eng", "freedict-eng-spa"])
+    }
+
+    // MARK: Catalog
+
+    /// `language.el.name`, `credits.dataSources.greekWordnet`, and the changed
+    /// `credits.dataSources.freedict` (CC BY-SA 3.0, Freelang, no GPL) /
+    /// `credits.dataSources.arabicWordnet` (CC BY-SA 3.0, not CC BY 3.0)
+    /// resolve in en / ru / es / ar — the Credits half of #106.
+    func testGreekCatalogKeysResolveInAllLocales() throws {
+        let keys = ["language.el.name", "credits.dataSources.greekWordnet",
+                    "credits.dataSources.freedict", "credits.dataSources.arabicWordnet"]
+        var english: [String: String] = [:]
+        for locale in [en, ru, es, ar] {
+            for key in keys {
+                let value = SettingsViewModel.localizedString(key, locale: locale)
+                XCTAssertNotEqual(value, key, "\(locale.identifier): '\(key)' must resolve")
+                XCTAssertFalse(value.isEmpty, "\(locale.identifier): '\(key)'")
+                if locale == en { english[key] = value }
+            }
+            let freedict = SettingsViewModel.localizedString("credits.dataSources.freedict", locale: locale)
+            XCTAssertTrue(freedict.contains("CC BY-SA 3.0"), "\(locale.identifier) FreeDict credit: \(freedict)")
+            XCTAssertTrue(freedict.contains("Freelang"), "\(locale.identifier) FreeDict credit names the Freelang origin")
+            XCTAssertTrue(freedict.contains("WikDict"), "\(locale.identifier) FreeDict credit names WikDict")
+            XCTAssertFalse(freedict.contains("GPL"), "\(locale.identifier): no GPL in the FreeDict credit (#106)")
+
+            let arabic = SettingsViewModel.localizedString("credits.dataSources.arabicWordnet", locale: locale)
+            XCTAssertTrue(arabic.contains("CC BY-SA 3.0"), "\(locale.identifier) Arabic credit: \(arabic)")
+            XCTAssertFalse(arabic.contains("CC BY 3.0"), "\(locale.identifier): old CC BY 3.0 label gone (#106)")
+
+            let greek = SettingsViewModel.localizedString("credits.dataSources.greekWordnet", locale: locale)
+            XCTAssertTrue(greek.contains("Apache 2.0") && greek.contains("Greek WordNet"), "\(locale.identifier): \(greek)")
+        }
+        for locale in [ru, es, ar] {
+            for key in ["language.el.name", "credits.dataSources.freedict", "credits.dataSources.greekWordnet"] {
+                XCTAssertNotEqual(SettingsViewModel.localizedString(key, locale: locale), english[key],
+                                  "\(locale.identifier): '\(key)' is translated, not the English text")
+            }
         }
     }
 }

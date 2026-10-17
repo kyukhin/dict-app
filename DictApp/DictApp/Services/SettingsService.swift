@@ -214,6 +214,8 @@ enum DictionaryDefaults {
         "ru": ["openrussian"],
         "es": ["wordnet-spa-eng", "freedict-eng-spa"],
         "ar": ["wordnet-arb-eng"],
+        // Issue #87: ready for the Greek UI language (#88); unused until then.
+        "el": ["freedict-ell-eng", "wordnet-ell-eng", "freedict-eng-ell", "wordnet-eng-ell"],
     ]
 
     /// Returns `sources` reordered so the language's preferred dictionaries
@@ -254,7 +256,11 @@ enum DictionaryGrouping {
     /// may merge into a pair: imports take their ID from the file name and
     /// write no `dict_metadata` row, so `freedict-spa-eng.json` must stay
     /// custom (PM decision #2). A new bundled dictionary is one entry here.
-    static let bundledSourceIDs: Set<String> = ["wordnet-spa-eng", "freedict-eng-spa", "wordnet-arb-eng"]
+    static let bundledSourceIDs: Set<String> = [
+        "wordnet-spa-eng", "freedict-eng-spa", "wordnet-arb-eng",
+        // Issue #87: the four Greek sources share the `ell-eng` pair.
+        "wordnet-ell-eng", "wordnet-eng-ell", "freedict-ell-eng", "freedict-eng-ell",
+    ]
 
     /// Splits a source ID into provider, languages (in translation direction,
     /// ISO-639-3) and whether it is a custom import. Custom sources report the

@@ -2,21 +2,28 @@
 """
 build_seed.py
 Downloads WordNet (En-En), OpenRussian (Ru-En), FreeDict eng-spa
-(En-Es), Spanish WordNet (Es-En) and Arabic WordNet (Ar-En)
-dictionaries, then builds a single seed.sqlite containing all five
-sources, an FTS5 index, and a metadata table.
+(En-Es), Spanish WordNet (Es-En), Arabic WordNet (Ar-En) and the four
+Greek dictionaries (El-En, En-El), then builds a single seed.sqlite
+containing all nine sources, an FTS5 index, and a metadata table.
 
 Every row carries a `word_normalized` search key: `word` for the four
-Latin/Cyrillic sources (normalization is a no-op there) and the
+Latin/Cyrillic sources (normalization is a no-op there), the
 harakat-stripped form for Arabic, so vocalized Arabic headwords are
-reachable by their bare form. FTS5 indexes `word_normalized`.
+reachable by their bare form, and the accent-, case- and
+final-sigma-folded form for Greek (`build_greek.normalize_greek`).
+FTS5 indexes `word_normalized`. Greek inside the definitions of the
+Greek sources is stored decomposed (NFD), so the tokenizer indexes it
+accent-free too.
 
 Sources:
   - WordNet 3.0 via NLTK   (BSD license, Princeton University)
   - OpenRussian.org         (CC-BY-SA 4.0, community-maintained)
-  - FreeDict eng-spa        (GPL-3.0, freedict.org — TEI/XML)
+  - FreeDict eng-spa        (CC BY-SA 3.0, FreeDict+WikDict — TEI/XML)
   - Spanish WordNet         (CC BY 3.0, MCR / OMW via NLTK)
-  - Arabic WordNet          (CC BY 3.0, AWN / OMW via NLTK)
+  - Arabic WordNet          (CC BY-SA 3.0, AWN / OMW via NLTK)
+  - Greek WordNet           (Apache 2.0, okfngr / OMW via NLTK), El-En + En-El
+  - FreeDict ell-eng        (CC BY-SA 3.0, FreeDict+WikDict — TEI/XML)
+  - FreeDict eng-ell        (CC BY-SA 3.0, FreeDict, Freelang origin — TEI/XML)
 
 Source-identifier convention used by this builder:
   - single-monolingual / unambiguous → bare provider name
@@ -35,6 +42,7 @@ Usage (from project root):
     python Scripts/build_seed.py --skip-spanish          # skip FreeDict eng-spa
     python Scripts/build_seed.py --skip-spanish-wordnet  # skip Spanish WordNet
     python Scripts/build_seed.py --skip-arabic-wordnet   # skip Arabic WordNet
+    python Scripts/build_seed.py --skip-greek            # skip the four Greek sources
     python Scripts/build_seed.py --limit 5000            # subset WordNet (testing)
 """
 
@@ -178,7 +186,7 @@ def extract_pos_tags(synsets) -> str:
 
 def insert_wordnet(cur: sqlite3.Cursor, conn: sqlite3.Connection,
                    limit: int | None = None) -> int:
-    print("\n[1/5] WordNet (En-En)")
+    print("\n[1/6] WordNet (En-En)")
     nltk = ensure_nltk()
     from nltk.corpus import wordnet as wn
 
@@ -308,7 +316,7 @@ def parse_openrussian(csv_files: dict[str, str]) -> list[tuple]:
 
 
 def insert_openrussian(cur: sqlite3.Cursor, conn: sqlite3.Connection) -> int:
-    print("\n[2/5] OpenRussian (Ru-En)")
+    print("\n[2/6] OpenRussian (Ru-En)")
     requests_mod = ensure_requests()
 
     try:
@@ -384,7 +392,7 @@ def insert_openrussian(cur: sqlite3.Cursor, conn: sqlite3.Connection) -> int:
 # ---------------------------------------------------------------------------
 
 def insert_freedict_eng_spa(cur: sqlite3.Cursor, conn: sqlite3.Connection) -> int:
-    print("\n[3/5] FreeDict (En-Es)")
+    print("\n[3/6] FreeDict (En-Es)")
     # Imported lazily so a `--skip-spanish` run doesn't need the module
     # (and so a tools-checkout with an old build_seed.py won't crash on
     # a missing sibling file).
@@ -447,7 +455,7 @@ def insert_freedict_eng_spa(cur: sqlite3.Cursor, conn: sqlite3.Connection) -> in
 # ---------------------------------------------------------------------------
 
 def insert_spanish_wordnet(cur: sqlite3.Cursor, conn: sqlite3.Connection) -> int:
-    print("\n[4/5] Spanish WordNet (Es-En)")
+    print("\n[4/6] Spanish WordNet (Es-En)")
     # Imported lazily so a `--skip-spanish-wordnet` run doesn't need the
     # module (and so an old tools-checkout won't crash on a missing
     # sibling file).
@@ -508,7 +516,7 @@ def insert_spanish_wordnet(cur: sqlite3.Cursor, conn: sqlite3.Connection) -> int
 # ---------------------------------------------------------------------------
 
 def insert_arabic_wordnet(cur: sqlite3.Cursor, conn: sqlite3.Connection) -> int:
-    print("\n[5/5] Arabic WordNet (Ar-En)")
+    print("\n[5/6] Arabic WordNet (Ar-En)")
     # Imported lazily so a `--skip-arabic-wordnet` run doesn't need the
     # module (and so an old tools-checkout won't crash on a missing
     # sibling file).
@@ -569,6 +577,46 @@ def insert_arabic_wordnet(cur: sqlite3.Cursor, conn: sqlite3.Connection) -> int:
 
 
 # ---------------------------------------------------------------------------
+# Greek (El-En, En-El): Greek WordNet both directions + FreeDict both directions
+# ---------------------------------------------------------------------------
+
+def insert_greek(cur: sqlite3.Cursor, conn: sqlite3.Connection) -> dict[str, int]:
+    print("\n[6/6] Greek (OMW El-En, En-El; FreeDict El-En, En-El)")
+    # Imported lazily so a `--skip-greek` run doesn't need the module.
+    from build_greek import build_all
+
+    # No try/except: this runs only when --skip-greek was not passed, so a
+    # failure must surface rather than silently shipping a seed without the
+    # requested dictionaries. Rows are 6-tuples carrying the folded
+    # word_normalized and the NFD-Greek definition.
+    counts: dict[str, int] = {}
+    for src in build_all():
+        print(f"  {src.source}: {len(src.rows):,} rows ({src.version})")
+        for start in range(0, len(src.rows), 500):
+            cur.executemany(
+                "INSERT OR IGNORE INTO entries(word, word_normalized, definition, phonetic, pos, source) "
+                "VALUES (?, ?, ?, ?, ?, ?)", src.rows[start:start + 500])
+            conn.commit()
+
+        count = cur.execute(
+            "SELECT COUNT(*) FROM entries WHERE source=?", (src.source,)).fetchone()[0]
+        if count != len(src.rows):
+            raise RuntimeError(
+                f"{src.source}: {len(src.rows) - count} rows dropped by the unique index")
+        cur.execute(
+            "INSERT OR REPLACE INTO dict_metadata(source, display_name, version, license, url, word_count, built_at, description) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (src.source, src.display_name, src.version,
+             src.license,
+             src.url,
+             count, datetime.now(tz=None).isoformat(),
+             src.description))
+        conn.commit()
+        counts[src.source] = count
+    return counts
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -587,6 +635,9 @@ def main():
                         help="Skip the Spanish WordNet (Spanish-English) dictionary.")
     parser.add_argument("--skip-arabic-wordnet", action="store_true",
                         help="Skip the Arabic WordNet (Arabic-English) dictionary.")
+    parser.add_argument("--skip-greek", action="store_true",
+                        help="Skip the four Greek dictionaries (Greek WordNet and "
+                             "FreeDict, both directions).")
     args = parser.parse_args()
 
     os.makedirs(os.path.dirname(args.output) or ".", exist_ok=True)
@@ -614,6 +665,9 @@ def main():
     arb_wn_count = 0
     if not args.skip_arabic_wordnet:
         arb_wn_count = insert_arabic_wordnet(cur, conn)
+    greek_counts: dict[str, int] = {}
+    if not args.skip_greek:
+        greek_counts = insert_greek(cur, conn)
 
     # Rebuild FTS index in bulk. Per-row triggers already kept it in sync
     # during the inserts, but a final rebuild produces a smaller,
@@ -623,8 +677,12 @@ def main():
     conn.commit()
 
     total = cur.execute("SELECT COUNT(*) FROM entries").fetchone()[0]
-    size_mb = os.path.getsize(args.output) / (1024 * 1024)
+    # Drop the free pages the per-row FTS updates left behind: a smaller
+    # file and a smaller compressed download.
+    print("Vacuuming...")
+    cur.execute("VACUUM")
     conn.close()
+    size_mb = os.path.getsize(args.output) / (1024 * 1024)
 
     print(f"\n{'='*50}")
     print(f"seed.sqlite built successfully!")
@@ -635,6 +693,9 @@ def main():
     print(f"  FreeDict : {es_count:,} entries")
     print(f"  Spa-WN   : {spa_wn_count:,} entries")
     print(f"  Arb-WN   : {arb_wn_count:,} entries")
+    for source in ("wordnet-ell-eng", "wordnet-eng-ell",
+                   "freedict-ell-eng", "freedict-eng-ell"):
+        print(f"  {source:16}: {greek_counts.get(source, 0):,} entries")
     print(f"  Total    : {total:,} entries")
     print(f"{'='*50}")
 

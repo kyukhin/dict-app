@@ -10,13 +10,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - [#5] Reading Mode: a cup-and-saucer toggle in the Search and Definition toolbars keeps the screen awake. Per session; turns off when the app goes to background.
 - [#91] Dictionary Order rows have an (i) button that opens the pair's details. Each underlying dictionary shows its provider, direction, version, entry count and license.
+- [#87] Greek–English dictionaries (Greek WordNet via OMW and FreeDict, both directions) as one "Greek – English" pair, with Greek search that ignores accents, case and final sigma in headwords and in English → Greek translations.
 
 ### Changed
 - [#74] First-launch dictionary order now puts the UI language's dictionaries first (e.g. `openrussian` on Russian); a user-configured order is never overridden. `-resetData` now also clears the persisted UI language (test hook).
 - [#92] Dictionary Order shows one row per language pair (e.g. "Spanish – English") with a single toggle and drag slot covering both directions; existing per-source preferences migrate as enabled-if-any. "Preferred dictionary first" now ranks per pair.
+- [#87] Source badges show direction and provider (e.g. "Es–En · WN", "En–Es · FD") and have a full VoiceOver label.
 
 ### Fixed
 - [#105] A newly imported dictionary appears in Dictionary Order right away, without restarting the app, and is switched on even if other dictionaries were turned off.
+- [#106] Dictionary details and Credits show the correct license for FreeDict English–Spanish (CC BY-SA 3.0, not GPL-3.0) and Arabic WordNet (CC BY-SA 3.0, not CC BY 3.0).
+- [#108] FreeDict dictionaries keep every translation of an entry instead of only the first one (English–Spanish gains about 56,000 translations).
 
 ## [1.3.0] - 2026-06-25
 

@@ -74,6 +74,7 @@ struct SearchView: View {
 /// A single search result row showing word, source badge, and definition snippet.
 private struct EntryRow: View {
     let entry: DictionaryEntry
+    @Environment(\.locale) private var locale
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -86,6 +87,10 @@ private struct EntryRow: View {
                     .padding(.vertical, 2)
                     .background(.quaternary)
                     .clipShape(Capsule())
+                    // Issue #87: VoiceOver reads "Greek to English, FreeDict",
+                    // not the abbreviations; a custom import keeps its text.
+                    .accessibilityLabel(badgeAccessibilityLabel)
+                    .accessibilityIdentifier("source_badge_\(entry.source)")
             }
             if !entry.phonetic.isEmpty {
                 Text(entry.phonetic)
@@ -103,6 +108,10 @@ private struct EntryRow: View {
                 .lineLimit(2)
         }
         .padding(.vertical, 2)
+    }
+
+    private var badgeAccessibilityLabel: String {
+        SettingsViewModel.badgeAccessibilityLabel(forSource: entry.source, locale: locale) ?? entry.sourceLabel
     }
 
     private var definitionSnippet: String {

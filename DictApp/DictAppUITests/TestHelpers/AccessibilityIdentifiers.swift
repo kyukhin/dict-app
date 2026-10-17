@@ -21,6 +21,12 @@ struct AccessibilityIdentifiers {
         static func sourceStripe(source: String) -> String {
             return "source_stripe_\(source)"
         }
+        /// Issue #87 — the source badge `Text` on a result row. Read badges
+        /// by this id: their `label` is the localized VoiceOver text
+        /// ("Greek to English, FreeDict"), not the visible "El–En · FD".
+        static func sourceBadge(source: String) -> String {
+            return "source_badge_\(source)"
+        }
     }
 
     // MARK: - Definition View
