@@ -15,6 +15,7 @@ struct CreditsView: View {
                 Text("credits.dataSources.freedict")
                 Text("credits.dataSources.spanishWordnet")
                 Text("credits.dataSources.arabicWordnet")
+                Text("credits.dataSources.greekWordnet")
             }
             Section("credits.licenses.section") {
                 Text("credits.licenses.placeholder")

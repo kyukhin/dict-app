@@ -32,10 +32,10 @@ final class DictionaryFilterTests: XCTestCase {
     private let russianPair = TestData.Pairs.russian
     private let spanishPair = TestData.Pairs.spanish
 
-    /// Source IDs, used only in badge-provenance messages (badges and
-    /// stripes stay per source).
-    private let englishSpanishSource = "freedict-eng-spa"
-    private let spanishEnglishSource = "wordnet-spa-eng"
+    /// Source IDs: badges and stripes stay per source, and badges are
+    /// matched by `source_badge_<source>` (Issue #87).
+    private let englishSpanishSource = TestData.Sources.freedictEngSpa
+    private let spanishEnglishSource = TestData.Sources.wordnetSpaEng
 
     /// A search term that exists in OpenRussian and *only* in OpenRussian
     /// (no Cyrillic in WordNet). Disabling OpenRussian must drop it to 0.
@@ -49,8 +49,9 @@ final class DictionaryFilterTests: XCTestCase {
     /// translations in context (including plurals) inside its
     /// definitions. The `ñ` rules out collisions with WordNet's
     /// plain-ASCII English headwords, and the Latin script rules out
-    /// OpenRussian's Cyrillic. Verified offline against the 4-source
-    /// `seed.sqlite`: 4 FTS matches, all `source = 'freedict-eng-spa'`.
+    /// OpenRussian's Cyrillic. Re-verified against the nine-source seed
+    /// (#87, with #108's extra translations): 6 FTS matches, all
+    /// `source = 'freedict-eng-spa'`.
     ///
     /// (The earlier choice "español" stopped being exclusive once #42
     /// landed — it became an exact `wordnet-spa-eng` headword, which then
@@ -59,23 +60,17 @@ final class DictionaryFilterTests: XCTestCase {
     /// tests must be re-validated whenever a new source is bundled.)
     private let spanishOnlyTerm = "niños"
 
-    /// The badge text `DictionaryEntry.sourceLabel` renders for the
-    /// `freedict-eng-spa` source. The dash is U+2013 (en dash), matching
-    /// the literal in `Models.swift`.
-    private let freeDictBadge = "En–Es"
-
     /// A Spanish headword that exists *only* in Spanish WordNet
-    /// (`wordnet-spa-eng`). Verified offline against `seed.sqlite`: a
-    /// single FTS match, `source = 'wordnet-spa-eng'`, nowhere else — so
-    /// disabling that one source must drop the query to zero results.
-    /// 'atacar' → 'attack' is a transparent cognate, so a hit also
-    /// confirms the spa→eng synset mapping resolved to the right word.
+    /// (`wordnet-spa-eng`): the one exact `atacar` headword. Since #108
+    /// keeps every FreeDict translation, three `freedict-eng-spa`
+    /// definitions (assail, come at, lash out) also mention it, so the term
+    /// is exclusive to the Spanish *pair*, not to one source: the exact
+    /// headword still ranks first, and disabling the `eng-spa` pair (both
+    /// sources) still drops it to zero results. Re-verified against the
+    /// nine-source seed (#87). 'atacar' → 'attack' is a transparent cognate,
+    /// so a hit also confirms the spa→eng synset mapping resolved to the
+    /// right word.
     private let spanishHeadwordTerm = "atacar"
-
-    /// The badge `DictionaryEntry.sourceLabel` renders for
-    /// `wordnet-spa-eng`. Note the direction differs from `freeDictBadge`
-    /// ("Es–En" vs "En–Es"); the en dash is U+2013, matching `Models.swift`.
-    private let spanishWordNetBadge = "Es–En"
 
     override func setUpWithError() throws {
         continueAfterFailure = false
@@ -177,9 +172,8 @@ final class DictionaryFilterTests: XCTestCase {
     /// Searching a Spanish-only word ("español", with the unambiguous `ñ`)
     /// must surface FreeDict eng-spa entries end-to-end:
     ///   - the results list must be non-empty,
-    ///   - the first row's source badge must read `En–Es`, which is the
-    ///     value `DictionaryEntry.sourceLabel` produces only for the
-    ///     `freedict-eng-spa` source.
+    ///   - the first row must carry the `freedict-eng-spa` source badge
+    ///     (`source_badge_freedict-eng-spa`, visible text "En–Es · FD").
     ///
     /// Without the badge assertion this test would still pass if some
     /// other source happened to mention "español" in its definitions; the
@@ -193,8 +187,8 @@ final class DictionaryFilterTests: XCTestCase {
             "Search for '\(spanishOnlyTerm)' must return at least one result from \(englishSpanishSource)"
         )
         XCTAssertTrue(
-            searchPage.verifyResultContainsText(freeDictBadge, at: 0),
-            "First result for '\(spanishOnlyTerm)' must carry the '\(freeDictBadge)' source badge, proving the entry came from \(englishSpanishSource)"
+            searchPage.verifyResultHasBadge(source: englishSpanishSource, at: 0),
+            "First result for '\(spanishOnlyTerm)' must carry the \(englishSpanishSource) source badge, proving the entry came from it"
         )
     }
 
@@ -262,11 +256,12 @@ final class DictionaryFilterTests: XCTestCase {
     /// Searching a Spanish headword that exists only in Spanish WordNet
     /// ("atacar") must surface a `wordnet-spa-eng` row end-to-end:
     ///   - the results list is non-empty, and
-    ///   - the first row's source badge reads `Es–En`, the value
-    ///     `DictionaryEntry.sourceLabel` produces only for that source.
+    ///   - the first row carries the `wordnet-spa-eng` source badge
+    ///     (`source_badge_wordnet-spa-eng`, visible text "Es–En · WN").
     ///
-    /// Because "atacar" is exclusive to `wordnet-spa-eng`, the first
-    /// result is unambiguously from the new bundle — the badge assertion
+    /// Because the only "atacar" headword is in `wordnet-spa-eng` (FreeDict
+    /// eng-spa only mentions it in definitions, which rank below an exact
+    /// headword), the first result is that row — the badge assertion
     /// makes this a provenance check, not a generic "search returned
     /// something". Mirrors the #24 eng-spa coverage in the opposite
     /// translation direction.
@@ -279,8 +274,8 @@ final class DictionaryFilterTests: XCTestCase {
             "Search for '\(spanishHeadwordTerm)' must return at least one result from \(spanishEnglishSource)"
         )
         XCTAssertTrue(
-            searchPage.verifyResultContainsText(spanishWordNetBadge, at: 0),
-            "First result for '\(spanishHeadwordTerm)' must carry the '\(spanishWordNetBadge)' badge, proving the entry came from \(spanishEnglishSource)"
+            searchPage.verifyResultHasBadge(source: spanishEnglishSource, at: 0),
+            "First result for '\(spanishHeadwordTerm)' must carry the \(spanishEnglishSource) badge, proving the entry came from it"
         )
     }
 
@@ -294,10 +289,11 @@ final class DictionaryFilterTests: XCTestCase {
     /// probe (`niños`) — asserted here because both directions now
     /// exercise the same row.
     ///
-    /// Probing with a term exclusive to `wordnet-spa-eng` keeps the
-    /// empty-state assertion meaningful: without exclusivity, leftover
-    /// hits from FreeDict eng-spa's Spanish-in-definition entries could
-    /// mask a regression in the toggle wiring.
+    /// Probing with a term exclusive to the Spanish pair keeps the
+    /// empty-state assertion meaningful: its only other hits (three
+    /// FreeDict eng-spa definitions since #108) sit behind the same
+    /// `eng-spa` toggle, so a leftover hit would mean a regression in the
+    /// toggle wiring.
     func testDisablingSpanishWordNetHidesAndRestoresResults() throws {
         // 1) Baseline: with all dictionaries enabled, '\(spanishHeadwordTerm)'
         //    returns results.
