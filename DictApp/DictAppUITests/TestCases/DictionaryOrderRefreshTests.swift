@@ -35,7 +35,7 @@ final class DictionaryOrderRefreshTests: XCTestCase {
             return false
         }
 
-        // Cleanup, not a workaround: later suites assume the four bundled
+        // Cleanup, not a workaround: later suites assume the five bundled
         // pairs only and all of them ON (`-resetData` clears the enabled set).
         addTeardownBlock { [app] in
             guard let app else { return }
@@ -59,7 +59,7 @@ final class DictionaryOrderRefreshTests: XCTestCase {
     }
 
     /// AC3. No relaunch anywhere between the import and the assertions.
-    /// 1. Order screen BEFORE the import: the four bundled rows, no custom row
+    /// 1. Order screen BEFORE the import: the five bundled rows, no custom row
     ///    (the Settings view model has loaded, so on 85e2e02, where it never
     ///    reloads, step 4 fails).
     /// 2. Russian OFF (materialises `enabled_sources` without the fixture).
@@ -85,7 +85,7 @@ final class DictionaryOrderRefreshTests: XCTestCase {
         XCTAssertFalse(infoButton(fixture).exists, "no custom (i) before the import")
         XCTAssertNil(settings.isDictionaryEnabled(pair: fixture), "no custom toggle before the import")
         let bundledOrder = settings.currentOrder(of: bundled)
-        XCTAssertEqual(bundledOrder.count, 4, "all four bundled rows laid out; got \(bundledOrder)")
+        XCTAssertEqual(bundledOrder.count, bundled.count, "all five bundled rows laid out; got \(bundledOrder)")
         for pair in bundled {
             XCTAssertEqual(settings.isDictionaryEnabled(pair: pair), true, "'\(pair)' ON after -resetData")
         }

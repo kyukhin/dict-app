@@ -2,6 +2,20 @@ import XCTest
 
 class TabBarPage: BasePage {
 
+    /// Budget for the one-time cold seed on a fresh install: the app copies
+    /// the bundled seed (~417k rows since the Greek dictionaries, #87; ~27 s
+    /// on an iPhone 15 Pro simulator, ~21 s before) before the tab bar appears.
+    static let coldSeedTimeout: TimeInterval = 120
+
+    /// Every suite builds this page right after `app.launch()`, so absorb the
+    /// cold seed here rather than in each `setUp`: the 10 s `tabBar` wait
+    /// below, repeated across a tab tap, only just covered the old seed.
+    /// Returns at once when the tab bar is already up (every warm launch).
+    override init(app: XCUIApplication) {
+        super.init(app: app)
+        _ = app.tabBars.firstMatch.waitForExistence(timeout: Self.coldSeedTimeout)
+    }
+
     private var tabBar: XCUIElement {
         let element = app.tabBars.firstMatch
         _ = element.waitForExistence(timeout: 10)

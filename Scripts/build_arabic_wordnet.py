@@ -50,19 +50,28 @@ SOURCE = "wordnet-arb-eng"
 DISPLAY_NAME = "Arabic – English (WordNet)"
 URL = "https://compling.hss.ntu.edu.sg/omw/"
 
+# License and authorship per OMW 1.4 `arb/LICENSE` (Issue #106: this used
+# to say CC BY 3.0).
 LICENSE_TEXT = (
     "Arabic WordNet (AWN), distributed via the Open Multilingual "
     "WordNet (OMW).\n\n"
+    "Authorship: Abouenour Lahsen, Karim Bouzoubaa, Paolo Rosso (c) 2015, "
+    "Mohammed V Rabat University, Morocco and Universitat Politècnica de "
+    "València, Spain. Musa Alkhalifa, Sabri Elkateb (c) 2007, UPC and the "
+    "University of Manchester.\n\n"
     "The Arabic WordNet data is released under the Creative Commons "
-    "Attribution 3.0 Unported License (CC BY 3.0).\n\n"
+    "Attribution-ShareAlike 3.0 Unported License (CC BY-SA 3.0).\n\n"
     "You are free to share and adapt the material for any purpose, even "
     "commercially, provided you give appropriate credit to the Arabic "
-    "WordNet project and the Open Multilingual WordNet.\n\n"
+    "WordNet project and the Open Multilingual WordNet, and distribute "
+    "adaptations under the same license. LibreDict converted the data to "
+    "its dictionary format; the converted data is distributed under the "
+    "same license.\n\n"
     "The English glosses and synset structure derive from Princeton "
     "WordNet 3.0, used under the WordNet 3.0 License (BSD-style), "
     "Copyright 2006 Princeton University.\n\n"
     "Full license texts:\n"
-    "  • https://creativecommons.org/licenses/by/3.0/\n"
+    "  • https://creativecommons.org/licenses/by-sa/3.0/legalcode\n"
     "  • https://wordnet.princeton.edu/license-and-commercial-use"
 )
 

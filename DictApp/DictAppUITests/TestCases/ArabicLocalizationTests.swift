@@ -167,11 +167,11 @@ final class ArabicLocalizationTests: XCTestCase {
     /// An Arabic-WordNet row is itself mixed-script: an Arabic headword with an
     /// English gloss. We can't type Arabic reliably, and an English query ranks
     /// these gloss-only matches far below the English headwords — so we isolate
-    /// the source by disabling the other four dictionaries, which makes a common
+    /// the source by disabling every other pair, which makes a common
     /// English word ("water", near-certain to appear in Arabic glosses) return
     /// only `wordnet-arb-eng` rows. The top result cell then carries an Arabic
-    /// headword run *and* a Latin run (the "Ar–En" badge + English gloss) — the
-    /// mixed-bidi property, asserted without pinning a single volatile lemma.
+    /// headword run *and* a Latin run (the "Ar–En · WN" badge + English gloss) —
+    /// the mixed-bidi property, asserted without pinning a single volatile lemma.
     func testMixedScriptCellRenders() throws {
         // Absorb the one-time ~306k-row seed import on a cold first launch
         // (the app shows a ProgressView until the tab bar appears). Without
@@ -201,23 +201,26 @@ final class ArabicLocalizationTests: XCTestCase {
         )
 
         // Isolate the Arabic pair so an English query surfaces its rows. The
-        // Spanish pair toggle covers both freedict-eng-spa and wordnet-spa-eng.
-        for other in [TestData.Pairs.english, TestData.Pairs.russian, TestData.Pairs.spanish] {
+        // Spanish pair toggle covers both freedict-eng-spa and wordnet-spa-eng;
+        // the Greek one (Issue #87) all four Greek sources, whose English
+        // headwords would otherwise outrank the Arabic gloss matches.
+        for other in [TestData.Pairs.english, TestData.Pairs.russian, TestData.Pairs.spanish,
+                      TestData.Pairs.greek] {
             settings.tapToggle(pair: other)
         }
 
         tapTab(ArabicTab.search)
         search(for: "water")
 
-        // The first result cell carries the "Ar–En" badge (Latin) — its
-        // existence proves a real wordnet-arb-eng row rendered. The dash is
-        // U+2013, matching DictionaryEntry.sourceLabel.
+        // A result cell carries the wordnet-arb-eng badge — its existence
+        // proves a real Arabic row rendered. Matched by identifier (Issue
+        // #87): the badge's label is its localized VoiceOver text.
         let arabicCell = app.cells.containing(
-            NSPredicate(format: "label CONTAINS %@", "Ar–En")
+            .any, identifier: "source_badge_wordnet-arb-eng"
         ).firstMatch
         XCTAssertTrue(
             arabicCell.waitForExistence(timeout: 10),
-            "With only Arabic enabled, a result cell must render with the 'Ar–En' badge"
+            "With only Arabic enabled, a result cell must render with the wordnet-arb-eng badge"
         )
 
         // The same cell must also contain an Arabic-script run (the headword):

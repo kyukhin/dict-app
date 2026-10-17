@@ -62,8 +62,8 @@ final class DictionaryInfoTests: XCTestCase {
     /// AC test. Tap `dictionary_info_eng-spa`; title "Spanish – English";
     /// headers "WordNet" (`wordnet-spa-eng`) above "FreeDict"
     /// (`freedict-eng-spa`); both licenses revealed and non-empty (FreeDict
-    /// mentions "GNU General Public License"); directions "Spanish → English"
-    /// / "English → Spanish".
+    /// names "Attribution-ShareAlike 3.0", #106); directions "Spanish →
+    /// English" / "English → Spanish".
     func testSpanishPairInfoShowsBothSourcesAndLicenses() throws {
         let settings = tabBarPage.tapSettingsTab()
         let info = settings.openInfo(pair: TestData.Pairs.spanish)
@@ -111,8 +111,8 @@ final class DictionaryInfoTests: XCTestCase {
         XCTAssertTrue(info.revealElement(AccessibilityIdentifiers.DictionaryInfo.license(freedict)),
                       "FreeDict license must be reachable")
         let freedictLicense = info.element(AccessibilityIdentifiers.DictionaryInfo.license(freedict)).label
-        XCTAssertTrue(freedictLicense.contains("GNU General Public License"),
-                      "FreeDict license text must be shown; got '\(freedictLicense.prefix(120))'")
+        XCTAssertTrue(freedictLicense.contains("Attribution-ShareAlike 3.0"),
+                      "FreeDict license text (CC BY-SA 3.0, #106) must be shown; got '\(freedictLicense.prefix(120))'")
         XCTAssertNotEqual(freedictLicense, wordnetLicense, "each block shows its own license")
 
         // Bundled sources never show the custom-import note.
@@ -121,7 +121,9 @@ final class DictionaryInfoTests: XCTestCase {
     }
 
     /// For each `TestData.Pairs.all`: open info, reveal the license of every
-    /// member (`TestData.Pairs.sources`), `goBack()`.
+    /// member (`TestData.Pairs.sources`), `goBack()`. The Greek detail has
+    /// four blocks, two with the ~9 KB Apache 2.0 text (Issue #87); raise
+    /// `maxSwipes` here only if the fourth block is out of reach.
     func testEveryPairHasInfoButtonWithLicense() throws {
         let settings = tabBarPage.tapSettingsTab()
         XCTAssertTrue(settings.openDictionaryOrder())
@@ -135,7 +137,12 @@ final class DictionaryInfoTests: XCTestCase {
                 XCTAssertEqual(info.element(header).label, brands[source], "'\(source)' header brand")
                 let license = AccessibilityIdentifiers.DictionaryInfo.license(source)
                 XCTAssertTrue(info.revealElement(license), "'\(pair)': license for '\(source)' must be visible")
-                XCTAssertGreaterThan(info.element(license).label.count, 50, "'\(source)' license text")
+                let text = info.element(license).label
+                XCTAssertGreaterThan(text.count, 50, "'\(source)' license text")
+                // #106 / #87: each block shows its own, correct license.
+                for marker in licenseMarkers[source] ?? [] {
+                    XCTAssertTrue(text.contains(marker), "'\(source)' license must contain '\(marker)'; got '\(text.prefix(120))'")
+                }
             }
             // No block for a source outside this pair.
             for other in Set(TestData.Pairs.sources.values.joined()).subtracting(members) {
@@ -156,9 +163,9 @@ final class DictionaryInfoTests: XCTestCase {
         let pairs = TestData.Pairs.all
         XCTAssertTrue(rowLabel(pairs[0]).waitForExistence(timeout: TestData.Timeouts.medium))
         let order = settings.currentOrder(of: pairs)
-        XCTAssertEqual(order.count, 4)
+        XCTAssertEqual(order.count, pairs.count)
         let states = pairs.map { settings.isDictionaryEnabled(pair: $0) }
-        XCTAssertEqual(states, [true, true, true, true], "all pairs ON after -resetData")
+        XCTAssertEqual(states, Array(repeating: true, count: pairs.count), "all pairs ON after -resetData")
 
         // (i) → detail → back: nothing on the row changed.
         let info = settings.openInfo(pair: TestData.Pairs.spanish)
@@ -195,7 +202,7 @@ final class DictionaryInfoTests: XCTestCase {
     }
 
     /// `reorderFirstToLast(pairs:)` still changes the order with the (i)
-    /// button in the row; four rows, each once.
+    /// button in the row; five rows, each once.
     func testDragStillReordersWithInfoButton() throws {
         let settings = tabBarPage.tapSettingsTab()
         XCTAssertTrue(settings.openDictionaryOrder())
@@ -205,13 +212,13 @@ final class DictionaryInfoTests: XCTestCase {
             XCTAssertTrue(infoButton(pair).exists, "(i) present on '\(pair)' before the drag")
         }
         let before = settings.currentOrder(of: pairs)
-        XCTAssertEqual(before.count, 4, "all four pairs laid out; got \(before)")
+        XCTAssertEqual(before.count, pairs.count, "all five pairs laid out; got \(before)")
 
         let after = settings.reorderFirstToLast(pairs: pairs)
         XCTAssertFalse(app.descendants(matching: .any)[AccessibilityIdentifiers.DictionaryInfo.view].exists,
                        "a drag must never push the info detail")
         XCTAssertNotEqual(after, before, "drag must change the order. before=\(before) after=\(after)")
-        XCTAssertEqual(after.count, 4, "still exactly four rows; got \(after)")
+        XCTAssertEqual(after.count, pairs.count, "still exactly five rows; got \(after)")
         XCTAssertEqual(Set(after), Set(pairs), "each pair exactly once; got \(after)")
         // The helper drops on the last row's midpoint, which SwiftUI may resolve
         // to just above or below it (iOS 26.4 lands above): assert "moved down",
@@ -240,7 +247,7 @@ final class DictionaryInfoTests: XCTestCase {
                        "a drag starting on the (i) must not open the detail")
         XCTAssertTrue(orderView.exists, "still on the order screen")
         let afterInfoDrag = settings.currentOrder(of: pairs)
-        XCTAssertEqual(afterInfoDrag.count, 4, "rows intact after a drag from the (i); got \(afterInfoDrag)")
+        XCTAssertEqual(afterInfoDrag.count, pairs.count, "rows intact after a drag from the (i); got \(afterInfoDrag)")
         XCTAssertEqual(Set(afterInfoDrag), Set(pairs))
 
         // The moved row's (i) still opens its own detail.
@@ -260,7 +267,7 @@ final class DictionaryInfoTests: XCTestCase {
         let source = "test_import_fixture"
         let pair = "custom:\(source)"
 
-        // Always scrub the fixture afterwards: later tests assume the four
+        // Always scrub the fixture afterwards: later tests assume the five
         // bundled pairs only.
         addTeardownBlock { [app] in
             guard let app else { return }
@@ -319,6 +326,21 @@ final class DictionaryInfoTests: XCTestCase {
         TestData.Sources.wordnetSpaEng: "WordNet",
         TestData.Sources.freedictEngSpa: "FreeDict",
         TestData.Sources.wordnetArbEng: "WordNet",
+        TestData.Sources.freedictEllEng: "FreeDict",
+        TestData.Sources.wordnetEllEng: "WordNet",
+        TestData.Sources.freedictEngEll: "FreeDict",
+        TestData.Sources.wordnetEngEll: "WordNet",
+    ]
+
+    /// Text every bundled license must contain. #106: FreeDict eng-spa and
+    /// Arabic WordNet are CC BY-SA 3.0 (they read GPL-3.0 / CC BY 3.0 before).
+    private let licenseMarkers: [String: [String]] = [
+        TestData.Sources.freedictEngSpa: ["Attribution-ShareAlike 3.0"],
+        TestData.Sources.wordnetArbEng: ["Attribution-ShareAlike 3.0"],
+        TestData.Sources.freedictEllEng: ["Attribution-ShareAlike 3.0"],
+        TestData.Sources.freedictEngEll: ["Attribution-ShareAlike 3.0", "Freelang"],
+        TestData.Sources.wordnetEllEng: ["Apache License", "Version 2.0"],
+        TestData.Sources.wordnetEngEll: ["Apache License", "Version 2.0"],
     ]
 
     private var orderView: XCUIElement {

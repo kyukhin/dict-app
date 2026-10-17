@@ -217,6 +217,17 @@ func searchFor(_ term: String) {
         return cell.staticTexts.containing(NSPredicate(format: "label CONTAINS[c] %@", text)).count > 0
     }
 
+    /// Issue #87: whether the result cell at `index` carries the badge of
+    /// `source`, matched by `source_badge_<source>` (the badge's `label` is
+    /// its localized VoiceOver text, so never match the visible text).
+    func verifyResultHasBadge(source: String, at index: Int) -> Bool {
+        let cells = resultsList.cells
+        guard cells.count > index else { return false }
+        return cells.element(boundBy: index)
+            .descendants(matching: .any)[AccessibilityIdentifiers.Search.sourceBadge(source: source)]
+            .exists
+    }
+
     func getResultsCount() -> Int {
         return resultsList.cells.count
     }

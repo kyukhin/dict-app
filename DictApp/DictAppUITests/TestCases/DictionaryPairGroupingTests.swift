@@ -10,11 +10,11 @@ import XCTest
 /// Identifier contract (product-defined, see `AccessibilityIdentifiers`):
 /// - pair row (leading `Text`): `dictionary_order_row_<pairKey>`
 /// - pair toggle (Switch):      `dictionary_toggle_<pairKey>`
-/// - pair keys:                 `TestData.Pairs` (`eng`, `eng-rus`, `eng-spa`, `arb-eng`)
+/// - pair keys:                 `TestData.Pairs` (`eng`, `eng-rus`, `eng-spa`, `arb-eng`, `ell-eng`)
 ///
 /// Probe terms and their exclusivity notes come from `DictionaryFilterTests`
-/// (`niños` → `freedict-eng-spa` / `En–Es`, `atacar` → `wordnet-spa-eng` /
-/// `Es–En`, `яблоко` → `openrussian`).
+/// (`niños` → `freedict-eng-spa`, `atacar` → `wordnet-spa-eng`, `яблоко` →
+/// `openrussian`). Badges are matched by `source_badge_<source>` (Issue #87).
 final class DictionaryPairGroupingTests: XCTestCase {
 
     var app: XCUIApplication!
@@ -51,12 +51,12 @@ final class DictionaryPairGroupingTests: XCTestCase {
         tabBarPage = nil
     }
 
-    /// Open the order screen; rows exist for the four pair keys;
+    /// Open the order screen; rows exist for the five pair keys;
     /// `app.switches` matching `identifier BEGINSWITH "dictionary_toggle_"`
-    /// count == 4; no `dictionary_order_row_wordnet-spa-eng` /
-    /// `_freedict-eng-spa` / `_wordnet` / `_openrussian`; labels: `eng-spa` ==
-    /// "Spanish – English", `eng-rus` == "Russian – English", `arb-eng` ==
-    /// "Arabic – English", `eng` == "English" (U+2013 en dash).
+    /// count == 5; no per-source rows (`dictionary_order_row_wordnet-spa-eng`,
+    /// `_freedict-ell-eng`, …); labels: `eng-spa` == "Spanish – English",
+    /// `eng-rus` == "Russian – English", `arb-eng` == "Arabic – English",
+    /// `ell-eng` == "Greek – English", `eng` == "English" (U+2013 en dash).
     func testEachPairAppearsOnceWithLanguageDashEnglishTitle() throws {
         let settings = tabBarPage.tapSettingsTab()
         XCTAssertTrue(settings.openDictionaryOrder(), "Dictionary-order link should push the order screen")
@@ -70,16 +70,18 @@ final class DictionaryPairGroupingTests: XCTestCase {
         XCTAssertEqual(settings.currentOrder(of: TestData.Pairs.all).count, TestData.Pairs.all.count,
                        "every pair is laid out exactly once")
 
-        // Exactly four toggles: the two Spanish directions share one switch.
+        // Exactly five toggles: the two Spanish directions share one switch,
+        // the four Greek sources another (Issue #87).
         let toggles = app.switches.matching(NSPredicate(format: "identifier BEGINSWITH %@", "dictionary_toggle_"))
-        XCTAssertEqual(toggles.count, 4, "one toggle per pair; got \(toggles.allElementsBoundByIndex.map(\.identifier))")
+        XCTAssertEqual(toggles.count, TestData.Pairs.all.count,
+                       "one toggle per pair; got \(toggles.allElementsBoundByIndex.map(\.identifier))")
         let rows = app.staticTexts.matching(NSPredicate(format: "identifier BEGINSWITH %@", "dictionary_order_row_"))
         XCTAssertEqual(Set(rows.allElementsBoundByIndex.map(\.identifier)),
                        Set(TestData.Pairs.all.map(AccessibilityIdentifiers.Settings.dictionaryOrderRow(pair:))),
                        "row ids are pair keys only")
 
         // No per-source rows survive.
-        for source in ["wordnet-spa-eng", "freedict-eng-spa", "wordnet", "openrussian", "wordnet-arb-eng"] {
+        for source in TestData.Pairs.sources.values.joined() {
             XCTAssertFalse(app.staticTexts[AccessibilityIdentifiers.Settings.dictionaryOrderRow(pair: source)].exists,
                            "per-source row '\(source)' must be gone")
             XCTAssertFalse(app.switches[AccessibilityIdentifiers.Settings.dictionaryToggle(pair: source)].exists,
@@ -92,6 +94,7 @@ final class DictionaryPairGroupingTests: XCTestCase {
             TestData.Pairs.spanish: "Spanish \u{2013} English",
             TestData.Pairs.russian: "Russian \u{2013} English",
             TestData.Pairs.arabic: "Arabic \u{2013} English",
+            TestData.Pairs.greek: "Greek \u{2013} English",
             TestData.Pairs.english: "English",
         ]
         for (pair, title) in expected {
@@ -103,14 +106,14 @@ final class DictionaryPairGroupingTests: XCTestCase {
         }
     }
 
-    /// Baseline `niños` → results with `En–Es` at index 0 and `atacar` →
-    /// `Es–En`; `tapToggle(pair: spanish)`; both terms → `search_no_results`;
-    /// toggle back → both return.
+    /// Baseline `niños` → `freedict-eng-spa` badge at index 0 and `atacar` →
+    /// `wordnet-spa-eng`; `tapToggle(pair: spanish)`; both terms →
+    /// `search_no_results`; toggle back → both return.
     func testSingleToggleHidesBothDirectionsInSearch() throws {
         // 1) Baseline: each direction's exclusive probe returns its own badge.
         var searchPage = tabBarPage.tapSearchTab()
-        assertProbe(searchPage, term: spanishOnlyTerm, badge: freeDictBadge)
-        assertProbe(searchPage, term: spanishHeadwordTerm, badge: spanishWordNetBadge)
+        assertProbe(searchPage, term: spanishOnlyTerm, source: TestData.Sources.freedictEngSpa)
+        assertProbe(searchPage, term: spanishHeadwordTerm, source: TestData.Sources.wordnetSpaEng)
         searchPage.clearOverlaysBeforeTabSwitch()
 
         // 2) ONE toggle for the Spanish pair.
@@ -137,11 +140,11 @@ final class DictionaryPairGroupingTests: XCTestCase {
         XCTAssertEqual(settings.isDictionaryEnabled(pair: TestData.Pairs.spanish), true)
         searchPage = tabBarPage.tapSearchTab()
         searchPage.clearSearch()
-        assertProbe(searchPage, term: spanishOnlyTerm, badge: freeDictBadge)
-        assertProbe(searchPage, term: spanishHeadwordTerm, badge: spanishWordNetBadge)
+        assertProbe(searchPage, term: spanishOnlyTerm, source: TestData.Sources.freedictEngSpa)
+        assertProbe(searchPage, term: spanishHeadwordTerm, source: TestData.Sources.wordnetSpaEng)
     }
 
-    /// `reorderFirstToLast(pairs:)` → order changed, still exactly four rows,
+    /// `reorderFirstToLast(pairs:)` → order changed, still exactly five rows,
     /// each key once.
     func testDragMovesPairAsOneRow() throws {
         let settings = tabBarPage.tapSettingsTab()
@@ -151,18 +154,18 @@ final class DictionaryPairGroupingTests: XCTestCase {
         let before = settings.currentOrder(of: pairs)
         // The seed's count-desc base order decides the rest (FreeDict eng-spa
         // outranks OpenRussian), so only pin what #74 guarantees for `en`.
-        XCTAssertEqual(before.count, 4, "all four pairs laid out; got \(before)")
+        XCTAssertEqual(before.count, pairs.count, "all five pairs laid out; got \(before)")
         XCTAssertEqual(before.first, TestData.Pairs.english, "English pair first on an English fresh install")
 
         let after = settings.reorderFirstToLast(pairs: pairs)
         XCTAssertNotEqual(after, before, "drag must change the order. before=\(before) after=\(after)")
-        XCTAssertEqual(after.count, 4, "still exactly four rows after the drag; got \(after)")
+        XCTAssertEqual(after.count, pairs.count, "still exactly five rows after the drag; got \(after)")
         XCTAssertEqual(Set(after), Set(pairs), "each pair exactly once; got \(after)")
         XCTAssertEqual(after.last, before.first, "the dragged pair moved as one row to the end")
         XCTAssertEqual(Array(after.dropLast()), Array(before.dropFirst()),
                        "the other pairs keep their relative order")
         let toggles = app.switches.matching(NSPredicate(format: "identifier BEGINSWITH %@", "dictionary_toggle_"))
-        XCTAssertEqual(toggles.count, 4, "the drag must not split a pair into per-source rows")
+        XCTAssertEqual(toggles.count, pairs.count, "the drag must not split a pair into per-source rows")
     }
 
     /// Toggle `eng-rus` off and move the first row to last; `app.terminate()`;
@@ -176,7 +179,7 @@ final class DictionaryPairGroupingTests: XCTestCase {
         let before = settings.currentOrder(of: pairs)
         let moved = settings.reorderFirstToLast(pairs: pairs)
         XCTAssertNotEqual(moved, before, "precondition: the drag changed the order")
-        XCTAssertEqual(moved.count, 4)
+        XCTAssertEqual(moved.count, pairs.count)
 
         // Relaunch WITHOUT -resetData: the stored source-level prefs must
         // round-trip through the launch-time normalisation unchanged.
@@ -207,25 +210,24 @@ final class DictionaryPairGroupingTests: XCTestCase {
 
     /// Only in `freedict-eng-spa` (plural never a Spanish-WordNet lemma).
     private let spanishOnlyTerm = "niños"
-    /// Only in `wordnet-spa-eng`.
+    /// Headword only in `wordnet-spa-eng` (3 `freedict-eng-spa` definitions
+    /// also mention it since #108; both sit behind the `eng-spa` toggle).
     private let spanishHeadwordTerm = "atacar"
     /// Only in `openrussian`.
     private let russianOnlyTerm = "яблоко"
-    /// `sourceLabel` badges (U+2013), which stay per source.
-    private let freeDictBadge = "En\u{2013}Es"
-    private let spanishWordNetBadge = "Es\u{2013}En"
-
     /// The pair row's leading label (the row id lives on the Text, #6).
     private func rowLabel(_ pair: String) -> XCUIElement {
         app.staticTexts[AccessibilityIdentifiers.Settings.dictionaryOrderRow(pair: pair)].firstMatch
     }
 
-    private func assertProbe(_ page: SearchPage, term: String, badge: String,
+    /// `term` returns results and the first one carries `source`'s badge
+    /// (`source_badge_<source>`, Issue #87).
+    private func assertProbe(_ page: SearchPage, term: String, source: String,
                              file: StaticString = #filePath, line: UInt = #line) {
         page.clearSearch()
         page.searchFor(term)
         XCTAssertTrue(page.waitForResults(), "'\(term)' must return results", file: file, line: line)
-        XCTAssertTrue(page.verifyResultContainsText(badge, at: 0),
-                      "first result for '\(term)' must carry the '\(badge)' badge", file: file, line: line)
+        XCTAssertTrue(page.verifyResultHasBadge(source: source, at: 0),
+                      "first result for '\(term)' must carry the \(source) badge", file: file, line: line)
     }
 }
