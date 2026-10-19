@@ -186,7 +186,7 @@ final class DictionaryPairGroupingTests: XCTestCase {
         app.terminate()
         app.launchArguments = ["-disableReviewPrompt"]
         app.launch()
-        XCTAssertTrue(app.tabBars.firstMatch.waitForExistence(timeout: 60), "tab bar after relaunch")
+        XCTAssertTrue(app.waitForDictionariesReady(), "Search screen with every dictionary unpacked after relaunch")
         tabBarPage = TabBarPage(app: app)
 
         settings = tabBarPage.tapSettingsTab()

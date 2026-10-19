@@ -61,7 +61,8 @@ xcodebuild test \
 
 **Uninstall-between** for cold-seed-sensitive suites (the AC-binding
 recipe per #62/#66) — runs the one-time ~306k-row seed import on every
-test:
+test. Since #111 a cold run costs about launch + 6 s: the Search screen
+shows at once and the dictionaries unpack behind it (`waitForDictionariesReady`):
 
 ```bash
 xcrun simctl uninstall booted com.kyukhin.DictApp   # before each run

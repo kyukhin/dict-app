@@ -42,14 +42,13 @@ final class DictionaryOrderRefreshTests: XCTestCase {
             app.terminate()
             app.launchArguments = ["-disableReviewPrompt", "-resetData", "-clearFixtureImports"]
             app.launch()
-            _ = app.tabBars.firstMatch.waitForExistence(timeout: 60)
+            _ = app.waitForDictionariesReady()
             app.terminate()
         }
 
         XCUIDevice.shared.orientation = .portrait
         app.launch()
-        // The cold seed copy races `TabBarPage`'s own 10 s wait.
-        XCTAssertTrue(app.tabBars.firstMatch.waitForExistence(timeout: 60), "tab bar after launch")
+        // `TabBarPage` waits until every bundled dictionary is unpacked (Issue #111).
         tabBarPage = TabBarPage(app: app)
     }
 

@@ -230,6 +230,19 @@ enum DictionaryDefaults {
         let preferred = (preferredSources[code] ?? []).filter { sources.contains($0) }
         return preferred + sources.filter { !preferred.contains($0) }
     }
+
+    /// Issue #111: the order in which pending bundled sources are unpacked.
+    /// `wordnet` first for every UI language (English search is what most
+    /// users try first), then the language's `preferredSources`, then the
+    /// rest in their incoming (seed) order. IDs absent from `sources` are
+    /// skipped; the result is always a permutation of `sources`.
+    static func unpackPriority(forLanguageCode code: String, sources: [String]) -> [String] {
+        var head: [String] = []
+        for id in ["wordnet"] + (preferredSources[code] ?? []) where sources.contains(id) && !head.contains(id) {
+            head.append(id)
+        }
+        return head + sources.filter { !head.contains($0) }
+    }
 }
 
 // MARK: - Language-pair grouping (Issue #92)

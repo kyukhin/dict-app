@@ -27,10 +27,8 @@ final class ReadingModeTests: XCTestCase {
         XCUIDevice.shared.orientation = .portrait
         app.launch()
 
-        // `-resetData` on a fresh sim triggers the one-time ~306k-row cold seed
-        // (ProgressView until done). 120s mirrors DictionaryOrderDefaultTests.
-        XCTAssertTrue(app.tabBars.firstMatch.waitForExistence(timeout: 120),
-                      "Tab bar must appear once the cold seed completes")
+        // Issue #111: the tests search WordNet; `TabBarPage` waits until
+        // every bundled dictionary is unpacked.
         tabBarPage = TabBarPage(app: app)
     }
 

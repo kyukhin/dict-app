@@ -25,6 +25,12 @@ final class DictAppTests: XCTestCase {
     }
 
     override func tearDown() async throws {
+        // Issue #111: never leak a background unpack (it holds the
+        // single-flight slot and writes into `tempDir`) or a test seam into
+        // the next test.
+        await DatabaseService.shared.waitForBundledUnpack()
+        DatabaseService.unpackFailureAfterInsert = nil
+        Self.setUnpackSourceDelay(nil)
         try? FileManager.default.removeItem(at: tempDir)
         try await super.tearDown()
     }
@@ -34,22 +40,25 @@ final class DictAppTests: XCTestCase {
     @MainActor private static var hostLaunchSettled = false
 
     /// The test host is the real app: its launch-time `initializeDatabase`
-    /// (setup, seedIfNeeded, refreshMetadata) runs on `DatabaseService.shared`
-    /// while the first tests run, and its later steps re-read the `dbPool` that
-    /// each `setUp` swaps in, so they can write into (and lock) a test's DB.
-    /// Wait once per run, before the first swap, until the host shows its tab
-    /// bar (set only after `isReady`). Every test class that swaps the shared
-    /// database calls this first, so test order does not matter.
+    /// (setup, prepareBundledSeed, the test hooks) runs on
+    /// `DatabaseService.shared` while the first tests run, and its later steps
+    /// re-read the `dbPool` that each `setUp` swaps in, so they can write into
+    /// (and lock) a test's DB. Since Issue #111 the host then unpacks the
+    /// bundled dictionaries in the background (on the pool it started with)
+    /// and holds the single-flight unpack slot until done. Wait once per run,
+    /// before the first swap, until the host shows its tab bar (set only after
+    /// `isReady`) and its unpack is idle. Every test class that swaps the
+    /// shared database calls this first, so test order does not matter.
     @MainActor
     static func waitForHostAppLaunch(timeout: TimeInterval = 120) async {
         guard !hostLaunchSettled else { return }
         hostLaunchSettled = true
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
-            if hostShowsTabBar() { return }
+            if hostShowsTabBar() && DictionaryUnpackStatus.shared.phase == .idle { return }
             try? await Task.sleep(nanoseconds: 50_000_000)
         }
-        print("DictAppTests: the host app showed no tab bar within \(Int(timeout)) s; continuing")
+        print("DictAppTests: the host app was not ready and idle within \(Int(timeout)) s; continuing")
     }
 
     @MainActor
@@ -6814,5 +6823,1008 @@ extension DictionaryDefaultsTests {
             XCTAssertEqual(DictionaryDefaults.defaultOrder(forLanguageCode: code, sources: seedOrder), seedOrder,
                            "'\(code)' is not a shipped code and must not promote Greek")
         }
+    }
+}
+
+// MARK: - Issue #111: Instant start, background unpack of the bundled seed
+//
+// DESIGN_DOC_111 §7.5, plus PM decisions 3 (re-run on landing), 4 (a failure
+// never blocks) and 7 (no writable connection on someone else's file). The app
+// DB is the `setUp` DB or a seed clone. Fixture "bundles" are tiny SQLite
+// files with the seed's shape (`inlineSchema`, one `dict_metadata` row per
+// source in seed order, `word_count` = its rows); the real seed is used where
+// its size or shipped content matters. Seams: `DatabaseService.
+// unpackFailureAfterInsert` (a kill mid-source) and `unpackSourceDelay`, set in
+// the argument domain where `-unpackSourceDelay` lands.
+
+extension DictAppTests {
+
+    // MARK: Fixtures
+
+    /// The seed's sources in `dict_metadata` rowid order (= entry block order).
+    static let seedOrder = ["wordnet", "openrussian", "freedict-eng-spa", "wordnet-spa-eng", "wordnet-arb-eng",
+                            "wordnet-ell-eng", "wordnet-eng-ell", "freedict-ell-eng", "freedict-eng-ell"]
+
+    /// Four fixture sources with distinct sizes (4 + 3 + 2 + 1 = 10 rows), in
+    /// seed order. Headwords are unique tokens, so a search hits one row.
+    static let fixtureSources: [(String, [String])] = [
+        ("wordnet", ["qawnalpha", "qawnbeta", "qawngamma", "qawndelta"]),
+        ("openrussian", ["qaorone", "qaortwo", "qaorthree"]),
+        ("freedict-eng-spa", ["qaesuno", "qaesdos"]),
+        ("wordnet-spa-eng", ["qawsone"]),
+    ]
+
+    /// One `dict_metadata` row of the real seed.
+    struct BundleSource {
+        let source: String
+        let wordCount: Int
+        let builtAt: String
+        let displayName: String
+        let license: String
+        let version: String
+    }
+
+    /// The real seed's metadata rows in rowid order.
+    private static func realSeedMetadata() throws -> [BundleSource] {
+        try openBundledSeedReadOnly().read { conn in
+            try Row.fetchAll(conn, sql: """
+                SELECT source, word_count, built_at, display_name, license, version
+                FROM dict_metadata ORDER BY rowid
+                """).map {
+                BundleSource(source: $0["source"], wordCount: $0["word_count"], builtAt: $0["built_at"],
+                             displayName: $0["display_name"], license: $0["license"], version: $0["version"])
+            }
+        }
+    }
+
+    /// A fixture bundle: `sources` (id, headwords) in seed order, each with a
+    /// metadata row (`display_name` "<prefix> <id>", `word_count` = its rows,
+    /// `built_at` = `builtAt`). Definitions are "<word> in <source>" plus
+    /// `definitionSuffix`, so a rebuilt bundle can change content.
+    private func makeUnpackBundle(_ sources: [(String, [String])], builtAt: String = "b1",
+                                  name: String = "unpack-bundle.sqlite", displayPrefix: String = "Bundle",
+                                  definitionSuffix: String = "") throws -> URL {
+        let url = tempDir.appendingPathComponent(name)
+        try? FileManager.default.removeItem(at: url)
+        let queue = try DatabaseQueue(path: url.path)
+        try queue.write { conn in
+            try conn.execute(sql: DatabaseService.inlineSchema)
+            for (source, words) in sources {
+                for word in words {
+                    try conn.execute(
+                        sql: """
+                            INSERT INTO entries(word, word_normalized, definition, phonetic, pos, source)
+                            VALUES (?, ?, ?, '', 'noun', ?)
+                            """,
+                        arguments: [word, word.lowercased(), "\(word) in \(source)\(definitionSuffix)", source])
+                }
+                try conn.execute(
+                    sql: """
+                        INSERT INTO dict_metadata(source, display_name, version, license, url, word_count,
+                                                  built_at, description)
+                        VALUES (?, ?, 'v1', ?, 'https://example.org', ?, ?, ?)
+                        """,
+                    arguments: [source, "\(displayPrefix) \(source)", "License of \(source)", words.count,
+                                builtAt, "About \(source)"])
+            }
+        }
+        try queue.close()
+        return url
+    }
+
+    /// `source → built_at` of an app DB (default: the `setUp` DB).
+    private func appMarkers(path: String? = nil) async throws -> [String: String] {
+        let pool = try DatabasePool(path: path ?? syncAppPath)
+        return try await pool.read { conn in
+            var markers: [String: String] = [:]
+            for row in try Row.fetchAll(conn, sql: "SELECT source, built_at FROM dict_metadata") {
+                markers[row["source"] as String] = (row["built_at"] as String?) ?? ""
+            }
+            return markers
+        }
+    }
+
+    /// `source → row count` of an app DB's `entries`.
+    private func appCounts(path: String? = nil) async throws -> [String: Int] {
+        let pool = try DatabasePool(path: path ?? syncAppPath)
+        return try await pool.read { conn in
+            var counts: [String: Int] = [:]
+            for row in try Row.fetchAll(conn, sql: "SELECT source, COUNT(*) AS n FROM entries GROUP BY source") {
+                counts[row["source"] as String] = row["n"] as Int
+            }
+            return counts
+        }
+    }
+
+    /// Sets (or with `nil` removes) `unpackSourceDelay` in the volatile
+    /// argument domain, where `-unpackSourceDelay` lands: never persisted, so
+    /// a crashed test cannot slow a later app launch. `startBundledUnpack`
+    /// reads it once, when it starts.
+    static func setUnpackSourceDelay(_ seconds: Double?) {
+        let defaults = UserDefaults.standard
+        var arguments = defaults.volatileDomain(forName: UserDefaults.argumentDomain)
+        if let seconds {
+            arguments["unpackSourceDelay"] = seconds
+        } else {
+            arguments.removeValue(forKey: "unpackSourceDelay")
+        }
+        defaults.setVolatileDomain(arguments, forName: UserDefaults.argumentDomain)
+    }
+
+    /// The fraction of an `.unpacking` phase, `nil` for `.idle`.
+    private static func fraction(_ phase: DictionaryUnpackStatus.Phase) -> Double? {
+        if case .unpacking(let fraction) = phase { return fraction }
+        return nil
+    }
+
+    /// Records every phase a `DictionaryUnpackStatus` publishes from now on;
+    /// the first value is the phase at subscription.
+    @MainActor
+    final class PhaseRecorder {
+        private(set) var phases: [DictionaryUnpackStatus.Phase] = []
+        private var subscription: AnyCancellable?
+
+        init(_ status: DictionaryUnpackStatus) {
+            subscription = status.$phase.sink { [weak self] in self?.phases.append($0) }
+        }
+    }
+
+    /// Polls `condition` every 20 ms until it holds or `timeout` passes.
+    @MainActor
+    private func waitUntil(timeout: TimeInterval, _ condition: () -> Bool) async -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while !condition() {
+            if Date() > deadline { return false }
+            try? await Task.sleep(nanoseconds: 20_000_000)
+        }
+        return true
+    }
+
+    /// Runs `plan` the way the app does (status first, then the background
+    /// task) and returns once the loop is done and `.idle` is published. The
+    /// task frees its single-flight slot just before it publishes `.idle`, so
+    /// `waitForBundledUnpack()` alone can return a moment before `.idle` lands.
+    @MainActor
+    private func runAppUnpack(_ plan: BundledUnpackPlan) async {
+        DictionaryUnpackStatus.shared.begin(plan)
+        await db.startBundledUnpack(plan)
+        await waitForUnpackIdle()
+    }
+
+    /// `waitForBundledUnpack()`, then until `.idle` has been published.
+    @MainActor
+    private func waitForUnpackIdle() async {
+        await db.waitForBundledUnpack()
+        let idle = await waitUntil(timeout: 5) { DictionaryUnpackStatus.shared.phase == .idle }
+        XCTAssertTrue(idle, "the unpack must end by publishing .idle")
+    }
+
+    // MARK: Plan
+
+    /// 1. A fresh install: preparing registers the nine bundled sources
+    /// (`built_at ''`, descriptive columns from the bundle), writes no entry,
+    /// and plans all nine as new, `wordnet` first and then the UI language's
+    /// dictionaries, for every shipped UI language. Re-preparing (a kill
+    /// before the first commit) plans the same.
+    func testUnpackPlanOnEmptyDatabase() async throws {
+        let seedURL = try Self.greekSeedURL()
+        let bundle = try Self.realSeedMetadata()
+        XCTAssertEqual(bundle.map(\.source), Self.seedOrder, "precondition: the seed's metadata order")
+        let wordCounts = Dictionary(uniqueKeysWithValues: bundle.map { ($0.source, $0.wordCount) })
+        let seedRows = try await Self.openBundledSeedReadOnly().read { conn in
+            try Int.fetchOne(conn, sql: "SELECT COUNT(*) FROM entries") ?? 0
+        }
+        let expected: [String: [String]] = [
+            "en": Self.seedOrder,
+            "ru": ["wordnet", "openrussian", "freedict-eng-spa", "wordnet-spa-eng", "wordnet-arb-eng",
+                   "wordnet-ell-eng", "wordnet-eng-ell", "freedict-ell-eng", "freedict-eng-ell"],
+            "es": ["wordnet", "wordnet-spa-eng", "freedict-eng-spa", "openrussian", "wordnet-arb-eng",
+                   "wordnet-ell-eng", "wordnet-eng-ell", "freedict-ell-eng", "freedict-eng-ell"],
+            "ar": ["wordnet", "wordnet-arb-eng", "openrussian", "freedict-eng-spa", "wordnet-spa-eng",
+                   "wordnet-ell-eng", "wordnet-eng-ell", "freedict-ell-eng", "freedict-eng-ell"],
+            "el": ["wordnet", "freedict-ell-eng", "wordnet-ell-eng", "freedict-eng-ell", "wordnet-eng-ell",
+                   "openrussian", "freedict-eng-spa", "wordnet-spa-eng", "wordnet-arb-eng"],
+        ]
+        let shipped = try Self.shippedUILanguages().map(\.code)
+        XCTAssertEqual(Set(shipped), Set(expected.keys), "one expected order per shipped UI language")
+
+        for code in shipped {
+            let plan = try await db.prepareBundledSeed(bundledSeedURL: seedURL, languageCode: code)
+            XCTAssertEqual(plan.items.map(\.source), expected[code], "\(code): unpack order")
+            XCTAssertTrue(plan.items.allSatisfy(\.isNew), "\(code): nothing unpacked yet, so every source is new")
+            XCTAssertEqual(plan.items.map(\.rowCount), plan.items.map { wordCounts[$0.source] ?? -1 },
+                           "\(code): each source weighs its bundle word_count")
+            XCTAssertEqual(plan.allRows, seedRows, "\(code): progress covers every seed row")
+            XCTAssertEqual(plan.initialFraction, 0, "\(code): a fresh install starts at 0%")
+            XCTAssertEqual(plan.seedURL, seedURL)
+        }
+
+        let metadata = try await db.fetchMetadata()
+        XCTAssertEqual(metadata.map(\.source).sorted(), Self.seedOrder.sorted(), "nine rows, registered once")
+        for row in metadata {
+            let source = try XCTUnwrap(bundle.first { $0.source == row.source })
+            XCTAssertEqual(row.builtAt, "", "\(row.source): registered, not unpacked")
+            XCTAssertEqual(row.displayName, source.displayName, "\(row.source): display name")
+            XCTAssertEqual(row.license, source.license, "\(row.source): license")
+            XCTAssertEqual(row.version, source.version, "\(row.source): version")
+            XCTAssertEqual(row.wordCount, source.wordCount, "\(row.source): word count")
+        }
+        let entries = try await db.entryCount()
+        XCTAssertEqual(entries, 0, "preparing never writes entries: the UI must not wait for rows")
+        let hits = try await db.search(query: "dog")
+        XCTAssertTrue(hits.isEmpty)
+    }
+
+    /// 2. Every bundled source complete and current: an empty plan that
+    /// starts nothing and keeps the bar hidden. Registration still refreshes
+    /// the descriptive columns of current rows but never writes `built_at`,
+    /// and with the gate closed rows are not re-synced even if they differ.
+    @MainActor
+    func testUnpackPlanOnSyncedDatabaseIsEmpty() async throws {
+        let first = try makeUnpackBundle(Self.fixtureSources, name: "b1.sqlite")
+        try await db.seedIfNeeded(bundledSeedURL: first)
+        let markersBefore = try await appMarkers()
+        XCTAssertEqual(markersBefore, Dictionary(uniqueKeysWithValues: Self.fixtureSources.map { ($0.0, "b1") }),
+                       "precondition: synced")
+        var rowsBefore: [String: [SyncedRow]] = [:]
+        for (source, _) in Self.fixtureSources {
+            rowsBefore[source] = try await syncRows(source: source)
+        }
+
+        // Same build stamp, renamed sources and different definitions.
+        let renamed = try makeUnpackBundle(Self.fixtureSources, name: "b1-renamed.sqlite",
+                                           displayPrefix: "Renamed", definitionSuffix: " (changed)")
+        let plan = try await db.prepareBundledSeed(bundledSeedURL: renamed, languageCode: "en")
+
+        XCTAssertTrue(plan.isEmpty, "nothing pending; got \(plan.items.map(\.source))")
+        XCTAssertEqual(plan.initialFraction, 1, "a complete install is at 100% before any work")
+        let markersAfter = try await appMarkers()
+        XCTAssertEqual(markersAfter, markersBefore, "registration never writes built_at for a current source")
+        for meta in try await db.fetchMetadata() {
+            XCTAssertEqual(meta.displayName, "Renamed \(meta.source)", "descriptive columns follow the bundle")
+        }
+        for (source, before) in rowsBefore {
+            let after = try await syncRows(source: source)
+            XCTAssertEqual(after, before, "\(source): a current source is never re-synced")
+        }
+
+        let recorder = PhaseRecorder(DictionaryUnpackStatus.shared)
+        await runAppUnpack(plan)
+        XCTAssertTrue(recorder.phases.allSatisfy { $0 == .idle }, "a normal launch never shows the bar; got \(recorder.phases)")
+        let markersFinal = try await appMarkers()
+        XCTAssertEqual(markersFinal, markersBefore, "an empty plan writes nothing")
+    }
+
+    /// 3. A 1.3.0-shaped install (five sources from an older seed): the four
+    /// Greek sources are new and come first, in the UI language's priority,
+    /// then the five stale ones. Registration adds the Greek rows with
+    /// `built_at ''` and leaves the stale rows (old stamp, old names) to
+    /// their unpack, which replaces them in the same transaction as the data.
+    func testUnpackPlanOnUpgradePutsNewSourcesFirst() async throws {
+        let five = Array(Self.seedOrder.prefix(5))
+        let greek = Array(Self.seedOrder.suffix(4))
+        let all = Self.seedOrder.map { ($0, ["qa\($0.replacingOccurrences(of: "-", with: ""))word"]) }
+        let bundle = try makeUnpackBundle(all, builtAt: "1.4.0")
+        let old = try makeUnpackBundle(all.filter { five.contains($0.0) }, builtAt: "1.3.0", name: "old.sqlite",
+                                       displayPrefix: "Old")
+        try await db.seedIfNeeded(bundledSeedURL: old)
+
+        let expected: [(String, [String])] = [
+            ("en", greek + five),
+            ("ru", greek + five),
+            ("es", greek + ["wordnet", "wordnet-spa-eng", "freedict-eng-spa", "openrussian", "wordnet-arb-eng"]),
+            ("ar", greek + ["wordnet", "wordnet-arb-eng", "openrussian", "freedict-eng-spa", "wordnet-spa-eng"]),
+            ("el", ["freedict-ell-eng", "wordnet-ell-eng", "freedict-eng-ell", "wordnet-eng-ell"] + five),
+        ]
+        for (code, order) in expected {
+            let plan = try await db.prepareBundledSeed(bundledSeedURL: bundle, languageCode: code)
+            XCTAssertEqual(plan.items.map(\.source), order, "\(code): new sources first, each group by priority")
+            XCTAssertEqual(plan.items.map(\.isNew), [true, true, true, true, false, false, false, false, false],
+                           "\(code): the four Greek sources are new, the five old ones stale")
+            XCTAssertEqual(plan.initialFraction, 0, "\(code): stale sources are pending too")
+        }
+        let markers = try await appMarkers()
+        for source in five {
+            XCTAssertEqual(markers[source], "1.3.0", "\(source): the stale gate stays open until its unpack")
+        }
+        for source in greek {
+            XCTAssertEqual(markers[source], "", "\(source): registered, not unpacked")
+        }
+        for meta in try await db.fetchMetadata() {
+            let prefix = five.contains(meta.source) ? "Old" : "Bundle"
+            XCTAssertEqual(meta.displayName, "\(prefix) \(meta.source)",
+                           "a stale row keeps its old metadata until its data is replaced")
+        }
+        let counts = try await appCounts()
+        XCTAssertEqual(Set(counts.keys), Set(five), "preparing writes no entries")
+    }
+
+    // MARK: Unpack
+
+    /// 4. Fresh install on the real seed through the app path: every source
+    /// complete and byte-identical to the seed (`word_normalized` included,
+    /// Arabic and Greek search depend on it), one contiguous id block per
+    /// source in plan order, every marker closed, FTS consistent, WAL
+    /// truncated. AC: total unpack time not worse than the 26.9 s import it
+    /// replaces (simulator budget 20 s; the Mac does the same SQL in ~4.5 s).
+    @MainActor
+    func testUnpackOfRealSeedIsCompleteAndFast() async throws {
+        let seedURL = try Self.greekSeedURL()
+        let bundle = try Self.realSeedMetadata()
+        let plan = try await db.prepareBundledSeed(bundledSeedURL: seedURL, languageCode: "en")
+        XCTAssertEqual(plan.items.count, 9)
+
+        let start = CFAbsoluteTimeGetCurrent()
+        await runAppUnpack(plan)
+        let elapsed = CFAbsoluteTimeGetCurrent() - start
+        print("⏱ fresh-install unpack of the real seed: \(String(format: "%.3f", elapsed))s")
+
+        let walSize = (try? FileManager.default.attributesOfItem(atPath: syncAppPath + "-wal")[.size] as? Int) ?? 0
+        XCTAssertEqual(walSize, 0, "the final TRUNCATE checkpoint shrinks the WAL left by the wordnet transaction")
+
+        let counts = try await appCounts()
+        let markers = try await appMarkers()
+        for item in bundle {
+            XCTAssertEqual(counts[item.source], item.wordCount, "\(item.source): every row")
+            XCTAssertEqual(markers[item.source], item.builtAt, "\(item.source): completion marker")
+        }
+        try await checkFTSIntegrity()
+
+        let pool = try DatabasePool(path: syncAppPath)
+        let mismatches = try await pool.writeWithoutTransaction { conn -> Int in
+            try conn.execute(sql: "ATTACH DATABASE ? AS seed", arguments: [seedURL.path])
+            defer { try? conn.execute(sql: "DETACH DATABASE seed") }
+            return try Int.fetchOne(conn, sql: """
+                SELECT COUNT(*) FROM seed.entries s
+                LEFT JOIN main.entries e ON e.source = s.source AND e.word = s.word COLLATE NOCASE
+                WHERE e.id IS NULL OR e.word IS NOT s.word OR e.word_normalized IS NOT s.word_normalized
+                   OR e.definition IS NOT s.definition OR e.phonetic IS NOT s.phonetic OR e.pos IS NOT s.pos
+                """) ?? -1
+        }
+        XCTAssertEqual(mismatches, 0, "every seed row arrives byte-identical")
+
+        let blocks = try await pool.read { conn in
+            try Row.fetchAll(conn, sql: "SELECT source, MIN(id) AS lo, MAX(id) AS hi FROM entries GROUP BY source ORDER BY lo")
+        }
+        XCTAssertEqual(blocks.map { $0["source"] as String }, plan.items.map(\.source),
+                       "sources commit one after another, in plan order")
+        for (earlier, later) in zip(blocks, blocks.dropFirst()) {
+            XCTAssertLessThan(earlier["hi"] as Int64, later["lo"] as Int64, "one contiguous id block per source")
+        }
+
+        let greek = try await db.search(query: "καλημερα")
+        XCTAssertTrue(greek.contains { $0.word == "καλημέρα" && $0.source == "freedict-ell-eng" },
+                      "the last source is searchable, accent-free")
+        XCTAssertLessThan(elapsed, 20, "unpack must stay far below the 26.9 s import it replaces (got \(elapsed)s)")
+    }
+
+    /// Update path (1.3.0 → 1.4.0) on the real seed: the five old sources
+    /// with an older stamp and an outdated eng-spa definition, two bookmarks,
+    /// no Greek. The old sources are searchable before any work; the unpack
+    /// adds the four Greek sources first, then syncs the five in place (#108):
+    /// every old id survives, nothing is re-inserted, the bookmarks stay on
+    /// their rows, the definition is updated and re-indexed, FTS is consistent.
+    @MainActor
+    func testUpdatePathAddsGreekInBackgroundAndKeepsBookmarks() async throws {
+        let seedURL = try Self.greekSeedURL()
+        let bundle = try Self.realSeedMetadata()
+        let five = Array(Self.seedOrder.prefix(5))
+        let greek = Array(Self.seedOrder.suffix(4))
+        try await useSeedClone()
+        let clonePath = tempDir.appendingPathComponent("seed-clone.sqlite").path
+        let clone = try DatabasePool(path: clonePath)
+        let greekList = greek.map { "'\($0)'" }.joined(separator: ", ")
+        try await clone.write { conn in
+            try conn.execute(sql: "DELETE FROM entries WHERE source IN (\(greekList))")
+            try conn.execute(sql: "DELETE FROM dict_metadata WHERE source IN (\(greekList))")
+            try conn.execute(sql: "UPDATE dict_metadata SET built_at = '1.3.0'")
+            try conn.execute(sql: "UPDATE entries SET definition = ? WHERE word = 'quickly' AND source = ?",
+                             arguments: [Self.oldQuickly, Self.syncEngSpa])
+        }
+        func rowID(_ word: String, _ source: String) async throws -> Int64 {
+            let id = try await clone.read { conn in
+                try Int64.fetchOne(conn, sql: "SELECT id FROM entries WHERE word = ? AND source = ?",
+                                   arguments: [word, source])
+            }
+            return try XCTUnwrap(id, "\(word) / \(source)")
+        }
+        func fingerprint() async throws -> [String: [Int64]] {
+            try await clone.read { conn in
+                var result: [String: [Int64]] = [:]
+                for row in try Row.fetchAll(conn, sql: "SELECT source, COUNT(*) AS n, SUM(id) AS s FROM entries GROUP BY source") {
+                    result[row["source"] as String] = [row["n"] as Int64, row["s"] as Int64]
+                }
+                return result
+            }
+        }
+        let dogID = try await rowID("dog", "wordnet")
+        let quicklyID = try await rowID("quickly", Self.syncEngSpa)
+        try await db.addBookmark(entryId: dogID)
+        try await db.addBookmark(entryId: quicklyID)
+        let before = try await fingerprint()
+        XCTAssertEqual(Set(before.keys), Set(five), "precondition: a 1.3.0 install has no Greek rows")
+
+        let plan = try await db.prepareBundledSeed(bundledSeedURL: seedURL, languageCode: "en")
+        XCTAssertEqual(plan.items.map(\.source), greek + five)
+        XCTAssertEqual(plan.items.map(\.isNew), [true, true, true, true, false, false, false, false, false])
+        let early = try await db.search(query: "dog")
+        XCTAssertTrue(early.contains { $0.id == dogID }, "the old dictionaries are searchable before any work")
+        XCTAssertFalse(early.contains { greek.contains($0.source) }, "Greek is not unpacked yet")
+
+        let recorder = PhaseRecorder(DictionaryUnpackStatus.shared)
+        let start = CFAbsoluteTimeGetCurrent()
+        await runAppUnpack(plan)
+        print("⏱ update-path unpack (4 new + 5 stale) on the real seed: \(String(format: "%.3f", CFAbsoluteTimeGetCurrent() - start))s")
+
+        let after = try await fingerprint()
+        for source in five {
+            XCTAssertEqual(after[source], before[source], "\(source): every old id kept, nothing re-inserted")
+        }
+        let markers = try await appMarkers(path: clonePath)
+        for item in bundle {
+            XCTAssertEqual(markers[item.source], item.builtAt, "\(item.source): gate closed")
+            if greek.contains(item.source) {
+                XCTAssertEqual(after[item.source]?.first, Int64(item.wordCount), "\(item.source): imported completely")
+            }
+        }
+        let bookmarks = try await db.fetchBookmarkedEntries()
+        XCTAssertEqual(Set(bookmarks.compactMap(\.entry.id)), [dogID, quicklyID], "bookmarks stay on their rows")
+        let quickly = try await db.search(query: "velozmente")
+        XCTAssertTrue(quickly.contains { $0.id == quicklyID }, "the #108 update reached the same row and FTS")
+        let kalimera = try await db.search(query: "καλημέρα")
+        XCTAssertTrue(kalimera.contains { $0.source == "freedict-ell-eng" }, "Greek arrived")
+        try await checkFTSIntegrity(path: clonePath)
+
+        let fractions = recorder.phases.compactMap(Self.fraction)
+        XCTAssertEqual(fractions.count, 1 + plan.items.count, "the start plus one step per source; got \(fractions)")
+        XCTAssertEqual(fractions.first, 0, "every source is pending on the update path")
+        XCTAssertEqual(fractions, fractions.sorted(), "progress never goes back")
+        XCTAssertEqual(recorder.phases.last, .idle)
+    }
+
+    /// 5. A kill mid-source (the seam throws inside the source's transaction,
+    /// after its INSERT): the sources before it stay complete, the killed one
+    /// has no row and no marker, the rest are untouched, and the app stays
+    /// usable (PM decision 4): the bar hides, committed sources are
+    /// searchable, the writer and the bundle alias are free. The next launch
+    /// resumes from the markers: only the remaining sources run, the
+    /// committed ones keep their rows and ids, every count is exact.
+    @MainActor
+    func testUnpackKilledMidSourceResumesWithoutDuplicates() async throws {
+        let bundleURL = try makeUnpackBundle(Self.fixtureSources)
+        let plan = try await db.prepareBundledSeed(bundledSeedURL: bundleURL, languageCode: "en")
+        XCTAssertEqual(plan.items.map(\.source), Self.fixtureSources.map(\.0))
+
+        DatabaseService.unpackFailureAfterInsert = "freedict-eng-spa"
+        let recorder = PhaseRecorder(DictionaryUnpackStatus.shared)
+        await runAppUnpack(plan)
+        DatabaseService.unpackFailureAfterInsert = nil
+
+        let counts = try await appCounts()
+        XCTAssertEqual(counts, ["wordnet": 4, "openrussian": 3], "committed sources complete, the killed one rolled back")
+        let markers = try await appMarkers()
+        XCTAssertEqual(markers, ["wordnet": "b1", "openrussian": "b1", "freedict-eng-spa": "", "wordnet-spa-eng": ""])
+        XCTAssertEqual(recorder.phases, [.idle, .unpacking(fraction: 0), .unpacking(fraction: 0.4),
+                                         .unpacking(fraction: 0.7), .idle],
+                       "no progress for the failed source, and the bar is not left stuck")
+
+        let committed = try await db.search(query: "qawnbeta")
+        XCTAssertEqual(committed.map(\.source), ["wordnet"], "committed sources stay searchable")
+        let killed = try await db.search(query: "qaesuno")
+        XCTAssertTrue(killed.isEmpty, "no partial source is ever visible")
+        try await db.addToHistory(word: "qawnbeta", source: "wordnet")
+        let history = try await db.historyCount()
+        XCTAssertEqual(history, 1, "the writer is free after the failure")
+        try await checkFTSIntegrity()
+        let wordnetRows = try await syncRows(source: "wordnet")
+        let russianRows = try await syncRows(source: "openrussian")
+
+        let resumed = try await db.prepareBundledSeed(bundledSeedURL: bundleURL, languageCode: "en")
+        XCTAssertEqual(resumed.items.map(\.source), ["freedict-eng-spa", "wordnet-spa-eng"], "only what is left")
+        XCTAssertTrue(resumed.items.allSatisfy(\.isNew))
+        XCTAssertEqual(resumed.initialFraction, 0.7, accuracy: 1e-9, "the bar resumes at the share already done")
+        await runAppUnpack(resumed)
+
+        let countsAfter = try await appCounts()
+        XCTAssertEqual(countsAfter, ["wordnet": 4, "openrussian": 3, "freedict-eng-spa": 2, "wordnet-spa-eng": 1])
+        let markersAfter = try await appMarkers()
+        XCTAssertEqual(Set(markersAfter.values), ["b1"])
+        let wordnetAfter = try await syncRows(source: "wordnet")
+        let russianAfter = try await syncRows(source: "openrussian")
+        XCTAssertEqual(wordnetAfter, wordnetRows, "wordnet not re-imported: same rows, same ids")
+        XCTAssertEqual(russianAfter, russianRows, "openrussian not re-imported: same rows, same ids")
+        let spanish = try await db.search(query: "qaesuno")
+        XCTAssertEqual(spanish.map(\.source), ["freedict-eng-spa"])
+        try await checkFTSIntegrity()
+    }
+
+    /// 6. A source half-imported by 1.3.x or older (rows but no metadata row,
+    /// one row outdated, one bookmarked): registered as new, then completed in
+    /// place. Existing ids and the bookmark survive, the outdated row is
+    /// updated and re-indexed, the missing rows arrive, FTS stays consistent.
+    func testUnpackCompletesLegacyHalfImportedSource() async throws {
+        let words = ["qahalfa", "qahalfb", "qahalfc", "qahalfd"]
+        let bundleURL = try makeUnpackBundle([("wordnet", ["qawnonly"]), (Self.syncEngSpa, words)])
+        try await seedSyncApp([("qahalfa", "qahalfa in \(Self.syncEngSpa)", Self.syncEngSpa),
+                               ("qahalfb", "an outdated definition", Self.syncEngSpa)], builtAt: nil)
+        let before = try await syncRows(source: Self.syncEngSpa)
+        let bookmarked = try XCTUnwrap(before.first)
+        try await db.addBookmark(entryId: bookmarked.id)
+
+        let plan = try await db.prepareBundledSeed(bundledSeedURL: bundleURL, languageCode: "en")
+        XCTAssertEqual(plan.items.map(\.source), ["wordnet", Self.syncEngSpa])
+        XCTAssertTrue(plan.items.allSatisfy(\.isNew), "no metadata row = never completed = new")
+        await db.startBundledUnpack(plan)
+        await db.waitForBundledUnpack()
+
+        let after = try await syncRows(source: Self.syncEngSpa)
+        XCTAssertEqual(after.map(\.word), words)
+        XCTAssertEqual(after.prefix(2).map(\.id), before.map(\.id), "existing rows completed in place")
+        XCTAssertEqual(after.map(\.definition), words.map { "\($0) in \(Self.syncEngSpa)" })
+        XCTAssertEqual(Set(after.map(\.pos)), ["noun"], "every column follows the bundle")
+        let isBookmarked = try await db.isBookmarked(entryId: bookmarked.id)
+        XCTAssertTrue(isBookmarked, "the bookmark survives")
+        let markers = try await appMarkers()
+        XCTAssertEqual(markers, ["wordnet": "b1", Self.syncEngSpa: "b1"])
+        let added = try await db.search(query: "qahalfd")
+        XCTAssertEqual(added.map(\.word), ["qahalfd"])
+        let stale = try await db.search(query: "outdated")
+        XCTAssertTrue(stale.isEmpty, "the outdated text left the FTS index")
+        try await checkFTSIntegrity()
+    }
+
+    /// 7. Searching while the real seed unpacks: never an error, and a reader
+    /// sees a source completely or not at all. Phase A holds the unpack 3 s
+    /// after `wordnet` commits: English search returns WordNet rows and the
+    /// pending sources give nothing. Phase B resumes the other seven with no
+    /// delay while searches and a per-source count check loop until idle.
+    @MainActor
+    func testSearchDuringUnpack() async throws {
+        let seedURL = try Self.greekSeedURL()
+        let bundle = try Self.realSeedMetadata()
+        let wordCounts = Dictionary(uniqueKeysWithValues: bundle.map { ($0.source, $0.wordCount) })
+        let full = try await db.prepareBundledSeed(bundledSeedURL: seedURL, languageCode: "en")
+        XCTAssertEqual(full.items.first?.source, "wordnet", "English search is served first")
+
+        // Phase A: wordnet and openrussian, held `hold` s between them.
+        let firstTwo = BundledUnpackPlan(
+            seedURL: seedURL,
+            bundled: bundle.filter { ["wordnet", "openrussian"].contains($0.source) }
+                .map { BundledUnpackPlan.BundledSource(source: $0.source, rowCount: $0.wordCount, builtAt: $0.builtAt) },
+            appBuiltAt: [:], languageCode: "en")
+        let hold: TimeInterval = 3
+        Self.setUnpackSourceDelay(hold)
+        XCTAssertEqual(UserDefaults.standard.double(forKey: "unpackSourceDelay"), hold, "precondition: the delay seam")
+        DictionaryUnpackStatus.shared.begin(firstTwo)
+        await db.startBundledUnpack(firstTwo)
+        Self.setUnpackSourceDelay(nil)
+        let wordnetCommitted = await waitUntil(timeout: 60) { (Self.fraction(DictionaryUnpackStatus.shared.phase) ?? 0) > 0 }
+        let heldAt = Date()
+        XCTAssertTrue(wordnetCommitted, "wordnet must commit")
+
+        let dog = try await db.search(query: "dog")
+        let russian = try await db.search(query: "яблоко")
+        let counts = try await appCounts()
+        if Date().timeIntervalSince(heldAt) < hold - 0.25 {
+            XCTAssertEqual(counts, ["wordnet": wordCounts["wordnet"] ?? -1], "only the committed source is visible")
+            XCTAssertEqual(Set(dog.map(\.source)), ["wordnet"], "results come from committed sources only")
+            XCTAssertTrue(russian.allSatisfy { $0.source == "wordnet" }, "nothing from the pending openrussian")
+        } else {
+            print("note: phase A took longer than the hold; skipped the pending-source assertions")
+        }
+        XCTAssertTrue(dog.contains { $0.word == "dog" && $0.source == "wordnet" }, "WordNet answers mid-unpack")
+        await db.waitForBundledUnpack()
+        let russianAfter = try await db.search(query: "яблоко")
+        XCTAssertTrue(russianAfter.contains { $0.word == "яблоко" && $0.source == "openrussian" },
+                      "a source that lands is found on the next query")
+
+        // Phase B: the seven others, searched while they are written.
+        let rest = try await db.prepareBundledSeed(bundledSeedURL: seedURL, languageCode: "en")
+        XCTAssertEqual(rest.items.map(\.source), Array(Self.seedOrder.dropFirst(2)))
+        let done = Double((wordCounts["wordnet"] ?? 0) + (wordCounts["openrussian"] ?? 0)) / Double(full.allRows)
+        XCTAssertEqual(rest.initialFraction, done, accuracy: 1e-9)
+        let watcher = try DatabasePool(path: syncAppPath)
+        var rounds = 0
+        var partial: [String] = []
+        DictionaryUnpackStatus.shared.begin(rest)
+        await db.startBundledUnpack(rest)
+        while DictionaryUnpackStatus.shared.phase != .idle {
+            for query in ["water", "σκυλος", "casa", "كتاب"] {
+                _ = try await db.search(query: query)   // a lock or busy error fails the test
+            }
+            let seen = try await watcher.read { conn in
+                try Row.fetchAll(conn, sql: "SELECT source, COUNT(*) AS n FROM entries GROUP BY source")
+            }
+            for row in seen where (row["n"] as Int) != wordCounts[row["source"] as String] {
+                partial.append("\(row["source"] as String): \(row["n"] as Int)")
+            }
+            rounds += 1
+        }
+        await db.waitForBundledUnpack()
+        XCTAssertGreaterThan(rounds, 0, "searches ran while the unpack was writing")
+        XCTAssertEqual(partial, [], "a reader never sees a partly unpacked source")
+        let finalCounts = try await appCounts()
+        XCTAssertEqual(finalCounts, wordCounts)
+    }
+
+    /// 8. Dictionary order mid-unpack (after wordnet and openrussian):
+    /// `fetchSourceStats` lists all nine with the bundle counts, count-desc,
+    /// with full metadata; the first Settings load gives the five pairs and
+    /// persists the #74 default; a toggle mid-unpack keeps every pending
+    /// dictionary on (F3). After the unpack: the same list and the same order.
+    @MainActor
+    func testSourceStatsMidUnpackListAllBundledSources() async throws {
+        let seedURL = try Self.greekSeedURL()
+        let bundle = try Self.realSeedMetadata()
+        let plan = try await db.prepareBundledSeed(bundledSeedURL: seedURL, languageCode: "en")
+        DatabaseService.unpackFailureAfterInsert = "freedict-eng-spa"
+        await runAppUnpack(plan)
+        DatabaseService.unpackFailureAfterInsert = nil
+        let counts = try await appCounts()
+        XCTAssertEqual(Set(counts.keys), ["wordnet", "openrussian"], "precondition: mid-unpack")
+
+        let mid = try await db.fetchSourceStats()
+        XCTAssertEqual(mid.map(\.source).sorted(), Self.seedOrder.sorted(), "all nine bundled sources are listed")
+        XCTAssertEqual(mid.map(\.count), mid.map(\.count).sorted(by: >), "count-desc base order")
+        for stat in mid {
+            let meta = try XCTUnwrap(bundle.first { $0.source == stat.source })
+            XCTAssertEqual(stat.count, meta.wordCount, "\(stat.source): the final count, unpacked or not")
+            XCTAssertEqual(stat.displayName, meta.displayName, "\(stat.source)")
+            XCTAssertEqual(stat.license, meta.license, "\(stat.source)")
+            XCTAssertEqual(stat.version, meta.version, "\(stat.source)")
+        }
+
+        let (vmMid, settingsMid) = makeEnglishSettingsViewModel()
+        let loadedMid = await waitUntil(timeout: 10) { !vmMid.dictionaries.isEmpty }
+        XCTAssertTrue(loadedMid)
+        XCTAssertEqual(vmMid.dictionaries.map(\.id), ["eng", "eng-spa", "eng-rus", "ell-eng", "arb-eng"])
+        let orderMid = try XCTUnwrap(settingsMid.dictionaryOrder, "the first load persists the default order")
+        XCTAssertEqual(orderMid.sorted(), Self.seedOrder.sorted(), "the persisted order holds every bundled source")
+        vmMid.togglePair(id: "eng-rus")
+        XCTAssertEqual(settingsMid.enabledSources, Set(Self.seedOrder).subtracting(["openrussian"]),
+                       "switching Russian off mid-unpack keeps every pending dictionary on")
+
+        let rest = try await db.prepareBundledSeed(bundledSeedURL: seedURL, languageCode: "en")
+        await runAppUnpack(rest)
+        let done = try await db.fetchSourceStats()
+        XCTAssertEqual(done, mid, "Dictionary order does not change when the dictionaries land")
+        let (vmDone, settingsDone) = makeEnglishSettingsViewModel()
+        let loadedDone = await waitUntil(timeout: 10) { !vmDone.dictionaries.isEmpty }
+        XCTAssertTrue(loadedDone)
+        XCTAssertEqual(vmDone.dictionaries.map(\.id), vmMid.dictionaries.map(\.id))
+        XCTAssertEqual(settingsDone.dictionaryOrder, orderMid, "the #74 default is the same during and after")
+    }
+
+    /// A `SettingsViewModel` on fresh in-memory prefs, in-app language English.
+    @MainActor
+    private func makeEnglishSettingsViewModel() -> (SettingsViewModel, SettingsService) {
+        let settings = SettingsService(store: InMemoryKeyValueStore())
+        settings.selectedUILanguageCode = "en"
+        let localization = LocalizationManager(settingsService: settings, bundle: .main)
+        return (SettingsViewModel(settingsService: settings, localization: localization), settings)
+    }
+
+    // MARK: Progress and Search screen
+
+    /// 9. Progress on a resumed unpack (a first launch killed after wordnet,
+    /// 4 of 10 rows): the bar starts at the share already done, rises with
+    /// each committed source to 100%, and ends `.idle`; the killed launch
+    /// itself ended `.idle` too. The `seedIfNeeded` facade never publishes.
+    /// The bar shows whole percents, floored and clamped.
+    @MainActor
+    func testUnpackProgressIsMonotonicAndEndsIdle() async throws {
+        let bundleURL = try makeUnpackBundle(Self.fixtureSources)
+        let first = try await db.prepareBundledSeed(bundledSeedURL: bundleURL, languageCode: "en")
+        DatabaseService.unpackFailureAfterInsert = "openrussian"
+        let killed = PhaseRecorder(DictionaryUnpackStatus.shared)
+        await runAppUnpack(first)
+        DatabaseService.unpackFailureAfterInsert = nil
+        XCTAssertEqual(killed.phases, [.idle, .unpacking(fraction: 0), .unpacking(fraction: 0.4), .idle])
+
+        let plan = try await db.prepareBundledSeed(bundledSeedURL: bundleURL, languageCode: "en")
+        XCTAssertEqual(plan.initialFraction, 0.4, accuracy: 1e-9)
+        let recorder = PhaseRecorder(DictionaryUnpackStatus.shared)
+        await runAppUnpack(plan)
+        XCTAssertEqual(recorder.phases.first, .idle, "the phase at subscription")
+        XCTAssertEqual(recorder.phases.last, .idle, "ends idle: the bar hides")
+        XCTAssertEqual(recorder.phases.filter { $0 == .idle }.count, 2, "no idle in between")
+        let fractions = recorder.phases.compactMap(Self.fraction)
+        XCTAssertEqual(fractions.count, 4, "the start plus one step per remaining source; got \(fractions)")
+        for (got, want) in zip(fractions, [0.4, 0.7, 0.9, 1.0]) {
+            XCTAssertEqual(got, want, accuracy: 1e-9, "fractions \(fractions)")
+        }
+        XCTAssertTrue(zip(fractions, fractions.dropFirst()).allSatisfy { $0 < $1 }, "strictly rising: \(fractions)")
+
+        let rebuilt = try makeUnpackBundle(Self.fixtureSources, builtAt: "b2", name: "b2.sqlite", definitionSuffix: " (b2)")
+        let silent = PhaseRecorder(DictionaryUnpackStatus.shared)
+        try await db.seedIfNeeded(bundledSeedURL: rebuilt)
+        XCTAssertEqual(silent.phases, [.idle], "the seedIfNeeded facade never publishes")
+        let markers = try await appMarkers()
+        XCTAssertEqual(Set(markers.values), ["b2"], "the facade still synced every source")
+
+        XCTAssertNil(SearchViewModel.displayFraction(for: .idle))
+        XCTAssertEqual(SearchViewModel.displayFraction(for: .unpacking(fraction: 0)), 0)
+        XCTAssertEqual(SearchViewModel.displayFraction(for: .unpacking(fraction: 0.29)), 0.29, "an exact percent stays")
+        XCTAssertEqual(SearchViewModel.displayFraction(for: .unpacking(fraction: 0.3549)), 0.35, "floored")
+        XCTAssertEqual(SearchViewModel.displayFraction(for: .unpacking(fraction: 0.999)), 0.99, "never 100% early")
+        XCTAssertEqual(SearchViewModel.displayFraction(for: .unpacking(fraction: 1)), 1)
+        XCTAssertEqual(SearchViewModel.displayFraction(for: .unpacking(fraction: -0.2)), 0, "clamped")
+        XCTAssertEqual(SearchViewModel.displayFraction(for: .unpacking(fraction: 1.7)), 1, "clamped")
+    }
+
+    /// PM decision 3: when a dictionary lands, the current query re-runs
+    /// (debounced) so its results fill in without retyping. Nothing polls:
+    /// only a status change triggers it; `.idle` adds no data and triggers
+    /// nothing; a burst costs one re-run; an empty query never searches.
+    @MainActor
+    func testSearchReRunsWhenADictionaryLands() async throws {
+        let status = DictionaryUnpackStatus()
+        let settings = SettingsService(store: InMemoryKeyValueStore())
+        let vm = SearchViewModel(db: db, settings: settings, unpackStatus: status)
+        var searches = 0
+        let counter = vm.$isSearching.dropFirst().filter { $0 }.sink { _ in searches += 1 }
+        defer { counter.cancel() }
+
+        XCTAssertNil(vm.unpackFraction, "idle: no bar")
+        status.update(.unpacking(fraction: 0.3549))
+        XCTAssertEqual(vm.unpackFraction, 0.35, "the bar shows whole percents")
+        try await Task.sleep(nanoseconds: 600_000_000)
+        XCTAssertEqual(searches, 0, "a landing dictionary starts no search on an empty query")
+
+        vm.query = "qalanding"
+        vm.onQueryChanged()
+        let firstDone = await waitUntil(timeout: 5) { !vm.isSearching }
+        XCTAssertTrue(firstDone)
+        XCTAssertTrue(vm.results.isEmpty, "precondition: the word's dictionary has not landed")
+        XCTAssertEqual(searches, 1)
+
+        try await insertNormalizedEntry(word: "qalanding", normalized: "qalanding", definition: "arrived",
+                                        source: "wordnet")
+        try await Task.sleep(nanoseconds: 600_000_000)
+        XCTAssertTrue(vm.results.isEmpty, "no polling: the list changes only when the status does")
+        XCTAssertEqual(searches, 1)
+
+        status.update(.unpacking(fraction: 0.6))
+        let filled = await waitUntil(timeout: 5) { vm.results.map(\.word) == ["qalanding"] && !vm.isSearching }
+        XCTAssertTrue(filled, "results fill in without retyping; got \(vm.results.map(\.word))")
+        XCTAssertEqual(searches, 2)
+        XCTAssertNil(vm.errorMessage)
+
+        status.update(.unpacking(fraction: 0.7))
+        status.update(.unpacking(fraction: 0.8))
+        status.update(.unpacking(fraction: 0.9))
+        let burst = await waitUntil(timeout: 5) { searches == 3 && !vm.isSearching }
+        XCTAssertTrue(burst, "the burst re-runs the query")
+        try await Task.sleep(nanoseconds: 600_000_000)
+        XCTAssertEqual(searches, 3, "debounced: one re-run for three landings")
+
+        try await insertNormalizedEntry(word: "qalandings", normalized: "qalandings", definition: "late",
+                                        source: "wordnet")
+        status.update(.idle)
+        XCTAssertNil(vm.unpackFraction, "the bar goes away")
+        try await Task.sleep(nanoseconds: 600_000_000)
+        XCTAssertEqual(searches, 3, "`.idle` triggers no re-run")
+        XCTAssertEqual(vm.results.map(\.word), ["qalanding"])
+    }
+
+    // MARK: Priority, single flight, pool
+
+    /// 10. `DictionaryDefaults.unpackPriority`: `wordnet` first, then the UI
+    /// language's dictionaries in mapping order, then the rest in incoming
+    /// order; IDs that are not in the input are skipped, never invented; the
+    /// result is always a permutation.
+    func testUnpackPriority() throws {
+        let seed = Self.seedOrder
+        func priority(_ code: String, _ sources: [String]) -> [String] {
+            DictionaryDefaults.unpackPriority(forLanguageCode: code, sources: sources)
+        }
+        XCTAssertEqual(priority("en", seed), seed)
+        XCTAssertEqual(priority("ru", seed), seed, "openrussian already follows wordnet")
+        XCTAssertEqual(priority("es", seed), ["wordnet", "wordnet-spa-eng", "freedict-eng-spa", "openrussian",
+                                              "wordnet-arb-eng", "wordnet-ell-eng", "wordnet-eng-ell",
+                                              "freedict-ell-eng", "freedict-eng-ell"])
+        XCTAssertEqual(priority("ar", seed), ["wordnet", "wordnet-arb-eng", "openrussian", "freedict-eng-spa",
+                                              "wordnet-spa-eng", "wordnet-ell-eng", "wordnet-eng-ell",
+                                              "freedict-ell-eng", "freedict-eng-ell"])
+        XCTAssertEqual(priority("el", seed), ["wordnet", "freedict-ell-eng", "wordnet-ell-eng", "freedict-eng-ell",
+                                              "wordnet-eng-ell", "openrussian", "freedict-eng-spa",
+                                              "wordnet-spa-eng", "wordnet-arb-eng"])
+        XCTAssertEqual(priority("fr", ["openrussian", "my_dict", "wordnet"]), ["wordnet", "openrussian", "my_dict"],
+                       "unknown language: wordnet first, the rest untouched")
+        XCTAssertEqual(priority("es", ["openrussian", "freedict-eng-spa", "my_dict"]),
+                       ["freedict-eng-spa", "openrussian", "my_dict"],
+                       "no wordnet and a missing preferred id: skipped, never invented")
+        XCTAssertEqual(priority("ru", ["wordnet-arb-eng", "openrussian", "wordnet"]),
+                       ["wordnet", "openrussian", "wordnet-arb-eng"])
+        XCTAssertEqual(priority("el", []), [])
+        for code in ["en", "ru", "es", "ar", "el", "fr", ""] {
+            for k in seed.indices {
+                let rotated = Array(seed[k...] + seed[..<k])
+                let result = priority(code, rotated)
+                XCTAssertEqual(result.sorted(), rotated.sorted(), "\(code)/\(k): a permutation")
+                XCTAssertEqual(result.first, "wordnet", "\(code)/\(k): English is served first")
+            }
+        }
+    }
+
+    /// 11. Single flight: a second `startBundledUnpack` while one runs (the
+    /// WindowGroup `.task` running again), or one with another plan, is a
+    /// no-op: one loop, one progress step per source. `waitForBundledUnpack`
+    /// returns only when the loop is done, and the slot is free afterwards.
+    @MainActor
+    func testStartBundledUnpackIsSingleFlight() async throws {
+        let bundleURL = try makeUnpackBundle(Self.fixtureSources)
+        let plan = try await db.prepareBundledSeed(bundledSeedURL: bundleURL, languageCode: "en")
+        let otherURL = try makeUnpackBundle([("wordnet-arb-eng", ["qaarb"])], name: "other.sqlite")
+        let otherPlan = BundledUnpackPlan(
+            seedURL: otherURL,
+            bundled: [BundledUnpackPlan.BundledSource(source: "wordnet-arb-eng", rowCount: 1, builtAt: "b1")],
+            appBuiltAt: [:], languageCode: "en")
+
+        let recorder = PhaseRecorder(DictionaryUnpackStatus.shared)
+        Self.setUnpackSourceDelay(0.3)
+        DictionaryUnpackStatus.shared.begin(plan)
+        await db.startBundledUnpack(plan)
+        Self.setUnpackSourceDelay(nil)
+        await db.startBundledUnpack(plan)
+        await db.startBundledUnpack(otherPlan)
+        await waitForUnpackIdle()
+
+        let markers = try await appMarkers()
+        XCTAssertEqual(markers.filter { $0.value == "b1" }.count, 4, "waitForBundledUnpack returns after the last source")
+        let fractions = recorder.phases.compactMap(Self.fraction)
+        XCTAssertEqual(fractions.count, 1 + plan.items.count, "one loop; got \(fractions)")
+        XCTAssertEqual(recorder.phases.last, .idle)
+        let counts = try await appCounts()
+        XCTAssertEqual(counts, ["wordnet": 4, "openrussian": 3, "freedict-eng-spa": 2, "wordnet-spa-eng": 1],
+                       "the other plan never ran alongside")
+
+        await db.startBundledUnpack(otherPlan)
+        await db.waitForBundledUnpack()
+        let countsAfter = try await appCounts()
+        XCTAssertEqual(countsAfter["wordnet-arb-eng"], 1, "the slot is free once the first unpack has finished")
+    }
+
+    /// §3.6 "capture the pool once" (F4): an unpack keeps writing into the
+    /// database it started on after `setup(path:)` swaps the shared pool, so
+    /// the host's unpack can never write into a test's database.
+    @MainActor
+    func testUnpackKeepsThePoolItStartedWith() async throws {
+        let bundleURL = try makeUnpackBundle(Self.fixtureSources)
+        let plan = try await db.prepareBundledSeed(bundledSeedURL: bundleURL, languageCode: "en")
+        Self.setUnpackSourceDelay(0.3)
+        await db.startBundledUnpack(plan)
+        Self.setUnpackSourceDelay(nil)
+        let swappedPath = tempDir.appendingPathComponent("swapped.sqlite").path
+        try await db.setup(path: swappedPath)
+        await db.waitForBundledUnpack()
+
+        let started = try await appCounts()
+        XCTAssertEqual(started, ["wordnet": 4, "openrussian": 3, "freedict-eng-spa": 2, "wordnet-spa-eng": 1])
+        let swappedCounts = try await appCounts(path: swappedPath)
+        XCTAssertEqual(swappedCounts, [:], "nothing leaked into the database swapped in mid-unpack")
+        let swappedMarkers = try await appMarkers(path: swappedPath)
+        XCTAssertEqual(swappedMarkers, [:])
+    }
+
+    // MARK: Seed and catalog
+
+    /// 12. The plan is driven by the seed's metadata, so: the sources of its
+    /// `entries` are exactly its `dict_metadata` sources; every `built_at` is
+    /// non-empty ('' means "not unpacked" in the app); `word_count` is exact
+    /// (the progress weights); the metadata order is the entry block order;
+    /// the seed is not in WAL mode (it is ATTACHed from the read-only bundle).
+    func testSeedEntrySourcesMatchMetadata() throws {
+        let queue = try Self.openBundledSeedReadOnly()
+        let blocks = try queue.read { conn in
+            try Row.fetchAll(conn, sql: """
+                SELECT source, COUNT(*) AS n, MIN(id) AS lo, MAX(id) AS hi FROM entries GROUP BY source ORDER BY lo
+                """)
+        }
+        let metadata = try queue.read { conn in
+            try Row.fetchAll(conn, sql: "SELECT source, word_count, built_at FROM dict_metadata ORDER BY rowid")
+        }
+        let journal = try queue.read { conn in try String.fetchOne(conn, sql: "PRAGMA journal_mode") }
+
+        XCTAssertEqual(metadata.map { $0["source"] as String }, blocks.map { $0["source"] as String },
+                       "metadata lists exactly the entry sources, in entry block order")
+        XCTAssertEqual(metadata.count, 9)
+        for (earlier, later) in zip(blocks, blocks.dropFirst()) {
+            XCTAssertLessThan(earlier["hi"] as Int64, later["lo"] as Int64, "entry blocks do not interleave")
+        }
+        let rows = Dictionary(uniqueKeysWithValues: blocks.map { ($0["source"] as String, $0["n"] as Int) })
+        for row in metadata {
+            let source: String = row["source"]
+            let builtAt: String = row["built_at"]
+            XCTAssertFalse(builtAt.isEmpty, "\(source): '' is reserved for 'registered, not unpacked'")
+            XCTAssertEqual(row["word_count"] as Int, rows[source], "\(source): word_count is the progress weight")
+        }
+        XCTAssertNotEqual(journal?.lowercased(), "wal", "a WAL seed could not be ATTACHed from the read-only bundle")
+    }
+
+    /// 13. `search.unpacking.title` is compiled for every shipped UI
+    /// language with the agreed text and carries no number (the percent is
+    /// formatted separately with the in-app locale).
+    func testUnpackingTitleIsLocalized() throws {
+        let expected = [
+            "en": "Preparing dictionaries…",
+            "ru": "Подготовка словарей…",
+            "es": "Preparando diccionarios…",
+            "ar": "جارٍ تجهيز القواميس…",
+            "el": "Προετοιμασία λεξικών…",
+        ]
+        let shipped = try Self.shippedUILanguages().map(\.code)
+        XCTAssertEqual(Set(shipped), Set(expected.keys), "an expected value for every shipped UI language")
+        for code in shipped {
+            let value = try XCTUnwrap(Self.compiledTables(code: code).strings["search.unpacking.title"],
+                                      "\(code): compiled")
+            XCTAssertEqual(value, expected[code], "\(code)")
+            XCTAssertFalse(value.contains("%"), "\(code): no format specifier in the title")
+            let resolved = try Self.lprojBundle(forLocale: code)
+                .localizedString(forKey: "search.unpacking.title", value: "MISSING", table: nil)
+            XCTAssertEqual(resolved, expected[code], "\(code): resolves at runtime")
+        }
+    }
+}
+
+// MARK: - Issue #111, PM decision 7: custom SQLite import opens the file read-only
+
+extension DictAppTests {
+
+    /// The user's file stays byte-identical and gets no journal, WAL or SHM
+    /// sidecar, even when it and its folder are write-protected.
+    func testImportSQLiteReadsWriteProtectedFileWithoutTouchingIt() async throws {
+        let fixture = try XCTUnwrap(Bundle.main.url(forResource: "test_import_fixture", withExtension: "sqlite"))
+        let folder = tempDir.appendingPathComponent("picked", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let file = folder.appendingPathComponent("user.sqlite")
+        try FileManager.default.copyItem(at: fixture, to: file)
+        let bytes = try Data(contentsOf: file)
+        try FileManager.default.setAttributes([.posixPermissions: 0o444], ofItemAtPath: file.path)
+        try FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: folder.path)
+        defer {
+            try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: folder.path)
+            try? FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: file.path)
+        }
+
+        let imported = try await db.importSQLite(at: file, source: "qa_readonly")
+        XCTAssertEqual(imported, 10)
+        let hits = try await db.search(query: "zarboom")
+        XCTAssertEqual(hits.map(\.source), ["qa_readonly"])
+        XCTAssertEqual(try Data(contentsOf: file), bytes, "the user's file is never written")
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: folder.path), ["user.sqlite"],
+                       "no journal, WAL or SHM file next to it")
+    }
+
+    /// A missing file fails the import and leaves nothing at the user's path
+    /// (a writable open created an empty database there).
+    func testImportSQLiteMissingFileFailsWithoutCreatingIt() async throws {
+        let missing = tempDir.appendingPathComponent("gone.sqlite")
+        do {
+            _ = try await db.importSQLite(at: missing, source: "qa_missing")
+            XCTFail("importing a missing file must throw")
+        } catch {
+            // expected
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: missing.path), "no file created at the user's path")
+        let count = try await db.entryCount(source: "qa_missing")
+        XCTAssertEqual(count, 0)
+    }
+
+    /// A file that is not an SQLite database: the import throws, imports
+    /// nothing and leaves the file as it was.
+    func testImportSQLiteRejectsNonDatabaseFile() async throws {
+        let file = tempDir.appendingPathComponent("notes.sqlite")
+        let bytes = Data(String(repeating: "not an SQLite database\n", count: 200).utf8)
+        try bytes.write(to: file)
+        do {
+            _ = try await db.importSQLite(at: file, source: "qa_garbage")
+            XCTFail("a non-database file must be rejected")
+        } catch {
+            // expected
+        }
+        let count = try await db.entryCount(source: "qa_garbage")
+        XCTAssertEqual(count, 0)
+        XCTAssertEqual(try Data(contentsOf: file), bytes, "the file is left as it was")
     }
 }

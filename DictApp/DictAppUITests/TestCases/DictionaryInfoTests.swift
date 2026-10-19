@@ -48,9 +48,8 @@ final class DictionaryInfoTests: XCTestCase {
 
         XCUIDevice.shared.orientation = .portrait
         app.launch()
-        // A fresh install is still copying the seed: give the cold start the
-        // full budget (`TabBarPage` only waits 10 s).
-        XCTAssertTrue(app.tabBars.firstMatch.waitForExistence(timeout: 60), "tab bar after launch")
+        // `TabBarPage` waits until every bundled dictionary is unpacked
+        // (Issue #111), so the details show final counts and licenses.
         tabBarPage = TabBarPage(app: app)
     }
 
@@ -274,7 +273,7 @@ final class DictionaryInfoTests: XCTestCase {
             app.terminate()
             app.launchArguments = ["-disableReviewPrompt", "-resetData", "-clearFixtureImports"]
             app.launch()
-            _ = app.tabBars.firstMatch.waitForExistence(timeout: 60)
+            _ = app.waitForDictionariesReady()
             app.terminate()
         }
 

@@ -1,5 +1,6 @@
 // DictApp.swift
-// App entry point. Sets up the database before showing UI.
+// App entry point. Opens the database and registers the bundled dictionaries
+// before showing UI; their rows are unpacked in the background (Issue #111).
 
 import SwiftUI
 
@@ -7,6 +8,8 @@ import SwiftUI
 struct DictApp: App {
     @State private var isReady = false
     @State private var setupError: String?
+    // One database initialization per app, not per window (PR #116 review).
+    @State private var databaseInitStarted = false
     @StateObject private var localization = LocalizationManager.shared
 
     // Issue #12: cumulative active-foreground time feeds the review-prompt
@@ -75,10 +78,25 @@ struct DictApp: App {
         }
     }
 
+    /// Issue #111: only metadata work runs before the UI (a few ms). The
+    /// bundled rows are unpacked after `isReady`, with progress on Search.
     private func initializeDatabase() async {
+        // `.task` runs once per scene: a second iPad window must not reopen the
+        // pool while the first window's background unpack is writing. The
+        // window shares `isReady` / `setupError`, so it simply waits for them.
+        guard !databaseInitStarted else { return }
+        databaseInitStarted = true
         do {
+            #if DEBUG
+            // UI-test hook: a deterministic fresh install without uninstalling.
+            if CommandLine.arguments.contains("-resetDatabase") {
+                DatabaseService.removeDefaultDatabaseFiles()
+            }
+            #endif
             try await DatabaseService.shared.setup()
-            try await DatabaseService.shared.seedIfNeeded()
+            let plan = try await DatabaseService.shared.prepareBundledSeed(
+                languageCode: localization.currentLanguage.code
+            )
 
             // Check for test reset flag
             if CommandLine.arguments.contains("-resetData") {
@@ -109,13 +127,18 @@ struct DictApp: App {
             // Issue #92: migrate per-source prefs to the pair invariants
             // (enabled-if-any, contiguous pair members) before the first search
             // can read them. Runs after the `-resetData` block (nil / nil is a
-            // no-op). Bundled sources from the 5-row metadata table are enough:
+            // no-op). Bundled sources from the metadata table are enough (it
+            // lists every bundled source once registered, unpacked or not):
             // custom imports are singleton pairs and never need sibling
             // expansion, and this avoids a full `entries` scan at launch.
             let knownSources = try await DatabaseService.shared.fetchMetadata().map(\.source)
             SettingsService.shared.normalizeDictionaryPreferences(knownSources: knownSources)
 
+            // Before `isReady`, so the first Search frame already shows the
+            // right progress state (never a flash on a normal launch).
+            DictionaryUnpackStatus.shared.begin(plan)
             isReady = true
+            await DatabaseService.shared.startBundledUnpack(plan)
         } catch {
             setupError = error.localizedDescription
         }

@@ -56,6 +56,10 @@ final class ArabicLocalizationTests: XCTestCase {
         // See project memory project_xcuitest_orientation_landscape_swipe.
         XCUIDevice.shared.orientation = .portrait
         app.launch()
+        // Issue #111: once after each launch, so no wait below has to absorb
+        // a cold start (the tab bar shows in seconds; the unpack runs behind it).
+        XCTAssertTrue(app.waitForDictionariesReady(),
+                      "Search screen with every dictionary unpacked after launch")
     }
 
     override func tearDownWithError() throws {
@@ -80,11 +84,8 @@ final class ArabicLocalizationTests: XCTestCase {
     /// labels, proving `LocalizationManager` resolved `ar` and the catalog
     /// localized against it.
     func testAppLaunchesInArabic() throws {
-        // Generous timeout: the first launch of the run pays the one-time
-        // ~306k-row seed, during which the app shows a ProgressView and the
-        // tab bar has not yet appeared.
         XCTAssertTrue(
-            tabButton(label: ArabicTab.settings).waitForExistence(timeout: 60),
+            tabButton(label: ArabicTab.settings).waitForExistence(timeout: TestData.Timeouts.long),
             "On an Arabic launch the tab bar must show the Arabic Settings label '\(ArabicTab.settings)'"
         )
         XCTAssertTrue(
@@ -173,12 +174,8 @@ final class ArabicLocalizationTests: XCTestCase {
     /// headword run *and* a Latin run (the "Ar–En · WN" badge + English gloss) —
     /// the mixed-bidi property, asserted without pinning a single volatile lemma.
     func testMixedScriptCellRenders() throws {
-        // Absorb the one-time ~306k-row seed import on a cold first launch
-        // (the app shows a ProgressView until the tab bar appears). Without
-        // this, `tapTab`'s shorter wait can fire before the UI is ready when
-        // this test runs first / in isolation.
-        XCTAssertTrue(tabButton(label: ArabicTab.settings).waitForExistence(timeout: 60),
-                      "Tab bar must appear once seeding completes")
+        XCTAssertTrue(tabButton(label: ArabicTab.settings).waitForExistence(timeout: TestData.Timeouts.long),
+                      "Tab bar must appear after launch")
 
         tapTab(ArabicTab.settings)
 
@@ -301,9 +298,7 @@ final class ArabicLocalizationTests: XCTestCase {
     private func search(for term: String) {
         dismissSiriPrivacyNoticeIfPresent()
         let field = app.searchFields.firstMatch
-        // 60s — absorbs the one-time ~306k-row cold seed; matches
-        // testMixedScriptCellRenders and SpanishLocalizationTests, post-#54.
-        XCTAssertTrue(field.waitForExistence(timeout: 60), "Search field must exist")
+        XCTAssertTrue(field.waitForExistence(timeout: TestData.Timeouts.long), "Search field must exist")
         field.tap()
         dismissSiriPrivacyNoticeIfPresent()
         // Re-resolve in case the privacy sheet dismissal re-laid out the field.
@@ -340,9 +335,7 @@ final class ArabicLocalizationTests: XCTestCase {
     /// The tab bar, waited into existence.
     private var tabBar: XCUIElement {
         let bar = app.tabBars.firstMatch
-        // 60s — absorbs the one-time ~306k-row cold seed; matches
-        // testMixedScriptCellRenders and SpanishLocalizationTests, post-#54.
-        _ = bar.waitForExistence(timeout: 60)
+        _ = bar.waitForExistence(timeout: TestData.Timeouts.long)
         return bar
     }
 

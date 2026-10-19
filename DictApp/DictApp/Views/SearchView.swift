@@ -34,6 +34,12 @@ struct SearchView: View {
                     }
                 }
             }
+            // Issue #111: progress of the background unpack, just above the
+            // tab bar (above the keyboard while typing). At the bottom, its
+            // appearing and disappearing never moves the result rows.
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                UnpackProgressBar(fraction: vm.unpackFraction)
+            }
             .navigationTitle("search.title")
             .searchable(text: $vm.query, prompt: Text("search.prompt"))
             .toolbar {
@@ -66,6 +72,43 @@ struct SearchView: View {
                 vm.refreshIfNeeded()
             }
         }
+    }
+}
+
+// MARK: - Unpack progress (Issue #111)
+
+/// "Preparing dictionaries… 35%" on the bar material while the bundled
+/// dictionaries are unpacked; nothing when `fraction` is `nil`. The percent
+/// is formatted with the in-app locale from the environment (Arabic digits,
+/// "35 %" in Spanish), so the catalog string carries no number.
+private struct UnpackProgressBar: View {
+    let fraction: Double?
+
+    var body: some View {
+        ZStack {
+            if let fraction {
+                HStack(spacing: 8) {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text("search.unpacking.title")
+                    Text(fraction, format: .percent.precision(.fractionLength(0)))
+                        .monospacedDigit()
+                }
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .padding(.vertical, 8)
+                .padding(.horizontal)
+                .frame(maxWidth: .infinity)
+                .background(.bar)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(Text("search.unpacking.title"))
+                .accessibilityValue(Text(fraction, format: .percent.precision(.fractionLength(0))))
+                .accessibilityAddTraits(.updatesFrequently)
+                .accessibilityIdentifier("dictionary_unpack_progress")
+                .transition(.opacity)
+            }
+        }
+        .animation(.easeInOut(duration: 0.25), value: fraction == nil)
     }
 }
 
