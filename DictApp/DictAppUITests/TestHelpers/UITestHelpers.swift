@@ -95,6 +95,21 @@ extension XCUIElement {
 }
 
 extension XCUIApplication {
+    /// Issue #111 readiness signal, the single one for every suite: the Search
+    /// field exists and the unpack progress bar does not. The bar's state is
+    /// set before the first frame, so once the field exists an absent bar
+    /// means every bundled dictionary is searchable (a search before that can
+    /// fail fast on a "no results"). Call right after `launch()`, before
+    /// navigating: every launch starts on the Search tab, where the bar lives.
+    /// Language-independent (by identifier). Returns at once on a warm launch.
+    @discardableResult
+    func waitForDictionariesReady(launchTimeout: TimeInterval = TestData.Timeouts.launch,
+                                  unpackTimeout: TimeInterval = TestData.Timeouts.dictionariesReady) -> Bool {
+        guard searchFields.firstMatch.waitForExistence(timeout: launchTimeout) else { return false }
+        return descendants(matching: .any)[AccessibilityIdentifiers.Search.dictionaryUnpackProgress]
+            .waitForNonExistence(timeout: unpackTimeout)
+    }
+
     /// Returns the scroll container backing the current screen — SwiftUI
     /// `Form` is a `UICollectionView` on modern iOS, a `UIScrollView` on
     /// older ones, and `UITableView` on the oldest. Falls back to the app

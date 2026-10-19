@@ -5,8 +5,8 @@ import XCTest
 /// `wordnet-eng-ell`) and accent-free Greek search in both directions.
 ///
 /// Test names and flows follow DESIGN_DOC.md §8b. Launch / interruption /
-/// orientation setup mirrors `DictionaryPairGroupingTests`, plus a 120 s
-/// cold-seed wait (the seed grew by ~36% rows).
+/// orientation setup mirrors `DictionaryPairGroupingTests`; `TabBarPage`
+/// waits until every bundled dictionary is unpacked (Issue #111).
 ///
 /// - Badges are read by identifier (`AccessibilityIdentifiers.Search.sourceBadge`):
 ///   with a VoiceOver label set, a badge's `label` is the spoken text
@@ -51,9 +51,6 @@ final class GreekDictionaryTests: XCTestCase {
         // x86_64, and landscape no-ops swipeUp against SwiftUI Form/List.
         XCUIDevice.shared.orientation = .portrait
         app.launch()
-        // A fresh install copies ~417k seed rows before the tab bar appears.
-        XCTAssertTrue(app.tabBars.firstMatch.waitForExistence(timeout: 120),
-                      "tab bar after the cold seed")
         tabBarPage = TabBarPage(app: app)
     }
 

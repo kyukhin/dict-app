@@ -27,6 +27,9 @@ struct AccessibilityIdentifiers {
         static func sourceBadge(source: String) -> String {
             return "source_badge_\(source)"
         }
+        /// Issue #111 — the "Preparing dictionaries… N%" bar at the bottom of
+        /// Search, present only while the bundled dictionaries are unpacked.
+        static let dictionaryUnpackProgress = "dictionary_unpack_progress"
     }
 
     // MARK: - Definition View

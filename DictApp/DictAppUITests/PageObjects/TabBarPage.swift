@@ -2,18 +2,19 @@ import XCTest
 
 class TabBarPage: BasePage {
 
-    /// Budget for the one-time cold seed on a fresh install: the app copies
-    /// the bundled seed (~417k rows since the Greek dictionaries, #87; ~27 s
-    /// on an iPhone 15 Pro simulator, ~21 s before) before the tab bar appears.
-    static let coldSeedTimeout: TimeInterval = 120
+    /// Budget for the one-time unpack of the bundled dictionaries on a fresh
+    /// install. Since Issue #111 the tab bar shows in seconds and the unpack
+    /// runs behind it; see `XCUIApplication.waitForDictionariesReady`.
+    static let coldSeedTimeout: TimeInterval = TestData.Timeouts.dictionariesReady
 
-    /// Every suite builds this page right after `app.launch()`, so absorb the
-    /// cold seed here rather than in each `setUp`: the 10 s `tabBar` wait
-    /// below, repeated across a tab tap, only just covered the old seed.
-    /// Returns at once when the tab bar is already up (every warm launch).
+    /// Every suite builds this page right after `app.launch()`, so wait here,
+    /// once, until the Search screen is up and every bundled dictionary is
+    /// unpacked (Issue #111) rather than in each `setUp`. Returns at once on
+    /// a warm launch.
     override init(app: XCUIApplication) {
         super.init(app: app)
-        _ = app.tabBars.firstMatch.waitForExistence(timeout: Self.coldSeedTimeout)
+        XCTAssertTrue(app.waitForDictionariesReady(),
+                      "Search screen with every dictionary unpacked after launch")
     }
 
     private var tabBar: XCUIElement {

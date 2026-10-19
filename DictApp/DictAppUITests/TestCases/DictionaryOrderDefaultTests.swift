@@ -32,12 +32,10 @@ final class DictionaryOrderDefaultTests: XCTestCase {
     }
 
     func testFreshRussianInstallListsOpenRussianFirst() throws {
-        // A fresh install means the one-time ~306k-row cold seed runs on this
-        // launch (ProgressView until done). 120s absorbs it on the arm64 sim
-        // with headroom; `ArabicLocalizationTests` uses 60s for the same wait.
+        // Issue #111: the order is read once every bundled dictionary is in.
+        XCTAssertTrue(app.waitForDictionariesReady(),
+                      "Search screen with every dictionary unpacked after launch")
         let tabBar = app.tabBars.firstMatch
-        XCTAssertTrue(tabBar.waitForExistence(timeout: 120),
-                      "Tab bar must appear once the cold seed completes")
 
         // Precondition: the UI really is Russian, otherwise the assertion
         // below would be testing the English default by accident.

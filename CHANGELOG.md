@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - [#74] First-launch dictionary order now puts the UI language's dictionaries first (e.g. `openrussian` on Russian); a user-configured order is never overridden. `-resetData` now also clears the persisted UI language (test hook).
 - [#92] Dictionary Order shows one row per language pair (e.g. "Spanish – English") with a single toggle and drag slot covering both directions; existing per-source preferences migrate as enabled-if-any. "Preferred dictionary first" now ranks per pair.
 - [#87] Source badges show direction and provider (e.g. "Es–En · WN", "En–Es · FD") and have a full VoiceOver label.
+- [#111] LibreDict opens in seconds on first launch and after updates. Dictionaries are prepared in the background, with progress shown on Search; each one is searchable as soon as it is ready.
 
 ### Fixed
 - [#105] A newly imported dictionary appears in Dictionary Order right away, without restarting the app, and is switched on even if other dictionaries were turned off.
