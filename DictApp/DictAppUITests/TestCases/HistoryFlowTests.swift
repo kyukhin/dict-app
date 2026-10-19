@@ -333,4 +333,77 @@ final class HistoryFlowTests: XCTestCase {
             "Most recently searched term should be at the top of history"
         )
     }
+
+    /// #114: the row caption is a localized local time, never the raw UTC `looked_at` text.
+    ///
+    /// Avoids the #102 flake (History failing to load right after a search):
+    /// the lookup is made in this launch, then the app is relaunched without
+    /// `-resetData`, so History is the first tab opened by a fresh process with
+    /// no search, keyboard or pushed definition around. Tabs are reached by
+    /// index (Search 0, History 1), so the label language does not matter.
+    func testHistoryRowShowsLocalizedTimeNotRawUTC() throws {
+        let word = TestData.historyTestWords[0] // "example"
+        let searchPage = tabBarPage.tapSearchTab()
+        searchPage.searchFor(word)
+        XCTAssertTrue(searchPage.waitForResults(), "Search results should appear for '\(word)'")
+        let definitionPage = searchPage.tapSearchResult(at: 0)
+        XCTAssertTrue(definitionPage.waitForDefinitionToLoad(), "Definition should load for '\(word)'")
+        definitionPage.navigateBack()
+
+        // Device language: language-agnostic checks only (the suite does not pin it).
+        relaunchKeepingData()
+        let caption = try historyCaption(for: word)
+        XCTAssertNotNil(caption.range(of: #"\d"#, options: .regularExpression),
+                        "caption must carry the time of the lookup; got '\(caption)'")
+
+        // Greek in-app language: the same row reads as a Greek relative day.
+        // "Χθες" only if the lookup straddled midnight.
+        relaunchKeepingData(extraArguments: ["-AppleLanguages", "(el)"])
+        let greekCaption = try historyCaption(for: word)
+        XCTAssertTrue(greekCaption.contains("Σήμερα") || greekCaption.contains("Χθες"),
+                      "Greek caption must be a Greek relative day; got '\(greekCaption)'")
+    }
+
+    // MARK: - #114 helpers
+
+    /// Raw `looked_at` text, matched anywhere so a label that merges the word
+    /// and the caption cannot hide it.
+    private static let rawUTCPattern = #"\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}"#
+
+    /// Terminates and relaunches on the same data (history kept).
+    private func relaunchKeepingData(extraArguments: [String] = []) {
+        app.terminate()
+        app.launchArguments.removeAll { $0 == "-resetData" }
+        app.launchArguments += extraArguments
+        app.launch()
+        tabBarPage = TabBarPage(app: app)
+    }
+
+    /// Opens History by tab index on a fresh launch and returns the caption of
+    /// `word`'s row: the one label that is not the word. Fails if the caption
+    /// is missing or still shows the raw UTC timestamp.
+    private func historyCaption(for word: String, file: StaticString = #filePath,
+                                line: UInt = #line) throws -> String {
+        let historyTab = app.tabBars.firstMatch.buttons.element(boundBy: 1)
+        XCTAssertTrue(historyTab.waitForExistence(timeout: TestData.Timeouts.long),
+                      "History tab (index 1)", file: file, line: line)
+        historyTab.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+
+        let id = AccessibilityIdentifiers.History.historyItem(word: word)
+        XCTAssertTrue(app.descendants(matching: .any)[id].firstMatch.waitForExistence(timeout: TestData.Timeouts.long),
+                      "History must list '\(word)' after a relaunch", file: file, line: line)
+        // The id lands on the cell itself or on its NavigationLink button.
+        let cell = app.cells[id].exists ? app.cells[id] : app.cells.containing(.any, identifier: id).firstMatch
+        let labels = cell.staticTexts.allElementsBoundByIndex.map(\.label)
+
+        for label in labels {
+            XCTAssertNil(label.range(of: Self.rawUTCPattern, options: .regularExpression),
+                         "History must not show the raw UTC timestamp; got '\(label)'", file: file, line: line)
+        }
+        XCTAssertTrue(labels.contains(word), "row must show the word; labels \(labels)", file: file, line: line)
+        let captions = labels.filter { $0 != word && !$0.isEmpty }
+        XCTAssertEqual(captions.count, 1, "row must show exactly one caption under the word; labels \(labels)",
+                       file: file, line: line)
+        return try XCTUnwrap(captions.first, file: file, line: line)
+    }
 }

@@ -4,6 +4,12 @@ import SwiftUI
 
 struct HistoryView: View {
     @StateObject private var vm = HistoryViewModel()
+    @Environment(\.locale) private var locale
+
+    /// In-app language on the device's region and 24-hour setting (#114).
+    private var timestampLocale: Locale {
+        HistoryTimestamp.formattingLocale(language: locale)
+    }
 
     var body: some View {
         NavigationStack {
@@ -24,8 +30,8 @@ struct HistoryView: View {
                                     VStack(alignment: .leading) {
                                         Text(item.word)
                                             .font(.body)
-                                        if let time = item.lookedAt {
-                                            Text(time)
+                                        if let time = HistoryTimestamp.text(item.lookedAt, locale: timestampLocale) {
+                                            Text(verbatim: time)
                                                 .font(.caption)
                                                 .foregroundStyle(.secondary)
                                         }

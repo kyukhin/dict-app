@@ -24,6 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - [#106] Dictionary details and Credits show the correct license for FreeDict English–Spanish (CC BY-SA 3.0, not GPL-3.0) and Arabic WordNet (CC BY-SA 3.0, not CC BY 3.0).
 - [#108] FreeDict dictionaries keep every translation of an entry instead of only the first one (English–Spanish gains about 56,000 translations), and existing installs get them on update with bookmarks kept.
 - [#88] Changing the interface language in Settings no longer crashes the app on iOS 17.
+- [#114] History shows each lookup in your local time and the app's language ("Today, 8:41 PM"), following your device's region and 24-hour setting, instead of a raw UTC timestamp.
 
 ## [1.3.0] - 2026-06-25
 

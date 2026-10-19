@@ -7828,3 +7828,134 @@ extension DictAppTests {
         XCTAssertEqual(try Data(contentsOf: file), bytes, "the file is left as it was")
     }
 }
+
+// MARK: - Issue #114: History timestamp caption
+
+/// `HistoryTimestamp` is pure, so every case pins its locale and time zone.
+/// en, el and ar output carries U+202F / RLM / U+060C, so those locales are
+/// checked by fragment; ar digits are never asserted (iOS may use Arabic-Indic).
+final class HistoryTimestampTests: XCTestCase {
+    /// 20:41 UTC, so Tokyo (UTC+9, no DST) is already 16 Jan.
+    private let stored = "2026-01-15 20:41:07"
+    private let utc = TimeZone(identifier: "UTC")!
+    private let tokyo = TimeZone(identifier: "Asia/Tokyo")!
+    private let languages = ["en", "ru", "es", "ar", "el"]
+    private let todayWords = ["en": "Today", "ru": "Сегодня", "es": "Hoy", "ar": "اليوم", "el": "Σήμερα"]
+    private let yesterdayWords = ["en": "Yesterday", "ru": "Вчера", "es": "Ayer", "ar": "أمس", "el": "Χθες"]
+    private let rawUTCPattern = #"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$"#
+
+    /// `date` as `addToHistory` stores it: UTC `datetime('now')` text.
+    private func storedString(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = utc
+        formatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
+        return formatter.string(from: date)
+    }
+
+    private func caption(_ raw: String, _ locale: Locale, in zone: TimeZone) throws -> String {
+        try XCTUnwrap(HistoryTimestamp.text(raw, locale: locale, timeZone: zone),
+                      "\(locale.identifier) in \(zone.identifier) must format '\(raw)'")
+    }
+
+    private func caption(_ raw: String, _ code: String, in zone: TimeZone) throws -> String {
+        try caption(raw, Locale(identifier: code), in: zone)
+    }
+
+    func testParsesStoredStringAsUTC() {
+        XCTAssertEqual(HistoryTimestamp.date(fromStored: stored), Date(timeIntervalSince1970: 1_768_509_667))
+    }
+
+    func testRejectsMissingOrMalformedInput() {
+        let inputs: [String?] = [nil, "", "2026-01-15T20:41:07", "garbage"]
+        for raw in inputs {
+            XCTAssertNil(HistoryTimestamp.text(raw, locale: Locale(identifier: "en"), timeZone: utc),
+                         "'\(raw ?? "nil")' must hide the caption, never show the raw text")
+        }
+    }
+
+    func testFixedTimestampInTwoTimeZones() throws {
+        XCTAssertEqual(try caption(stored, "ru", in: utc), "15.01.2026, 20:41")
+        XCTAssertEqual(try caption(stored, "ru", in: tokyo), "16.01.2026, 05:41")
+
+        let enUTC = try caption(stored, "en", in: utc)
+        XCTAssertTrue(enUTC.contains("1/15/26") && enUTC.contains("8:41"), enUTC)
+        let enTokyo = try caption(stored, "en", in: tokyo)
+        XCTAssertTrue(enTokyo.contains("1/16/26") && enTokyo.contains("5:41"), enTokyo)
+    }
+
+    func testOlderDateIsShortDateInAllLocales() throws {
+        for code in languages {
+            for zone in [utc, tokyo] {
+                let out = try caption(stored, code, in: zone)
+                let context = "\(code) in \(zone.identifier): '\(out)'"
+                XCTAssertFalse(out.isEmpty, context)
+                XCTAssertFalse(out.contains(todayWords[code]!), context)
+                XCTAssertFalse(out.contains(yesterdayWords[code]!), context)
+                XCTAssertNil(out.range(of: rawUTCPattern, options: .regularExpression), context)
+            }
+        }
+        for code in ["es", "el"] {
+            let inUTC = try caption(stored, code, in: utc)
+            XCTAssertTrue(inUTC.contains("15/1"), "\(code) UTC: '\(inUTC)'")
+            let inTokyo = try caption(stored, code, in: tokyo)
+            XCTAssertTrue(inTokyo.contains("16/1"), "\(code) Tokyo: '\(inTokyo)'")
+        }
+    }
+
+    /// Capitalised words prove `.beginningOfSentence`. Never 2 days back: ru,
+    /// es, el and ar have a "day before yesterday" word.
+    func testTodayAndYesterdayAreRelativeInAllLocales() throws {
+        let now = Date()
+        let today = storedString(now)
+        let yesterday = storedString(now.addingTimeInterval(-86_400))
+        for code in languages {
+            for zone in [utc, tokyo] {
+                let todayOut = try caption(today, code, in: zone)
+                XCTAssertTrue(todayOut.contains(todayWords[code]!), "\(code) in \(zone.identifier): '\(todayOut)'")
+                let yesterdayOut = try caption(yesterday, code, in: zone)
+                XCTAssertTrue(yesterdayOut.contains(yesterdayWords[code]!),
+                              "\(code) in \(zone.identifier): '\(yesterdayOut)'")
+            }
+        }
+    }
+
+    func testInAppLocaleWinsOverDevice() throws {
+        let out = try caption(storedString(Date()), "ru", in: utc)
+        XCTAssertTrue(out.contains("Сегодня"), "the passed locale, not Locale.current, picks the words: '\(out)'")
+    }
+
+    /// PM decision 1: in-app language on the device's region and 24-hour setting.
+    func testFormattingLocaleKeepsDeviceRegionAndHourCycle() throws {
+        let english = Locale(identifier: "en")
+
+        // English UI on a Russian device: day-first, 24-hour, English words.
+        let enRU = HistoryTimestamp.formattingLocale(language: english, device: Locale(identifier: "ru_RU"))
+        XCTAssertEqual(enRU.language.languageCode?.identifier, "en")
+        XCTAssertEqual(enRU.region?.identifier, "RU")
+        let ruRegion = try caption(stored, enRU, in: utc)
+        XCTAssertTrue(ruRegion.contains("15.01.2026") && ruRegion.contains("20:41"), ruRegion)
+        let ruRegionToday = try caption(storedString(Date()), enRU, in: utc)
+        XCTAssertTrue(ruRegionToday.contains("Today"), ruRegionToday)
+
+        // English UI on a Spanish-language US device: month-first, 12-hour.
+        let enUS = HistoryTimestamp.formattingLocale(language: english, device: Locale(identifier: "es_US"))
+        XCTAssertEqual(enUS.language.languageCode?.identifier, "en")
+        XCTAssertEqual(enUS.region?.identifier, "US")
+        let usRegion = try caption(stored, enUS, in: utc)
+        XCTAssertTrue(usRegion.contains("1/15/26") && usRegion.contains("8:41") && usRegion.contains("PM"), usRegion)
+
+        // The device's 24-hour switch carries over.
+        let enUS24 = HistoryTimestamp.formattingLocale(language: english,
+                                                       device: Locale(identifier: "en_US@hours=h23"))
+        XCTAssertEqual(enUS24.hourCycle, .zeroToTwentyThree)
+        let usRegion24 = try caption(stored, enUS24, in: utc)
+        XCTAssertTrue(usRegion24.contains("20:41"), usRegion24)
+
+        // The device's script belongs to its language and must not leak into the in-app one.
+        let ruOnLatinSerbian = HistoryTimestamp.formattingLocale(language: Locale(identifier: "ru"),
+                                                                 device: Locale(identifier: "sr-Latn_RS"))
+        let latinSerbianToday = try caption(storedString(Date()), ruOnLatinSerbian, in: utc)
+        XCTAssertTrue(latinSerbianToday.contains("Сегодня"), latinSerbianToday)
+    }
+}
