@@ -6,11 +6,11 @@ Accent word per headline marked with *asterisks* (render in Accent Blue #2D7FF9)
 
 HEADLINES
 ---------
-1. أكثر من 300,000 كلمة.
+1. أكثر من 400,000 كلمة.
    *صفر* إنترنت.
 2. بحث خلال *أجزاء من الثانية*.
    لا ثوانٍ.
-3. خمسة قواميس.
+3. ستة قواميس.
    *لمسة* واحدة.
 4. كلماتك.
    دائمًا *دون اتصال*.
@@ -19,3 +19,8 @@ HEADLINES
 6. *شاشة* كبيرة.
    لا شيء زائد. قواميس دون اتصال بواجهة نظيفة.
 
+MOCKUP CAPTIONS (1.4.0)
+-----------------------
+Rebuild all four ar mockups from the new -source PNGs (1.4 badges, 9:41 status bar).
+1. "أكثر من 300,000 كلمة" -> "أكثر من 400,000 كلمة"; also drop the literal "*" shown before صفر in the subcaption.
+2-4. Captions unchanged. Scene 3 is now ترتيب القواميس (Dictionary order with (i)) instead of a second search, as in the other locales.
