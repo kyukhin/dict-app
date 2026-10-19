@@ -371,6 +371,7 @@
 				ru,
 				es,
 				ar,
+				el,
 			);
 			mainGroup = A70000000000000000000001;
 			packageReferences = (

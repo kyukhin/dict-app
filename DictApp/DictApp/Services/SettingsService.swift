@@ -214,7 +214,7 @@ enum DictionaryDefaults {
         "ru": ["openrussian"],
         "es": ["wordnet-spa-eng", "freedict-eng-spa"],
         "ar": ["wordnet-arb-eng"],
-        // Issue #87: ready for the Greek UI language (#88); unused until then.
+        // Issue #87 sources; promoted for the Greek UI language since #88.
         "el": ["freedict-ell-eng", "wordnet-ell-eng", "freedict-eng-ell", "wordnet-eng-ell"],
     ]
 

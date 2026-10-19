@@ -437,7 +437,7 @@ final class DictAppTests: XCTestCase {
     func testHandleImportJSONFixtureInsertsEntries() async throws {
         // In-memory prefs: since #105 a successful import writes the enabled
         // set / order, which must not leak into the host app's UserDefaults.
-        let vm = ManageDictionariesViewModel(settingsService: SettingsService(store: InMemoryKeyValueStore()))
+        let vm = englishImportViewModel()
         let url = try XCTUnwrap(
             Bundle.main.url(forResource: "test_import_fixture", withExtension: "json"),
             "Bundled JSON fixture must exist"
@@ -450,8 +450,8 @@ final class DictAppTests: XCTestCase {
         try await waitForImportToFinish(vm: vm)
 
         let message = try XCTUnwrap(vm.importResult)
-        XCTAssertTrue(message.contains("Imported"),
-                      "Success message must read 'Imported N …'; got: \(message)")
+        XCTAssertEqual(message, "Imported 10 entries from test_import_fixture",
+                       "Success message must read 'Imported N entries from <file>'")
 
         // Verify the unique fixture word is actually searchable in the DB.
         let results = try await db.search(query: "qaflux")
@@ -464,7 +464,7 @@ final class DictAppTests: XCTestCase {
     /// (10 entries) and asserts the unique word "zarboom" becomes searchable.
     @MainActor
     func testHandleImportSQLiteFixtureInsertsEntries() async throws {
-        let vm = ManageDictionariesViewModel(settingsService: SettingsService(store: InMemoryKeyValueStore()))
+        let vm = englishImportViewModel()
         let url = try XCTUnwrap(
             Bundle.main.url(forResource: "test_import_fixture", withExtension: "sqlite"),
             "Bundled SQLite fixture must exist"
@@ -474,12 +474,25 @@ final class DictAppTests: XCTestCase {
         try await waitForImportToFinish(vm: vm)
 
         let message = try XCTUnwrap(vm.importResult)
-        XCTAssertTrue(message.contains("Imported"),
-                      "Success message must read 'Imported N …'; got: \(message)")
+        XCTAssertEqual(message, "Imported 10 entries from test_import_fixture",
+                       "Success message must read 'Imported N entries from <file>'")
 
         let results = try await db.search(query: "zarboom")
         XCTAssertGreaterThan(results.count, 0,
                              "Fixture entry 'zarboom' must be searchable after import")
+    }
+
+    /// An import view model on in-memory prefs whose in-app language is pinned
+    /// to English. Since #88 the result message follows the in-app language,
+    /// so `LocalizationManager.shared` (which reads the host's persisted
+    /// choice) would make the expected text depend on earlier runs.
+    @MainActor
+    private func englishImportViewModel() -> ManageDictionariesViewModel {
+        let settings = SettingsService(store: InMemoryKeyValueStore())
+        settings.selectedUILanguageCode = "en"
+        let localization = LocalizationManager(settingsService: settings, bundle: .main)
+        XCTAssertEqual(localization.currentLanguage.code, "en", "precondition: in-app language is English")
+        return ManageDictionariesViewModel(settingsService: settings, localization: localization)
     }
 
     /// Polls `vm.importResult` until set or 10s elapses. `handleImport`
@@ -3038,7 +3051,7 @@ final class DictionaryDefaultsTests: XCTestCase {
 
     /// The mapping must only reference IDs that actually ship in the seed;
     /// a typo here would silently degrade to "no promotion" at runtime.
-    func testPreferredSourcesReferenceOnlyBundledIDs() {
+    func testPreferredSourcesReferenceOnlyBundledIDs() throws {
         // Issue #87: the four Greek sources are bundled too (fixture above
         // keeps the five pre-Greek IDs for the order tests).
         let shipped = Set(bundledSources).union(DictAppTests.greekSourceIDs)
@@ -3050,10 +3063,12 @@ final class DictionaryDefaultsTests: XCTestCase {
                               "mapping for \(code) references unknown source id '\(id)'")
             }
         }
-        // Every shipped UI language (SupportedLocales.json) has a mapping;
-        // `el` is ready ahead of the Greek UI language (#88).
-        XCTAssertEqual(Set(DictionaryDefaults.preferredSources.keys), ["en", "ru", "es", "ar", "el"],
-                       "every shipped UI language (SupportedLocales.json) must have a mapping, plus el (#87)")
+        // Exactly the shipped UI languages (SupportedLocales.json) have a
+        // mapping: a new UI language needs one, and no mapping is dead code.
+        let manifestCodes = Set(try DictAppTests.shippedUILanguages().map(\.code))
+        XCTAssertTrue(manifestCodes.contains("el"), "Greek is a shipped UI language since #88")
+        XCTAssertEqual(Set(DictionaryDefaults.preferredSources.keys), manifestCodes,
+                       "preferredSources must have one mapping per SupportedLocales.json code, no more, no less")
     }
 
     // MARK: - Edge cases
@@ -3473,7 +3488,7 @@ final class DictionaryGroupingTests: XCTestCase {
         }
         // The #74 default for every shipped UI language already satisfies I2,
         // so the first-launch order is never reshuffled by grouping.
-        for lang in ["en", "ru", "es", "ar"] {
+        for lang in ["en", "ru", "es", "ar", "el"] {
             let d = DictionaryDefaults.defaultOrder(forLanguageCode: lang, sources: bundled)
             XCTAssertEqual(DictionaryGrouping.groupedOrder(d), d, "\(lang) default must already be grouped")
         }
@@ -3820,6 +3835,7 @@ final class SettingsViewModelPairTests: XCTestCase {
         let custom = pair("custom:test_import_fixture", [], ["test_import_fixture"], custom: true)
         let en = Locale(identifier: "en"), ru = Locale(identifier: "ru")
         let es = Locale(identifier: "es"), ar = Locale(identifier: "ar")
+        let el = Locale(identifier: "el")
 
         // English UI.
         XCTAssertEqual(SettingsViewModel.displayName(for: spanish, locale: en), "Spanish – English")
@@ -3844,8 +3860,19 @@ final class SettingsViewModelPairTests: XCTestCase {
                        "Arabic: catalog names, each bidi-isolated by Foundation's RTL formatting")
         XCTAssertEqual(SettingsViewModel.displayName(for: english, locale: ar), "الإنجليزية")
 
+        // Greek UI (Issue #88): catalog names from el.lproj, LTR, no isolates.
+        let greek = pair("ell-eng", ["ell", "eng"], DictAppTests.greekSourceIDs)
+        XCTAssertEqual(SettingsViewModel.displayName(for: greek, locale: el), "Ελληνικά – Αγγλικά")
+        XCTAssertEqual(SettingsViewModel.displayName(for: spanish, locale: el), "Ισπανικά – Αγγλικά")
+        XCTAssertEqual(SettingsViewModel.displayName(for: russian, locale: el), "Ρωσικά – Αγγλικά")
+        XCTAssertEqual(SettingsViewModel.displayName(for: arabic, locale: el), "Αραβικά – Αγγλικά")
+        XCTAssertEqual(SettingsViewModel.displayName(for: english, locale: el), "Αγγλικά")
+        XCTAssertEqual(SettingsViewModel.displayName(for: greek, locale: en), "Greek – English")
+        XCTAssertFalse(SettingsViewModel.displayName(for: greek, locale: el).contains("\u{2068}"),
+                       "Greek is LTR: Foundation adds no bidi isolates")
+
         // Custom → raw metadata name, never a pair title, in every locale.
-        for locale in [en, ru, es, ar] {
+        for locale in [en, ru, es, ar, el] {
             XCTAssertEqual(SettingsViewModel.displayName(for: custom, locale: locale), "Raw test_import_fixture")
         }
         let namedLikePair = pair("custom:mydict-eng-spa", [], ["mydict-eng-spa"], custom: true)
@@ -3897,6 +3924,7 @@ final class DictionaryInfoDetailTests: XCTestCase {
     private let ru = Locale(identifier: "ru")
     private let es = Locale(identifier: "es")
     private let ar = Locale(identifier: "ar")
+    private let el = Locale(identifier: "el")
 
     private let bundledSourceIDs = ["wordnet", "openrussian", "freedict-eng-spa", "wordnet-spa-eng", "wordnet-arb-eng",
                                     "freedict-ell-eng", "wordnet-ell-eng", "freedict-eng-ell", "wordnet-eng-ell"]
@@ -4044,7 +4072,12 @@ final class DictionaryInfoDetailTests: XCTestCase {
         XCTAssertEqual(SettingsViewModel.languageSummary(for: wordnetSpa, locale: es), "Español → Inglés")
         XCTAssertEqual(SettingsViewModel.languageSummary(for: wordnet, locale: es), "Inglés")
 
-        for locale in [en, ru, es, ar] {
+        XCTAssertEqual(SettingsViewModel.languageSummary(for: stat("wordnet-ell-eng"), locale: el), "Ελληνικά → Αγγλικά")
+        XCTAssertEqual(SettingsViewModel.languageSummary(for: stat("freedict-eng-ell"), locale: el), "Αγγλικά → Ελληνικά")
+        XCTAssertEqual(SettingsViewModel.languageSummary(for: wordnetSpa, locale: el), "Ισπανικά → Αγγλικά")
+        XCTAssertEqual(SettingsViewModel.languageSummary(for: wordnet, locale: el), "Αγγλικά")
+
+        for locale in [en, ru, es, ar, el] {
             XCTAssertNil(SettingsViewModel.languageSummary(for: custom, locale: locale),
                          "custom import has no direction row in \(locale.identifier)")
             XCTAssertNil(SettingsViewModel.languageSummary(for: stat("mydict-eng-spa"), locale: locale),
@@ -4064,7 +4097,7 @@ final class DictionaryInfoDetailTests: XCTestCase {
         XCTAssertEqual(stripIsolates(spanish), "الإنجليزية ← الإسبانية")
 
         // The LTR locales keep →, never ←.
-        for locale in [en, ru, es] {
+        for locale in [en, ru, es, el] {
             let summary = try XCTUnwrap(SettingsViewModel.languageSummary(for: stat("wordnet-arb-eng"), locale: locale))
             XCTAssertTrue(summary.contains("\u{2192}"), "\(locale.identifier): \(summary)")
             XCTAssertFalse(summary.contains("\u{2190}"), "\(locale.identifier): \(summary)")
@@ -4074,7 +4107,7 @@ final class DictionaryInfoDetailTests: XCTestCase {
 
     // MARK: Catalog
 
-    /// Every `dictionaryInfo.*` key resolves in en/ru/es/ar lproj.
+    /// Every `dictionaryInfo.*` key resolves in en/ru/es/ar/el lproj.
     func testDictionaryInfoKeysResolveInAllLocales() throws {
         let keys = [
             "dictionaryInfo.button.accessibilityLabel %@",
@@ -4091,7 +4124,7 @@ final class DictionaryInfoDetailTests: XCTestCase {
         let sameAsEnglishAllowed: Set<String> = ["dictionaryInfo.direction.value %@ %@"]
 
         var english: [String: String] = [:]
-        for code in ["en", "ru", "es", "ar"] {
+        for code in ["en", "ru", "es", "ar", "el"] {
             let path = try XCTUnwrap(Bundle.main.path(forResource: code, ofType: "lproj"),
                                      "'\(code).lproj' must be compiled into the app bundle")
             let bundle = try XCTUnwrap(Bundle(path: path))
@@ -4126,6 +4159,8 @@ final class DictionaryInfoDetailTests: XCTestCase {
         XCTAssertEqual(SettingsViewModel.localizedString("dictionaryInfo.license", locale: ru), "Лицензия")
         XCTAssertEqual(SettingsViewModel.localizedString("dictionaryInfo.license", locale: es), "Licencia")
         XCTAssertEqual(SettingsViewModel.localizedString("dictionaryInfo.license", locale: ar), "الترخيص")
+        XCTAssertEqual(SettingsViewModel.localizedString("dictionaryInfo.license", locale: el), "Άδεια χρήσης")
+        XCTAssertEqual(SettingsViewModel.localizedString("dictionaryInfo.entries", locale: el), "Λήμματα")
         XCTAssertEqual(SettingsViewModel.infoButtonLabel(for: "Spanish – English", locale: en),
                        "Details for Spanish – English")
         XCTAssertEqual(SettingsViewModel.infoButtonLabel(for: "Испанский – Английский", locale: ru),
@@ -4133,6 +4168,8 @@ final class DictionaryInfoDetailTests: XCTestCase {
         XCTAssertEqual(SettingsViewModel.infoButtonLabel(for: "Español – Inglés", locale: es),
                        "Detalles de Español – Inglés")
         XCTAssertEqual(stripIsolates(SettingsViewModel.infoButtonLabel(for: "العربية", locale: ar)), "تفاصيل العربية")
+        XCTAssertEqual(SettingsViewModel.infoButtonLabel(for: "Ελληνικά – Αγγλικά", locale: el),
+                       "Λεπτομέρειες: Ελληνικά – Αγγλικά")
         // An unshipped locale falls back to the base table, never the raw key.
         XCTAssertEqual(SettingsViewModel.localizedString("dictionaryInfo.license", locale: Locale(identifier: "de")),
                        "License")
@@ -4219,7 +4256,7 @@ final class DictionaryInfoDetailTests: XCTestCase {
     /// both licenses non-empty, FreeDict names CC BY-SA 3.0 (#106).
     func testSpanishPairInfoHasBothSourcesWithLicenses() async throws {
         let stats = try await seedSourceStats()
-        for code in ["en", "ru", "es", "ar"] {
+        for code in ["en", "ru", "es", "ar", "el"] {
             let order = DictionaryGrouping.groupedOrder(
                 DictionaryDefaults.defaultOrder(forLanguageCode: code, sources: stats.map(\.source)))
             let pairs = DictionaryGrouping.pairs(from: stats, order: order)
@@ -5567,6 +5604,7 @@ final class GreekFoldAndBadgeTests: XCTestCase {
     private let ru = Locale(identifier: "ru")
     private let es = Locale(identifier: "es")
     private let ar = Locale(identifier: "ar")
+    private let el = Locale(identifier: "el")
 
     /// Byte-level view: Swift `String ==` is canonical equivalence, which
     /// would hide an NFC/NFD difference.
@@ -5732,7 +5770,7 @@ final class GreekFoldAndBadgeTests: XCTestCase {
                      "a custom import with a bundled-looking name has no label")
     }
 
-    /// `badgeAccessibilityLabel` resolves in ru / es / ar: exact values for the
+    /// `badgeAccessibilityLabel` resolves in ru / es / ar / el: exact values for the
     /// Greek pair, and for every bundled ID no raw key, no arrow, not the
     /// English text, and the localized language names plus the brand.
     func testBadgeAccessibilityLabelResolvesInAllLocales() throws {
@@ -5746,13 +5784,16 @@ final class GreekFoldAndBadgeTests: XCTestCase {
             (ar, "freedict-ell-eng", "اليونانية إلى الإنجليزية، FreeDict"),
             (ar, "wordnet-eng-ell", "الإنجليزية إلى اليونانية، WordNet"),
             (ar, "wordnet", "الإنجليزية، WordNet"),
+            (el, "freedict-ell-eng", "Ελληνικά προς Αγγλικά, FreeDict"),
+            (el, "wordnet-eng-ell", "Αγγλικά προς Ελληνικά, WordNet"),
+            (el, "wordnet", "Αγγλικά, WordNet"),
         ]
         for (locale, source, value) in exact {
             let label = try XCTUnwrap(SettingsViewModel.badgeAccessibilityLabel(forSource: source, locale: locale))
             XCTAssertEqual(stripIsolates(label), value, "\(locale.identifier) \(source)")
         }
 
-        for locale in [ru, es, ar] {
+        for locale in [ru, es, ar, el] {
             for source in bundledSources {
                 let label = try XCTUnwrap(SettingsViewModel.badgeAccessibilityLabel(forSource: source, locale: locale),
                                           "\(locale.identifier) \(source)")
@@ -5835,15 +5876,16 @@ final class GreekFoldAndBadgeTests: XCTestCase {
                        "grouping keeps the four Greek members contiguous")
     }
 
-    /// `languageName(iso3: "ell")` is capitalised in en / ru / es / ar; pair
+    /// `languageName(iso3: "ell")` is capitalised in en / ru / es / ar / el; pair
     /// title "Greek – English" (U+2013) in every locale; providers brand as
     /// "FreeDict" / "WordNet"; directions read "Greek → English" (ar: ←).
     func testGreekLanguageNameAndPairTitle() throws {
-        let names: [(Locale, String)] = [(en, "Greek"), (ru, "Греческий"), (es, "Griego"), (ar, "اليونانية")]
+        let names: [(Locale, String)] = [(en, "Greek"), (ru, "Греческий"), (es, "Griego"), (ar, "اليونانية"),
+                                         (el, "Ελληνικά")]
         for (locale, name) in names {
             XCTAssertEqual(SettingsViewModel.languageName(iso3: "ell", locale: locale), name, locale.identifier)
         }
-        for locale in [en, ru, es] {
+        for locale in [en, ru, es, el] {
             XCTAssertEqual(SettingsViewModel.languageName(iso3: "ell", locale: locale).first?.isUppercase, true,
                            "\(locale.identifier): capitalised in a title")
         }
@@ -5851,7 +5893,8 @@ final class GreekFoldAndBadgeTests: XCTestCase {
         let stats = DictAppTests.greekSourceIDs.map { SourceStat(source: $0, displayName: "Raw \($0)", count: 1) }
         let pair = DictionaryPair(id: "ell-eng", languages: ["ell", "eng"], isCustom: false, sources: stats)
         let titles: [(Locale, String)] = [(en, "Greek – English"), (ru, "Греческий – Английский"),
-                                          (es, "Griego – Inglés"), (ar, "اليونانية – الإنجليزية")]
+                                          (es, "Griego – Inglés"), (ar, "اليونانية – الإنجليزية"),
+                                          (el, "Ελληνικά – Αγγλικά")]
         for (locale, title) in titles {
             XCTAssertEqual(stripIsolates(SettingsViewModel.displayName(for: pair, locale: locale)), title, locale.identifier)
         }
@@ -5859,6 +5902,8 @@ final class GreekFoldAndBadgeTests: XCTestCase {
         XCTAssertEqual(stats.map(SettingsViewModel.infoBlockTitle(for:)), ["FreeDict", "WordNet", "FreeDict", "WordNet"])
         XCTAssertEqual(SettingsViewModel.languageSummary(for: stats[0], locale: en), "Greek → English")
         XCTAssertEqual(SettingsViewModel.languageSummary(for: stats[2], locale: en), "English → Greek")
+        XCTAssertEqual(SettingsViewModel.languageSummary(for: stats[0], locale: el), "Ελληνικά → Αγγλικά")
+        XCTAssertEqual(SettingsViewModel.languageSummary(for: stats[2], locale: el), "Αγγλικά → Ελληνικά")
         XCTAssertEqual(stripIsolates(SettingsViewModel.languageSummary(for: stats[0], locale: ar) ?? ""),
                        "اليونانية ← الإنجليزية")
     }
@@ -5900,12 +5945,12 @@ final class GreekFoldAndBadgeTests: XCTestCase {
     /// `language.el.name`, `credits.dataSources.greekWordnet`, and the changed
     /// `credits.dataSources.freedict` (CC BY-SA 3.0, Freelang, no GPL) /
     /// `credits.dataSources.arabicWordnet` (CC BY-SA 3.0, not CC BY 3.0)
-    /// resolve in en / ru / es / ar — the Credits half of #106.
+    /// resolve in en / ru / es / ar / el — the Credits half of #106.
     func testGreekCatalogKeysResolveInAllLocales() throws {
         let keys = ["language.el.name", "credits.dataSources.greekWordnet",
                     "credits.dataSources.freedict", "credits.dataSources.arabicWordnet"]
         var english: [String: String] = [:]
-        for locale in [en, ru, es, ar] {
+        for locale in [en, ru, es, ar, el] {
             for key in keys {
                 let value = SettingsViewModel.localizedString(key, locale: locale)
                 XCTAssertNotEqual(value, key, "\(locale.identifier): '\(key)' must resolve")
@@ -5925,7 +5970,7 @@ final class GreekFoldAndBadgeTests: XCTestCase {
             let greek = SettingsViewModel.localizedString("credits.dataSources.greekWordnet", locale: locale)
             XCTAssertTrue(greek.contains("Apache 2.0") && greek.contains("Greek WordNet"), "\(locale.identifier): \(greek)")
         }
-        for locale in [ru, es, ar] {
+        for locale in [ru, es, ar, el] {
             for key in ["language.el.name", "credits.dataSources.freedict", "credits.dataSources.greekWordnet"] {
                 XCTAssertNotEqual(SettingsViewModel.localizedString(key, locale: locale), english[key],
                                   "\(locale.identifier): '\(key)' is translated, not the English text")
@@ -6334,5 +6379,440 @@ extension DictAppTests {
         let preferred = try await db.searchPreferred(
             query: "σκύλος", groups: [["custom_gr"]], enabledSources: ["custom_gr"])
         XCTAssertEqual(preferred.first?.word, "σκύλος", "got \(preferred.map(\.word))")
+    }
+}
+
+// MARK: - Issue #88: Greek UI localization
+//
+// DESIGN_DOC.md §10a. Every lookup names its lproj bundle explicitly, so the
+// results do not depend on the simulator's device language or on an in-app
+// language persisted by an earlier UI-test run.
+
+extension DictAppTests {
+    /// The decoded `SupportedLocales.json`, in picker order.
+    static func shippedUILanguages() throws -> [UILanguage] {
+        let url = try XCTUnwrap(Bundle.main.url(forResource: "SupportedLocales", withExtension: "json"),
+                                "SupportedLocales.json must be bundled with the app")
+        return try JSONDecoder().decode([UILanguage].self, from: Data(contentsOf: url))
+    }
+
+    /// Keys whose value is legitimately identical to English in an LTR
+    /// language: pure format strings with no words (DESIGN_DOC.md §3a).
+    private static let formatOnlyKeys: Set<String> = [
+        "dictionaryPair.title %@ %@",
+        "dictionaryInfo.direction.value %@ %@",
+        "sourceBadge.accessibilityLabel.single %@ %@",
+    ]
+
+    /// The multiset of `%@` / `%lld` specifiers (with positional index) in a
+    /// value, sorted so word order does not matter.
+    private static func formatSpecifiers(_ value: String) -> [String] {
+        let regex = try? NSRegularExpression(pattern: #"%(\d+\$)?(lld|@)"#)
+        let range = NSRange(value.startIndex..., in: value)
+        return (regex?.matches(in: value, range: range) ?? [])
+            .compactMap { Range($0.range, in: value).map { String(value[$0]) } }
+            .sorted()
+    }
+
+    /// The compiled tables of one lproj: plain strings, and plural keys
+    /// mapped to their category → format variants.
+    private struct CompiledTables {
+        let strings: [String: String]
+        let plurals: [String: [String: String]]
+    }
+
+    /// Reads `<code>.lproj/Localizable.{strings,stringsdict}` straight from
+    /// the app bundle. `NSDictionary(contentsOf:)` handles the binary plists
+    /// the build writes.
+    private static func compiledTables(code: String) throws -> CompiledTables {
+        let path = try XCTUnwrap(Bundle.main.path(forResource: code, ofType: "lproj"),
+                                 "'\(code).lproj' must be compiled into the app bundle")
+        let lproj = URL(fileURLWithPath: path)
+        let strings = try XCTUnwrap(
+            NSDictionary(contentsOf: lproj.appendingPathComponent("Localizable.strings")) as? [String: String],
+            "\(code).lproj/Localizable.strings must be a readable [String: String] plist")
+        let rawPlurals = try XCTUnwrap(
+            NSDictionary(contentsOf: lproj.appendingPathComponent("Localizable.stringsdict")) as? [String: Any],
+            "\(code).lproj/Localizable.stringsdict must be a readable plist")
+        var plurals: [String: [String: String]] = [:]
+        for (key, entry) in rawPlurals {
+            let entry = try XCTUnwrap(entry as? [String: Any], "\(code): '\(key)' is not a dictionary")
+            var variants: [String: String] = [:]
+            for case let rule as [String: Any] in entry.values
+            where rule["NSStringFormatSpecTypeKey"] as? String == "NSStringPluralRuleType" {
+                for (category, format) in rule where !category.hasPrefix("NSString") {
+                    variants[category] = format as? String
+                }
+            }
+            plurals[key] = variants
+        }
+        return CompiledTables(strings: strings, plurals: plurals)
+    }
+
+    /// `el` in the manifest: `nativeName` "Ελληνικά" (precomposed NFC),
+    /// `displayKey` "language.el.name", codes ⊇ {en, ru, es, ar, el}, `el`
+    /// last, no duplicate codes.
+    func testSupportedLocalesManifestIncludesGreek() throws {
+        let languages = try Self.shippedUILanguages()
+        let codes = languages.map(\.code)
+        XCTAssertTrue(Set(codes).isSuperset(of: ["en", "ru", "es", "ar", "el"]),
+                      "the five shipped UI languages must all be offered; got \(codes)")
+        XCTAssertEqual(Set(codes).count, codes.count, "manifest codes must be unique; got \(codes)")
+        XCTAssertEqual(codes.last, "el", "picker order = manifest order: Ελληνικά is appended after العربية")
+
+        let el = try XCTUnwrap(languages.first { $0.code == "el" }, "Manifest must include Greek (code 'el')")
+        XCTAssertEqual(el.nativeName, "Ελληνικά")
+        XCTAssertEqual(el.nativeName.unicodeScalars.map(\.value),
+                       [0x395, 0x3BB, 0x3BB, 0x3B7, 0x3BD, 0x3B9, 0x3BA, 0x3AC],
+                       "nativeName must be NFC with a precomposed ά (U+03AC), not α + U+0301")
+        XCTAssertEqual(el.displayKey, "language.el.name")
+
+        // The display key resolves in its own and in the English table.
+        let elBundle = try Self.lprojBundle(forLocale: "el")
+        let enBundle = try Self.lprojBundle(forLocale: "en")
+        XCTAssertEqual(elBundle.localizedString(forKey: el.displayKey, value: nil, table: nil), "Ελληνικά")
+        XCTAssertEqual(enBundle.localizedString(forKey: el.displayKey, value: nil, table: nil), "Greek")
+    }
+
+    /// Shared manager lists `el`; a persisted "el" resolves to Greek with the
+    /// `el.lproj` bundle; switching away and back persists each choice; a
+    /// persisted "el" without a manifest entry falls back to English.
+    @MainActor
+    func testLocalizationManagerSupportsGreek() throws {
+        XCTAssertTrue(LocalizationManager.shared.supportedLanguages.contains { $0.code == "el" },
+                      "the shared manager must load Greek from SupportedLocales.json")
+        let supported = LocalizationManager.shared.supportedLanguages
+        XCTAssertEqual(LocalizationManager.resolveInitialLanguage(persistedCode: "el", supported: supported).code, "el")
+
+        let settings = SettingsService(store: InMemoryKeyValueStore())
+        settings.selectedUILanguageCode = "el"
+        let manager = LocalizationManager(settingsService: settings, bundle: .main)
+        XCTAssertEqual(manager.currentLanguage.code, "el")
+        XCTAssertEqual(manager.currentLanguage.nativeName, "Ελληνικά")
+        XCTAssertEqual(manager.currentLocale.identifier, "el")
+        XCTAssertEqual(manager.localizedBundle.bundleURL.lastPathComponent, "el.lproj",
+                       "plain-String lookups must read el.lproj, not fall back to .main")
+        XCTAssertEqual(manager.localized("tab.settings"), "Ρυθμίσεις")
+        XCTAssertEqual(Locale.Language(identifier: manager.currentLanguage.code).characterDirection, .leftToRight,
+                       "Greek is LTR: DictApp derives layoutDirection from this, so no RTL mirroring")
+
+        let english = try XCTUnwrap(manager.supportedLanguages.first { $0.code == "en" })
+        let greek = try XCTUnwrap(manager.supportedLanguages.first { $0.code == "el" })
+        manager.setLanguage(english)
+        XCTAssertEqual(settings.selectedUILanguageCode, "en")
+        XCTAssertEqual(manager.localized("tab.settings"), "Settings")
+        manager.setLanguage(greek)
+        XCTAssertEqual(settings.selectedUILanguageCode, "el")
+        XCTAssertEqual(manager.localized("tab.settings"), "Ρυθμίσεις")
+        XCTAssertEqual(LocalizationManager(settingsService: settings, bundle: .main).currentLanguage.code, "el",
+                       "a relaunched manager picks the persisted Greek choice up")
+
+        // An old manifest without Greek: a stale persisted "el" must not crash
+        // or invent a language; it degrades to English.
+        let englishOnly = [UILanguage(code: "en", displayKey: "language.en.name", nativeName: "English")]
+        XCTAssertEqual(LocalizationManager.resolveInitialLanguage(persistedCode: "el", supported: englishOnly).code, "en")
+    }
+
+    /// Permanent completeness gate for every manifest language: an lproj
+    /// exists; its strings / stringsdict key sets equal en's; no value is
+    /// empty, padded, or the raw key; every value differs from English except
+    /// the three format-only keys; the specifier multiset matches en (per
+    /// plural variant); every plural has `other`, and `el` has exactly
+    /// `one` / `other`. Greek values contain Greek letters and use "…", not "...".
+    func testEveryCatalogKeyIsTranslatedInEveryShippedLanguage() throws {
+        let codes = try Self.shippedUILanguages().map(\.code)
+        XCTAssertTrue(codes.contains("en"), "English is the source language and must ship")
+        let en = try Self.compiledTables(code: "en")
+        XCTAssertGreaterThanOrEqual(en.strings.count + en.plurals.count, 90,
+                                    "en tables look truncated (\(en.strings.count) + \(en.plurals.count)); the gate would be vacuous")
+        XCTAssertTrue(Set(en.plurals.keys).isSuperset(of: ["dictionary.entries.count %lld",
+                                                          "manageDictionaries.import.result.success %lld %@"]))
+
+        for code in codes where code != "en" {
+            let tables = try Self.compiledTables(code: code)
+
+            XCTAssertEqual(Set(en.strings.keys).subtracting(tables.strings.keys).sorted(), [],
+                           "\(code).lproj is missing keys (they would render as raw keys)")
+            XCTAssertEqual(Set(tables.strings.keys).subtracting(en.strings.keys).sorted(), [],
+                           "\(code).lproj has keys English does not")
+            for (key, english) in en.strings {
+                guard let value = tables.strings[key] else { continue }
+                XCTAssertFalse(value.isEmpty, "\(code): '\(key)' is empty")
+                XCTAssertNotEqual(value, key, "\(code): '\(key)' renders the raw key")
+                XCTAssertEqual(value, value.trimmingCharacters(in: .whitespacesAndNewlines),
+                               "\(code): '\(key)' has leading/trailing whitespace")
+                if !Self.formatOnlyKeys.contains(key) {
+                    XCTAssertNotEqual(value, english, "\(code): '\(key)' falls back to the English text")
+                }
+                XCTAssertEqual(Self.formatSpecifiers(value), Self.formatSpecifiers(english),
+                               "\(code): '\(key)' specifiers differ from en ('\(value)' vs '\(english)')")
+            }
+
+            XCTAssertEqual(Set(tables.plurals.keys), Set(en.plurals.keys), "\(code): plural key set differs from en")
+            for (key, englishVariants) in en.plurals {
+                let variants = tables.plurals[key] ?? [:]
+                let englishOther = try XCTUnwrap(englishVariants["other"], "en: '\(key)' has no 'other'")
+                XCTAssertNotNil(variants["other"], "\(code): '\(key)' has no 'other' variant")
+                for (category, value) in variants {
+                    XCTAssertFalse(value.isEmpty, "\(code): '\(key)' [\(category)] is empty")
+                    XCTAssertEqual(Self.formatSpecifiers(value), Self.formatSpecifiers(englishOther),
+                                   "\(code): '\(key)' [\(category)] specifiers differ from en")
+                    XCTAssertNotEqual(value, englishVariants[category], "\(code): '\(key)' [\(category)] is English")
+                }
+                if code == "el" {
+                    XCTAssertEqual(Set(variants.keys), ["one", "other"],
+                                   "el: CLDR plural categories are exactly one / other for '\(key)'")
+                }
+            }
+
+            if code == "el" {
+                let greekLetter = try NSRegularExpression(pattern: "[\u{0370}-\u{03FF}\u{1F00}-\u{1FFF}]")
+                for (key, value) in tables.strings where !Self.formatOnlyKeys.contains(key) {
+                    let range = NSRange(value.startIndex..., in: value)
+                    XCTAssertNotNil(greekLetter.firstMatch(in: value, range: range),
+                                    "el: '\(key)' has no Greek letter: '\(value)'")
+                    XCTAssertFalse(value.contains("..."), "el: '\(key)' must use the ellipsis character …")
+                }
+            }
+        }
+    }
+
+    /// The pinned §4b values, read from `el.lproj`; plus the format strings
+    /// a user sees (not-found message, pair title, (i) label, directions).
+    func testGreekStringsCompiledIntoLproj() throws {
+        let elBundle = try Self.lprojBundle(forLocale: "el")
+        let el = Locale(identifier: "el")
+
+        let cases: [(key: String, greek: String)] = [
+            ("tab.search", "Αναζήτηση"), ("tab.history", "Ιστορικό"),
+            ("tab.bookmarks", "Σελιδοδείκτες"), ("tab.settings", "Ρυθμίσεις"),
+            ("search.title", "Λεξικό"), ("search.prompt", "Αναζήτηση λέξεων…"),
+            ("search.recent.title", "Πρόσφατα"), ("search.notFound.title", "Δεν βρέθηκε"),
+            ("history.title", "Ιστορικό"), ("history.clear", "Εκκαθάριση"), ("history.empty.title", "Χωρίς ιστορικό"),
+            ("bookmarks.title", "Σελιδοδείκτες"), ("bookmarks.empty.title", "Χωρίς σελιδοδείκτες"),
+            ("settings.title", "Ρυθμίσεις"),
+            ("settings.language.section", "Γλώσσα διεπαφής"), ("settings.language.picker", "Γλώσσα"),
+            ("settings.sorting.section", "Ταξινόμηση αποτελεσμάτων"), ("settings.sorting.mode", "Ταξινόμηση κατά"),
+            ("settings.sorting.relevance", "Συνάφεια"), ("settings.sorting.preferred", "Προτιμώμενο λεξικό πρώτα"),
+            ("settings.dictionaries.section", "Λεξικά"), ("settings.dictionaryOrder.title", "Σειρά λεξικών"),
+            ("settings.manageDictionaries", "Διαχείριση λεξικών"), ("manageDictionaries.title", "Διαχείριση λεξικών"),
+            ("settings.support.section", "Υποστήριξη"), ("settings.support.reportBug", "Αναφορά σφάλματος"),
+            ("settings.support.credits", "Συντελεστές"), ("credits.title", "Συντελεστές"),
+            ("settings.writeReview", "Γράψτε μια κριτική"), ("settings.version", "Έκδοση"),
+            ("settings.learningMode.section", "Λειτουργία εκμάθησης"), ("common.comingSoon", "Έρχεται σύντομα"),
+            ("about.section", "Πληροφορίες"), ("about.tagline", "Λεξικό εκτός σύνδεσης"),
+            ("app.loading", "Φόρτωση λεξικού…"), ("common.loading", "Φόρτωση…"),
+            ("language.en.name", "Αγγλικά"), ("language.ru.name", "Ρωσικά"), ("language.es.name", "Ισπανικά"),
+            ("language.ar.name", "Αραβικά"), ("language.el.name", "Ελληνικά"),
+            ("dictionaryInfo.direction", "Κατεύθυνση"), ("dictionaryInfo.language", "Γλώσσα"),
+            ("dictionaryInfo.sourceID", "Αναγνωριστικό πηγής"), ("dictionaryInfo.version", "Έκδοση"),
+            ("dictionaryInfo.entries", "Λήμματα"), ("dictionaryInfo.license", "Άδεια χρήσης"),
+            ("dictionaryInfo.noMetadata",
+             "Εισαγόμενο λεξικό. Δεν υπάρχουν διαθέσιμες πληροφορίες έκδοσης ή άδειας χρήσης."),
+            ("readingMode.a11y.enable", "Ενεργοποίηση λειτουργίας ανάγνωσης"),
+            ("readingMode.a11y.disable", "Απενεργοποίηση λειτουργίας ανάγνωσης"),
+            ("definition.a11y.speakWord", "Εκφώνηση λέξης"),
+            ("definition.a11y.addBookmark", "Προσθήκη σελιδοδείκτη"),
+            ("definition.a11y.removeBookmark", "Αφαίρεση σελιδοδείκτη"),
+            ("error.database.title", "Σφάλμα βάσης δεδομένων"),
+        ]
+        for (key, greek) in cases {
+            XCTAssertEqual(String(localized: String.LocalizationValue(key), bundle: elBundle, locale: el), greek,
+                           "'\(key)' must render its pinned Greek value from el.lproj")
+        }
+
+        // Format strings, filled in.
+        XCTAssertEqual(String(localized: "search.notFound.description \("σκύλος")", bundle: elBundle, locale: el),
+                       "Η λέξη «σκύλος» δεν βρέθηκε σε κανένα λεξικό.")
+        XCTAssertEqual(SettingsViewModel.infoButtonLabel(for: "Ελληνικά – Αγγλικά", locale: el),
+                       "Λεπτομέρειες: Ελληνικά – Αγγλικά")
+
+        // No-leak control: the same key differs between en and el.
+        let enBundle = try Self.lprojBundle(forLocale: "en")
+        XCTAssertEqual(String(localized: "tab.search", bundle: enBundle, locale: Locale(identifier: "en")), "Search")
+        XCTAssertNotEqual(String(localized: "tab.search", bundle: elBundle, locale: el), "Search")
+    }
+
+    /// CLDR `el` has one / other; 0 is `other`. `%lld` is grouped by the `el`
+    /// locale ("147.229"), both in the Dictionary order caption and in the
+    /// import result; the (i) "Entries" value uses the same grouping.
+    func testGreekPluralFormsForEntriesCount() throws {
+        let elBundle = try Self.lprojBundle(forLocale: "el")
+        let el = Locale(identifier: "el")
+        func entries(_ n: Int) -> String {
+            String(localized: "dictionary.entries.count \(n)", bundle: elBundle, locale: el)
+        }
+        XCTAssertEqual(entries(1), "1 λήμμα", "'one' (1) is singular")
+        XCTAssertEqual(entries(0), "0 λήμματα", "0 is CLDR 'other' in Greek, not 'one'")
+        XCTAssertEqual(entries(2), "2 λήμματα")
+        XCTAssertEqual(entries(5), "5 λήμματα")
+        XCTAssertEqual(entries(999), "999 λήμματα", "no separator below 1000")
+        XCTAssertEqual(entries(1234), "1.234 λήμματα", "el groups from 4 digits with '.'")
+        XCTAssertEqual(entries(147229), "147.229 λήμματα")
+
+        func imported(_ n: Int, _ file: String) -> String {
+            String(localized: "manageDictionaries.import.result.success \(n) \(file)", bundle: elBundle, locale: el)
+        }
+        XCTAssertEqual(imported(1, "my_dict"), "Εισήχθη 1 λήμμα από my_dict")
+        XCTAssertEqual(imported(0, "my_dict"), "Εισήχθησαν 0 λήμματα από my_dict")
+        XCTAssertEqual(imported(2, "my_dict"), "Εισήχθησαν 2 λήμματα από my_dict")
+        XCTAssertEqual(imported(147229, "my_dict"), "Εισήχθησαν 147.229 λήμματα από my_dict")
+
+        // (i) detail "Entries" value: `count.formatted(.number.locale(locale))`.
+        XCTAssertEqual(147229.formatted(.number.locale(el)), "147.229")
+        XCTAssertEqual(1234.formatted(.number.locale(el)), "1.234")
+
+        // Control: the separator comes from the locale, not from the catalog.
+        let enBundle = try Self.lprojBundle(forLocale: "en")
+        XCTAssertEqual(String(localized: "dictionary.entries.count \(147229)", bundle: enBundle,
+                              locale: Locale(identifier: "en")), "147,229 entries")
+    }
+
+    /// PM decision 2: the import result follows the in-app language (`el`
+    /// picked in-app → Greek text, whatever the device language), for the
+    /// one / other / zero success forms and the unsupported-type message; an
+    /// in-app switch to English flips the next message to English.
+    @MainActor
+    func testImportResultMessageFollowsInAppLanguage() async throws {
+        let settings = SettingsService(store: InMemoryKeyValueStore())
+        settings.selectedUILanguageCode = "el"
+        let localization = LocalizationManager(settingsService: settings, bundle: .main)
+        XCTAssertEqual(localization.currentLanguage.code, "el", "precondition: in-app language is Greek")
+        let vm = ManageDictionariesViewModel(settingsService: settings, localization: localization)
+
+        let fixture = try XCTUnwrap(Bundle.main.url(forResource: "test_import_fixture", withExtension: "json"))
+        await vm.performImport(url: fixture)
+        XCTAssertEqual(vm.importResult, "Εισήχθησαν 10 λήμματα από test_import_fixture")
+        XCTAssertFalse(vm.isImporting)
+        let imported = try await db.search(query: "qaflux")
+        XCTAssertEqual(imported.first?.source, "test_import_fixture", "the rows really landed")
+
+        let one = tempDir.appendingPathComponent("greek_one.json")
+        try Data(#"[{"word": "καλημέρα", "definition": "good morning"}]"#.utf8).write(to: one)
+        await vm.performImport(url: one)
+        XCTAssertEqual(vm.importResult, "Εισήχθη 1 λήμμα από greek_one", "CLDR 'one'")
+
+        let empty = tempDir.appendingPathComponent("empty.json")
+        try Data("[]".utf8).write(to: empty)
+        await vm.performImport(url: empty)
+        XCTAssertEqual(vm.importResult, "Εισήχθησαν 0 λήμματα από empty", "0 is 'other' in Greek")
+
+        let unsupported = tempDir.appendingPathComponent("notes.txt")
+        try Data("not a dictionary".utf8).write(to: unsupported)
+        await vm.performImport(url: unsupported)
+        XCTAssertEqual(vm.importResult, "Μη υποστηριζόμενος τύπος αρχείου: .txt")
+
+        // Switch the in-app language: the same view model now reports in English.
+        let english = try XCTUnwrap(localization.supportedLanguages.first { $0.code == "en" })
+        localization.setLanguage(english)
+        await vm.performImport(url: one)
+        XCTAssertEqual(vm.importResult, "Imported 1 entry from greek_one")
+        await vm.performImport(url: unsupported)
+        XCTAssertEqual(vm.importResult, "Unsupported file type: .txt")
+    }
+}
+
+extension SettingsViewModelPairTests {
+    /// Inserts `count` rows for `source` (the class's `seed(source:)` only
+    /// knows the pre-Greek counts).
+    private func seedRows(source: String, count: Int) async throws {
+        let pool = try DatabasePool(path: dbPath)
+        try await pool.writeWithoutTransaction { db in
+            for i in 0..<count {
+                try db.execute(
+                    sql: """
+                        INSERT OR IGNORE INTO entries(word, word_normalized, definition, phonetic, pos, source)
+                        VALUES (?, ?, ?, ?, ?, ?)
+                        """,
+                    arguments: ["\(source)-w\(i)", "\(source)-w\(i)", "def \(i)", "", "noun", source]
+                )
+            }
+        }
+    }
+
+    /// First launch in `el` (nil stored order): the Greek pair is row 1
+    /// ("Ελληνικά – Αγγλικά"), its sources in `DictionaryDefaults["el"]`
+    /// order even though their counts are scattered, other titles Greek; the
+    /// order is persisted and a second load is idempotent. The same seed in
+    /// English keeps `eng` first, and a stored order survives a switch to Greek.
+    @MainActor
+    func testFirstLaunchGreekPutsGreekPairFirst() async throws {
+        try await seedBundled()   // wordnet 7, openrussian 6, freedict-eng-spa 5, wordnet-spa-eng 4, wordnet-arb-eng 3
+        // Distinct counts that scatter the Greek sources through the count-desc
+        // base order, in an order unlike the mapping's.
+        let greekCounts = ["wordnet-eng-ell": 9, "wordnet-ell-eng": 8, "freedict-ell-eng": 2, "freedict-eng-ell": 1]
+        for (source, count) in greekCounts { try await seedRows(source: source, count: count) }
+        let greekIDs = DictAppTests.greekSourceIDs
+        XCTAssertEqual(DictionaryDefaults.preferredSources["el"], greekIDs)
+
+        let (vm, settings, _) = makeViewModel(languageCode: "el")
+        XCTAssertNil(settings.dictionaryOrder, "precondition: first launch")
+        await vm.loadDictionaries()
+
+        let expectedOrder = greekIDs + ["wordnet", "openrussian", "freedict-eng-spa", "wordnet-spa-eng", "wordnet-arb-eng"]
+        XCTAssertEqual(vm.dictionaries.map(\.id), ["ell-eng", "eng", "eng-rus", "eng-spa", "arb-eng"])
+        XCTAssertEqual(vm.dictionaries.map(\.displayName),
+                       ["Ελληνικά – Αγγλικά", "Αγγλικά", "Ρωσικά – Αγγλικά", "Ισπανικά – Αγγλικά", "Αραβικά – Αγγλικά"],
+                       "titles follow the in-app Greek UI, not the process locale")
+        let greekRow = try XCTUnwrap(vm.dictionaries.first)
+        XCTAssertEqual(greekRow.pair.sourceIDs, greekIDs, "members in DictionaryDefaults[\"el\"] order")
+        XCTAssertEqual(greekRow.count, 20, "row count is the sum of the four Greek sources")
+        XCTAssertTrue(vm.dictionaries.allSatisfy(\.isEnabled))
+        XCTAssertEqual(settings.dictionaryOrder, expectedOrder, "the derived default is persisted")
+        XCTAssertEqual(DictionaryGrouping.groupedOrder(expectedOrder), expectedOrder, "and already grouped")
+
+        await vm.loadDictionaries()
+        XCTAssertEqual(vm.dictionaries.map(\.id).first, "ell-eng", "second load idempotent")
+        XCTAssertEqual(settings.dictionaryOrder, expectedOrder)
+
+        // Same seed, English UI: no Greek promotion (counts pull it to row 2).
+        let (english, _, _) = makeViewModel(languageCode: "en")
+        await english.loadDictionaries()
+        XCTAssertEqual(english.dictionaries.map(\.id), ["eng", "ell-eng", "eng-rus", "eng-spa", "arb-eng"])
+        XCTAssertEqual(english.dictionaries.dropFirst().first?.displayName, "Greek – English")
+
+        // #74 rule: an existing user switching to Greek keeps their order.
+        let userOrder = ["wordnet-arb-eng", "wordnet", "openrussian", "freedict-eng-spa", "wordnet-spa-eng"] + greekIDs
+        let (switched, switchedSettings, _) = makeViewModel(languageCode: "el", storedOrder: userOrder)
+        await switched.loadDictionaries()
+        XCTAssertEqual(switched.dictionaries.map(\.id), ["arb-eng", "eng", "eng-rus", "eng-spa", "ell-eng"])
+        XCTAssertEqual(switched.dictionaries.last?.displayName, "Ελληνικά – Αγγλικά")
+        XCTAssertEqual(switchedSettings.dictionaryOrder, userOrder, "a stored order is never overridden")
+    }
+}
+
+extension DictionaryDefaultsTests {
+    /// Bundled + Greek IDs in a count-desc order → the four Greek IDs first in
+    /// mapping order, the rest in their incoming order; a permutation, already
+    /// grouped, idempotent. Missing Greek sources are skipped; region / case /
+    /// ISO-639-3 variants of the code are not mapped.
+    func testGreekPromotesAllFourGreekSources() throws {
+        let greek = DictAppTests.greekSourceIDs
+        let seedOrder = ["wordnet", "wordnet-eng-ell", "openrussian", "freedict-eng-spa", "wordnet-ell-eng",
+                         "wordnet-spa-eng", "freedict-eng-ell", "wordnet-arb-eng", "freedict-ell-eng"]
+        let result = DictionaryDefaults.defaultOrder(for: language("el"), sources: seedOrder)
+        XCTAssertEqual(Array(result.prefix(4)), greek, "all four Greek sources first, in mapping order")
+        XCTAssertEqual(Array(result.dropFirst(4)),
+                       ["wordnet", "openrussian", "freedict-eng-spa", "wordnet-spa-eng", "wordnet-arb-eng"],
+                       "the rest keep their incoming relative order")
+        assertPermutation(result, of: seedOrder)
+        XCTAssertEqual(DictionaryGrouping.groupedOrder(result), result, "no reshuffle by pair grouping")
+        XCTAssertEqual(DictionaryDefaults.defaultOrder(for: language("el"), sources: result), result, "idempotent")
+
+        // Only two Greek sources installed → those two, in mapping order.
+        let partial = ["wordnet", "wordnet-eng-ell", "openrussian", "freedict-ell-eng"]
+        let partialResult = DictionaryDefaults.defaultOrder(for: language("el"), sources: partial)
+        XCTAssertEqual(partialResult, ["freedict-ell-eng", "wordnet-eng-ell", "wordnet", "openrussian"])
+        assertPermutation(partialResult, of: partial)
+
+        // No Greek source at all (a pre-#87 seed) → unchanged, nothing invented.
+        XCTAssertEqual(DictionaryDefaults.defaultOrder(for: language("el"), sources: bundledSources), bundledSources)
+        XCTAssertEqual(DictionaryDefaults.defaultOrder(for: language("el"), sources: []), [])
+
+        // The lookup is by exact manifest code.
+        for code in ["el-GR", "EL", "ell"] {
+            XCTAssertEqual(DictionaryDefaults.defaultOrder(forLanguageCode: code, sources: seedOrder), seedOrder,
+                           "'\(code)' is not a shipped code and must not promote Greek")
+        }
     }
 }

@@ -63,6 +63,7 @@ final class ManageDictionariesViewModel: ObservableObject {
             default:
                 importResult = String(
                     localized: "manageDictionaries.import.result.unsupported \(url.pathExtension)",
+                    bundle: localization.localizedBundle,
                     locale: localization.currentLocale
                 )
                 return
@@ -73,8 +74,11 @@ final class ManageDictionariesViewModel: ObservableObject {
             settingsService.enableImportedSource(source)
             settingsService.appendImportedSourceToOrder(source)
             // String Catalog handles plural variants for the current locale.
+            // Issue #88: resolve against the in-app language's lproj, because
+            // `String(localized:locale:)` alone reads the device-language table.
             importResult = String(
                 localized: "manageDictionaries.import.result.success \(count) \(source)",
+                bundle: localization.localizedBundle,
                 locale: localization.currentLocale
             )
         } catch {

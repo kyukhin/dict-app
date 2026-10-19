@@ -168,8 +168,8 @@ class SettingsViewModel: ObservableObject {
     // the #91 detail view can call them without a view-model instance.
 
     /// ISO-639-3 → catalog language name table (`language.<code>.name`).
-    /// `el` has a catalog name (Issue #87) before it is a UI language (#88):
-    /// ICU's ru/es names are lowercase, which reads wrong in a title.
+    /// Covers the five shipped UI languages (`el` since Issue #88). ICU's
+    /// ru/es names are lowercase, which reads wrong in a title.
     nonisolated private static let languageNameKeys: [String: String] = [
         "eng": "en", "spa": "es", "rus": "ru", "arb": "ar", "ell": "el",
     ]
@@ -181,7 +181,7 @@ class SettingsViewModel: ObservableObject {
         return Bundle.main.path(forResource: code, ofType: "lproj").flatMap(Bundle.init(path:)) ?? .main
     }
 
-    /// Localised name of an ISO-639-3 language code. The four shipped UI
+    /// Localised name of an ISO-639-3 language code. The five shipped UI
     /// languages reuse their `language.<code>.name` catalog entries; any other
     /// code falls back to ICU's display name, then to the raw code.
     nonisolated static func languageName(iso3: String, locale: Locale) -> String {
