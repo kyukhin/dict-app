@@ -18,5 +18,10 @@
     "code": "ar",
     "displayKey": "language.ar.name",
     "nativeName": "العربية"
+  },
+  {
+    "code": "el",
+    "displayKey": "language.el.name",
+    "nativeName": "Ελληνικά"
   }
 ]

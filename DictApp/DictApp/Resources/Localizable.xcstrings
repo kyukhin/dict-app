@@ -27,6 +27,12 @@
             "state": "translated",
             "value": "تطبيق قاموس مفتوح المصدر يعمل دون اتصال بالإنترنت. تُجرى جميع عمليات البحث محليًا باستخدام بحث النص الكامل SQLite FTS5. لا يتطلب اتصالاً بالإنترنت."
           }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Εφαρμογή λεξικού ανοιχτού κώδικα, σχεδιασμένη για χρήση εκτός σύνδεσης. Όλες οι αναζητήσεις γίνονται τοπικά μέσω της αναζήτησης πλήρους κειμένου SQLite FTS5. Δεν απαιτείται σύνδεση στο διαδίκτυο."
+          }
         }
       }
     },
@@ -55,6 +61,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "حول التطبيق"
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Πληροφορίες"
           }
         }
       }
@@ -85,6 +97,12 @@
             "state": "translated",
             "value": "قاموس دون اتصال"
           }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Λεξικό εκτός σύνδεσης"
+          }
         }
       }
     },
@@ -113,6 +131,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "جارٍ تحميل القاموس…"
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Φόρτωση λεξικού…"
           }
         }
       }
@@ -143,6 +167,12 @@
             "state": "translated",
             "value": "أضف الكلمات إلى المرجعيات لحفظها هنا."
           }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Προσθέστε λέξεις στους σελιδοδείκτες για να τις αποθηκεύσετε εδώ."
+          }
         }
       }
     },
@@ -171,6 +201,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "لا توجد مرجعيات"
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Χωρίς σελιδοδείκτες"
           }
         }
       }
@@ -201,6 +237,12 @@
             "state": "translated",
             "value": "المرجعيات"
           }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Σελιδοδείκτες"
+          }
         }
       }
     },
@@ -229,6 +271,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "قريبًا"
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Έρχεται σύντομα"
           }
         }
       }
@@ -259,6 +307,12 @@
             "state": "translated",
             "value": "جارٍ التحميل…"
           }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Φόρτωση…"
+          }
         }
       }
     },
@@ -287,6 +341,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "LibreDict — قاموس مفتوح المصدر يعمل دون اتصال"
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "LibreDict — Λεξικό ανοιχτού κώδικα εκτός σύνδεσης"
           }
         }
       }
@@ -317,6 +377,12 @@
             "state": "translated",
             "value": "التطبيق"
           }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Εφαρμογή"
+          }
         }
       }
     },
@@ -345,6 +411,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "مصادر البيانات"
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Πηγές δεδομένων"
           }
         }
       }
@@ -375,6 +447,12 @@
             "state": "translated",
             "value": "FreeDict — إنجليزي-إسباني ويوناني-إنجليزي (WikDict، من ويكاموس)؛ إنجليزي-يوناني (من Freelang)؛ CC BY-SA 3.0"
           }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "FreeDict — αγγλικά-ισπανικά και ελληνικά-αγγλικά (WikDict, από το Βικιλεξικό)· αγγλικά-ελληνικά (από το Freelang)· CC BY-SA 3.0"
+          }
         }
       }
     },
@@ -403,6 +481,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Spanish WordNet (MCR / OMW) — إسباني-إنجليزي، CC BY 3.0"
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spanish WordNet (MCR / OMW) — ισπανικά-αγγλικά, CC BY 3.0"
           }
         }
       }
@@ -433,6 +517,12 @@
             "state": "translated",
             "value": "OpenRussian — روسي-إنجليزي، CC BY-SA 4.0"
           }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OpenRussian — ρωσικά-αγγλικά, CC BY-SA 4.0"
+          }
         }
       }
     },
@@ -461,6 +551,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "WordNet — جامعة برينستون"
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "WordNet — Πανεπιστήμιο του Princeton"
           }
         }
       }
@@ -491,6 +587,12 @@
             "state": "translated",
             "value": "معلومات الترخيص الكاملة ستتوفر قريبًا."
           }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Οι πλήρεις πληροφορίες για τις άδειες χρήσης θα είναι σύντομα διαθέσιμες."
+          }
         }
       }
     },
@@ -519,6 +621,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "التراخيص"
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Άδειες χρήσης"
           }
         }
       }
@@ -549,6 +657,12 @@
             "state": "translated",
             "value": "الشكر والتقدير"
           }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Συντελεστές"
+          }
         }
       }
     },
@@ -577,6 +691,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "إضافة مرجعية"
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Προσθήκη σελιδοδείκτη"
           }
         }
       }
@@ -607,6 +727,12 @@
             "state": "translated",
             "value": "إزالة المرجعية"
           }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Αφαίρεση σελιδοδείκτη"
+          }
         }
       }
     },
@@ -635,6 +761,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "نطق الكلمة"
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Εκφώνηση λέξης"
           }
         }
       }
@@ -749,6 +881,24 @@
               }
             }
           }
+        },
+        "el": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld λήμμα"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld λήμματα"
+                }
+              }
+            }
+          }
         }
       }
     },
@@ -777,6 +927,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "خطأ في قاعدة البيانات"
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Σφάλμα βάσης δεδομένων"
           }
         }
       }
@@ -807,6 +963,12 @@
             "state": "translated",
             "value": "مسح"
           }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Εκκαθάριση"
+          }
         }
       }
     },
@@ -835,6 +997,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "ستظهر الكلمات التي تبحث عنها هنا."
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Οι λέξεις που αναζητάτε θα εμφανίζονται εδώ."
           }
         }
       }
@@ -865,6 +1033,12 @@
             "state": "translated",
             "value": "لا يوجد سجل"
           }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Χωρίς ιστορικό"
+          }
         }
       }
     },
@@ -893,6 +1067,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "السجل"
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ιστορικό"
           }
         }
       }
@@ -924,6 +1104,12 @@
             "state": "translated",
             "value": "تفاصيل %@"
           }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Λεπτομέρειες: %@"
+          }
         }
       }
     },
@@ -953,6 +1139,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "الاتجاه"
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Κατεύθυνση"
           }
         }
       }
@@ -984,6 +1176,12 @@
             "state": "translated",
             "value": "%1$@ ← %2$@"
           }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ → %2$@"
+          }
         }
       }
     },
@@ -1013,6 +1211,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "اللغة"
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Γλώσσα"
           }
         }
       }
@@ -1044,6 +1248,12 @@
             "state": "translated",
             "value": "معرّف المصدر"
           }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Αναγνωριστικό πηγής"
+          }
         }
       }
     },
@@ -1073,6 +1283,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "الإصدار"
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Έκδοση"
           }
         }
       }
@@ -1104,6 +1320,12 @@
             "state": "translated",
             "value": "المداخل"
           }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Λήμματα"
+          }
         }
       }
     },
@@ -1133,6 +1355,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "الترخيص"
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Άδεια χρήσης"
           }
         }
       }
@@ -1164,6 +1392,12 @@
             "state": "translated",
             "value": "قاموس مستورد. لا تتوفر معلومات عن الإصدار أو الترخيص."
           }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Εισαγόμενο λεξικό. Δεν υπάρχουν διαθέσιμες πληροφορίες έκδοσης ή άδειας χρήσης."
+          }
         }
       }
     },
@@ -1189,6 +1423,12 @@
           }
         },
         "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ – %2$@"
+          }
+        },
+        "el": {
           "stringUnit": {
             "state": "translated",
             "value": "%1$@ – %2$@"
@@ -1222,6 +1462,12 @@
             "state": "translated",
             "value": "الإنجليزية"
           }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Αγγλικά"
+          }
         }
       }
     },
@@ -1250,6 +1496,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "الروسية"
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ρωσικά"
           }
         }
       }
@@ -1280,6 +1532,12 @@
             "state": "translated",
             "value": "**JSON** — مصفوفة من الكائنات تحتوي على المفتاحين `word` و`definition`. اختياري: `phonetic` و`pos`."
           }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "**JSON** — πίνακας αντικειμένων με τα κλειδιά `word` και `definition`. Προαιρετικά: `phonetic`, `pos`."
+          }
         }
       }
     },
@@ -1308,6 +1566,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "الصيغ المدعومة"
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Υποστηριζόμενες μορφές"
           }
         }
       }
@@ -1338,6 +1602,12 @@
             "state": "translated",
             "value": "**SQLite** — يجب أن يحتوي على جدول `entries` بالأعمدة: word، definition، phonetic، pos، source."
           }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "**SQLite** — πρέπει να περιέχει πίνακα `entries` με τις στήλες: word, definition, phonetic, pos, source."
+          }
         }
       }
     },
@@ -1367,6 +1637,12 @@
             "state": "translated",
             "value": "استيراد ملف (.json أو .sqlite)"
           }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Εισαγωγή αρχείου (.json ή .sqlite)"
+          }
         }
       }
     },
@@ -1395,6 +1671,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "جارٍ الاستيراد…"
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Εισαγωγή…"
           }
         }
       }
@@ -1509,6 +1791,24 @@
               }
             }
           }
+        },
+        "el": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Εισήχθη %lld λήμμα από %@"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Εισήχθησαν %lld λήμματα από %@"
+                }
+              }
+            }
+          }
         }
       }
     },
@@ -1537,6 +1837,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "نوع ملف غير مدعوم: .%@"
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Μη υποστηριζόμενος τύπος αρχείου: .%@"
           }
         }
       }
@@ -1567,6 +1873,12 @@
             "state": "translated",
             "value": "استيراد قاموس"
           }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Εισαγωγή λεξικού"
+          }
         }
       }
     },
@@ -1595,6 +1907,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "إدارة القواميس"
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Διαχείριση λεξικών"
           }
         }
       }
@@ -1625,6 +1943,12 @@
             "state": "translated",
             "value": "إيقاف وضع القراءة"
           }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Απενεργοποίηση λειτουργίας ανάγνωσης"
+          }
         }
       }
     },
@@ -1653,6 +1977,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "تشغيل وضع القراءة"
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ενεργοποίηση λειτουργίας ανάγνωσης"
           }
         }
       }
@@ -1683,6 +2013,12 @@
             "state": "translated",
             "value": "لم يُعثر على «%@» في أي قاموس."
           }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Η λέξη «%@» δεν βρέθηκε σε κανένα λεξικό."
+          }
         }
       }
     },
@@ -1711,6 +2047,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "غير موجود"
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Δεν βρέθηκε"
           }
         }
       }
@@ -1741,6 +2083,12 @@
             "state": "translated",
             "value": "ابحث عن كلمات…"
           }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Αναζήτηση λέξεων…"
+          }
         }
       }
     },
@@ -1769,6 +2117,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "الأخيرة"
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Πρόσφατα"
           }
         }
       }
@@ -1799,6 +2153,12 @@
             "state": "translated",
             "value": "القاموس"
           }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Λεξικό"
+          }
         }
       }
     },
@@ -1827,6 +2187,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "القواميس"
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Λεξικά"
           }
         }
       }
@@ -1857,6 +2223,12 @@
             "state": "translated",
             "value": "اللغة"
           }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Γλώσσα"
+          }
         }
       }
     },
@@ -1885,6 +2257,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "لغة الواجهة"
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Γλώσσα διεπαφής"
           }
         }
       }
@@ -1915,6 +2293,12 @@
             "state": "translated",
             "value": "وضع التعلّم"
           }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Λειτουργία εκμάθησης"
+          }
         }
       }
     },
@@ -1943,6 +2327,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "يستخدم هذا التطبيق بيانات من مشاريع قواميس في الملك العام وبتراخيص مفتوحة. يحتفظ كل قاموس بترخيصه الأصلي."
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Η εφαρμογή χρησιμοποιεί δεδομένα από έργα λεξικών που ανήκουν στον δημόσιο τομέα ή διατίθενται με ανοιχτές άδειες χρήσης. Κάθε λεξικό διατηρεί την αρχική του άδεια χρήσης."
           }
         }
       }
@@ -1973,6 +2363,12 @@
             "state": "translated",
             "value": "إدارة القواميس"
           }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Διαχείριση λεξικών"
+          }
         }
       }
     },
@@ -2001,6 +2397,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "الشكر والتقدير"
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Συντελεστές"
           }
         }
       }
@@ -2031,6 +2433,12 @@
             "state": "translated",
             "value": "الإبلاغ عن خطأ"
           }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Αναφορά σφάλματος"
+          }
         }
       }
     },
@@ -2059,6 +2467,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "الدعم"
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Υποστήριξη"
           }
         }
       }
@@ -2089,6 +2503,12 @@
             "state": "translated",
             "value": "الإعدادات"
           }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ρυθμίσεις"
+          }
         }
       }
     },
@@ -2117,6 +2537,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "الإصدار"
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Έκδοση"
           }
         }
       }
@@ -2147,6 +2573,12 @@
             "state": "translated",
             "value": "يرجى وصف المشكلة التي واجهتها. تساعدنا الكتلة أدناه على إعادة إنتاجها — يمكنك تعديل أو حذف أي شيء لا ترغب في مشاركته."
           }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Περιγράψτε το πρόβλημα που αντιμετωπίσατε. Το παρακάτω τμήμα μάς βοηθά να το αναπαράγουμε — μπορείτε να επεξεργαστείτε ή να διαγράψετε ό,τι δεν θέλετε να κοινοποιήσετε."
+          }
         }
       }
     },
@@ -2175,6 +2607,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "بلاغ خطأ في LibreDict"
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Αναφορά σφάλματος LibreDict"
           }
         }
       }
@@ -2205,6 +2643,12 @@
             "state": "translated",
             "value": "لا يوجد حساب بريد مُعدّ على هذا الجهاز. انسخ العنوان وأرسل لنا رسالة من أي تطبيق بريد."
           }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Δεν έχει ρυθμιστεί λογαριασμός Mail σε αυτήν τη συσκευή. Αντιγράψτε τη διεύθυνση και στείλτε μας μήνυμα από οποιαδήποτε εφαρμογή email."
+          }
         }
       }
     },
@@ -2233,6 +2677,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "لا يوجد تطبيق بريد مثبّت على هذا الجهاز. انسخ عنوان الدعم وأرسل لنا رسالة بأي طريقة ممكنة."
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Δεν είναι εγκατεστημένη καμία εφαρμογή email σε αυτήν τη συσκευή. Αντιγράψτε τη διεύθυνση υποστήριξης και στείλτε μας μήνυμα με όποιον τρόπο μπορείτε."
           }
         }
       }
@@ -2263,6 +2713,12 @@
             "state": "translated",
             "value": "نسخ العنوان"
           }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Αντιγραφή διεύθυνσης"
+          }
         }
       }
     },
@@ -2291,6 +2747,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "البريد غير متوفر"
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Το email δεν είναι διαθέσιμο"
           }
         }
       }
@@ -2321,6 +2783,12 @@
             "state": "translated",
             "value": "المرجعيات"
           }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Σελιδοδείκτες"
+          }
         }
       }
     },
@@ -2349,6 +2817,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "السجل"
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ιστορικό"
           }
         }
       }
@@ -2379,6 +2853,12 @@
             "state": "translated",
             "value": "بحث"
           }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Αναζήτηση"
+          }
         }
       }
     },
@@ -2407,6 +2887,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "الإعدادات"
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ρυθμίσεις"
           }
         }
       }
@@ -2437,6 +2923,12 @@
             "state": "translated",
             "value": "الإسبانية"
           }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ισπανικά"
+          }
         }
       }
     },
@@ -2465,6 +2957,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "العربية"
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Αραβικά"
           }
         }
       }
@@ -2495,6 +2993,12 @@
             "state": "translated",
             "value": "اليونانية"
           }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ελληνικά"
+          }
         }
       }
     },
@@ -2524,6 +3028,12 @@
             "state": "translated",
             "value": "Arabic WordNet (AWN / OMW) — عربي-إنجليزي، CC BY-SA 3.0"
           }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arabic WordNet (AWN / OMW) — αραβικά-αγγλικά, CC BY-SA 3.0"
+          }
         }
       }
     },
@@ -2552,6 +3062,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Greek WordNet (OMW) — يوناني-إنجليزي، إنجليزي-يوناني، Apache 2.0"
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Greek WordNet (OMW) — ελληνικά-αγγλικά, αγγλικά-ελληνικά, Apache 2.0"
           }
         }
       }
@@ -2583,6 +3099,12 @@
             "state": "translated",
             "value": "%1$@ إلى %2$@، %3$@"
           }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ προς %2$@, %3$@"
+          }
         }
       }
     },
@@ -2613,6 +3135,12 @@
             "state": "translated",
             "value": "%1$@، %2$@"
           }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@, %2$@"
+          }
         }
       }
     },
@@ -2641,6 +3169,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "ترتيب القواميس"
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Σειρά λεξικών"
           }
         }
       }
@@ -2671,6 +3205,12 @@
             "state": "translated",
             "value": "الترتيب حسب"
           }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ταξινόμηση κατά"
+          }
         }
       }
     },
@@ -2699,6 +3239,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "القاموس المفضّل أولاً"
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Προτιμώμενο λεξικό πρώτα"
           }
         }
       }
@@ -2729,6 +3275,12 @@
             "state": "translated",
             "value": "الصلة"
           }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Συνάφεια"
+          }
         }
       }
     },
@@ -2758,6 +3310,12 @@
             "state": "translated",
             "value": "ترتيب النتائج"
           }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ταξινόμηση αποτελεσμάτων"
+          }
         }
       }
     },
@@ -2786,6 +3344,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "كتابة مراجعة"
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Γράψτε μια κριτική"
           }
         }
       }

@@ -179,8 +179,17 @@ private struct UILanguagePickerView: View {
     var body: some View {
         List(languages) { language in
             Button {
-                onSelect(language)
-                dismiss()
+                // A different language rebuilds the whole tree (`.id(code)` at
+                // the App root), which discards this pushed screen. Popping it
+                // in the same tap makes UIKit free the old tab controller while
+                // the pop is in flight: EXC_BAD_ACCESS in
+                // `-[UIViewController dealloc]` on iOS 17. Pop only when nothing
+                // is rebuilt.
+                if language == selection {
+                    dismiss()
+                } else {
+                    onSelect(language)
+                }
             } label: {
                 HStack {
                     Text(LocalizedStringKey(language.displayKey))
