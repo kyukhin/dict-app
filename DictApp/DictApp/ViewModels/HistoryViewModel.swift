@@ -57,6 +57,7 @@ enum HistoryTimestamp {
 
     /// Row caption: user's time zone + in-app locale, relative for today/yesterday,
     /// short date otherwise. `nil` (missing or unparseable) hides the caption.
+    /// RTL locales get a leading U+200F (RLM) so the line always reads right to left (#119).
     static func text(_ raw: String?, locale: Locale,
                      timeZone: TimeZone = .autoupdatingCurrent) -> String? {
         guard let raw, let date = date(fromStored: raw) else { return nil }
@@ -67,6 +68,6 @@ enum HistoryTimestamp {
         formatter.timeStyle = .short
         formatter.doesRelativeDateFormatting = true
         formatter.formattingContext = .beginningOfSentence   // "Today", not "today"
-        return formatter.string(from: date)
+        return (locale.language.characterDirection == .rightToLeft ? "\u{200F}" : "") + formatter.string(from: date)
     }
 }

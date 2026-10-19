@@ -25,6 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - [#108] FreeDict dictionaries keep every translation of an entry instead of only the first one (English–Spanish gains about 56,000 translations), and existing installs get them on update with bookmarks kept.
 - [#88] Changing the interface language in Settings no longer crashes the app on iOS 17.
 - [#114] History shows each lookup in your local time and the app's language ("Today, 8:41 PM"), following your device's region and 24-hour setting, instead of a raw UTC timestamp.
+- [#119] In Arabic, language pairs, translation directions, History times and the unsupported-file message now read in the right order.
 
 ## [1.3.0] - 2026-06-25
 

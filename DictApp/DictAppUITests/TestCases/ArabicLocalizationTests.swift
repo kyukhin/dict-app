@@ -291,7 +291,106 @@ final class ArabicLocalizationTests: XCTestCase {
             "Entry-count row '\(label)' must contain exactly one contiguous, non-jumbled number token")
     }
 
+    /// Issue #119 — pair titles, direction lines and the History caption read
+    /// right to left: the non-English language is first (rightmost), the arrow
+    /// points from source to target, and a caption starts right to left. Each
+    /// title is one `Text` (one AX element, no per-word frames), so the leading
+    /// U+200F in the on-screen label plus the CoreText order unit tests
+    /// (`ArabicBidiOrderTests`) stand in for a frame comparison; the kept
+    /// screenshots are for a human check of the drawn order. The
+    /// unsupported-import message is reachable only through the document
+    /// picker, so `ArabicBidiOrderTests` covers it alone.
+    func testPairTitlesAndDirectionReadRightToLeft() throws {
+        let english = "الإنجليزية"
+        let arabic = "العربية"
+        let spanish = "الإسبانية"
+
+        // History with one entry (-resetData emptied it): opening a definition
+        // records the lookup. The caption is the row's non-headword text.
+        openBookDefinition()
+        XCTAssertTrue(app.descendants(matching: .any)[AccessibilityIdentifiers.Definition.definitionView]
+                        .waitForExistence(timeout: TestData.Timeouts.long),
+                      "Opening 'book' must push the definition (and record it in History)")
+        tapTab(ArabicTab.history)
+        let historyRow = app.cells.containing(.staticText, identifier: "book").firstMatch
+        XCTAssertTrue(historyRow.waitForExistence(timeout: TestData.Timeouts.long), "History must list 'book'")
+        let rowTexts = historyRow.staticTexts.allElementsBoundByIndex.map(\.label)
+        let caption = try XCTUnwrap(rowTexts.first { $0 != "book" },
+                                    "History row must show a time caption; texts: \(rowTexts)")
+        XCTAssertEqual(caption.unicodeScalars.first, "\u{200F}",
+                       "Arabic History caption starts with U+200F (RLM), got '\(caption)'")
+        attachScreenshot("History (ar)")
+
+        // Dictionary order: every bilingual title leads with the non-English name.
+        tapTab(ArabicTab.settings)
+        let settings = SettingsPage(app: app)
+        XCTAssertTrue(settings.openDictionaryOrder(), "Dictionary order must be reachable from Settings")
+        for (pair, name) in [(TestData.Pairs.arabic, arabic), (TestData.Pairs.spanish, spanish),
+                             (TestData.Pairs.russian, "الروسية"), (TestData.Pairs.greek, "اليونانية")] {
+            let row = app.staticTexts[AccessibilityIdentifiers.Settings.dictionaryOrderRow(pair: pair)]
+            XCTAssertTrue(app.scrollToElement(row), "order row '\(pair)' must be reachable")
+            XCTAssertEqual(row.label.unicodeScalars.first, "\u{200F}", "\(pair): '\(row.label)'")
+            XCTAssertEqual(Self.visible(row.label), "\(name) – \(english)", "\(pair): non-English language first")
+        }
+        attachScreenshot("Dictionary order (ar)")
+
+        // (i) detail of Arabic – English: title and its single direction line.
+        let arabicInfo = settings.openInfo(pair: TestData.Pairs.arabic)
+        XCTAssertTrue(arabicInfo.view.exists, "(i) on arb-eng must push the info detail")
+        assertDetailTitle(leadingWith: arabic, english: english)
+        let arabicDirection = arabicInfo.element(AccessibilityIdentifiers.DictionaryInfo.direction(
+            TestData.Sources.wordnetArbEng))
+        XCTAssertTrue(arabicDirection.waitForExistence(timeout: TestData.Timeouts.long))
+        XCTAssertEqual(arabicDirection.label.unicodeScalars.first, "\u{200F}", arabicDirection.label)
+        XCTAssertEqual(Self.visible(arabicDirection.label), "\(arabic) ← \(english)", "Arabic to English")
+        attachScreenshot("Dictionary detail arb-eng (ar)")
+
+        // (i) detail of Spanish – English: both directions, source first.
+        arabicInfo.goBack()
+        let spanishInfo = settings.openInfo(pair: TestData.Pairs.spanish)
+        XCTAssertTrue(spanishInfo.view.exists, "(i) on eng-spa must push the info detail")
+        assertDetailTitle(leadingWith: spanish, english: english)
+        let spaEng = AccessibilityIdentifiers.DictionaryInfo.direction(TestData.Sources.wordnetSpaEng)
+        XCTAssertTrue(spanishInfo.element(spaEng).waitForExistence(timeout: TestData.Timeouts.long))
+        let spaEngLabel = spanishInfo.element(spaEng).label
+        XCTAssertEqual(spaEngLabel.unicodeScalars.first, "\u{200F}", spaEngLabel)
+        XCTAssertEqual(Self.visible(spaEngLabel), "\(spanish) ← \(english)", "wordnet-spa-eng: Spanish to English")
+        attachScreenshot("Dictionary detail eng-spa (ar)")
+        let engSpa = AccessibilityIdentifiers.DictionaryInfo.direction(TestData.Sources.freedictEngSpa)
+        XCTAssertTrue(spanishInfo.revealElement(engSpa), "freedict-eng-spa direction must be reachable")
+        let engSpaLabel = spanishInfo.element(engSpa).label
+        XCTAssertEqual(engSpaLabel.unicodeScalars.first, "\u{200F}", engSpaLabel)
+        XCTAssertEqual(Self.visible(engSpaLabel), "\(english) ← \(spanish)", "freedict-eng-spa: English to Spanish")
+    }
+
+    /// The pushed detail's navigation bar (its `identifier` is the title)
+    /// starts with U+200F and reads "<name> – الإنجليزية" in logical order.
+    private func assertDetailTitle(leadingWith name: String, english: String,
+                                   file: StaticString = #filePath, line: UInt = #line) {
+        let bar = app.navigationBars.matching(NSPredicate(format: "identifier CONTAINS %@", name)).firstMatch
+        XCTAssertTrue(bar.waitForExistence(timeout: TestData.Timeouts.medium),
+                      "detail navigation bar titled with '\(name)' must exist", file: file, line: line)
+        XCTAssertEqual(bar.identifier.unicodeScalars.first, "\u{200F}", "title '\(bar.identifier)'",
+                       file: file, line: line)
+        XCTAssertEqual(Self.visible(bar.identifier), "\(name) – \(english)", file: file, line: line)
+    }
+
     // MARK: - Flow helpers
+
+    /// `s` without U+200F (RLM) and Foundation's U+2068/U+2069 isolates: the
+    /// text a reader sees, in logical order.
+    private static func visible(_ s: String) -> String {
+        let marks: Set<Unicode.Scalar> = ["\u{200F}", "\u{2068}", "\u{2069}"]
+        return String(s.unicodeScalars.filter { !marks.contains($0) })
+    }
+
+    /// Keeps a full-screen screenshot in the result bundle for a human check.
+    private func attachScreenshot(_ name: String) {
+        let attachment = XCTAttachment(screenshot: app.screenshot())
+        attachment.name = name
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
 
     /// Searches `term` from the (default) Search tab. Tolerates the iOS 26
     /// first-run "Siri, Dictation & Privacy" sheet that overlays `.searchable`.
@@ -347,11 +446,24 @@ final class ArabicLocalizationTests: XCTestCase {
     }
 
     /// Coordinate tap (skips the AX `scrollToVisible` that can fail on iOS 26
-    /// tab-bar buttons), keyed by localized label rather than index.
+    /// tab-bar buttons), keyed by localized label rather than index. On iPad
+    /// the keyboard can cover the bottom tab strip after a search and a raw
+    /// coordinate tap is swallowed while `.searchable` is active, so dismiss
+    /// the keyboard and prefer an element tap there (`TabBarPage`, #76).
     private func tapTab(_ label: String) {
         let button = tabButton(label: label)
         _ = button.waitForExistence(timeout: 5)
-        button.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        if app.keyboards.count > 0 {
+            app.keyboards.firstMatch.swipeDown()
+            let gone = NSPredicate(format: "count == 0")
+            _ = XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: gone, object: app.keyboards)],
+                               timeout: 2)
+        }
+        if UIDevice.current.userInterfaceIdiom == .pad && button.isHittable {
+            button.tap()
+        } else {
+            button.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        }
     }
 
     /// True if any static text's label contains `substring` (case- and
