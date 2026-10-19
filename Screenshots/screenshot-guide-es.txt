@@ -6,11 +6,11 @@ Accent word per headline marked with *asterisks* (render in Accent Blue #2D7FF9)
 
 HEADLINES
 ---------
-1. 300 000+ palabras.
+1. 400 000+ palabras.
    Sin anuncios.
 2. Busca en *milisegundos*.
    No en segundos.
-3. Cinco diccionarios.
+3. Seis diccionarios.
    *Un* toque.
 4. Tus palabras.
    *Siempre* sin conexión.
@@ -19,3 +19,8 @@ HEADLINES
 6. *Pantalla* grande.
    Nada de más. Diccionarios sin conexión en una interfaz limpia.
 
+MOCKUP CAPTIONS (1.4.0)
+-----------------------
+Rebuild all four es mockups from the new -source PNGs (1.4 badges, 9:41 status bar).
+1. "300 000+ palabras" -> "400 000+ palabras" (subcaption unchanged)
+2-4. Captions unchanged (scene 3 is Orden de diccionarios with (i)).

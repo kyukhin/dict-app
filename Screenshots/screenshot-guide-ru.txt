@@ -6,11 +6,11 @@ Accent word per headline marked with *asterisks* (render in Accent Blue #2D7FF9)
 
 HEADLINES
 ---------
-1. 300 000+ слов.
+1. 400 000+ слов.
    *Ноль* интернета.
 2. Поиск за *миллисекунды*.
    Не за секунды.
-3. Пять словарей.
+3. Шесть словарей.
    *Одно* касание.
 4. Ваши слова.
    *Всегда* офлайн.
@@ -19,3 +19,9 @@ HEADLINES
 6. *Большой* экран.
    Ничего лишнего. Офлайн-словари в чистом интерфейсе.
 
+MOCKUP CAPTIONS (1.4.0)
+-----------------------
+Rebuild all four ru mockups from the new -source PNGs (the old set is pre-1.3).
+1. «200 000 слов.» -> «400 000+ слов.» (rest unchanged)
+3. «Без треккинга.» -> «Без слежки.» («треккинг» means hiking; scene 3 is now Порядок словарей)
+2, 4. Captions unchanged.

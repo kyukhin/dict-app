@@ -6,11 +6,11 @@ One accent word per headline marked with *asterisks* (render in Accent Blue #2D7
 
 HEADLINES
 ---------
-1. 300,000+ Words.
+1. 400,000+ Words.
    *Zero* Internet.
 2. Search in *Milliseconds*.
    Not Seconds.
-3. Five Dictionaries.
+3. Six Dictionaries.
    *One* Tap.
 4. Your Words.
    *Always* Offline.
@@ -37,3 +37,33 @@ LAYOUT TIPS
 - One accent word per headline in Accent Blue (#2D7FF9)
 - Keep it clean and readable at small sizes
 
+
+
+MOCKUP CAPTIONS (1.4.0)
+-----------------------
+Rebuild all four en mockups from the new -source PNGs (the old set is pre-1.3).
+1. "192,000+ Words." -> "400,000+ Words." (rest of the caption unchanged)
+2-4. Captions unchanged (scene 3 is now Dictionary Order instead of a definition).
+
+CAPTURE (source PNGs, 1.4.0)
+----------------------------
+Scenes (same for every locale, light mode, portrait):
+1. iPhone: search results for a typical word, keyboard hidden (el: "θαλασσα" typed without accents)
+2. iPhone: Settings → Manage Dictionaries (import screen)
+3. iPhone: Settings → Dictionary Order (one row per language pair, (i) buttons)
+4. iPad 13": search results for the same word, keyboard hidden
+
+Devices: iPhone 17 Pro (iOS 26.4) → screenshot-N-iphone17p-<locale>-source.png (es, ar, el);
+iPhone 17 Pro Max (iOS 26.4) → screenshot-N-iphone17pm-<locale>-source.png (en, ru);
+iPad Pro 13-inch (M5) (iOS 26.4) → screenshot-4-ipad13-<locale>-source.png.
+
+Steps:
+- Fresh install (xcrun simctl uninstall <udid> com.kyukhin.DictApp), launch with
+  -AppleLanguages (<lang>) -AppleLocale <lang_REGION> -resetData -disableReviewPrompt
+- Wait until the dictionaries are ready: Search screen shows and the
+  "Preparing dictionaries…" bar (dictionary_unpack_progress) is gone.
+- Status bar: xcrun simctl status_bar <udid> override --time 9:41 --batteryState charged
+  --batteryLevel 100 --cellularBars 4 --wifiBars 3
+- On iPadOS 26 the search field sits under the title (#120): tap it before typing.
+- Reject captures with clipped text, a visible keyboard or a progress indicator.
+  A stray home-indicator bar is simulator state: reboot the simulator and retake.
