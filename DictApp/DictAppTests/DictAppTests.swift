@@ -6,6 +6,8 @@ import XCTest
 import GRDB
 import MessageUI
 import Combine
+import CoreText
+import UIKit
 
 final class DictAppTests: XCTestCase {
 
@@ -3825,8 +3827,10 @@ final class SettingsViewModelPairTests: XCTestCase {
         await ar.loadDictionaries()
         XCTAssertEqual(ar.dictionaries.map(\.id), ["arb-eng", "eng", "eng-rus", "eng-spa"])
         // RTL: Foundation wraps each format argument in bidi isolates
-        // (U+2068 FSI … U+2069 PDI) so the names never reorder across the dash.
-        XCTAssertEqual(ar.dictionaries.first?.displayName, "\u{2068}العربية\u{2069} – \u{2068}الإنجليزية\u{2069}")
+        // (U+2068 FSI … U+2069 PDI) so the names never reorder across the dash;
+        // the catalog's leading U+200F (RLM) makes the line right-to-left (#119).
+        XCTAssertEqual(ar.dictionaries.first?.displayName,
+                       "\u{200F}\u{2068}العربية\u{2069} – \u{2068}الإنجليزية\u{2069}")
     }
 
     /// Static, no DB: `eng-spa` → "Spanish – English" (en) /
@@ -3865,8 +3869,8 @@ final class SettingsViewModelPairTests: XCTestCase {
         XCTAssertEqual(SettingsViewModel.displayName(for: spanish, locale: es), "Español – Inglés")
         XCTAssertEqual(SettingsViewModel.displayName(for: english, locale: es), "Inglés")
         XCTAssertEqual(SettingsViewModel.displayName(for: spanish, locale: ar),
-                       "\u{2068}الإسبانية\u{2069} – \u{2068}الإنجليزية\u{2069}",
-                       "Arabic: catalog names, each bidi-isolated by Foundation's RTL formatting")
+                       "\u{200F}\u{2068}الإسبانية\u{2069} – \u{2068}الإنجليزية\u{2069}",
+                       "Arabic: leading RLM (#119), catalog names, each bidi-isolated by Foundation's RTL formatting")
         XCTAssertEqual(SettingsViewModel.displayName(for: english, locale: ar), "الإنجليزية")
 
         // Greek UI (Issue #88): catalog names from el.lproj, LTR, no isolates.
@@ -4099,11 +4103,11 @@ final class DictionaryInfoDetailTests: XCTestCase {
         let arabic = try XCTUnwrap(SettingsViewModel.languageSummary(for: stat("wordnet-arb-eng"), locale: ar))
         XCTAssertTrue(arabic.contains("\u{2190}"), "Arabic uses U+2190 ←; got \(arabic)")
         XCTAssertFalse(arabic.contains("\u{2192}"), "no → in RTL; got \(arabic)")
-        XCTAssertEqual(stripIsolates(arabic), "العربية ← الإنجليزية",
-                       "from-language first in logical order, both names Arabic")
+        XCTAssertEqual(stripIsolates(arabic), "\u{200F}العربية ← الإنجليزية",
+                       "leading RLM (#119), from-language first in logical order, both names Arabic")
 
         let spanish = try XCTUnwrap(SettingsViewModel.languageSummary(for: stat("freedict-eng-spa"), locale: ar))
-        XCTAssertEqual(stripIsolates(spanish), "الإنجليزية ← الإسبانية")
+        XCTAssertEqual(stripIsolates(spanish), "\u{200F}الإنجليزية ← الإسبانية")
 
         // The LTR locales keep →, never ←.
         for locale in [en, ru, es, el] {
@@ -5902,7 +5906,7 @@ final class GreekFoldAndBadgeTests: XCTestCase {
         let stats = DictAppTests.greekSourceIDs.map { SourceStat(source: $0, displayName: "Raw \($0)", count: 1) }
         let pair = DictionaryPair(id: "ell-eng", languages: ["ell", "eng"], isCustom: false, sources: stats)
         let titles: [(Locale, String)] = [(en, "Greek – English"), (ru, "Греческий – Английский"),
-                                          (es, "Griego – Inglés"), (ar, "اليونانية – الإنجليزية"),
+                                          (es, "Griego – Inglés"), (ar, "\u{200F}اليونانية – الإنجليزية"),
                                           (el, "Ελληνικά – Αγγλικά")]
         for (locale, title) in titles {
             XCTAssertEqual(stripIsolates(SettingsViewModel.displayName(for: pair, locale: locale)), title, locale.identifier)
@@ -5914,7 +5918,7 @@ final class GreekFoldAndBadgeTests: XCTestCase {
         XCTAssertEqual(SettingsViewModel.languageSummary(for: stats[0], locale: el), "Ελληνικά → Αγγλικά")
         XCTAssertEqual(SettingsViewModel.languageSummary(for: stats[2], locale: el), "Αγγλικά → Ελληνικά")
         XCTAssertEqual(stripIsolates(SettingsViewModel.languageSummary(for: stats[0], locale: ar) ?? ""),
-                       "اليونانية ← الإنجليزية")
+                       "\u{200F}اليونانية ← الإنجليزية")
     }
 
     /// `infoSources` gives `[freedict-ell-eng, wordnet-ell-eng,
@@ -7957,5 +7961,197 @@ final class HistoryTimestampTests: XCTestCase {
                                                                  device: Locale(identifier: "sr-Latn_RS"))
         let latinSerbianToday = try caption(storedString(Date()), ruOnLatinSerbian, in: utc)
         XCTAssertTrue(latinSerbianToday.contains("Сегодня"), latinSerbianToday)
+    }
+}
+
+// MARK: - Issue #119: Arabic composed strings read right to left
+
+/// Foundation wraps every `%@` argument in FSI … PDI for an RTL locale, and the
+/// bidi algorithm skips isolates when it looks for the first strong character.
+/// Without the catalog's leading U+200F (RLM) an Arabic pair title or direction
+/// line is laid out left to right, so its first name is drawn on the left and
+/// read last. CoreText draws in the same order as SwiftUI `Text` on screen.
+final class ArabicBidiOrderTests: XCTestCase {
+    private let ar = Locale(identifier: "ar")
+    private let ltrLocales = ["en", "ru", "es", "el"].map(Locale.init(identifier:))
+    private let english = "الإنجليزية"
+    /// Bilingual pairs and their non-English name in Arabic (title leads with it).
+    private let pairs: [(id: String, languages: [String], source: String, name: String)] = [
+        ("arb-eng", ["arb", "eng"], "wordnet-arb-eng", "العربية"),
+        ("eng-spa", ["eng", "spa"], "freedict-eng-spa", "الإسبانية"),
+        ("eng-rus", ["eng", "rus"], "openrussian", "الروسية"),
+        ("ell-eng", ["ell", "eng"], "freedict-ell-eng", "اليونانية"),
+    ]
+    /// 20:41 UTC on 15 Jan 2026: never "Today" / "Yesterday".
+    private let stored = "2026-01-15 20:41:07"
+    private let utc = TimeZone(identifier: "UTC")!
+    private let bidiControls: [Unicode.Scalar] = ["\u{200F}", "\u{2066}", "\u{2067}", "\u{2068}", "\u{2069}"]
+
+    private func pair(_ entry: (id: String, languages: [String], source: String, name: String)) -> DictionaryPair {
+        DictionaryPair(id: entry.id, languages: entry.languages, isCustom: false,
+                       sources: [SourceStat(source: entry.source, displayName: "Raw \(entry.source)", count: 1)])
+    }
+
+    private func direction(_ source: String, _ locale: Locale) throws -> String {
+        try XCTUnwrap(SettingsViewModel.languageSummary(
+            for: SourceStat(source: source, displayName: "Raw \(source)", count: 1), locale: locale))
+    }
+
+    /// The text without RLM and isolates: what a reader sees, in logical order.
+    private func visible(_ s: String) -> String {
+        String(s.unicodeScalars.filter { !bidiControls.contains($0) })
+    }
+
+    /// CoreText x offset of the middle character of `part` inside `text`, laid
+    /// out in a natural-direction line with the body font. The middle avoids the
+    /// caret ambiguity at an isolate boundary. Larger x = drawn further right.
+    private func drawnX(of part: String, in text: String) throws -> CGFloat {
+        let found = try XCTUnwrap(text.range(of: part), "'\(part)' not found in '\(text)'")
+        let range = NSRange(found, in: text)
+        let attributed = NSAttributedString(string: text,
+                                            attributes: [.font: UIFont.preferredFont(forTextStyle: .body)])
+        let line = CTLineCreateWithAttributedString(attributed)
+        return CTLineGetOffsetForStringIndex(line, range.location + range.length / 2, nil)
+    }
+
+    /// An import view model whose in-app language is `code` (the real path).
+    @MainActor
+    private func importViewModel(language code: String) -> ManageDictionariesViewModel {
+        let settings = SettingsService(store: InMemoryKeyValueStore())
+        settings.selectedUILanguageCode = code
+        let localization = LocalizationManager(settingsService: settings, bundle: .main)
+        XCTAssertEqual(localization.currentLanguage.code, code, "precondition: in-app language is \(code)")
+        return ManageDictionariesViewModel(settingsService: settings, localization: localization)
+    }
+
+    /// Every bilingual title in `ar` starts with U+200F (the first strong
+    /// character outside the isolates, so the line is RTL) and puts the
+    /// non-English language first. `arb-eng` is pinned scalar by scalar.
+    func testArabicPairTitlesStartWithRLMAndLeadWithNonEnglishLanguage() {
+        for entry in pairs {
+            let title = SettingsViewModel.displayName(for: pair(entry), locale: ar)
+            XCTAssertEqual(title.unicodeScalars.first, "\u{200F}", "\(entry.id): '\(title)'")
+            XCTAssertEqual(visible(title), "\(entry.name) – \(english)", entry.id)
+        }
+        let arabic = SettingsViewModel.displayName(for: pair(pairs[0]), locale: ar)
+        XCTAssertEqual(arabic.unicodeScalars.map(\.value),
+                       [0x200F,
+                        0x2068, 0x627, 0x644, 0x639, 0x631, 0x628, 0x64A, 0x629, 0x2069,
+                        0x20, 0x2013, 0x20,
+                        0x2068, 0x627, 0x644, 0x625, 0x646, 0x62C, 0x644, 0x64A, 0x632, 0x64A, 0x629, 0x2069],
+                       "RLM, isolated العربية, ' – ', isolated الإنجليزية")
+    }
+
+    /// `ar` direction lines start with U+200F and keep ← (U+2190), never →.
+    func testArabicDirectionLinesStartWithRLMAndKeepLeftArrow() throws {
+        for (source, from, to) in [("wordnet-arb-eng", "العربية", english), ("freedict-eng-spa", english, "الإسبانية")] {
+            let line = try direction(source, ar)
+            XCTAssertEqual(line.unicodeScalars.first, "\u{200F}", "\(source): '\(line)'")
+            XCTAssertTrue(line.contains("\u{2190}"), "\(source): '\(line)'")
+            XCTAssertFalse(line.contains("\u{2192}"), "\(source): '\(line)'")
+            XCTAssertEqual(visible(line), "\(from) ← \(to)", source)
+        }
+    }
+
+    /// Real layout order: in `ar` the first name of a title or direction line
+    /// is drawn to the right of the second. Control: the same line without the
+    /// RLM lays out left to right (the #119 bug), so the check is not vacuous.
+    func testArabicTitleAndDirectionDrawFirstNameOnTheRight() throws {
+        for entry in pairs {
+            let title = SettingsViewModel.displayName(for: pair(entry), locale: ar)
+            let titleFirst = try drawnX(of: entry.name, in: title)
+            let titleSecond = try drawnX(of: english, in: title)
+            XCTAssertGreaterThan(titleFirst, titleSecond, "\(entry.id): '\(entry.name)' must be drawn right of '\(english)'")
+        }
+        for (source, from, to) in [("wordnet-arb-eng", "العربية", english), ("freedict-eng-spa", english, "الإسبانية")] {
+            let line = try direction(source, ar)
+            let fromX = try drawnX(of: from, in: line)
+            let toX = try drawnX(of: to, in: line)
+            XCTAssertGreaterThan(fromX, toX, "\(source): from-language '\(from)' must be drawn right of '\(to)'")
+        }
+
+        let title = SettingsViewModel.displayName(for: pair(pairs[0]), locale: ar)
+        let withoutRLM = String(title.unicodeScalars.dropFirst())
+        let bugFirst = try drawnX(of: "العربية", in: withoutRLM)
+        let bugSecond = try drawnX(of: english, in: withoutRLM)
+        XCTAssertLessThan(bugFirst, bugSecond, "control: without the RLM the line is LTR and the order flips")
+    }
+
+    /// Every RTL language in `SupportedLocales.json` (today `ar`) starts both
+    /// composed values with U+200F in its compiled lproj. Catches a translator
+    /// or an Xcode re-save dropping the invisible mark, and a new RTL language.
+    func testEveryRTLLanguageStartsComposedLinesWithRLM() throws {
+        let rtl = try DictAppTests.shippedUILanguages().map(\.code)
+            .filter { Locale.Language(identifier: $0).characterDirection == .rightToLeft }
+        XCTAssertTrue(rtl.contains("ar"), "Arabic is the shipped RTL language; the guard would be vacuous: \(rtl)")
+        for code in rtl {
+            let path = try XCTUnwrap(Bundle.main.path(forResource: code, ofType: "lproj"),
+                                     "'\(code).lproj' must be compiled into the app bundle")
+            let bundle = try XCTUnwrap(Bundle(path: path))
+            for key in ["dictionaryPair.title %@ %@", "dictionaryInfo.direction.value %@ %@"] {
+                let value = bundle.localizedString(forKey: key, value: "\u{0}MISSING", table: nil)
+                XCTAssertNotEqual(value, "\u{0}MISSING", "'\(key)' missing in \(code).lproj")
+                XCTAssertEqual(value.unicodeScalars.first, "\u{200F}",
+                               "\(code): '\(key)' must start with U+200F (RLM), got '\(value)'")
+            }
+        }
+    }
+
+    /// PM decision Q1: Arabic UI on a 24-hour non-Arabic region (en_GB, de_DE
+    /// devices) gets a leading RLM, so the date is drawn right of the time.
+    func testArabicHistoryCaptionOn24HourRegionReadsRightToLeft() throws {
+        for device in ["en_GB", "de_DE"] {
+            let locale = HistoryTimestamp.formattingLocale(language: ar, device: Locale(identifier: device))
+            XCTAssertEqual(locale.language.characterDirection, .rightToLeft, "\(device): \(locale.identifier)")
+            let caption = try XCTUnwrap(HistoryTimestamp.text(stored, locale: locale, timeZone: utc))
+            XCTAssertEqual(caption.unicodeScalars.first, "\u{200F}", "\(device): '\(caption)'")
+
+            // 24-hour: "<date>، <time>"; digits are never asserted. Split after
+            // the leading RLM only, so any ICU marks stay inside the tokens.
+            let words = String(caption.unicodeScalars.dropFirst()).split(separator: " ").map(String.init)
+            XCTAssertEqual(words.count, 2, "\(device): '\(caption)'")
+            let date = try XCTUnwrap(words.first).trimmingCharacters(in: CharacterSet(charactersIn: "\u{060C},"))
+            let time = try XCTUnwrap(words.last)
+            let dateX = try drawnX(of: date, in: caption)
+            let timeX = try drawnX(of: time, in: caption)
+            XCTAssertGreaterThan(dateX, timeX, "\(device): the date is read first, so it is drawn right of the time")
+        }
+        let bare = try XCTUnwrap(HistoryTimestamp.text(stored, locale: ar, timeZone: utc))
+        XCTAssertEqual(bare.unicodeScalars.first, "\u{200F}", "plain ar: '\(bare)'")
+    }
+
+    /// PM decision Q2: the unsupported-import message keeps ".pdf" in an LTR
+    /// isolate (LRI … PDI), so the dot is drawn left of the extension.
+    @MainActor
+    func testArabicUnsupportedImportKeepsDotBeforeExtension() async throws {
+        let vm = importViewModel(language: "ar")
+        await vm.performImport(url: FileManager.default.temporaryDirectory.appendingPathComponent("notes.pdf"))
+        let message = try XCTUnwrap(vm.importResult)
+        let arabicText: [UInt32] = "نوع ملف غير مدعوم: ".unicodeScalars.map(\.value)
+        let isolatedExtension: [UInt32] = [0x2066, 0x2E, 0x2068, 0x70, 0x64, 0x66, 0x2069, 0x2069]
+        XCTAssertEqual(message.unicodeScalars.map(\.value), arabicText + isolatedExtension,
+                       "LRI '.' FSI pdf PDI PDI after the Arabic text: '\(message)'")
+        let dotX = try drawnX(of: ".", in: message)
+        let extensionX = try drawnX(of: "pdf", in: message)
+        XCTAssertLessThan(dotX, extensionX, "'.pdf', not 'pdf.': '\(message)'")
+    }
+
+    /// en, ru, es and el get no RLM or isolate: title, direction, History
+    /// caption and the unsupported-import message stay as they were.
+    @MainActor
+    func testLTRLanguagesGetNoBidiMarks() async throws {
+        for locale in ltrLocales {
+            let code = locale.identifier
+            let title = SettingsViewModel.displayName(for: pair(pairs[1]), locale: locale)
+            let line = try direction("freedict-eng-spa", locale)
+            let caption = try XCTUnwrap(HistoryTimestamp.text(stored, locale: locale, timeZone: utc))
+            let vm = importViewModel(language: code)
+            await vm.performImport(url: FileManager.default.temporaryDirectory.appendingPathComponent("notes.pdf"))
+            let message = try XCTUnwrap(vm.importResult)
+            for output in [title, line, caption, message] {
+                XCTAssertFalse(output.unicodeScalars.contains { bidiControls.contains($0) },
+                               "\(code): '\(output)' must carry no bidi control")
+            }
+        }
     }
 }

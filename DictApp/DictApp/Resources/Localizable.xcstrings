@@ -1150,7 +1150,7 @@
       }
     },
     "dictionaryInfo.direction.value %@ %@": {
-      "comment": "Translation direction, source language then target language. Arabic uses ← (U+2190) because → is not mirrored in right-to-left text.",
+      "comment": "Translation direction, source language then target language. Arabic uses ← (U+2190) because → is not mirrored in right-to-left text. ar: leading U+200F (RLM) makes the line right-to-left; Foundation isolates each argument, so without it the line lays out left-to-right (#119). Every RTL language needs it.",
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -1174,7 +1174,7 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@ ← %2$@"
+            "value": "\u200F%1$@ ← %2$@"
           }
         },
         "el": {
@@ -1402,6 +1402,7 @@
       }
     },
     "dictionaryPair.title %@ %@": {
+      "comment": "ar: leading U+200F (RLM) makes the line right-to-left; Foundation isolates each argument, so without it the line lays out left-to-right (#119). Every RTL language needs it.",
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -1425,7 +1426,7 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@ – %2$@"
+            "value": "\u200F%1$@ – %2$@"
           }
         },
         "el": {
@@ -1836,7 +1837,7 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "نوع ملف غير مدعوم: .%@"
+            "value": "نوع ملف غير مدعوم: \u2066.%@\u2069"
           }
         },
         "el": {
