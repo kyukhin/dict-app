@@ -9,13 +9,11 @@ import XCTest
 /// persisted dictionary order (#74), so the first-launch default is re-derived
 /// even after an earlier suite picked a language or reordered the list.
 ///
-/// Settings is reached by tab **index** (Search, History, Bookmarks, Settings
-/// is fixed in `ContentView`; Russian is LTR so the index is stable), because
-/// `TabBarPage` falls back to the English "Settings" label.
+/// Settings is reached through `app.tabButton(.settings)`: by index in a tab
+/// bar (the order is fixed in `ContentView`; Russian is LTR so it is stable),
+/// by SF Symbol on the iPadOS 26 tab strip. Never by the localized label.
 final class DictionaryOrderDefaultTests: XCTestCase {
     private var app: XCUIApplication!
-
-    private let settingsTabIndex = 3   // Search, History, Bookmarks, Settings
 
     override func setUpWithError() throws {
         continueAfterFailure = false
@@ -35,13 +33,11 @@ final class DictionaryOrderDefaultTests: XCTestCase {
         // Issue #111: the order is read once every bundled dictionary is in.
         XCTAssertTrue(app.waitForDictionariesReady(),
                       "Search screen with every dictionary unpacked after launch")
-        let tabBar = app.tabBars.firstMatch
-
         // Precondition: the UI really is Russian, otherwise the assertion
         // below would be testing the English default by accident.
-        let settingsTab = tabBar.buttons.element(boundBy: settingsTabIndex)
+        let settingsTab = app.tabButton(.settings)
         XCTAssertTrue(settingsTab.waitForExistence(timeout: TestData.Timeouts.medium),
-                      "Settings tab (index \(settingsTabIndex)) must exist")
+                      "Settings tab must exist")
         XCTAssertEqual(settingsTab.label, "Настройки",
                        "UI must be Russian for this test to be meaningful (-AppleLanguages override not applied?)")
         settingsTab.tap()

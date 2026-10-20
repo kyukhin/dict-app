@@ -19,22 +19,9 @@ final class DictAppUITests: XCTestCase {
     }
 
     func testAppLaunches() throws {
-        // Basic smoke test to verify app launches successfully
-        let tabBar = app.tabBars.firstMatch
-
-        // Wait for the tab bar to appear with a longer timeout
-        let tabBarExists = tabBar.waitForExistence(timeout: 10.0)
-        XCTAssertTrue(tabBarExists, "Tab bar should exist after app launch")
-
-        // Also check for any tabs by label as fallback
-        if !tabBarExists {
-            let searchTab = app.buttons["Search"]
-            let historyTab = app.buttons["History"]
-            let bookmarksTab = app.buttons["Bookmarks"]
-            let settingsTab = app.buttons["Settings"]
-
-            let anyTabExists = searchTab.exists || historyTab.exists || bookmarksTab.exists || settingsTab.exists
-            XCTAssertTrue(anyTabExists, "At least one tab should be accessible")
-        }
+        // Basic smoke test to verify app launches successfully: the tab bar
+        // (or the iPadOS 26 tab strip) shows its Search tab button.
+        XCTAssertTrue(app.tabButton(.search).waitForExistence(timeout: 10.0),
+                      "Tab bar should exist after app launch")
     }
 }

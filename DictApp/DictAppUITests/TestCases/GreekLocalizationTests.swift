@@ -1,8 +1,9 @@
 import XCTest
 
 /// UI coverage for Issue #88: the app presents a fully localized **Greek**
-/// interface. Greek is LTR, so tabs are reached by index (Search 0, History 1,
-/// Bookmarks 2, Settings 3), as in `SpanishLocalizationTests`.
+/// interface. Tabs are reached through `app.tabButton(_:)`: by index in a tab
+/// bar (Search 0, History 1, Bookmarks 2, Settings 3; Greek is LTR), by SF
+/// Symbol on the iPadOS 26 tab strip, as in `SpanishLocalizationTests`.
 ///
 /// Launch path: `-AppleLanguages (el) -resetData`. `-resetData` drops any
 /// persisted in-app language inside `LocalizationManager.init` (#74), so the
@@ -11,8 +12,8 @@ import XCTest
 /// so the English leak sweep covers it. Only `testLanguagePickerOffersGreek`
 /// persists a language, and it restores English in a teardown block.
 ///
-/// - No `TabBarPage.tap*Tab` (it falls back to English labels) and no
-///   `SearchPage` helpers that match English system labels.
+/// - No `TabBarPage.tap*Tab` (each tap checks the Greek label and title here)
+///   and no `SearchPage` helpers that match English system labels.
 /// - Section headers are matched after folding case, accents and final sigma:
 ///   iOS uppercases grouped-list headers and Greek uppercase drops the tonos.
 /// - Screenshots of every main screen are attached (`.keepAlways`) for the
@@ -29,18 +30,9 @@ final class GreekLocalizationTests: XCTestCase {
         static let settings = "Ρυθμίσεις"
     }
 
-    private enum Tab: Int, CaseIterable {
-        case search = 0, history, bookmarks, settings
-
-        var greekLabel: String {
-            [GreekTab.search, GreekTab.history, GreekTab.bookmarks, GreekTab.settings][rawValue]
-        }
-
-        /// Navigation title of the tab's root screen.
-        var greekTitle: String {
-            ["Λεξικό", "Ιστορικό", "Σελιδοδείκτες", "Ρυθμίσεις"][rawValue]
-        }
-    }
+    /// The shared tabs (index 0–3); Greek labels and titles in the extension
+    /// at the end of this file.
+    private typealias Tab = TabBarPage.Tab
 
     /// English UI values of the screens under test (en catalog), plus the
     /// system words a Greek process must not show. Compared case-insensitively
@@ -110,7 +102,7 @@ final class GreekLocalizationTests: XCTestCase {
         }
         let gone = NSPredicate(format: "exists == FALSE")
         for english in ["Search", "History", "Bookmarks", "Settings"] {
-            expectation(for: gone, evaluatedWith: app.tabBars.firstMatch.buttons[english], handler: nil)
+            expectation(for: gone, evaluatedWith: app.tabButton(labeled: english), handler: nil)
         }
         waitForExpectations(timeout: TestData.Timeouts.medium) { error in
             XCTAssertNil(error, "English tab labels must not appear in the Greek UI")
@@ -299,11 +291,18 @@ final class GreekLocalizationTests: XCTestCase {
     /// AC2: Search root, the empty History and Bookmarks, a Greek search for
     /// "σκύλος", its definition, then History and Bookmarks listing it.
     func testSearchHistoryBookmarksAreLocalizedInGreek() throws {
-        // Search root.
+        // Search root. On iPadOS 26 `.searchable` is collapsed into a nav-bar
+        // button at rest (#104), and expanding it hides the tab bar (#120), so
+        // the placeholder is checked there once expanded for the search below.
         XCTAssertTrue(app.navigationBars["Λεξικό"].waitForExistence(timeout: TestData.Timeouts.long))
-        let field = app.searchFields.firstMatch
-        XCTAssertTrue(field.waitForExistence(timeout: TestData.Timeouts.long))
-        XCTAssertEqual(field.placeholderValue, "Αναζήτηση λέξεων…")
+        let searchPage = SearchPage(app: app)
+        if app.usesFloatingTabStrip {
+            XCTAssertTrue(searchPage.verifySearchFieldExists(), "collapsed search button on the Search root")
+        } else {
+            let field = app.searchFields.firstMatch
+            XCTAssertTrue(field.waitForExistence(timeout: TestData.Timeouts.long))
+            XCTAssertEqual(field.placeholderValue, "Αναζήτηση λέξεων…")
+        }
         let readingMode = app.buttons[AccessibilityIdentifiers.ReadingMode.toggle].firstMatch
         XCTAssertTrue(readingMode.waitForExistence(timeout: TestData.Timeouts.medium))
         XCTAssertEqual(readingMode.label, "Ενεργοποίηση λειτουργίας ανάγνωσης")
@@ -324,8 +323,12 @@ final class GreekLocalizationTests: XCTestCase {
 
         // Greek search.
         openTab(.search)
+        searchPage.revealSearchFieldIfCollapsed()
         let search = app.searchFields.firstMatch
         XCTAssertTrue(search.waitForExistence(timeout: TestData.Timeouts.long))
+        if app.usesFloatingTabStrip {
+            XCTAssertEqual(search.placeholderValue, "Αναζήτηση λέξεων…")
+        }
         search.tap()
         dismissSiriPrivacyNoticeIfPresent()
         app.searchFields.firstMatch.typeText("σκύλος")
@@ -388,7 +391,7 @@ final class GreekLocalizationTests: XCTestCase {
     /// Issue #111) it must be Greek; captured once if seen. Then waits until
     /// every bundled dictionary is unpacked, before any search or count.
     private func waitForColdSeed() {
-        let tabBar = app.tabBars.firstMatch
+        let tabBar = app.tabButton(.search)
         let greekLoading = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Φόρτωση λεξικού…")).firstMatch
         let englishLoading = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Loading dictionary...")).firstMatch
         let deadline = Date().addingTimeInterval(TabBarPage.coldSeedTimeout)
@@ -409,22 +412,23 @@ final class GreekLocalizationTests: XCTestCase {
     // MARK: - Navigation
 
     private func tabButton(_ tab: Tab) -> XCUIElement {
-        app.tabBars.firstMatch.buttons.element(boundBy: tab.rawValue)
+        app.tabButton(tab)
     }
 
     private func tabButtonLabeled(_ label: String) -> XCUIElement {
-        app.tabBars.firstMatch.buttons[label]
+        app.tabButton(labeled: label)
     }
 
-    /// Taps a tab by index after checking its Greek label, then waits for its
-    /// Greek root title. Coordinate tap (iOS 26 `scrollToVisible` failure); on
-    /// iPad an element tap once the keyboard is gone (#76).
+    /// Taps a tab after checking its Greek label, then waits for its Greek
+    /// root title. Coordinate tap (iOS 26 `scrollToVisible` failure, and the
+    /// iPadOS 26 tab strip); on an iPad tab bar an element tap once the
+    /// keyboard is gone (#76).
     private func openTab(_ tab: Tab, file: StaticString = #filePath, line: UInt = #line) {
         let button = tabButton(tab)
         XCTAssertTrue(button.waitForExistence(timeout: TestData.Timeouts.long), "tab \(tab.rawValue)", file: file, line: line)
         XCTAssertEqual(button.label, tab.greekLabel, "tab \(tab.rawValue) label", file: file, line: line)
         dismissKeyboardIfPresent()
-        if UIDevice.current.userInterfaceIdiom == .pad && button.isHittable {
+        if UIDevice.current.userInterfaceIdiom == .pad && !app.usesFloatingTabStrip && button.isHittable {
             button.tap()
         } else {
             button.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
@@ -435,7 +439,7 @@ final class GreekLocalizationTests: XCTestCase {
 
     /// Settings → language row → picker.
     private func openLanguagePicker(expectingTitle title: String = GreekTab.settings) {
-        let settings = app.tabBars.firstMatch.buttons.element(boundBy: Tab.settings.rawValue)
+        let settings = app.tabButton(.settings)
         XCTAssertTrue(settings.waitForExistence(timeout: TestData.Timeouts.long))
         settings.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
         XCTAssertTrue(app.navigationBars[title].waitForExistence(timeout: TestData.Timeouts.long), "Settings '\(title)'")
@@ -606,5 +610,17 @@ final class GreekLocalizationTests: XCTestCase {
         attachment.name = "el-\(name)"
         attachment.lifetime = .keepAlways
         add(attachment)
+    }
+}
+
+private extension TabBarPage.Tab {
+    var greekLabel: String {
+        typealias Labels = GreekLocalizationTests.GreekTab
+        return [Labels.search, Labels.history, Labels.bookmarks, Labels.settings][rawValue]
+    }
+
+    /// Navigation title of the tab's root screen.
+    var greekTitle: String {
+        ["Λεξικό", "Ιστορικό", "Σελιδοδείκτες", "Ρυθμίσεις"][rawValue]
     }
 }

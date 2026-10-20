@@ -37,12 +37,6 @@ class BasePage {
         return element
     }
 
-    func waitForTabBar(timeout: TimeInterval = 5) -> XCUIElement {
-        let element = app.tabBars.firstMatch
-        XCTAssertTrue(element.waitForExistence(timeout: timeout), "TabBar not found within \(timeout) seconds")
-        return element
-    }
-
     // MARK: - Reading Mode (Issue #5)
     //
     // The toggle is rendered by both SearchView and DefinitionView, so the
@@ -96,18 +90,87 @@ extension XCUIElement {
 
 extension XCUIApplication {
     /// Issue #111 readiness signal, the single one for every suite: the Search
-    /// field exists and the unpack progress bar does not. The bar's state is
-    /// set before the first frame, so once the field exists an absent bar
-    /// means every bundled dictionary is searchable (a search before that can
-    /// fail fast on a "no results"). Call right after `launch()`, before
-    /// navigating: every launch starts on the Search tab, where the bar lives.
-    /// Language-independent (by identifier). Returns at once on a warm launch.
+    /// screen is up and the unpack progress bar is not. "Search screen is up"
+    /// is the `search_tab` content id, not the search field: on iPadOS 26
+    /// `.searchable` is collapsed into a nav-bar button at rest, so there is
+    /// no field (#104). The content renders in the same frame as the field,
+    /// and the bar's state is set before the first frame, so once the content
+    /// exists an absent bar means every bundled dictionary is searchable (a
+    /// search before that can fail fast on a "no results"). Call right after
+    /// `launch()`, before navigating: every launch starts on the Search tab,
+    /// where the bar lives. Language-independent (by identifier). Returns at
+    /// once on a warm launch.
     @discardableResult
     func waitForDictionariesReady(launchTimeout: TimeInterval = TestData.Timeouts.launch,
                                   unpackTimeout: TimeInterval = TestData.Timeouts.dictionariesReady) -> Bool {
-        guard searchFields.firstMatch.waitForExistence(timeout: launchTimeout) else { return false }
+        let searchScreen = descendants(matching: .any)[AccessibilityIdentifiers.TabBar.searchTab].firstMatch
+        guard searchScreen.waitForExistence(timeout: launchTimeout) else { return false }
         return descendants(matching: .any)[AccessibilityIdentifiers.Search.dictionaryUnpackProgress]
             .waitForNonExistence(timeout: unpackTimeout)
+    }
+
+    // MARK: - Tabs (Issues #102, #104)
+
+    /// True on the iPadOS 26 layout: the tabs are a floating strip at the top
+    /// with no `UITabBar`, and `.searchable` is collapsed at rest. Every iPhone
+    /// and iPad 17.x has a `UITabBar`.
+    var usesFloatingTabStrip: Bool {
+        UIDevice.current.userInterfaceIdiom == .pad
+            && ProcessInfo.processInfo.operatingSystemVersion.majorVersion >= 26
+            && !tabBars.firstMatch.exists
+    }
+
+    /// The button of `tab`, on both layouts and in every language:
+    ///   - `UITabBar` (every iPhone, iPad 17.x): the button at the tab's index.
+    ///     The buttons carry no identifier there; the `*_tab` ids are on the
+    ///     tab content.
+    ///   - iPadOS 26 floating strip: the button whose identifier is the tab's
+    ///     SF Symbol.
+    /// Does not wait; callers wait once on the returned element. The returned
+    /// query resolves lazily, so it also works when taken before the tab bar
+    /// has appeared.
+    func tabButton(_ tab: TabBarPage.Tab) -> XCUIElement {
+        if usesFloatingTabStrip {
+            return buttons.matching(identifier: tab.symbol).firstMatch
+        }
+        return tabBars.firstMatch.buttons.element(boundBy: tab.rawValue)
+    }
+
+    /// A tab button by its visible (localized) label, on both layouts, for
+    /// suites that check the labels themselves or must not rely on the tab
+    /// order (RTL). On the iPadOS 26 strip only the four tab buttons match.
+    func tabButton(labeled label: String) -> XCUIElement {
+        if usesFloatingTabStrip {
+            let symbols = TabBarPage.Tab.allCases.map(\.symbol)
+            return buttons.matching(NSPredicate(format: "identifier IN %@ AND label == %@", symbols, label)).firstMatch
+        }
+        return tabBars.firstMatch.buttons[label]
+    }
+
+    /// Hides the software keyboard; returns whether it is gone. Shared by
+    /// `TabBarPage` and `SearchPage.dismissKeyboard()`.
+    ///   1. "Hide keyboard" (iPad only, Issue #76).
+    ///   2. The commit key, by identifier or label. The `.searchable` key's
+    ///      identifier is "Search" in every language; its label is localized.
+    ///   3. Last resort: a swipe down on the content, which dismisses the
+    ///      keyboard through the scroll view.
+    /// Never swipes on the keyboard itself: on iPhone that does not dismiss it
+    /// and, with slide-to-type, types into the field (Issue #102).
+    @discardableResult
+    func dismissKeyboardIfPresent() -> Bool {
+        let keyboard = keyboards.firstMatch
+        guard keyboard.exists else { return true }
+        for key in ["Hide keyboard", "Search", "search", "Return", "return", "Done", "Go"] {
+            let button = keyboard.buttons[key]
+            guard button.exists else { continue }
+            button.tap()
+            if keyboard.waitForNonExistence(timeout: TestData.Timeouts.short) { return true }
+        }
+        let content = collectionViews.firstMatch
+        if content.exists {
+            content.swipeDown()
+        }
+        return keyboard.waitForNonExistence(timeout: TestData.Timeouts.short)
     }
 
     /// Returns the scroll container backing the current screen — SwiftUI
