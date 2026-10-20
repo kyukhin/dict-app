@@ -73,6 +73,13 @@ class SettingsPage: BasePage {
         _ = app.scrollToElement(button)
         button.tap()
         let page = DictionaryInfoPage(app: app)
+        // iPadOS 26: toggling a pair can leave the order list resting between
+        // its large-title and inline states (the large title overlaps the
+        // first row); the next tap on the list only settles it and is
+        // swallowed. Tap once more if the detail did not open (Issue #123).
+        if app.usesFloatingTabStrip && !page.waitForView(timeout: TestData.Timeouts.short) && button.exists {
+            button.tap()
+        }
         _ = page.waitForView()
         return page
     }

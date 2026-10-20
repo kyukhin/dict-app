@@ -2,6 +2,33 @@ import XCTest
 
 class TabBarPage: BasePage {
 
+    /// The four tabs, in `ContentView` order. The raw value is the tab's index
+    /// in a `UITabBar`.
+    enum Tab: Int, CaseIterable {
+        case search, history, bookmarks, settings
+
+        /// The tab item's SF Symbol: the tab-button identifier on the iPadOS 26
+        /// floating strip. Must match `ContentView`'s `.tabItem` `systemImage`.
+        var symbol: String {
+            switch self {
+            case .search: return AccessibilityIdentifiers.TabBar.searchSymbol
+            case .history: return AccessibilityIdentifiers.TabBar.historySymbol
+            case .bookmarks: return AccessibilityIdentifiers.TabBar.bookmarksSymbol
+            case .settings: return AccessibilityIdentifiers.TabBar.settingsSymbol
+            }
+        }
+
+        /// Identifier of the tab's root content (not of its button).
+        var contentIdentifier: String {
+            switch self {
+            case .search: return AccessibilityIdentifiers.TabBar.searchTab
+            case .history: return AccessibilityIdentifiers.TabBar.historyTab
+            case .bookmarks: return AccessibilityIdentifiers.TabBar.bookmarksTab
+            case .settings: return AccessibilityIdentifiers.TabBar.settingsTab
+            }
+        }
+    }
+
     /// Budget for the one-time unpack of the bundled dictionaries on a fresh
     /// install. Since Issue #111 the tab bar shows in seconds and the unpack
     /// runs behind it; see `XCUIApplication.waitForDictionariesReady`.
@@ -17,123 +44,100 @@ class TabBarPage: BasePage {
                       "Search screen with every dictionary unpacked after launch")
     }
 
-    private var tabBar: XCUIElement {
-        let element = app.tabBars.firstMatch
-        _ = element.waitForExistence(timeout: 10)
-        return element
-    }
-
-    // Tab buttons - scope strictly to tab bar to avoid conflicts
-    private var searchTab: XCUIElement {
-        // First try by accessibility identifier within tab bar
-        if tabBar.buttons["search_tab"].exists {
-            return tabBar.buttons["search_tab"]
-        }
-        // Second try by label within tab bar
-        if tabBar.buttons["Search"].exists {
-            return tabBar.buttons["Search"]
-        }
-        // Fallback to first match in tab bars
-        return app.tabBars.firstMatch.buttons["Search"]
-    }
-
-    private var historyTab: XCUIElement {
-        // First try by accessibility identifier within tab bar
-        if tabBar.buttons["history_tab"].exists {
-            return tabBar.buttons["history_tab"]
-        }
-        // Second try by label within tab bar
-        if tabBar.buttons["History"].exists {
-            return tabBar.buttons["History"]
-        }
-        // Fallback to first match in tab bars
-        return app.tabBars.firstMatch.buttons["History"]
-    }
-
-    private var bookmarksTab: XCUIElement {
-        // First try by accessibility identifier within tab bar
-        if tabBar.buttons["bookmarks_tab"].exists {
-            return tabBar.buttons["bookmarks_tab"]
-        }
-        // Second try by label within tab bar
-        if tabBar.buttons["Bookmarks"].exists {
-            return tabBar.buttons["Bookmarks"]
-        }
-        // Fallback to first match in tab bars
-        return app.tabBars.firstMatch.buttons["Bookmarks"]
-    }
-
-    private var settingsTab: XCUIElement {
-        if tabBar.buttons["settings_tab"].exists {
-            return tabBar.buttons["settings_tab"]
-        }
-        if tabBar.buttons["Settings"].exists {
-            return tabBar.buttons["Settings"]
-        }
-        return app.tabBars.firstMatch.buttons["Settings"]
-    }
-
     // MARK: - Navigation Methods
 
-    /// Dismisses the software keyboard if it is showing. On iPad the keyboard
-    /// overlays the bottom tab strip after a `.searchable` search, leaving each
-    /// tab button present-but-unhittable — a tap then lands on a keyboard key
-    /// instead of the tab, so the switch silently no-ops (Issue #76). A no-op
-    /// when no keyboard is up, so it is harmless on the iPhone path.
-    private func dismissKeyboardIfPresent() {
-        guard app.keyboards.count > 0 else { return }
-        let hideKey = app.keyboards.buttons["Hide keyboard"]
-        if hideKey.exists {
-            hideKey.tap()
-        } else {
-            app.keyboards.firstMatch.swipeDown()
-        }
-        // Wait for the keyboard to retract so the tab strip becomes hittable.
-        let deadline = Date().addingTimeInterval(2.0)
-        while app.keyboards.count > 0 && Date() < deadline {
-            Thread.sleep(forTimeInterval: 0.1)
-        }
-    }
-
-    /// Taps a tab-bar element. XCUITest's `.tap()` first invokes an AX
-    /// `scrollToVisible` action; on iOS 26 with certain SwiftUI layouts
-    /// (notably after a NavigationLink push inside the tab) that action fails
-    /// with `kAXErrorCannotComplete`, breaking tab navigation entirely. A
-    /// coordinate tap skips `scrollToVisible` and works as long as the
-    /// element's frame is correct (which it is for tab-bar buttons — they live
-    /// in a fixed bottom strip). That is the iPhone path, unchanged.
+    /// Switches to `tab` and checks that the switch landed, so a missed tap
+    /// fails here and not later as "History should load" (Issue #102).
     ///
-    /// iPad needs two extra steps (Issue #76, verified by hierarchy dumps):
-    ///   1. The keyboard occludes the tab strip after a `.searchable` search,
-    ///      so dismiss it first (above) to make the button hittable.
-    ///   2. Even when hittable, a *raw coordinate* tap is swallowed while
-    ///      `.searchable` is still active (a "Cancel" button present) — only a
-    ///      direct element `.tap()` registers the switch (and clears the search).
-    /// So on iPad, once the button is hittable, prefer `.tap()`; otherwise fall
-    /// back to the coordinate tap.
-    private func coordinateTap(_ element: XCUIElement) {
-        // Make sure the element exists before computing a coordinate from it.
-        _ = element.waitForExistence(timeout: TestData.Timeouts.medium)
-        dismissKeyboardIfPresent()
-        if UIDevice.current.userInterfaceIdiom == .pad && element.isHittable {
-            element.tap()
-        } else {
-            element.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+    /// The tap itself:
+    ///   - iPad with a `UITabBar` (17.x), button hittable: element `.tap()`.
+    ///     A raw coordinate tap is swallowed there while `.searchable` is
+    ///     active (Issue #76).
+    ///   - Everything else: a coordinate tap. On iOS 26 `.tap()` first runs an
+    ///     AX `scrollToVisible` that can fail on tab buttons after a push; a
+    ///     coordinate tap skips it. It also works on the iPadOS 26 strip.
+    func tap(_ tab: Tab) {
+        clearTabObstructions(for: tab)
+        let button = app.tabButton(tab)
+        guard button.waitForExistence(timeout: TestData.Timeouts.medium) else {
+            XCTFail("\(tab) tab button should exist")
+            return
         }
+        if UIDevice.current.userInterfaceIdiom == .pad && !app.usesFloatingTabStrip && button.isHittable {
+            button.tap()
+        } else {
+            button.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        }
+
+        var selected = waitUntilSelected(tab)
+        if !selected {
+            let retry = app.tabButton(tab)
+            if retry.exists && retry.isHittable {
+                retry.tap()
+                selected = waitUntilSelected(tab)
+            }
+        }
+        XCTAssertTrue(selected, "Tab \(tab) should be selected after the tap")
         popDetailToRootIfNeeded()
     }
 
-    /// Re-selecting an already-active tab pops its NavigationStack to root on
-    /// iPhone, but **not** on iPad (Issue #76): a pushed `DefinitionView` stays
-    /// on top, so a caller that taps e.g. the Search tab to start a fresh search
-    /// finds no search field (`SearchPage` "Search field should exist"). When a
-    /// detail view is still showing after the tab tap, pop it the same way
-    /// `DefinitionPage.navigateBack` does — tap the leading nav-bar button (the
-    /// back chevron). This is safe because the tab root views carry no leading
-    /// nav-bar button, so it only ever dismisses a pushed detail. iPhone is
-    /// unaffected (it has already popped, so the loop never runs).
+    /// Clears what keeps the tab button from taking the tap.
+    ///   1. The keyboard. On iPhone it covers the tab bar after a search, so a
+    ///      tap lands on a key (Issue #102); on iPad it does too (Issue #76).
+    ///   2. iPadOS 26 hides the tab bar while the search field holds a query
+    ///      (#120), and nothing but clearing the query brings it back. So when
+    ///      the tab button is missing and the field has a query, clear it, as a
+    ///      user would have to. iPhone and iPad 17.x always have the button, so
+    ///      they never get here.
+    private func clearTabObstructions(for tab: Tab) {
+        if app.keyboards.count > 0 {
+            app.dismissKeyboardIfPresent()
+        }
+        guard !app.tabButton(tab).exists else { return }
+
+        let field = app.searchFields.firstMatch
+        guard field.exists,
+              let query = field.value as? String,
+              !query.isEmpty, query != field.placeholderValue else { return }
+        // "Clear text" is English; it is the only button in the field.
+        let englishClear = field.buttons["Clear text"]
+        let clear = englishClear.exists ? englishClear : field.buttons.firstMatch
+        guard clear.exists else { return }
+        clear.tap()
+        if app.tabButton(tab).waitForExistence(timeout: TestData.Timeouts.short) { return }
+        app.dismissKeyboardIfPresent()
+        _ = app.tabButton(tab).waitForExistence(timeout: TestData.Timeouts.short)
+    }
+
+    /// Polls whether `tab` is selected, re-resolving the button each time.
+    private func waitUntilSelected(_ tab: Tab, timeout: TimeInterval = TestData.Timeouts.short) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if isSelected(tab) { return true }
+            Thread.sleep(forTimeInterval: 0.15)
+        }
+        return isSelected(tab)
+    }
+
+    /// The button's `Selected` trait (both layouts). When the button is not on
+    /// screen (iPadOS 26 Search with a query, #120), the tab's content is the
+    /// only signal left: only the selected tab's content is in the tree.
+    private func isSelected(_ tab: Tab) -> Bool {
+        let button = app.tabButton(tab)
+        if button.exists {
+            return button.isSelected
+        }
+        return app.descendants(matching: .any)[tab.contentIdentifier].firstMatch.exists
+    }
+
+    /// Selecting the already-active tab does not pop its NavigationStack on
+    /// iPhone iOS 17.5, iPad 17.x or iPadOS 26 (only iPhone iOS 26 pops), so a
+    /// caller that taps Search to start a fresh search would find a pushed
+    /// `DefinitionView` and no search field (Issues #76, #102). Pop it the way
+    /// `DefinitionPage.navigateBack` does: tap the leading nav-bar button (the
+    /// back button). Safe on every device: tab roots have no back button, and
+    /// the loop only runs while a definition is showing.
     private func popDetailToRootIfNeeded() {
-        guard UIDevice.current.userInterfaceIdiom == .pad else { return }
         let detail = app.descendants(matching: .any)[AccessibilityIdentifiers.Definition.definitionView]
         var guardCount = 0
         while detail.exists && guardCount < 4 {
@@ -150,55 +154,52 @@ class TabBarPage: BasePage {
 
     @discardableResult
     func tapSearchTab() -> SearchPage {
-        coordinateTap(searchTab)
+        tap(.search)
         return SearchPage(app: app)
     }
 
     @discardableResult
     func tapHistoryTab() -> HistoryPage {
-        coordinateTap(historyTab)
+        tap(.history)
         return HistoryPage(app: app)
     }
 
     @discardableResult
     func tapBookmarksTab() -> BookmarksPage {
-        coordinateTap(bookmarksTab)
+        tap(.bookmarks)
         return BookmarksPage(app: app)
     }
 
     @discardableResult
     func tapSettingsTab() -> SettingsPage {
-        coordinateTap(settingsTab)
+        tap(.settings)
         return SettingsPage(app: app)
     }
 
     // MARK: - Verification Methods
 
     func verifyTabBarExists() -> Bool {
-        return tabBar.exists
+        return app.tabButton(.search).waitForExistence(timeout: TestData.Timeouts.medium)
     }
 
     func verifyAllTabsExist() -> Bool {
-        return searchTab.exists &&
-               historyTab.exists &&
-               bookmarksTab.exists &&
-               settingsTab.exists
+        return Tab.allCases.allSatisfy { app.tabButton($0).exists }
     }
 
     func verifySearchTabSelected() -> Bool {
-        return searchTab.isSelected
+        return isSelected(.search)
     }
 
     func verifyHistoryTabSelected() -> Bool {
-        return historyTab.isSelected
+        return isSelected(.history)
     }
 
     func verifyBookmarksTabSelected() -> Bool {
-        return bookmarksTab.isSelected
+        return isSelected(.bookmarks)
     }
 
     func verifySettingsTabSelected() -> Bool {
-        return settingsTab.isSelected
+        return isSelected(.settings)
     }
 
     @available(*, deprecated, renamed: "verifySettingsTabSelected")

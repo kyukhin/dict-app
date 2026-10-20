@@ -40,9 +40,40 @@ class SearchPage: BasePage {
         return condition()
     }
 
+    // MARK: - iPadOS 26 collapsed search (Issue #104)
+
+    /// On iPadOS 26 `.searchable` is collapsed at rest into a nav-bar button
+    /// (label "Search", empty identifier) and there is no search field. Nil on
+    /// every other layout, where the field is always there, and off the
+    /// Search root (another tab or a pushed definition). Matched by the
+    /// English label first, then as the nav-bar button that is neither the
+    /// reading-mode toggle nor a back button. Also used by the localization
+    /// suites, which drive the search field directly.
+    var collapsedSearchButton: XCUIElement? {
+        let nav = app.navigationBars.firstMatch
+        guard app.usesFloatingTabStrip,
+              app.descendants(matching: .any)[TabBarPage.Tab.search.contentIdentifier].firstMatch.exists,
+              !nav.buttons["BackButton"].exists else { return nil }
+        let english = nav.buttons.matching(NSPredicate(format: "identifier == '' AND label == 'Search'")).firstMatch
+        if english.exists { return english }
+        let other = nav.buttons.matching(NSPredicate(format: "NOT (identifier IN %@)",
+                                                     [AccessibilityIdentifiers.ReadingMode.toggle, "BackButton"])).firstMatch
+        return other.exists ? other : nil
+    }
+
+    /// Expands the collapsed iPadOS 26 search so the field exists. A no-op
+    /// when the field is already there (iPhone, iPad 17.x, or a query set).
+    func revealSearchFieldIfCollapsed() {
+        guard !searchField.waitForExistence(timeout: TestData.Timeouts.short),
+              let button = collapsedSearchButton else { return }
+        button.tap()
+        _ = searchField.waitForExistence(timeout: TestData.Timeouts.medium)
+    }
+
     // MARK: - Search Actions
 
-func searchFor(_ term: String) {
+    func searchFor(_ term: String) {
+        revealSearchFieldIfCollapsed()
         // On a slow simulator the search hierarchy may still be re-resolving
         // after a `navigateBack` pop when a looping test calls `searchFor`
         // again. Tapping `searchField.firstMatch` before it resolves makes the
@@ -62,6 +93,13 @@ func searchFor(_ term: String) {
         let clearButton = searchField.buttons["Clear text"]
         if clearButton.waitForExistence(timeout: 1.0) {
             clearButton.tap()
+            if app.usesFloatingTabStrip {
+                // iPadOS 26: clearing the query collapses the field back into
+                // the nav-bar button. Let it collapse, then expand and focus it.
+                _ = searchField.waitForNonExistence(timeout: TestData.Timeouts.short)
+                revealSearchFieldIfCollapsed()
+                searchField.tap()
+            }
         }
         searchField.typeText(term)
         // Don't return until the typed query has actually landed in the field,
@@ -72,6 +110,8 @@ func searchFor(_ term: String) {
     }
 
     func clearSearch() {
+        // Collapsed iPadOS 26 search: the query is empty by definition.
+        if !searchField.exists && collapsedSearchButton != nil { return }
         let clearButton = searchField.buttons["Clear text"]
         if clearButton.waitForExistence(timeout: 1.0) {
             clearButton.tap()
@@ -83,28 +123,10 @@ func searchFor(_ term: String) {
 
     /// Dismisses the on-screen keyboard so the tab bar becomes hittable.
     /// On iPhone the keyboard overlays the tab bar after a `.searchable()`
-    /// search, so any subsequent `tabBar.buttons[...]` tap would silently
-    /// hit the keyboard area instead.
-    ///
-    /// The commit-key label varies by keyboard type — `.searchable()` uses
-    /// "Search" / "search"; standard text fields use "return". We try the
-    /// known labels, then fall back to a swipe-down gesture that dismisses
-    /// the keyboard in iOS without scrolling the content area.
+    /// search, so a tab tap would land on a key instead. One implementation
+    /// for every page: `XCUIApplication.dismissKeyboardIfPresent()`.
     func dismissKeyboard() {
-        guard app.keyboards.firstMatch.exists else { return }
-        for label in ["return", "Return", "Search", "search", "Go", "Done"] {
-            let key = app.keyboards.buttons[label]
-            if key.exists {
-                key.tap()
-                // Wait briefly for the keyboard to animate out.
-                _ = app.keyboards.firstMatch.waitForNonExistence(timeout: 2.0)
-                return
-            }
-        }
-        // Fallback: scroll the results list down — iOS dismisses the
-        // keyboard on a scroll-drag in a scrollable container.
-        app.swipeDown()
-        _ = app.keyboards.firstMatch.waitForNonExistence(timeout: 2.0)
+        app.dismissKeyboardIfPresent()
     }
 
     /// On first use of `.searchable()` iOS 26 surfaces a full-screen
@@ -179,12 +201,17 @@ func searchFor(_ term: String) {
     func verifySearchFieldExists() -> Bool {
         // Bounded retry, not a synchronous sample: callers invoke this right
         // after `navigateBack()`, and on a slow simulator the search field
-        // hasn't re-resolved post-pop yet. `waitForExistence` returns the
-        // instant it appears (immediate on arm64) (Issue #56).
-        return searchField.waitForExistence(timeout: TestData.Timeouts.medium)
+        // hasn't re-resolved post-pop yet. Returns the instant it appears
+        // (immediate on arm64) (Issue #56). The collapsed iPadOS 26 search
+        // button counts too; it is not expanded here, because an expanded
+        // field hides the tab bar there (#120).
+        return waitForCondition { self.searchField.exists || self.collapsedSearchButton != nil }
     }
 
     func verifySearchFieldContains(_ text: String) -> Bool {
+        // Collapsed iPadOS 26 search (clearing the query collapses the field):
+        // no field to read, and the query is empty by definition.
+        guard searchField.exists else { return text.isEmpty && collapsedSearchButton != nil }
         let value = searchField.value as? String ?? ""
         if text.isEmpty {
             // Empty field may show placeholder text instead of ""
@@ -230,6 +257,17 @@ func searchFor(_ term: String) {
 
     func getResultsCount() -> Int {
         return resultsList.cells.count
+    }
+
+    /// Headwords of the first `limit` rendered result cells, from the top of
+    /// the list. Compare signatures, not `cells.count`, across a tab switch:
+    /// the lazy `List` exposes only the rows it has rendered.
+    func resultSignature(limit: Int = 3) -> [String] {
+        let cells = resultsList.cells
+        return (0..<min(limit, cells.count)).map { index in
+            let headword = cells.element(boundBy: index).staticTexts.firstMatch
+            return headword.exists ? headword.label : ""
+        }
     }
 
     func waitForResults(timeout: TimeInterval = TestData.Timeouts.medium) -> Bool {

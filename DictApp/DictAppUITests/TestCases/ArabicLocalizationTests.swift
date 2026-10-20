@@ -24,7 +24,9 @@ import XCTest
 /// either — the `*_tab` identifiers sit on each tab's content container, not on
 /// the tab-bar button (same reality `SpanishLocalizationTests` documents), so a
 /// `tabBar.buttons["settings_tab"]` lookup resolves nothing. The localized label
-/// is the order-independent, RTL-safe handle the buttons actually expose.
+/// is the order-independent, RTL-safe handle the buttons actually expose; it is
+/// looked up through `app.tabButton(labeled:)`, which also covers the iPadOS 26
+/// tab strip (no `UITabBar` there).
 ///
 /// `tearDown` restores English so a persisted Arabic selection can't bleed
 /// into suites that assert on English labels.
@@ -393,9 +395,11 @@ final class ArabicLocalizationTests: XCTestCase {
     }
 
     /// Searches `term` from the (default) Search tab. Tolerates the iOS 26
-    /// first-run "Siri, Dictation & Privacy" sheet that overlays `.searchable`.
+    /// first-run "Siri, Dictation & Privacy" sheet that overlays `.searchable`,
+    /// and expands the iPadOS 26 search, collapsed at rest (#104).
     private func search(for term: String) {
         dismissSiriPrivacyNoticeIfPresent()
+        SearchPage(app: app).revealSearchFieldIfCollapsed()
         let field = app.searchFields.firstMatch
         XCTAssertTrue(field.waitForExistence(timeout: TestData.Timeouts.long), "Search field must exist")
         field.tap()
@@ -431,18 +435,12 @@ final class ArabicLocalizationTests: XCTestCase {
 
     // MARK: - Navigation helpers (RTL-safe: by label, never by index)
 
-    /// The tab bar, waited into existence.
-    private var tabBar: XCUIElement {
-        let bar = app.tabBars.firstMatch
-        _ = bar.waitForExistence(timeout: TestData.Timeouts.long)
-        return bar
-    }
-
-    /// A tab-bar button by its visible (localized Arabic) label. The `*_tab`
-    /// accessibility identifiers live on the tab *content*, not the button, so
-    /// the label is the handle the button actually exposes.
+    /// A tab button by its visible (localized Arabic) label, on the tab bar or
+    /// the iPadOS 26 tab strip. The `*_tab` accessibility identifiers live on
+    /// the tab *content*, not the button, so the label is the order-independent
+    /// handle the button exposes.
     private func tabButton(label: String) -> XCUIElement {
-        tabBar.buttons[label]
+        app.tabButton(labeled: label)
     }
 
     /// Coordinate tap (skips the AX `scrollToVisible` that can fail on iOS 26

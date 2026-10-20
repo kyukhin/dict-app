@@ -27,6 +27,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - [#114] History shows each lookup in your local time and the app's language ("Today, 8:41 PM"), following your device's region and 24-hour setting, instead of a raw UTC timestamp.
 - [#119] In Arabic, language pairs, translation directions, History times and the unsupported-file message now read in the right order.
 
+### Tests / CI
+- [#102, #104] UI tests switch tabs reliably on iPhone iOS 17 and iPadOS 26 through one shared tab lookup that dismisses the keyboard, pops to Search and checks the switch landed.
+
 ## [1.3.0] - 2026-06-25
 
 ### Added

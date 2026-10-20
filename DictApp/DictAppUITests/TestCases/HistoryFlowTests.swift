@@ -379,14 +379,15 @@ final class HistoryFlowTests: XCTestCase {
         tabBarPage = TabBarPage(app: app)
     }
 
-    /// Opens History by tab index on a fresh launch and returns the caption of
-    /// `word`'s row: the one label that is not the word. Fails if the caption
-    /// is missing or still shows the raw UTC timestamp.
+    /// Opens History by its tab button (any language, any layout) on a fresh
+    /// launch and returns the caption of `word`'s row: the one label that is
+    /// not the word. Fails if the caption is missing or still shows the raw
+    /// UTC timestamp.
     private func historyCaption(for word: String, file: StaticString = #filePath,
                                 line: UInt = #line) throws -> String {
-        let historyTab = app.tabBars.firstMatch.buttons.element(boundBy: 1)
+        let historyTab = app.tabButton(.history)
         XCTAssertTrue(historyTab.waitForExistence(timeout: TestData.Timeouts.long),
-                      "History tab (index 1)", file: file, line: line)
+                      "History tab button", file: file, line: line)
         historyTab.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
 
         let id = AccessibilityIdentifiers.History.historyItem(word: word)

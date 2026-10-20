@@ -4,10 +4,22 @@ struct AccessibilityIdentifiers {
 
     // MARK: - Tab Bar
     struct TabBar {
+        // Tab **content** ids: `ContentView` puts them on each tab's root view
+        // (`SearchView()`…), not on the tab buttons, so they never match a
+        // button. `searchTab` is the language-independent "Search screen is
+        // up" anchor (`XCUIApplication.waitForDictionariesReady`).
         static let searchTab = "search_tab"
         static let historyTab = "history_tab"
         static let bookmarksTab = "bookmarks_tab"
         static let settingsTab = "settings_tab"
+
+        // iPadOS 26 tab-button identifiers (Issue #104): the floating tab strip
+        // has no `UITabBar`, and its buttons carry the tab's SF Symbol as their
+        // identifier. Must match `ContentView`'s `.tabItem` `systemImage`s.
+        static let searchSymbol = "magnifyingglass"
+        static let historySymbol = "clock"
+        static let bookmarksSymbol = "bookmark"
+        static let settingsSymbol = "gearshape"
     }
 
     // MARK: - Search View

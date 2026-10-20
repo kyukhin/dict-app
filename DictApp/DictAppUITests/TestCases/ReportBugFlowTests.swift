@@ -58,18 +58,12 @@ final class ReportBugFlowTests: XCTestCase {
         }
         #endif
 
-        // 1. Navigate to Settings.
-        let settingsTab = app.tabBars.buttons["settings_tab"]
-        if !settingsTab.waitForExistence(timeout: 5) {
-            // Tab identifier didn't propagate — fall back to the last tab
-            // bar button (Settings is the rightmost on this app).
-            let buttons = app.tabBars.firstMatch.buttons
-            XCTAssertTrue(buttons.element(boundBy: 3).waitForExistence(timeout: 5),
-                          "Settings tab button not found")
-            buttons.element(boundBy: 3).tap()
-        } else {
-            settingsTab.tap()
-        }
+        // 1. Navigate to Settings. The `settings_tab` id is on the tab
+        //    content, not the button, so go through the shared tab lookup.
+        let settingsTab = app.tabButton(.settings)
+        XCTAssertTrue(settingsTab.waitForExistence(timeout: TestData.Timeouts.long),
+                      "Settings tab button not found")
+        settingsTab.tap()
 
         // 2. Tap "Report a Bug" and confirm the fallback alert. Settings is a
         //    SwiftUI Form backed by a UICollectionView with cell virtualisation;

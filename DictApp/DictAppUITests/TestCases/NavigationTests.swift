@@ -71,14 +71,19 @@ final class NavigationTests: XCTestCase {
         // until the user re-activates the field. That's iOS chrome, not
         // app state — `vm.query` itself is preserved, which is what the
         // user actually cares about. We therefore assert the *results
-        // list* still contains entries (proving `vm.query` survived), and
-        // do not assert on the field's displayed text.
+        // list* still shows the same top results (proving `vm.query`
+        // survived), and do not assert on the field's displayed text. The
+        // top headwords are compared, not `cells.count`: the lazy List
+        // exposes only the rows it has rendered (Issue #102).
+        if app.usesFloatingTabStrip {
+            throw XCTSkip("iPadOS 26 hides the tab bar while the search field holds a query (#120), so a query cannot survive a tab switch from the Search root.")
+        }
         let searchPage = tabBarPage.tapSearchTab()
         let searchTerm = TestData.searchTerms[0]
         searchPage.searchFor(searchTerm)
         XCTAssertTrue(searchPage.waitForResults(), "Search results should appear")
-        let baselineCount = searchPage.getResultsCount()
-        XCTAssertGreaterThan(baselineCount, 0, "Pre-condition: search returned at least one result")
+        let baseline = searchPage.resultSignature()
+        XCTAssertFalse(baseline.isEmpty, "Pre-condition: search returned at least one result")
 
         // Switch to History tab and back.
         let historyPage = tabBarPage.tapHistoryTab()
@@ -90,13 +95,15 @@ final class NavigationTests: XCTestCase {
         // be populated. This is the real "state preserved" signal: if
         // tab-switching had blown away the query, the view would fall back
         // to the Recent list or be empty.
+        XCTAssertTrue(searchPageAgain.waitForResults(),
+                      "Search results must still be visible after returning from another tab")
         XCTAssertTrue(
             searchPageAgain.verifyResultsCount(greaterThan: 0),
             "Search results must still be visible after returning from another tab"
         )
         XCTAssertEqual(
-            searchPageAgain.getResultsCount(), baselineCount,
-            "Result count must match the pre-tab-switch baseline; differing means vm.query changed"
+            searchPageAgain.resultSignature(), baseline,
+            "Top results must match the pre-tab-switch baseline; differing means vm.query changed"
         )
     }
 

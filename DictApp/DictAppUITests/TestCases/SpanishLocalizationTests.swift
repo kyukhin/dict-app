@@ -14,21 +14,18 @@ import XCTest
 ///      init, before any launch-time reset could run, so a launch
 ///      argument can't reliably override a previously-persisted choice.
 ///
-/// Tab navigation here is intentionally **by index**, not via `TabBarPage`:
+/// Tab navigation goes through `app.tabButton(.settings)`, never a label:
 /// the tab-bar buttons carry no `*_tab` accessibility identifier (those
-/// live on each tab's content container), so `TabBarPage` falls back to
-/// matching the English label "Settings" — which breaks the moment the UI
-/// is in Spanish. The tab order (Search, History, Bookmarks, Settings) is
-/// fixed in `ContentView`, so index 3 is always Settings regardless of
-/// language.
+/// live on each tab's content container), and a label breaks the moment
+/// the UI is in Spanish. The helper takes the button by index in a tab bar
+/// (the order is fixed in `ContentView`) and by SF Symbol on the iPadOS 26
+/// tab strip, so it works regardless of language.
 ///
 /// Every test restores English in `tearDown` so a persisted Spanish
 /// selection can't bleed into suites that assert on English labels.
 final class SpanishLocalizationTests: XCTestCase {
 
     private var app: XCUIApplication!
-
-    private let settingsTabIndex = 3   // Search, History, Bookmarks, Settings
 
     override func setUpWithError() throws {
         continueAfterFailure = false
@@ -141,30 +138,23 @@ final class SpanishLocalizationTests: XCTestCase {
 
     // MARK: - Navigation helpers (language-independent)
 
-    /// The tab bar, waited into existence.
-    private var tabBar: XCUIElement {
-        let bar = app.tabBars.firstMatch
-        // 60s — absorbs the one-time ~306k-row seed import on a fresh-install /
-        // cold launch (~104 MB seed.sqlite). Matches ArabicLocalizationTests; bumped
-        // per #54 after the post-#10 seed growth exposed the 10s ceiling.
-        _ = bar.waitForExistence(timeout: 60)
-        return bar
-    }
+    /// 60s — absorbs the one-time seed import on a fresh-install / cold launch.
+    /// Matches ArabicLocalizationTests; bumped per #54 after the post-#10 seed
+    /// growth exposed the 10s ceiling.
+    private let tabBarTimeout: TimeInterval = 60
 
-    /// A tab-bar button by its visible (localized) label.
+    /// A tab button by its visible (localized) label.
     private func tabButton(label: String) -> XCUIElement {
-        tabBar.buttons[label]
+        app.tabButton(labeled: label)
     }
 
-    /// Taps the Settings tab by index. iOS 26's `.tap()` first runs an AX
+    /// Taps the Settings tab. iOS 26's `.tap()` first runs an AX
     /// `scrollToVisible` that can fail on tab-bar buttons; a coordinate tap
-    /// skips it. Index is language-independent (unlike a label match).
+    /// skips it. The lookup is language-independent (unlike a label match).
     private func tapSettingsTab() {
-        let bar = tabBar
-        XCTAssertTrue(bar.exists, "Tab bar must appear")
-        let settings = bar.buttons.element(boundBy: settingsTabIndex)
-        XCTAssertTrue(settings.waitForExistence(timeout: 5),
-                      "Settings tab (index \(settingsTabIndex)) must exist")
+        let settings = app.tabButton(.settings)
+        XCTAssertTrue(settings.waitForExistence(timeout: tabBarTimeout),
+                      "Settings tab must exist")
         settings.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
     }
 
@@ -181,12 +171,8 @@ final class SpanishLocalizationTests: XCTestCase {
     /// false (rather than asserting) so `tearDown` can call it defensively.
     @discardableResult
     private func selectLanguage(code: String) -> Bool {
-        let bar = app.tabBars.firstMatch
-        // 60s — absorbs the one-time ~306k-row cold seed; matches the
-        // tabBar getter post-#54.
-        guard bar.waitForExistence(timeout: 60) else { return false }
-        let settings = bar.buttons.element(boundBy: settingsTabIndex)
-        guard settings.waitForExistence(timeout: 5) else { return false }
+        let settings = app.tabButton(.settings)
+        guard settings.waitForExistence(timeout: tabBarTimeout) else { return false }
         settings.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
 
         let link = app.descendants(matching: .any)["ui_language_link"]
