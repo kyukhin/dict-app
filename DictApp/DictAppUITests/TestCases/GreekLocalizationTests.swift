@@ -291,18 +291,11 @@ final class GreekLocalizationTests: XCTestCase {
     /// AC2: Search root, the empty History and Bookmarks, a Greek search for
     /// "σκύλος", its definition, then History and Bookmarks listing it.
     func testSearchHistoryBookmarksAreLocalizedInGreek() throws {
-        // Search root. On iPadOS 26 `.searchable` is collapsed into a nav-bar
-        // button at rest (#104), and expanding it hides the tab bar (#120), so
-        // the placeholder is checked there once expanded for the search below.
+        // Search root.
         XCTAssertTrue(app.navigationBars["Λεξικό"].waitForExistence(timeout: TestData.Timeouts.long))
-        let searchPage = SearchPage(app: app)
-        if app.usesFloatingTabStrip {
-            XCTAssertTrue(searchPage.verifySearchFieldExists(), "collapsed search button on the Search root")
-        } else {
-            let field = app.searchFields.firstMatch
-            XCTAssertTrue(field.waitForExistence(timeout: TestData.Timeouts.long))
-            XCTAssertEqual(field.placeholderValue, "Αναζήτηση λέξεων…")
-        }
+        let field = app.searchFields.firstMatch
+        XCTAssertTrue(field.waitForExistence(timeout: TestData.Timeouts.long))
+        XCTAssertEqual(field.placeholderValue, "Αναζήτηση λέξεων…")
         let readingMode = app.buttons[AccessibilityIdentifiers.ReadingMode.toggle].firstMatch
         XCTAssertTrue(readingMode.waitForExistence(timeout: TestData.Timeouts.medium))
         XCTAssertEqual(readingMode.label, "Ενεργοποίηση λειτουργίας ανάγνωσης")
@@ -323,12 +316,8 @@ final class GreekLocalizationTests: XCTestCase {
 
         // Greek search.
         openTab(.search)
-        searchPage.revealSearchFieldIfCollapsed()
         let search = app.searchFields.firstMatch
         XCTAssertTrue(search.waitForExistence(timeout: TestData.Timeouts.long))
-        if app.usesFloatingTabStrip {
-            XCTAssertEqual(search.placeholderValue, "Αναζήτηση λέξεων…")
-        }
         search.tap()
         dismissSiriPrivacyNoticeIfPresent()
         app.searchFields.firstMatch.typeText("σκύλος")

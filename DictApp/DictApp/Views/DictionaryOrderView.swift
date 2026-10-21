@@ -70,5 +70,26 @@ struct DictionaryOrderView: View {
         .environment(\.editMode, .constant(.active))   // always-on drag grips, no Edit button
         .accessibilityIdentifier("dictionary_order_view")   // screen-level handle so page-object can waitForExistence before interacting (#6 review)
         .navigationTitle("settings.dictionaryOrder.title")
+        .modifier(PadOS26InlineTitle())
+    }
+}
+
+// MARK: - Title mode (Issue #123)
+
+/// Inline title on iPad with iOS 26 (Issue #123); the default everywhere else.
+///
+/// With `.automatic` (or `.large`) iPadOS 26 resolves this screen two ways:
+/// inline on the push from Settings, large after coming back from the (i)
+/// detail. UIKit can then switch back to inline in the middle of the next
+/// touch: the large title is drawn over the first row and that tap is lost.
+/// Pinned to inline there is one layout and nothing left to switch.
+/// `DictionaryDetailView` inherits the inline title.
+private struct PadOS26InlineTitle: ViewModifier {
+    func body(content: Content) -> some View {
+        if #available(iOS 26, *), UIDevice.current.userInterfaceIdiom == .pad {
+            content.navigationBarTitleDisplayMode(.inline)
+        } else {
+            content
+        }
     }
 }

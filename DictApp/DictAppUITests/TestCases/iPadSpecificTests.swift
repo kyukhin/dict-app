@@ -116,12 +116,9 @@ final class iPadSpecificTests: XCTestCase {
                       "All four tab controls must exist on iPad")
 
         tapTab("Search")
-        // On iPadOS 26 the `.searchable()` field collapses into a top-right
-        // magnifying-glass icon that only expands when tapped — so we can't
-        // rely on `app.searchFields` being on screen at rest. Instead we
-        // assert the Search tab's NavigationStack title ("Dictionary")
+        // Assert the Search tab's NavigationStack title ("Dictionary")
         // appears, which is the unambiguous "Search view is rendered"
-        // signal.
+        // signal on every iPad layout.
         XCTAssertTrue(
             app.staticTexts["Dictionary"].waitForExistence(timeout: TestData.Timeouts.medium),
             "SearchView's 'Dictionary' title must render on the Search tab on iPad"

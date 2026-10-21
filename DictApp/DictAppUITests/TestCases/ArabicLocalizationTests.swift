@@ -395,11 +395,9 @@ final class ArabicLocalizationTests: XCTestCase {
     }
 
     /// Searches `term` from the (default) Search tab. Tolerates the iOS 26
-    /// first-run "Siri, Dictation & Privacy" sheet that overlays `.searchable`,
-    /// and expands the iPadOS 26 search, collapsed at rest (#104).
+    /// first-run "Siri, Dictation & Privacy" sheet that overlays `.searchable`.
     private func search(for term: String) {
         dismissSiriPrivacyNoticeIfPresent()
-        SearchPage(app: app).revealSearchFieldIfCollapsed()
         let field = app.searchFields.firstMatch
         XCTAssertTrue(field.waitForExistence(timeout: TestData.Timeouts.long), "Search field must exist")
         field.tap()

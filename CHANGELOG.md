@@ -26,6 +26,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - [#88] Changing the interface language in Settings no longer crashes the app on iOS 17.
 - [#114] History shows each lookup in your local time and the app's language ("Today, 8:41 PM"), following your device's region and 24-hour setting, instead of a raw UTC timestamp.
 - [#119] In Arabic, language pairs, translation directions, History times and the unsupported-file message now read in the right order.
+- [#120] On iPad with iPadOS 26, the tabs stay visible while the Search field holds a word, so you can switch tabs and come back to the same results.
+- [#123] On iPad with iPadOS 26, the Dictionary Order title stays in the navigation bar and no longer covers the first row or swallows a tap on its (i) button.
 
 ### Tests / CI
 - [#102, #104] UI tests switch tabs reliably on iPhone iOS 17 and iPadOS 26 through one shared tab lookup that dismisses the keyboard, pops to Search and checks the switch landed.

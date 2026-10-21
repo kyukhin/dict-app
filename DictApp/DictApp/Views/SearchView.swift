@@ -41,7 +41,7 @@ struct SearchView: View {
                 UnpackProgressBar(fraction: vm.unpackFraction)
             }
             .navigationTitle("search.title")
-            .searchable(text: $vm.query, prompt: Text("search.prompt"))
+            .modifier(SearchFieldPlacement(text: $vm.query))
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     ReadingModeToolbarButton()
@@ -71,6 +71,36 @@ struct SearchView: View {
                 // not fire on initial load.
                 vm.refreshIfNeeded()
             }
+        }
+    }
+}
+
+// MARK: - Search field placement (Issue #120)
+
+/// `.searchable` for the Search root. On iPad with iOS 26 the field sits in a
+/// drawer under the title at all times and keeps the navigation bar while a
+/// query is in it; everywhere else it is today's default placement. The gate
+/// is the only difference between platforms.
+///
+/// Why iPad iOS 26 needs it: the floating tab strip lives in the navigation
+/// bar there, and with the default placement two system behaviours each hide
+/// it for as long as the field holds text: the integrated field expands over
+/// the strip's row, and the search controller hides the bar while presented.
+/// `.navigationBarDrawer(displayMode: .always)` fixes the first,
+/// `.avoidHidingContent` the second; neither is enough on its own. Gated by
+/// device, not width, so Split View resizes never move an active search.
+private struct SearchFieldPlacement: ViewModifier {
+    @Binding var text: String
+
+    func body(content: Content) -> some View {
+        if #available(iOS 26, *), UIDevice.current.userInterfaceIdiom == .pad {
+            content
+                .searchable(text: $text,
+                            placement: .navigationBarDrawer(displayMode: .always),
+                            prompt: Text("search.prompt"))
+                .searchPresentationToolbarBehavior(.avoidHidingContent)
+        } else {
+            content.searchable(text: $text, prompt: Text("search.prompt"))
         }
     }
 }
