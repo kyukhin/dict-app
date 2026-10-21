@@ -25,6 +25,8 @@ final class DictionaryPairGroupingTests: XCTestCase {
         app = XCUIApplication()
         app.launchArguments.append("-disableReviewPrompt")
         app.launchArguments.append("-resetData")
+        // Same os_log quarantine crash as `DictionaryInfoTests` (Issue #125).
+        app.launchEnvironment["OS_ACTIVITY_MODE"] = "disable"
 
         // iOS 26 "Enable Dictation?" springboard alert — tap a dismissal button
         // instead of XCUI's default (which opens a blocking privacy sheet).
