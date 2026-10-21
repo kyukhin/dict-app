@@ -40,40 +40,9 @@ class SearchPage: BasePage {
         return condition()
     }
 
-    // MARK: - iPadOS 26 collapsed search (Issue #104)
-
-    /// On iPadOS 26 `.searchable` is collapsed at rest into a nav-bar button
-    /// (label "Search", empty identifier) and there is no search field. Nil on
-    /// every other layout, where the field is always there, and off the
-    /// Search root (another tab or a pushed definition). Matched by the
-    /// English label first, then as the nav-bar button that is neither the
-    /// reading-mode toggle nor a back button. Also used by the localization
-    /// suites, which drive the search field directly.
-    var collapsedSearchButton: XCUIElement? {
-        let nav = app.navigationBars.firstMatch
-        guard app.usesFloatingTabStrip,
-              app.descendants(matching: .any)[TabBarPage.Tab.search.contentIdentifier].firstMatch.exists,
-              !nav.buttons["BackButton"].exists else { return nil }
-        let english = nav.buttons.matching(NSPredicate(format: "identifier == '' AND label == 'Search'")).firstMatch
-        if english.exists { return english }
-        let other = nav.buttons.matching(NSPredicate(format: "NOT (identifier IN %@)",
-                                                     [AccessibilityIdentifiers.ReadingMode.toggle, "BackButton"])).firstMatch
-        return other.exists ? other : nil
-    }
-
-    /// Expands the collapsed iPadOS 26 search so the field exists. A no-op
-    /// when the field is already there (iPhone, iPad 17.x, or a query set).
-    func revealSearchFieldIfCollapsed() {
-        guard !searchField.waitForExistence(timeout: TestData.Timeouts.short),
-              let button = collapsedSearchButton else { return }
-        button.tap()
-        _ = searchField.waitForExistence(timeout: TestData.Timeouts.medium)
-    }
-
     // MARK: - Search Actions
 
     func searchFor(_ term: String) {
-        revealSearchFieldIfCollapsed()
         // On a slow simulator the search hierarchy may still be re-resolving
         // after a `navigateBack` pop when a looping test calls `searchFor`
         // again. Tapping `searchField.firstMatch` before it resolves makes the
@@ -94,10 +63,9 @@ class SearchPage: BasePage {
         if clearButton.waitForExistence(timeout: 1.0) {
             clearButton.tap()
             if app.usesFloatingTabStrip {
-                // iPadOS 26: clearing the query collapses the field back into
-                // the nav-bar button. Let it collapse, then expand and focus it.
-                _ = searchField.waitForNonExistence(timeout: TestData.Timeouts.short)
-                revealSearchFieldIfCollapsed()
+                // iPadOS 26: "Clear text" ends the search and drops focus
+                // (there is no Cancel button), so focus the field again.
+                // iPhone and iPad 17.x keep focus.
                 searchField.tap()
             }
         }
@@ -110,8 +78,6 @@ class SearchPage: BasePage {
     }
 
     func clearSearch() {
-        // Collapsed iPadOS 26 search: the query is empty by definition.
-        if !searchField.exists && collapsedSearchButton != nil { return }
         let clearButton = searchField.buttons["Clear text"]
         if clearButton.waitForExistence(timeout: 1.0) {
             clearButton.tap()
@@ -201,17 +167,12 @@ class SearchPage: BasePage {
     func verifySearchFieldExists() -> Bool {
         // Bounded retry, not a synchronous sample: callers invoke this right
         // after `navigateBack()`, and on a slow simulator the search field
-        // hasn't re-resolved post-pop yet. Returns the instant it appears
-        // (immediate on arm64) (Issue #56). The collapsed iPadOS 26 search
-        // button counts too; it is not expanded here, because an expanded
-        // field hides the tab bar there (#120).
-        return waitForCondition { self.searchField.exists || self.collapsedSearchButton != nil }
+        // hasn't re-resolved post-pop yet. `waitForExistence` returns the
+        // instant it appears (immediate on arm64) (Issue #56).
+        return searchField.waitForExistence(timeout: TestData.Timeouts.medium)
     }
 
     func verifySearchFieldContains(_ text: String) -> Bool {
-        // Collapsed iPadOS 26 search (clearing the query collapses the field):
-        // no field to read, and the query is empty by definition.
-        guard searchField.exists else { return text.isEmpty && collapsedSearchButton != nil }
         let value = searchField.value as? String ?? ""
         if text.isEmpty {
             // Empty field may show placeholder text instead of ""

@@ -91,15 +91,14 @@ extension XCUIElement {
 extension XCUIApplication {
     /// Issue #111 readiness signal, the single one for every suite: the Search
     /// screen is up and the unpack progress bar is not. "Search screen is up"
-    /// is the `search_tab` content id, not the search field: on iPadOS 26
-    /// `.searchable` is collapsed into a nav-bar button at rest, so there is
-    /// no field (#104). The content renders in the same frame as the field,
-    /// and the bar's state is set before the first frame, so once the content
-    /// exists an absent bar means every bundled dictionary is searchable (a
-    /// search before that can fail fast on a "no results"). Call right after
-    /// `launch()`, before navigating: every launch starts on the Search tab,
-    /// where the bar lives. Language-independent (by identifier). Returns at
-    /// once on a warm launch.
+    /// is the `search_tab` content id, which does not depend on where
+    /// `.searchable` places its field. The content renders in the same frame
+    /// as the field, and the bar's state is set before the first frame, so
+    /// once the content exists an absent bar means every bundled dictionary is
+    /// searchable (a search before that can fail fast on a "no results"). Call
+    /// right after `launch()`, before navigating: every launch starts on the
+    /// Search tab, where the bar lives. Language-independent (by identifier).
+    /// Returns at once on a warm launch.
     @discardableResult
     func waitForDictionariesReady(launchTimeout: TimeInterval = TestData.Timeouts.launch,
                                   unpackTimeout: TimeInterval = TestData.Timeouts.dictionariesReady) -> Bool {
@@ -112,8 +111,7 @@ extension XCUIApplication {
     // MARK: - Tabs (Issues #102, #104)
 
     /// True on the iPadOS 26 layout: the tabs are a floating strip at the top
-    /// with no `UITabBar`, and `.searchable` is collapsed at rest. Every iPhone
-    /// and iPad 17.x has a `UITabBar`.
+    /// with no `UITabBar`. Every iPhone and iPad 17.x has a `UITabBar`.
     var usesFloatingTabStrip: Bool {
         UIDevice.current.userInterfaceIdiom == .pad
             && ProcessInfo.processInfo.operatingSystemVersion.majorVersion >= 26
@@ -156,21 +154,53 @@ extension XCUIApplication {
     ///      keyboard through the scroll view.
     /// Never swipes on the keyboard itself: on iPhone that does not dismiss it
     /// and, with slide-to-type, types into the field (Issue #102).
+    ///
+    /// "Gone" is decided by geometry, not only by existence: on iPadOS 26 a
+    /// hidden keyboard can stay in the AX tree, as a 68 pt bar at the bottom
+    /// edge or entirely below the window. Keys are tapped only while their
+    /// tap point is inside the window; an off-screen key makes the tap throw
+    /// "Failed to scroll to visible".
     @discardableResult
     func dismissKeyboardIfPresent() -> Bool {
         let keyboard = keyboards.firstMatch
-        guard keyboard.exists else { return true }
+        guard !isKeyboardGone(keyboard) else { return true }
         for key in ["Hide keyboard", "Search", "search", "Return", "return", "Done", "Go"] {
             let button = keyboard.buttons[key]
-            guard button.exists else { continue }
+            guard button.exists, isTapPointInWindow(button) else { continue }
             button.tap()
-            if keyboard.waitForNonExistence(timeout: TestData.Timeouts.short) { return true }
+            if waitForKeyboardGone(keyboard) { return true }
         }
         let content = collectionViews.firstMatch
         if content.exists {
             content.swipeDown()
         }
-        return keyboard.waitForNonExistence(timeout: TestData.Timeouts.short)
+        return waitForKeyboardGone(keyboard)
+    }
+
+    /// No keyboard, or the part of it inside the window is under 100 pt: less
+    /// than any real keyboard, so nothing is covered.
+    private func isKeyboardGone(_ keyboard: XCUIElement) -> Bool {
+        guard keyboard.exists else { return true }
+        let visible = keyboard.frame.intersection(windows.firstMatch.frame)
+        return visible.isNull || visible.height < 100
+    }
+
+    private func waitForKeyboardGone(_ keyboard: XCUIElement,
+                                     timeout: TimeInterval = TestData.Timeouts.short) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if isKeyboardGone(keyboard) { return true }
+            Thread.sleep(forTimeInterval: 0.15)
+        }
+        return isKeyboardGone(keyboard)
+    }
+
+    /// Geometry only, never `.isHittable` (it can throw on a frame that is not
+    /// laid out yet, see `scrollToElement`).
+    private func isTapPointInWindow(_ element: XCUIElement) -> Bool {
+        let frame = element.frame
+        guard frame.width > 1, frame.height > 1 else { return false }
+        return windows.firstMatch.frame.contains(CGPoint(x: frame.midX, y: frame.midY))
     }
 
     /// Returns the scroll container backing the current screen — SwiftUI

@@ -17,16 +17,6 @@ class TabBarPage: BasePage {
             case .settings: return AccessibilityIdentifiers.TabBar.settingsSymbol
             }
         }
-
-        /// Identifier of the tab's root content (not of its button).
-        var contentIdentifier: String {
-            switch self {
-            case .search: return AccessibilityIdentifiers.TabBar.searchTab
-            case .history: return AccessibilityIdentifiers.TabBar.historyTab
-            case .bookmarks: return AccessibilityIdentifiers.TabBar.bookmarksTab
-            case .settings: return AccessibilityIdentifiers.TabBar.settingsTab
-            }
-        }
     }
 
     /// Budget for the one-time unpack of the bundled dictionaries on a fresh
@@ -57,7 +47,7 @@ class TabBarPage: BasePage {
     ///     AX `scrollToVisible` that can fail on tab buttons after a push; a
     ///     coordinate tap skips it. It also works on the iPadOS 26 strip.
     func tap(_ tab: Tab) {
-        clearTabObstructions(for: tab)
+        clearTabObstructions()
         let button = app.tabButton(tab)
         guard button.waitForExistence(timeout: TestData.Timeouts.medium) else {
             XCTFail("\(tab) tab button should exist")
@@ -81,32 +71,14 @@ class TabBarPage: BasePage {
         popDetailToRootIfNeeded()
     }
 
-    /// Clears what keeps the tab button from taking the tap.
-    ///   1. The keyboard. On iPhone it covers the tab bar after a search, so a
-    ///      tap lands on a key (Issue #102); on iPad it does too (Issue #76).
-    ///   2. iPadOS 26 hides the tab bar while the search field holds a query
-    ///      (#120), and nothing but clearing the query brings it back. So when
-    ///      the tab button is missing and the field has a query, clear it, as a
-    ///      user would have to. iPhone and iPad 17.x always have the button, so
-    ///      they never get here.
-    private func clearTabObstructions(for tab: Tab) {
+    /// Clears what keeps the tab button from taking the tap: the keyboard.
+    /// On iPhone it covers the tab bar after a search, so a tap lands on a key
+    /// (Issue #102); on iPad it does too (Issue #76). The tab button itself is
+    /// always there, also on iPadOS 26 while the field holds a query (#120).
+    private func clearTabObstructions() {
         if app.keyboards.count > 0 {
             app.dismissKeyboardIfPresent()
         }
-        guard !app.tabButton(tab).exists else { return }
-
-        let field = app.searchFields.firstMatch
-        guard field.exists,
-              let query = field.value as? String,
-              !query.isEmpty, query != field.placeholderValue else { return }
-        // "Clear text" is English; it is the only button in the field.
-        let englishClear = field.buttons["Clear text"]
-        let clear = englishClear.exists ? englishClear : field.buttons.firstMatch
-        guard clear.exists else { return }
-        clear.tap()
-        if app.tabButton(tab).waitForExistence(timeout: TestData.Timeouts.short) { return }
-        app.dismissKeyboardIfPresent()
-        _ = app.tabButton(tab).waitForExistence(timeout: TestData.Timeouts.short)
     }
 
     /// Polls whether `tab` is selected, re-resolving the button each time.
@@ -119,15 +91,10 @@ class TabBarPage: BasePage {
         return isSelected(tab)
     }
 
-    /// The button's `Selected` trait (both layouts). When the button is not on
-    /// screen (iPadOS 26 Search with a query, #120), the tab's content is the
-    /// only signal left: only the selected tab's content is in the tree.
+    /// The button's `Selected` trait (both layouts).
     private func isSelected(_ tab: Tab) -> Bool {
         let button = app.tabButton(tab)
-        if button.exists {
-            return button.isSelected
-        }
-        return app.descendants(matching: .any)[tab.contentIdentifier].firstMatch.exists
+        return button.exists && button.isSelected
     }
 
     /// Selecting the already-active tab does not pop its NavigationStack on

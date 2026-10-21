@@ -66,18 +66,17 @@ final class NavigationTests: XCTestCase {
         // must not reset the underlying search state — coming back to the
         // Search tab should still show the results that were on screen.
         //
-        // On iOS 26 the visible `.searchable()` field collapses when its
-        // host tab loses focus and the rendered field text shows as empty
+        // On iPhone iOS 26 the visible `.searchable()` field collapses when
+        // its host tab loses focus and the rendered field text shows as empty
         // until the user re-activates the field. That's iOS chrome, not
         // app state — `vm.query` itself is preserved, which is what the
         // user actually cares about. We therefore assert the *results
         // list* still shows the same top results (proving `vm.query`
         // survived), and do not assert on the field's displayed text. The
         // top headwords are compared, not `cells.count`: the lazy List
-        // exposes only the rows it has rendered (Issue #102).
-        if app.usesFloatingTabStrip {
-            throw XCTSkip("iPadOS 26 hides the tab bar while the search field holds a query (#120), so a query cannot survive a tab switch from the Search root.")
-        }
+        // exposes only the rows it has rendered (Issue #102). On iPadOS 26
+        // the field stays in its drawer with the query (Issue #120), so the
+        // text is checked there too.
         let searchPage = tabBarPage.tapSearchTab()
         let searchTerm = TestData.searchTerms[0]
         searchPage.searchFor(searchTerm)
@@ -105,6 +104,10 @@ final class NavigationTests: XCTestCase {
             searchPageAgain.resultSignature(), baseline,
             "Top results must match the pre-tab-switch baseline; differing means vm.query changed"
         )
+        if app.usesFloatingTabStrip {
+            XCTAssertTrue(searchPageAgain.verifySearchFieldContains(searchTerm),
+                          "iPadOS 26: the search field must still hold the query after the tab switch")
+        }
     }
 
     func testCompleteTabCycle() throws {
