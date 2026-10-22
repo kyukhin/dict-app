@@ -53,7 +53,7 @@ struct AccessibilityIdentifiers {
 
     // MARK: - Reading Mode (Issue #5)
     struct ReadingMode {
-        /// Cup-and-saucer toolbar toggle shared by the Search root and Definition.
+        /// Open-book toolbar toggle shared by the Search root and Definition.
         static let toggle = "reading_mode_toggle"
     }
 
