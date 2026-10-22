@@ -122,7 +122,7 @@ struct ReadingModeToolbarButton: View {
         Button {
             readingMode.toggle()
         } label: {
-            Image(systemName: readingMode.isEnabled ? "cup.and.saucer.fill" : "cup.and.saucer")
+            Image(systemName: readingMode.isEnabled ? "book.fill" : "book")
         }
         .accessibilityLabel(Text(readingMode.isEnabled ? "readingMode.a11y.disable"
                                                        : "readingMode.a11y.enable"))

@@ -8,7 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- [#5] Reading Mode: a cup-and-saucer toggle in the Search and Definition toolbars keeps the screen awake. Per session; turns off when the app goes to background.
+- [#5] Reading Mode: an open-book toggle in the Search and Definition toolbars keeps the screen awake. Per session; turns off when the app goes to background.
 - [#91] Dictionary Order rows have an (i) button that opens the pair's details. Each underlying dictionary shows its provider, direction, version, entry count and license.
 - [#87] Greek–English dictionaries (Greek WordNet via OMW and FreeDict, both directions) as one "Greek – English" pair, with Greek search that ignores accents, case and final sigma in headwords and in English → Greek translations.
 - [#88] Greek (Ελληνικά) interface language, with Greek number formatting and the Greek – English dictionaries first on a fresh Greek install; import result messages now follow the in-app language.

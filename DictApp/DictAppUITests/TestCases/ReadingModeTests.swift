@@ -2,7 +2,7 @@ import XCTest
 
 /// Issue #5 — Reading Mode (keep screen awake).
 ///
-/// What XCUITest can verify: the cup-and-saucer toggle is present in the
+/// What XCUITest can verify: the open-book toggle is present in the
 /// top-right toolbar of the Search root and of a pushed Definition, flips its
 /// `.isSelected` trait on tap, keeps its state across the Search → Definition
 /// push (both screens observe the same `ReadingModeService.shared`), and is
