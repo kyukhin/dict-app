@@ -7,10 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-10-23
+
 ### Added
-- [#5] Reading Mode: an open-book toggle in the Search and Definition toolbars keeps the screen awake. Per session; turns off when the app goes to background.
+- [#5, #127] Reading Mode: an open-book toggle in the Search and Definition toolbars keeps the screen awake. Per session; turns off when the app goes to background.
 - [#91] Dictionary Order rows have an (i) button that opens the pair's details. Each underlying dictionary shows its provider, direction, version, entry count and license.
 - [#87] Greek–English dictionaries (Greek WordNet via OMW and FreeDict, both directions) as one "Greek – English" pair, with Greek search that ignores accents, case and final sigma in headwords and in English → Greek translations.
+- [#89, #109, #110] App Store Connect metadata: Greek localization, refreshed en/ru/es/ar listings and screenshots, Greek keywords.
 - [#88] Greek (Ελληνικά) interface language, with Greek number formatting and the Greek – English dictionaries first on a fresh Greek install; import result messages now follow the in-app language.
 
 ### Changed
@@ -31,6 +34,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Tests / CI
 - [#102, #104] UI tests switch tabs reliably on iPhone iOS 17 and iPadOS 26 through one shared tab lookup that dismisses the keyboard, pops to Search and checks the switch landed.
+- [#125] DictionaryPairGroupingTests no longer crash on iPadOS 17.5: XCTest logging is silenced like in DictionaryInfoTests.
 
 ## [1.3.0] - 2026-06-25
 
