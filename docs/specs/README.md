@@ -43,4 +43,4 @@ Data, modules, APIs, migrations, constraints. Links to the code.
 
 | Spec | Status | Epic |
 |---|---|---|
-| `0000-overview.md`: the app today (data pipeline, database, search, screens, tests) | Planned | — |
+| `0000-overview.md`: the app today (data pipeline, database, search, screens, tests) | Approved | — |
