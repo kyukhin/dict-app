@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- [#196] Settings shows the app's real version again (1.4.0 showed "1.3.0-20-gbd22843"): an App Store archive now fails unless its commit carries the release tag.
+
+### Tests / CI
+- [#197] Builds declare no non-exempt encryption, so App Store Connect no longer stops each upload at the export-compliance question.
+
 ## [1.4.0] - 2026-10-23
 
 ### Added

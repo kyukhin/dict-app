@@ -41,7 +41,13 @@ repo_root="$(git rev-parse --show-toplevel)"
 # Clean: HEAD exactly on a tag -> bare tag (no --dirty, so uncommitted edits
 # on a tagged commit still count as clean). Otherwise the full dev describe,
 # falling back to a bare abbreviated SHA when no tags exist.
-describe="$(git describe --tags --exact-match 2>/dev/null || true)"
+# Prefer the release tag of this version when HEAD carries it, so another tag
+# on the same commit cannot win (Issue #196).
+describe=""
+if [ -n "${MARKETING_VERSION:-}" ] && git tag --points-at HEAD | grep -Fqx "v${MARKETING_VERSION}"; then
+    describe="v${MARKETING_VERSION}"
+fi
+[ -n "$describe" ] || describe="$(git describe --tags --exact-match 2>/dev/null || true)"
 if [ -z "$describe" ]; then
     describe="$(git describe --tags --always 2>/dev/null || true)"
 fi

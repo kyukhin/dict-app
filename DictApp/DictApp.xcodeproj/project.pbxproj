@@ -422,6 +422,7 @@
 			inputFileListPaths = (
 			);
 			inputPaths = (
+				"$(SRCROOT)/../Scripts/validate_build_info.sh",
 			);
 			outputFileListPaths = (
 			);
@@ -429,7 +430,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "cd \"$SRCROOT\" || { echo \"error: cannot cd to SRCROOT\"; exit 1; }\n  if ! git rev-parse --git-dir >/dev/null 2>&1; then\n    echo \"error: .git unavailable — run from a git working copy (git fetch --tags before archiving)\"; exit 1\n  fi\n  fresh=\"$(git describe --tags --exact-match 2>/dev/null || true)\"\n  [ -n \"$fresh\" ] || fresh=\"$(git describe --tags --always 2>/dev/null || true)\"\n  [ -n \"$fresh\" ] || { echo \"error: git describe produced no output\"; exit 1; }\n  if [ \"$fresh\" != \"$GIT_DESCRIBE\" ]; then\n    echo \"error: GIT_DESCRIBE ('$GIT_DESCRIBE') != HEAD ('$fresh') — build pre-action didn't run or wrote a stale value; build via the shared DictApp scheme\"; exit 1\n  fi\n  echo \"note: GIT_DESCRIBE validated = $GIT_DESCRIBE\"\n";
+			shellScript = "\"${SRCROOT}/../Scripts/validate_build_info.sh\"\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 
