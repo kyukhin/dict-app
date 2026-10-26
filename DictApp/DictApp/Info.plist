@@ -3,7 +3,9 @@
 <!--
   Partial Info.plist — Issue #39.
 
-  Supplies ONLY the custom GIT_DESCRIBE key. GENERATE_INFOPLIST_FILE stays
+  Supplies ONLY the custom GIT_DESCRIBE key and the export-compliance
+  answer (ITSAppUsesNonExemptEncryption, Issue #197: LibreDict uses no
+  encryption of its own). GENERATE_INFOPLIST_FILE stays
   YES, so Xcode synthesizes and merges the standard CFBundle*/UI* keys onto
   this file at build time. $(GIT_DESCRIBE) is substituted from the build
   setting (sourced from Config/BuildInfo.xcconfig). Do not add other keys
@@ -13,5 +15,7 @@
 <dict>
 	<key>GIT_DESCRIBE</key>
 	<string>$(GIT_DESCRIBE)</string>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 </dict>
 </plist>
