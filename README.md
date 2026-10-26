@@ -1,8 +1,8 @@
-# LibreDict — Minimalist Offline Dictionary
+# LibreDict — Offline Dictionary
 
-**192,000+ words at your fingertips. No internet. No ads. No tracking. Just words.**
+**400,000+ words at your fingertips. No Internet. No ads. No tracking. Just words.**
 
-[![Swift](https://img.shields.io/badge/Swift-5.9-orange.svg)](https://swift.org)
+[![Download on the App Store](https://img.shields.io/badge/App_Store-Download-black.svg?logo=apple)](https://apps.apple.com/app/id6763217128)
 [![Platform](https://img.shields.io/badge/Platform-iOS%2017+-blue.svg)](https://developer.apple.com/ios/)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
@@ -10,90 +10,115 @@
 
 ## Features
 
-- **Fully Offline** — All 192,000+ words stored locally. Works without any internet connection.
-- **Instant Search** — FTS5 full-text search delivers results in milliseconds as you type.
-- **Two Built-in Dictionaries** — WordNet (English) and OpenRussian (Russian-English) out of the box.
-- **Import Your Own** — Add custom dictionaries via `.json` or `.sqlite` files.
-- **Zero Ads, Zero Tracking** — No analytics, no telemetry, no third-party SDKs.
-- **Bookmarks & History** — Save words and revisit recent lookups from the home screen.
-- **Text-to-Speech** — Hear the pronunciation of any word with one tap.
-- **Clean, Minimalist UI** — Designed to get out of your way.
+- **Fully offline:** nine built-in dictionary sources, 400,000+ words, stored on the device.
+- **Five language pairs:** English; English ⇄ Spanish; Russian – English; Arabic – English; Greek ⇄ English.
+- **Interface in five languages:** English, Russian, Spanish, Arabic (right to left) and Greek.
+- **Search as you type:** SQLite FTS5 results in milliseconds; Greek search ignores accents and final sigma, Arabic search ignores diacritics.
+- **Dictionary order:** one row per language pair; switch pairs on or off, drag to reorder, tap (i) for each source's provider, version, size and license.
+- **Quick first launch:** Search is ready in about a second; the dictionaries are prepared in the background.
+- **Reading Mode:** keeps the screen awake while you read.
+- **History and bookmarks**, pronunciation with text-to-speech, and import of your own `.json` / `.sqlite` dictionaries.
+- **Private:** no accounts, no analytics, no third-party SDKs.
 
 ## Screenshots
 
-| Search | Definition | Manage |
-|:---:|:---:|:---:|
-| <img src="Screenshots/screenshot-1-iphone17pm-en.png" width="250" alt="LibreDict search screen on iPhone showing the word lookup field"> | <img src="Screenshots/screenshot-2-iphone17pm-en.png" width="250" alt="LibreDict definition screen showing the entry for a single word"> | <img src="Screenshots/screenshot-3-iphone17pm-en.png" width="250" alt="LibreDict Manage Dictionaries screen listing imported sources"> |
+| Search | Manage Dictionaries | Dictionary Order | iPad |
+|:---:|:---:|:---:|:---:|
+| <img src="Screenshots/screenshot-1-iphone17pm-en.png" width="200" alt="Search results for 'exquisite' from the English, Spanish, Russian and Greek dictionaries"> | <img src="Screenshots/screenshot-2-iphone17pm-en.png" width="200" alt="Manage Dictionaries screen with the import button and the supported formats"> | <img src="Screenshots/screenshot-3-iphone17pm-en.png" width="200" alt="Dictionary Order screen with one switch and an (i) button per language pair"> | <img src="Screenshots/screenshot-4-ipad13-en.png" width="200" alt="Search results on iPad with the tab bar at the top"> |
 
 ## Tech Stack
 
 | Component | Technology |
 |-----------|------------|
-| UI | SwiftUI (iOS 17+) |
+| UI | SwiftUI, iOS 17+ |
 | Database | SQLite via [GRDB.swift](https://github.com/groue/GRDB.swift) |
-| Search | FTS5 full-text search with `unicode61` tokenizer |
+| Search | FTS5 full-text search, `unicode61` tokenizer |
 | Concurrency | Swift `actor` + `async/await` |
-| TTS | AVSpeechSynthesizer |
-| Architecture | MVVM |
+| Localization | String Catalog (`Localizable.xcstrings`) |
+| Tests | XCTest unit tests, XCUITest UI tests |
+| Dictionary data | Python build scripts (NLTK / Open Multilingual WordNet, FreeDict, OpenRussian) |
 
 ## Getting Started
 
 ### Prerequisites
 
-- Xcode 15.0+
-- iOS 17.0+ deployment target
+- Xcode 26 (the app targets iOS 17.0 and later)
+- [Git LFS](https://git-lfs.github.com): the bundled dictionary database is stored in LFS. The commands below install it with [Homebrew](https://brew.sh); any other Git LFS install works too
 
 ### Build & Run
 
 ```bash
+brew install git-lfs && git lfs install
 git clone https://github.com/kyukhin/dict-app.git
 cd dict-app/DictApp
 open DictApp.xcodeproj
 ```
 
-> **Note:** This repo uses [Git LFS](https://git-lfs.github.com) for large database files (`.sqlite`). Make sure Git LFS is installed (`brew install git-lfs && git lfs install`) before cloning, or run `git lfs pull` after cloning to fetch the seed database.
+Pick a simulator or a device and press **Run** (⌘R). Xcode resolves the GRDB package automatically. If you cloned without Git LFS, run `git lfs pull`: without it the app cannot open its dictionary database.
 
-Select your target device or simulator and hit **Run** (Cmd+R). Xcode will resolve the GRDB Swift Package dependency automatically.
+### Rebuild the dictionary data (optional)
 
-### Rebuild the Seed Database (Optional)
-
-The pre-built `seed.sqlite` is already included. To regenerate it from source:
+`DictApp/DictApp/Resources/seed.sqlite` is prebuilt. To regenerate it from the sources, run from the repository root:
 
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
-pip install nltk requests
+pip install nltk requests defusedxml
 python Scripts/build_seed.py
 ```
+
+`build_seed.py` calls the per-source builders in `Scripts/` (`build_freedict_eng_spa.py`, `build_spanish_wordnet.py`, `build_arabic_wordnet.py`, `build_greek.py`); `--skip-…` flags leave a source out, see its header for the options.
 
 ## Project Structure
 
 ```
-LibreDict/
+dict-app/
 ├── DictApp/
 │   ├── DictApp.xcodeproj
 │   ├── DictApp/
-│   │   ├── Models/          # Data models (Entry, Bookmark, Metadata)
-│   │   ├── Services/        # DatabaseService, SpeechService
-│   │   ├── ViewModels/      # Search, History, Bookmarks, Definition
-│   │   ├── Views/           # SwiftUI views
-│   │   ├── Extensions/
-│   │   └── Resources/       # Schema.sql, seed.sqlite
-│   └── DictAppTests/
-├── Scripts/
-│   └── build_seed.py        # Downloads WordNet + OpenRussian → seed.sqlite
-└── Screenshots/
+│   │   ├── Models/          # Entries, app version, constants, UI languages
+│   │   ├── Services/        # Database, settings, localization, speech, support
+│   │   ├── ViewModels/      # Search, Definition, History, Bookmarks, Settings
+│   │   ├── Views/           # SwiftUI screens
+│   │   └── Resources/       # seed.sqlite, Schema.sql, Localizable.xcstrings
+│   ├── DictAppTests/        # Unit tests
+│   └── DictAppUITests/      # UI tests (page objects + test cases)
+├── Scripts/                 # Dictionary data builders, build-info scripts
+├── docs/specs/              # Feature specs (read these first)
+├── metadata/                # App Store texts per language
+├── Screenshots/             # App Store screenshots and mockup projects
+└── CHANGELOG.md
 ```
 
 ## Dictionary Sources
 
-| Dictionary | Language | Entries | License |
-|-----------|----------|---------|---------|
-| [WordNet 3.1](https://wordnet.princeton.edu/) | English | 147,306 | BSD-style (Princeton University) |
-| [OpenRussian](https://openrussian.org/) | Russian-English | 45,647 | CC BY-SA 4.0 |
+| Dictionary | Direction | Entries | License |
+|-----------|-----------|--------:|---------|
+| [WordNet 3.0](https://wordnet.princeton.edu/) | English | 147,306 | WordNet 3.0 License (BSD-style), Princeton University |
+| [OpenRussian](https://openrussian.org/) | Russian → English | 45,647 | CC BY-SA 4.0 |
+| [FreeDict / WikDict](https://freedict.org/) | English → Spanish | 58,946 | CC BY-SA 3.0 |
+| Spanish WordNet ([MCR](https://adimen.si.ehu.es/web/MCR) via [OMW](https://omwn.org/)) | Spanish → English | 36,371 | CC BY 3.0 |
+| Arabic WordNet (via [OMW](https://omwn.org/)) | Arabic → English | 17,785 | CC BY-SA 3.0 |
+| [Greek WordNet](https://github.com/okfngr/wordnet) (via OMW) | Greek → English | 17,882 | Apache 2.0 |
+| [Greek WordNet](https://github.com/okfngr/wordnet) (via OMW) | English → Greek | 30,675 | Apache 2.0 |
+| [FreeDict / WikDict](https://freedict.org/) | Greek → English | 41,589 | CC BY-SA 3.0 |
+| [FreeDict](https://freedict.org/) (originally Freelang) | English → Greek | 20,745 | GNU GPL 2.0+ or CC BY-SA 3.0 (used under CC BY-SA 3.0) |
+
+The full license texts ship with the app, in the (i) details in Dictionary Order; Settings → Credits lists the sources.
+
+## Contributing
+
+Development is spec-driven: start with [`docs/specs/README.md`](docs/specs/README.md) and the spec of the area you touch. User-facing changes go into [`CHANGELOG.md`](CHANGELOG.md).
+
+## Releasing
+
+Settings shows the version from `git describe`, so an App Store build must be archived from the release tag:
+
+1. Bump the version and build in Xcode, cut the `CHANGELOG.md` section, merge to `master`.
+2. Tag that commit and push the tag: `git tag -a vX.Y.Z -m "X.Y.Z version of the Dict app."` and `git push origin vX.Y.Z`.
+3. Check out the tag and archive from it: `git fetch --tags && git checkout vX.Y.Z`, then Product → Archive. An archive whose `HEAD` is not tagged `v<version>` fails on purpose.
+4. Upload, submit for review, then publish the GitHub release with the CHANGELOG section.
 
 ## License
 
-This project is licensed under the MIT License — see the [LICENSE](LICENSE) file for details.
-
-Dictionary data retains its original licensing (WordNet BSD, OpenRussian CC BY-SA 4.0).
+The app's code is licensed under the MIT License, see [LICENSE](LICENSE). Dictionary data keeps its original licenses (table above).
