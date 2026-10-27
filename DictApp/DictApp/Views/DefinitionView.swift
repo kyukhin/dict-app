@@ -29,13 +29,15 @@ struct DefinitionView: View {
 
                     Spacer()
 
-                    Button {
-                        vm.speak()
-                    } label: {
-                        Image(systemName: "speaker.wave.2.fill")
-                            .font(.title2)
+                    if vm.canSpeak {
+                        Button {
+                            vm.speak()
+                        } label: {
+                            Image(systemName: "speaker.wave.2.fill")
+                                .font(.title2)
+                        }
+                        .accessibilityLabel(Text("definition.a11y.speakWord"))
                     }
-                    .accessibilityLabel(Text("definition.a11y.speakWord"))
                 }
 
                 // Phonetic

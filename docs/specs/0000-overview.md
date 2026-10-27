@@ -28,7 +28,7 @@ LibreDict is a free offline dictionary for iPhone and iPad. It has no account, n
 |---|---|---|
 | Search | A search-as-you-type field (150 ms debounce) and up to 50 results. Each result shows the headword, a source badge (`Es–En · WN`), the phonetic, the part of speech, a 2-line snippet and a colour stripe per source. With an empty field it shows the 10 most recent History words. There is a "no results" view. The bar "Preparing dictionaries… 35%" sits above the tab bar while the bundled dictionaries unpack | [SearchView](../../DictApp/DictApp/Views/SearchView.swift) · `SearchViewModel` |
 | Reading Mode | An open-book toggle on Search and Definition that keeps the screen awake through `UIApplication.shared.isIdleTimerDisabled`. It lasts for the session only and is not persisted. It turns off when the app goes to `.background`, but not on `.inactive` (#5, #127) | `ReadingModeToolbarButton` in DefinitionView.swift · `ReadingModeService` in ReviewRequestService.swift |
-| Definition | The headword, phonetic, part of speech and the definition as Markdown (inline syntax only, selectable). Toolbar: speaker (TTS), Reading Mode, bookmark. Opening the screen records History and counts towards the review prompt | [DefinitionView](../../DictApp/DictApp/Views/DefinitionView.swift) · `DefinitionViewModel` |
+| Definition | The headword, phonetic, part of speech and the definition as Markdown (inline syntax only, selectable). A speaker button next to the headword reads it aloud (TTS), and is hidden when the device has no voice for the headword's language (#202). Toolbar: Reading Mode, bookmark. Opening the screen records History and counts towards the review prompt | [DefinitionView](../../DictApp/DictApp/Views/DefinitionView.swift) · `DefinitionViewModel` |
 | History | Up to 100 words, newest first, each with its source stripe and a local-time caption ("Today, 8:41 PM", #114). A Clear button removes all of them | [HistoryView](../../DictApp/DictApp/Views/HistoryView.swift) · `HistoryViewModel`, `HistoryTimestamp` |
 | Bookmarks | Bookmarked entries, newest first, with a one-line snippet. Swipe to delete. No stripe | [BookmarksView](../../DictApp/DictApp/Views/BookmarksView.swift) · `BookmarksViewModel` |
 | Settings | Sections in this order: Language, Result sorting, Dictionaries, Learning Mode ("Coming Soon" stub), Support, About (name, tagline, description), Version with a license note | [SettingsView](../../DictApp/DictApp/Views/SettingsView.swift) · `SettingsViewModel` |
@@ -48,7 +48,7 @@ LibreDict is a free offline dictionary for iPhone and iPad. It has no account, n
 - `nil` enabled sources means all dictionaries are on (a fresh install). An explicitly empty set returns no results.
 - History stores the word text and the source of the entry viewed last. A History row (or a Recent word on Search) reopens by an exact case-insensitive lookup of `word` in any source, with an FTS search as the fallback.
 - Bookmarks point at `entries.id`. They survive dictionary updates because updates keep ids (#108).
-- TTS uses `AVSpeechSynthesizer` with the `en-US` voice for every word.
+- TTS (`AVSpeechSynthesizer`) reads each headword in its source's headword language (#202). `SpeechService.language(forSource:)` takes the first language of `DictionaryGrouping.parse` and maps it to a voice: `eng` en-US, `rus` ru-RU, `spa` es-ES, `arb` ar-SA, `ell` el-GR. So `freedict-eng-spa`, `freedict-eng-ell` and `wordnet-eng-ell` speak English. Imports declare no language and get `en-US`, unless the file is named like a bundled source ID.
 - The review prompt (#12) needs at least 5 Definition views and 30 s, then 10 min, then 60 min of cumulative active time. It fires at most once per session and three times per install, and Apple decides whether it shows. `-disableReviewPrompt` turns it off.
 - On a fresh install or after an update, Search appears at once. The bundled dictionaries unpack in the background, and each one is searchable as soon as it commits. The current query re-runs after each one.
 - Arabic: a bare (unvocalised) query finds vocalised headwords. A vocalised query does not (known limitation since 1.3.0). Greek: search ignores accents, case and final sigma, in headwords and in English → Greek translations (#87). Imported dictionaries are searched with their diacritics as stored.
@@ -68,6 +68,7 @@ LibreDict is a free offline dictionary for iPhone and iPad. It has no account, n
 - 2026-10-27 (Kirill): bug reports keep the marketing version and build number. Since #196 every App Store build sits on its release tag, so they identify the commit. The unused `AppVersion.verboseString` is removed (#203).
 - 2026-10-27 (Kirill): `-resetData`, `-clearFixtureImports` and `-importFixtureViaCallback:` work in DEBUG builds only (#203). No user can pass launch arguments to an App Store build, so this is hygiene, not security. The 14 KB import fixtures stay in the bundle.
 - 2026-10-27 (Kirill): the old Cline rulebook and development guide are deleted in favour of the agent prompts in `.claude/agents/`, the README and the specs (#203). `docs/REMOTE_CI_SETUP.md` stays as it is until CI moves to a new machine.
+- 2026-10-27 (PM): with no voice for the headword's language, Definition hides the speaker button rather than read the word with another language's voice (#202).
 
 ## Design
 
@@ -214,11 +215,12 @@ These tests prove today's behaviour. A feature spec maps its acceptance criteria
 | Dictionary info, import | `DictionaryInfoDetailTests`, `SettingsViewModelPairTests` (#105), `DictAppTests` | `DictionaryInfoTests`, `ImportDictionaryTests` |
 | Localization | `DictAppTests` (#88), `ArabicBidiOrderTests` | `SpanishLocalizationTests`, `ArabicLocalizationTests`, `GreekLocalizationTests` |
 | Reading Mode, review, version | `ReadingModeServiceTests`, `ReviewRequestServiceTests`, `DictAppTests` | `ReadingModeTests`, `VersionDisplayTests`, `ReportBugFlowTests` |
+| Speaker (TTS) language | `SpeechLanguageTests` (#202) | `ArabicLocalizationTests`, `GreekLocalizationTests` (the button is present) |
 | Navigation, iPad | — | `NavigationTests`, `iPadSpecificTests` |
 
 ### Unit tests
 
-There are 235 tests in 12 classes, all in [DictAppTests.swift](../../DictApp/DictAppTests/DictAppTests.swift), target `DictAppTests`. The real app hosts the tests. A class that swaps the shared database first calls `DictAppTests.waitForHostAppLaunch()`, then `setup(path:)` on a temp file. Test seams:
+There are 240 tests in 13 classes, all in [DictAppTests.swift](../../DictApp/DictAppTests/DictAppTests.swift), target `DictAppTests`. The real app hosts the tests. A class that swaps the shared database first calls `DictAppTests.waitForHostAppLaunch()`, then `setup(path:)` on a temp file. Test seams:
 - `seedIfNeeded(bundledSeedURL:)` and `syncBundledSources`;
 - `unpackFailureAfterInsert`;
 - `InMemoryKeyValueStore`;
@@ -274,7 +276,7 @@ The specs of these epics will replace parts of this overview:
 
 ## Open questions
 
-1. TTS reads every headword with the `en-US` voice (`SpeechService.speak`), including Russian, Spanish, Arabic and Greek. Should it use the entry's language?
+1. Resolved by #202: TTS speaks each headword in its source's language (see Rules worth knowing).
 2. History reopens a word by exact lookup in any source. It ignores the stored `source` and the enabled set, so the opened entry can come from a different dictionary than the row's stripe. Is that intended, or should it be fixed with #129?
 
 ## History
@@ -282,3 +284,4 @@ The specs of these epics will replace parts of this overview:
 - 2026-10-26: First version, describing master `f0f806e` (1.4.0).
 - 2026-10-27: Approved by Kirill.
 - 2026-10-27: Open questions 3–5 resolved and moved to Decisions on record (#203): the launch test hooks are DEBUG only, `AppVersion.verboseString` is gone, two stale root documents are deleted, and the agent prompts name the right unit-test target.
+- 2026-10-27: #202 speaks each headword in its source's language and hides the speaker button when the device has no voice for it (PM decision). Resolves open question 1.
