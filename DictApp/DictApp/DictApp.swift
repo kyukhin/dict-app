@@ -98,7 +98,8 @@ struct DictApp: App {
                 languageCode: localization.currentLanguage.code
             )
 
-            // Check for test reset flag
+            #if DEBUG
+            // UI-test hooks. Release builds ignore these launch arguments.
             if CommandLine.arguments.contains("-resetData") {
                 try await DatabaseService.shared.clearAllBookmarks()
                 try await DatabaseService.shared.clearHistory()
@@ -123,6 +124,7 @@ struct DictApp: App {
             if CommandLine.arguments.contains("-clearFixtureImports") {
                 try? await DatabaseService.shared.clearEntries(fromSource: "test_import_fixture")
             }
+            #endif
 
             // Issue #92: migrate per-source prefs to the pair invariants
             // (enabled-if-any, contiguous pair members) before the first search

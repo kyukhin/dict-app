@@ -1,6 +1,6 @@
 // AboutView.swift
-// About info is now embedded in DictionaryManagerView.
-// This file is kept for project compatibility.
+// Unused: About is a section of SettingsView. The empty view stays only
+// because the file is still in the Xcode project.
 
 import SwiftUI
 

@@ -65,6 +65,9 @@ LibreDict is a free offline dictionary for iPhone and iPad. It has no account, n
 - 2026-10-21 (Kirill): no custom review prompt (#83 went to the wishlist under App Review guideline 5.6.1). #12 and #81 cover reviews.
 - 2026-10-22 (Kirill): bookmarks are removed in 2.0.0 (see Upcoming changes).
 - 2026-10-26: archives must be built from a tagged commit. 1.4.0 was archived before tagging and shows `1.3.0-20-gbd22843` in Settings.
+- 2026-10-27 (Kirill): bug reports keep the marketing version and build number. Since #196 every App Store build sits on its release tag, so they identify the commit. The unused `AppVersion.verboseString` is removed (#203).
+- 2026-10-27 (Kirill): `-resetData`, `-clearFixtureImports` and `-importFixtureViaCallback:` work in DEBUG builds only (#203). No user can pass launch arguments to an App Store build, so this is hygiene, not security. The 14 KB import fixtures stay in the bundle.
+- 2026-10-27 (Kirill): the old Cline rulebook and development guide are deleted in favour of the agent prompts in `.claude/agents/`, the README and the specs (#203). `docs/REMOTE_CI_SETUP.md` stays as it is until CI moves to a new machine.
 
 ## Design
 
@@ -130,7 +133,7 @@ Migrations so far: `dict_metadata.description` and `history.source` (added after
    2. within each group, `wordnet` first;
    3. then the UI language's dictionaries;
    4. then the rest in seed order.
-3. The launch test hooks run (`-resetData` and the others), then `normalizeDictionaryPreferences` (pair invariants).
+3. In DEBUG builds the launch test hooks run (`-resetData` and the others), then `normalizeDictionaryPreferences` (pair invariants).
 4. `DictionaryUnpackStatus.begin(plan)` sets the progress state, then `isReady = true` shows the UI.
 5. `startBundledUnpack` runs as a detached utility task, one transaction per source:
    - `UPDATE` the changed rows in place, matched on `word` NOCASE (this keeps ids and bookmarks);
@@ -215,7 +218,7 @@ These tests prove today's behaviour. A feature spec maps its acceptance criteria
 
 ### Unit tests
 
-There are 236 tests in 12 classes, all in [DictAppTests.swift](../../DictApp/DictAppTests/DictAppTests.swift), target `DictAppTests`. Agent prompts that say `LibreDictTests` mean this target. The real app hosts the tests. A class that swaps the shared database first calls `DictAppTests.waitForHostAppLaunch()`, then `setup(path:)` on a temp file. Test seams:
+There are 235 tests in 12 classes, all in [DictAppTests.swift](../../DictApp/DictAppTests/DictAppTests.swift), target `DictAppTests`. The real app hosts the tests. A class that swaps the shared database first calls `DictAppTests.waitForHostAppLaunch()`, then `setup(path:)` on a temp file. Test seams:
 - `seedIfNeeded(bundledSeedURL:)` and `syncBundledSources`;
 - `unpackFailureAfterInsert`;
 - `InMemoryKeyValueStore`;
@@ -230,12 +233,12 @@ The unit tests do not run in parallel (see [DictApp.xctestplan](../../DictApp/Di
 
   | Argument | Effect |
   |---|---|
-  | `-resetData` | Clears bookmarks, history, enabled sources, the order, the review counters and the in-app language. Imported entries stay |
+  | `-resetData` | Clears bookmarks, history, enabled sources, the order, the review counters and the in-app language. Imported entries stay (DEBUG only) |
   | `-disableReviewPrompt` | Turns off the review prompt |
   | `-resetDatabase` | Deletes the database (DEBUG only) |
   | `-unpackSourceDelay <s>` | Waits between unpacked sources (DEBUG only) |
-  | `-clearFixtureImports` | Removes entries imported from the test fixture |
-  | `-importFixtureViaCallback:json` or `:sqlite` | Skips the file picker and imports the bundled fixture |
+  | `-clearFixtureImports` | Removes entries imported from the test fixture (DEBUG only) |
+  | `-importFixtureViaCallback:json` or `:sqlite` | Skips the file picker and imports the bundled fixture (DEBUG only) |
   | `-AppleLanguages` / `-AppleLocale` | Set the language in the language suites |
 
   Five log-heavy suites set `OS_ACTIVITY_MODE=disable` so XCTest logging cannot crash the app on iOS 17.5 (#125): DictionaryInfo, DictionaryPairGrouping, DictionaryOrderRefresh and the two Greek suites.
@@ -273,17 +276,9 @@ The specs of these epics will replace parts of this overview:
 
 1. TTS reads every headword with the `en-US` voice (`SpeechService.speak`), including Russian, Spanish, Arabic and Greek. Should it use the entry's language?
 2. History reopens a word by exact lookup in any source. It ignores the stored `source` and the enabled set, so the opened entry can come from a different dictionary than the row's stripe. Is that intended, or should it be fixed with #129?
-3. Settings shows the `git describe` version, but the bug-report subject and telemetry use the marketing version (`SupportService`). `AppVersion.verboseString`, written for bug reports, is unused. Should they be aligned?
-4. The test hooks `-resetData`, `-clearFixtureImports` and `-importFixtureViaCallback:` are not wrapped in `#if DEBUG`, and `test_import_fixture.json` and `test_import_fixture.sqlite` ship in the App Store bundle. Should they be DEBUG-only?
-5. Several documents are out of date:
-   - `DevelopmentGuide.md`: old file tree, a 9-test list, the sample generator described as the data source.
-   - `docs/REMOTE_CI_SETUP.md`: a ~104 MB seed with ~306k rows, old suite counts, a language-bleed rule that #74 fixed.
-   - `CLINE.md` and the agent prompts: the `LibreDictTests` target, and the display name "in Info.plist".
-   - Stale comments: `Config/BuildInfo.xcconfig` in Info.plist and AppVersion.swift, and `AboutView.swift`.
-
-   Should we update them, or retire `DevelopmentGuide.md` and `CLINE.md` in favour of the specs? The README was refreshed in #198.
 
 ## History
 
 - 2026-10-26: First version, describing master `f0f806e` (1.4.0).
 - 2026-10-27: Approved by Kirill.
+- 2026-10-27: Open questions 3–5 resolved and moved to Decisions on record (#203): the launch test hooks are DEBUG only, `AppVersion.verboseString` is gone, two stale root documents are deleted, and the agent prompts name the right unit-test target.

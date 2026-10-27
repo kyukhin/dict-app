@@ -8,8 +8,8 @@
   encryption of its own). GENERATE_INFOPLIST_FILE stays
   YES, so Xcode synthesizes and merges the standard CFBundle*/UI* keys onto
   this file at build time. $(GIT_DESCRIBE) is substituted from the build
-  setting (sourced from Config/BuildInfo.xcconfig). Do not add other keys
-  here — standard keys remain owned by the generator.
+  setting (sourced from BuildInfo.xcconfig via Version.xcconfig). Do not
+  add other keys here — standard keys remain owned by the generator.
 -->
 <plist version="1.0">
 <dict>

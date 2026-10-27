@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Tests / CI
+- [#203] Release builds ignore the UI-test launch arguments, and unused version code and stale developer docs are removed.
+
 ## [1.4.1] - 2026-10-27
 
 ### Fixed
