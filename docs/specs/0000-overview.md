@@ -277,7 +277,7 @@ The specs of these epics will replace parts of this overview:
 ## Open questions
 
 1. Resolved by #202: TTS speaks each headword in its source's language (see Rules worth knowing).
-2. History reopens a word by exact lookup in any source. It ignores the stored `source` and the enabled set, so the opened entry can come from a different dictionary than the row's stripe. Is that intended, or should it be fixed with #129?
+2. Resolved (Kirill, 2026-10-27): History ignoring the stored `source` is a bug, fixed in E1 (#138, see [0129-dictionary-file.md](0129-dictionary-file.md)).
 
 ## History
 
