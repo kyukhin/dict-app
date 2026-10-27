@@ -68,7 +68,9 @@ struct ManageDictionariesView: View {
     /// (or `:sqlite`) it short-circuits to the bundled fixture so end-to-end
     /// tests can exercise the real import-and-search path without driving
     /// `UIDocumentPickerViewController` (which is unreliable in CI).
+    /// DEBUG only: Release builds always show the picker.
     private func handleImportTap() {
+        #if DEBUG
         let args = CommandLine.arguments
         if let arg = args.first(where: { $0.hasPrefix("-importFixtureViaCallback:") }) {
             let ext = String(arg.dropFirst("-importFixtureViaCallback:".count))
@@ -77,6 +79,7 @@ struct ManageDictionariesView: View {
                 return
             }
         }
+        #endif
         showImporter = true
     }
 }

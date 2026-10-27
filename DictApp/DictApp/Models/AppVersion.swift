@@ -3,9 +3,9 @@
 //
 // The displayed version is the build-time `git describe` of HEAD, injected
 // into the bundle's Info.plist as the custom `GIT_DESCRIBE` key (Issue #39):
-//   Config/BuildInfo.xcconfig (written by Scripts/generate_build_info.sh as a
-//   scheme Build pre-action) -> GIT_DESCRIBE build setting -> Info.plist
-//   $(GIT_DESCRIBE) substitution -> bundle -> here.
+//   DictApp/DictApp/BuildInfo.xcconfig (written by Scripts/generate_build_info.sh
+//   as a scheme Build pre-action) -> Version.xcconfig -> GIT_DESCRIBE build
+//   setting -> Info.plist $(GIT_DESCRIBE) substitution -> bundle -> here.
 //
 // A clean build (HEAD exactly on a tag) carries the bare tag, e.g. "v1.3.0";
 // a dev build carries the full describe, e.g. "v1.2.0-8-gc7238e0". The script
@@ -18,7 +18,7 @@
 import Foundation
 
 /// Immutable view of the app's version: the git-describe string the build was
-/// stamped with, plus the marketing version and build number from the plist.
+/// stamped with, plus the marketing version from the plist.
 struct AppVersion {
     /// Process-wide singleton. Computed once on first access.
     static let current = AppVersion()
@@ -31,13 +31,8 @@ struct AppVersion {
 
     /// Marketing version, e.g. `"1.2.0"` (`CFBundleShortVersionString`).
     /// `"unknown"` if the Info.plist entry is missing — a visible-failure
-    /// default rather than a fake `"1.0"`. Kept for `verboseString` and as
-    /// the `displayString` fallback.
+    /// default rather than a fake `"1.0"`. The `displayString` fallback.
     let marketingVersion: String
-
-    /// Build number, e.g. `"3"` (`CFBundleVersion`). `"0"` if missing. Kept
-    /// for bug-report triage (`verboseString`).
-    let buildNumber: String
 
     /// Build an `AppVersion` from a `Bundle` (default `.main`), reading
     /// `GIT_DESCRIBE` + the standard `CFBundle*` keys from its Info.plist.
@@ -51,7 +46,6 @@ struct AppVersion {
     init(infoDictionary: [String: Any]?) {
         self.gitDescribe = infoDictionary?["GIT_DESCRIBE"] as? String ?? ""
         self.marketingVersion = infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown"
-        self.buildNumber = infoDictionary?["CFBundleVersion"] as? String ?? "0"
     }
 
     /// Test seam (Issue #39): construct directly from a synthetic
@@ -60,11 +54,9 @@ struct AppVersion {
     /// seam covers the deterministic half — classification + display — for
     /// each describe shape (clean tag, post-tag dev, no-tags SHA).
     init(describeOutput: String,
-         marketingVersion: String = "unknown",
-         buildNumber: String = "0") {
+         marketingVersion: String = "unknown") {
         self.gitDescribe = describeOutput
         self.marketingVersion = marketingVersion
-        self.buildNumber = buildNumber
     }
 
     /// What Settings displays. Returns the `git describe` string with a single
@@ -93,12 +85,5 @@ struct AppVersion {
             of: #"^v?\d+\.\d+\.\d+$"#,
             options: .regularExpression
         ) != nil
-    }
-
-    /// What bug-report telemetry displays. Always includes the build number
-    /// so triage can match a report to a specific archive, e.g.
-    /// `"1.2.0-8-gc7238e0 (build 3)"`.
-    var verboseString: String {
-        "\(displayString) (build \(buildNumber))"
     }
 }

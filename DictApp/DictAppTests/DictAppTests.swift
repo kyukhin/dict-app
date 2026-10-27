@@ -939,26 +939,9 @@ final class DictAppTests: XCTestCase {
                        "A no-tags build displays the bare SHA verbatim")
     }
 
-    /// `verboseString` must always append the build number in parentheses,
-    /// e.g. `"1.2.0-22-g27714a2 (build 3)"`.
-    func testAppVersionVerboseStringIncludesBuild() throws {
-        let dev = AppVersion(describeOutput: "v1.2.0-22-g27714a2", buildNumber: "3")
-        XCTAssertEqual(
-            dev.verboseString, "1.2.0-22-g27714a2 (build 3)",
-            "verboseString must be '<displayString> (build <n>)'"
-        )
-
-        let clean = AppVersion(describeOutput: "v1.3.0", buildNumber: "1")
-        XCTAssertEqual(clean.verboseString, "1.3.0 (build 1)")
-
-        // Multi-digit build — guard against any "single-character only" bug.
-        let bigBuild = AppVersion(describeOutput: "v2.0.0", buildNumber: "1024")
-        XCTAssertEqual(bigBuild.verboseString, "2.0.0 (build 1024)")
-    }
-
     /// Missing keys fall back visibly: `gitDescribe` empty → `displayString`
-    /// uses `marketingVersion`; `CFBundleShortVersionString`/`CFBundleVersion`
-    /// fall back to `"unknown"`/`"0"` rather than crashing or returning empty.
+    /// uses `marketingVersion`; `CFBundleShortVersionString` falls back to
+    /// `"unknown"` rather than crashing or returning empty.
     func testAppVersionFallsBackWhenInfoPlistMissing() throws {
         // Case 1: infoDictionary is nil (no Info.plist at all).
         let nilVersion = AppVersion(infoDictionary: nil)
@@ -966,18 +949,13 @@ final class DictAppTests: XCTestCase {
                        "Missing GIT_DESCRIBE must read as empty")
         XCTAssertEqual(nilVersion.marketingVersion, "unknown",
                        "Missing CFBundleShortVersionString must fall back to 'unknown'")
-        XCTAssertEqual(nilVersion.buildNumber, "0",
-                       "Missing CFBundleVersion must fall back to '0'")
         XCTAssertEqual(nilVersion.displayString, "unknown",
                        "Empty gitDescribe must fall back to the marketing version")
-        XCTAssertEqual(nilVersion.verboseString, "unknown (build 0)",
-                       "verboseString must compose cleanly with the fallback values")
         XCTAssertFalse(nilVersion.isCleanTag, "An empty describe is not a clean tag")
 
         // Case 2: infoDictionary exists but the keys we care about are absent.
         let emptyVersion = AppVersion(infoDictionary: [:])
         XCTAssertEqual(emptyVersion.marketingVersion, "unknown")
-        XCTAssertEqual(emptyVersion.buildNumber, "0")
         XCTAssertEqual(emptyVersion.gitDescribe, "")
 
         // Case 3: GIT_DESCRIBE present, so displayString uses it even when the
@@ -995,16 +973,13 @@ final class DictAppTests: XCTestCase {
         // rather than crashing.
         let wrongType: [String: Any] = [
             "GIT_DESCRIBE": 99,
-            "CFBundleShortVersionString": 1.0,
-            "CFBundleVersion": 42
+            "CFBundleShortVersionString": 1.0
         ]
         let wrongTypeVersion = AppVersion(infoDictionary: wrongType)
         XCTAssertEqual(wrongTypeVersion.gitDescribe, "",
                        "Non-string GIT_DESCRIBE must fall back to empty, not crash")
         XCTAssertEqual(wrongTypeVersion.marketingVersion, "unknown",
                        "Non-string CFBundleShortVersionString must fall back to 'unknown', not crash")
-        XCTAssertEqual(wrongTypeVersion.buildNumber, "0",
-                       "Non-string CFBundleVersion must fall back to '0', not crash")
     }
 
     /// `AppVersion.current` mirrors the live values in the host bundle's
@@ -1020,18 +995,13 @@ final class DictAppTests: XCTestCase {
         }()
 
         let bundleVersion = hostBundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
-        let bundleBuild = hostBundle.object(forInfoDictionaryKey: "CFBundleVersion") as? String
 
         XCTAssertNotNil(bundleVersion,
                         "Host bundle must expose CFBundleShortVersionString (guarded by GENERATE_INFOPLIST_FILE)")
-        XCTAssertNotNil(bundleBuild,
-                        "Host bundle must expose CFBundleVersion")
 
         let current = AppVersion(bundle: hostBundle)
         XCTAssertEqual(current.marketingVersion, bundleVersion,
                        "AppVersion.marketingVersion must mirror the bundle's CFBundleShortVersionString")
-        XCTAssertEqual(current.buildNumber, bundleBuild,
-                       "AppVersion.buildNumber must mirror the bundle's CFBundleVersion")
 
         // The git-describe read path is pinned regardless of whether the build
         // wiring is in place yet: AppVersion must surface exactly the bundle's
@@ -1059,7 +1029,6 @@ final class DictAppTests: XCTestCase {
         // hasn't been replaced with a stale snapshot.
         XCTAssertEqual(AppVersion.current.marketingVersion, current.marketingVersion,
                        "AppVersion.current must equal a fresh AppVersion(bundle:) reading the same plist")
-        XCTAssertEqual(AppVersion.current.buildNumber, current.buildNumber)
     }
 
 
