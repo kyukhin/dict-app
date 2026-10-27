@@ -8124,3 +8124,66 @@ final class ArabicBidiOrderTests: XCTestCase {
         }
     }
 }
+
+// MARK: - Issue #202: Speak each word in its own language
+
+@MainActor
+final class SpeechLanguageTests: XCTestCase {
+    private func entry(_ word: String, _ source: String) -> DictionaryEntry {
+        DictionaryEntry(id: nil, word: word, definition: "", phonetic: "", pos: "", source: source, createdAt: nil)
+    }
+
+    /// Every bundled source speaks in its headword (source) language.
+    func testBundledSourcesMapToHeadwordLanguage() {
+        let expected = [
+            "wordnet": "en-US", "openrussian": "ru-RU",
+            "freedict-eng-spa": "en-US", "wordnet-spa-eng": "es-ES",
+            "wordnet-arb-eng": "ar-SA",
+            "freedict-ell-eng": "el-GR", "wordnet-ell-eng": "el-GR",
+            "freedict-eng-ell": "en-US", "wordnet-eng-ell": "en-US",
+        ]
+        let bundled = Set(DictionaryGrouping.legacyBareIDs.keys).union(DictionaryGrouping.bundledSourceIDs)
+        XCTAssertEqual(Set(expected.keys), bundled, "every bundled source is covered")
+        for (source, language) in expected {
+            XCTAssertEqual(SpeechService.language(forSource: source), language, source)
+        }
+    }
+
+    /// Imports declare no language: `en-US`, unless the file name is a bundled ID.
+    func testImportsUseEnglishUnlessNamedLikeABundledSource() {
+        for source in ["test_import_fixture", "my dict", "freedict-spa-eng", "freedict-deu-eng", ""] {
+            XCTAssertEqual(SpeechService.language(forSource: source), "en-US", source)
+        }
+        XCTAssertEqual(SpeechService.language(forSource: "wordnet-ell-eng"), "el-GR")
+    }
+
+    /// AC1: дом, casa, بيت, σπίτι and house each get their own voice.
+    func testDefinitionSpeaksTheHeadwordLanguage() {
+        let cases = [
+            (entry("дом", "openrussian"), "ru-RU"), (entry("casa", "wordnet-spa-eng"), "es-ES"),
+            (entry("بيت", "wordnet-arb-eng"), "ar-SA"), (entry("σπίτι", "freedict-ell-eng"), "el-GR"),
+            (entry("house", "wordnet"), "en-US"),
+        ]
+        for (entry, language) in cases {
+            var asked: [String] = []
+            let vm = DefinitionViewModel(entry: entry, hasVoice: { asked.append($0); return true })
+            XCTAssertEqual(vm.speechLanguage, language, entry.word)
+            XCTAssertEqual(asked, [language], "\(entry.word): the voice check gets the headword language")
+            XCTAssertTrue(vm.canSpeak, entry.word)
+        }
+    }
+
+    /// Every voice code resolves on the OS under test (checked on iOS 17.5 and 26.4).
+    func testEveryBundledLanguageHasAVoice() {
+        for language in Set(SpeechService.voiceLanguages.values) {
+            XCTAssertTrue(SpeechService.hasVoice(for: language), language)
+        }
+    }
+
+    /// No voice for the headword language hides the speaker button.
+    func testNoVoiceHidesSpeaker() {
+        let englishOnly: (String) -> Bool = { $0 == "en-US" }
+        XCTAssertFalse(DefinitionViewModel(entry: entry("σπίτι", "freedict-ell-eng"), hasVoice: englishOnly).canSpeak)
+        XCTAssertTrue(DefinitionViewModel(entry: entry("house", "wordnet"), hasVoice: englishOnly).canSpeak)
+    }
+}

@@ -8,11 +8,18 @@ final class DefinitionViewModel: ObservableObject {
     @Published var errorMessage: String?
 
     let entry: DictionaryEntry
+    /// Issue #202: the headword's voice language. Without that voice the
+    /// speaker button is hidden rather than reading the word in another language.
+    let speechLanguage: String
+    let canSpeak: Bool
     private let db: DatabaseService
 
-    init(entry: DictionaryEntry, db: DatabaseService = .shared) {
+    init(entry: DictionaryEntry, db: DatabaseService = .shared,
+         hasVoice: (String) -> Bool = SpeechService.hasVoice(for:)) {
         self.entry = entry
         self.db = db
+        speechLanguage = SpeechService.language(forSource: entry.source)
+        canSpeak = hasVoice(speechLanguage)
     }
 
     func onAppear() async {
@@ -40,6 +47,6 @@ final class DefinitionViewModel: ObservableObject {
     }
 
     func speak() {
-        SpeechService.shared.speak(entry.word)
+        SpeechService.shared.speak(entry.word, language: speechLanguage)
     }
 }
