@@ -191,24 +191,13 @@ final class DictAppTests: XCTestCase {
     // MARK: - Bundled Resources Tests
 
     /// Regression test for the "Database Error: SQLite error 26: file is not a database"
-    /// crash that occurred when `seed.sqlite` was shipped as a Git-LFS pointer stub
-    /// instead of the real database. Fails loudly if the bundled resource is missing,
-    /// too small, or isn't a real SQLite file (e.g. an LFS pointer header).
-    func testBundledSeedIsRealSQLite() throws {
-        let hostBundle: Bundle = {
-            if let url = Bundle.main.url(forResource: "DictApp", withExtension: "app") {
-                return Bundle(url: url) ?? .main
-            }
-            return .main
-        }()
+    /// crash that occurred when the bundled database was shipped as a Git-LFS pointer
+    /// stub instead of the real database. Fails loudly if the bundled resource is
+    /// missing, too small, or isn't a real SQLite file (e.g. an LFS pointer header).
+    func testBundledDictionaryFileIsRealSQLite() throws {
+        let fileURL = try TestDictionary.bundledURL()
 
-        let seedURL = try XCTUnwrap(
-            hostBundle.url(forResource: "seed", withExtension: "sqlite")
-                ?? Bundle.main.url(forResource: "seed", withExtension: "sqlite"),
-            "Bundled seed.sqlite is missing from the app bundle."
-        )
-
-        let data = try Data(contentsOf: seedURL, options: .alwaysMapped)
+        let data = try Data(contentsOf: fileURL, options: .alwaysMapped)
         // SQLite files start with the 16-byte magic header "SQLite format 3\0".
         // Git-LFS pointer stubs start with "version https://git-lfs.github.com/".
         let header = data.prefix(16)
@@ -216,26 +205,26 @@ final class DictAppTests: XCTestCase {
 
         XCTAssertFalse(
             headerString.hasPrefix("version https://git-lfs"),
-            "seed.sqlite is a Git-LFS pointer stub. Run `git lfs install && git lfs pull` before building."
+            "dictionaries.sqlite is a Git-LFS pointer stub. Run `git lfs install && git lfs pull` before building."
         )
         XCTAssertGreaterThan(
             data.count, 1024,
-            "seed.sqlite is suspiciously small (\(data.count) bytes) — likely not the real database."
+            "dictionaries.sqlite is suspiciously small (\(data.count) bytes) — likely not the real database."
         )
         XCTAssertEqual(
             headerString, "SQLite format 3\u{0000}",
-            "seed.sqlite does not have a valid SQLite header."
+            "dictionaries.sqlite does not have a valid SQLite header."
         )
 
         // And it must actually open and contain entries. Read-only: the
         // bundle never gets a writable connection (#111).
         var config = Configuration()
         config.readonly = true
-        let queue = try DatabaseQueue(path: seedURL.path, configuration: config)
+        let queue = try DatabaseQueue(path: fileURL.path, configuration: config)
         let count = try queue.read { db in
             try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM entries") ?? 0
         }
-        XCTAssertGreaterThan(count, 0, "Bundled seed.sqlite must contain entries.")
+        XCTAssertGreaterThan(count, 0, "Bundled dictionaries.sqlite must contain entries.")
     }
 
     // MARK: - App Metadata Tests
@@ -1262,14 +1251,14 @@ final class DictAppTests: XCTestCase {
 
     // MARK: - Issue #24: FreeDict English–Spanish bundle
     //
-    // The dictionary content itself lives in the bundled `seed.sqlite`,
+    // The dictionary content itself lives in the bundled `dictionaries.sqlite`,
     // so coverage spans two surfaces:
     //   1. Cosmetic Swift (`sourceLabel`, Settings toggle wiring) —
-    //      independent of the seed contents.
+    //      independent of the file's contents.
     //   2. Bundled data (metadata row + searchable headwords) — the
-    //      tests query the host bundle's `seed.sqlite` directly via
-    //      GRDB, identical to the pattern in `testBundledSeedIsRealSQLite`.
-    //      If the maintainer hasn't yet regenerated `seed.sqlite` with
+    //      tests query the host bundle's `dictionaries.sqlite` directly via
+    //      GRDB, identical to the pattern in `testBundledDictionaryFileIsRealSQLite`.
+    //      If the maintainer hasn't yet regenerated `dictionaries.sqlite` with
     //      the new source these tests will fail loudly — that's the
     //      signal that the data step of #24 is incomplete.
 
@@ -1331,7 +1320,7 @@ final class DictAppTests: XCTestCase {
                        "Unknown sources must fall back to .capitalized")
     }
 
-    /// The bundled `seed.sqlite` must contain a `dict_metadata` row for
+    /// The bundled `dictionaries.sqlite` must contain a `dict_metadata` row for
     /// `freedict-eng-spa` with every contract column populated. We open
     /// the seed directly (read-only) — the per-test `DatabaseService`
     /// instance points at a fresh tempDir DB and won't see bundled data.
@@ -1355,7 +1344,7 @@ final class DictAppTests: XCTestCase {
 
         let unwrapped = try XCTUnwrap(
             row,
-            "Bundled seed.sqlite has no dict_metadata row for '\(Self.freeDictEngSpaSource)'. Regenerate via `python Scripts/build_seed.py` before merging Issue #24."
+            "Bundled dictionaries.sqlite has no dict_metadata row for '\(Self.freeDictEngSpaSource)'. Regenerate via `python Scripts/build_dictionaries.py` before merging Issue #24."
         )
 
         let displayName: String = unwrapped["display_name"]
@@ -1408,7 +1397,7 @@ final class DictAppTests: XCTestCase {
         }
         XCTAssertGreaterThan(
             total, 0,
-            "Bundled seed has no entries with source='\(Self.freeDictEngSpaSource)'. Regenerate via `python Scripts/build_seed.py`."
+            "Bundled dictionary file has no entries with source='\(Self.freeDictEngSpaSource)'. Regenerate via `python Scripts/build_dictionaries.py`."
         )
 
         // Pick everyday words that every general-purpose English-Spanish
@@ -1512,37 +1501,23 @@ final class DictAppTests: XCTestCase {
                       "Re-enable must round-trip through UserDefaults")
     }
 
-    /// Opens the bundled `seed.sqlite` read-only via GRDB so the FreeDict
-    /// tests can probe it without touching the per-test database. Mirrors
-    /// the host-bundle resolution used by `testBundledSeedIsRealSQLite`.
+    /// Opens the bundled `dictionaries.sqlite` read-only via GRDB so the
+    /// FreeDict tests can probe it without touching the per-test database.
     private static func openBundledSeedReadOnly() throws -> DatabaseQueue {
-        let hostBundle: Bundle = {
-            if let url = Bundle.main.url(forResource: "DictApp", withExtension: "app") {
-                return Bundle(url: url) ?? .main
-            }
-            return .main
-        }()
-
-        let seedURL = try XCTUnwrap(
-            hostBundle.url(forResource: "seed", withExtension: "sqlite")
-                ?? Bundle.main.url(forResource: "seed", withExtension: "sqlite"),
-            "Bundled seed.sqlite is missing from the app bundle"
-        )
-
         var config = Configuration()
         config.readonly = true
-        return try DatabaseQueue(path: seedURL.path, configuration: config)
+        return try DatabaseQueue(path: TestDictionary.bundledURL().path, configuration: config)
     }
 
     // MARK: - Issue #42: Spanish WordNet (Spanish–English) bundle
     //
-    // Content lives in the bundled `seed.sqlite` under source
+    // Content lives in the bundled `dictionaries.sqlite` under source
     // `wordnet-spa-eng`, so coverage mirrors the #24 FreeDict tests:
     //   1. Cosmetic Swift (sourceLabel, Settings toggle) — independent of
     //      the seed contents.
     //   2. Bundled data (metadata row + searchable headwords) — queried
     //      directly via `openBundledSeedReadOnly()`. These fail loudly if
-    //      the maintainer hasn't regenerated `seed.sqlite` with the new
+    //      the maintainer hasn't regenerated `dictionaries.sqlite` with the new
     //      source, which is the signal that the data step of #42 is
     //      incomplete.
 
@@ -1612,7 +1587,7 @@ final class DictAppTests: XCTestCase {
 
         let unwrapped = try XCTUnwrap(
             row,
-            "Bundled seed.sqlite has no dict_metadata row for '\(Self.spanishWordNetSource)'. Regenerate via `python Scripts/build_seed.py` before merging Issue #42."
+            "Bundled dictionaries.sqlite has no dict_metadata row for '\(Self.spanishWordNetSource)'. Regenerate via `python Scripts/build_dictionaries.py` before merging Issue #42."
         )
 
         let displayName: String = unwrapped["display_name"]
@@ -1672,7 +1647,7 @@ final class DictAppTests: XCTestCase {
         }
         XCTAssertGreaterThan(
             total, 0,
-            "Bundled seed has no entries with source='\(Self.spanishWordNetSource)'. Regenerate via `python Scripts/build_seed.py`."
+            "Bundled dictionary file has no entries with source='\(Self.spanishWordNetSource)'. Regenerate via `python Scripts/build_dictionaries.py`."
         )
 
         // Spanish headword → an English translation lemma that the correct
@@ -1932,7 +1907,7 @@ final class DictAppTests: XCTestCase {
     // boost, so it must sort BELOW any sibling's "term_bN" rows inside a
     // shared bucket, regardless of member order in the group.
 
-    /// Gives a source a `dict_metadata` row the way `build_seed.py` does for
+    /// Gives a source a `dict_metadata` row the way `build_dictionaries.py` does for
     /// bundled sources (by default a test source shows its ID and no license).
     private func insertMetadata(source: String, displayName: String,
                                 license: String, version: String) async throws {
@@ -6612,6 +6587,171 @@ final class SpeechLanguageTests: XCTestCase {
     }
 }
 
+// MARK: - Issue #140: the dictionary file's format
+
+/// The bundled `dictionaries.sqlite` as `Scripts/build_dictionaries.py`
+/// writes it (0129-dictionary-file.md, "Dictionary file" and "Build").
+final class DictionaryFileTests: XCTestCase {
+
+    /// `user_version` is the app's `DictionaryFile.formatVersion`, the file
+    /// is in rollback-journal mode, every dictionary's `word_count` is its row
+    /// count and its languages are the ISO 639-3 codes of its source ID, and
+    /// no column stamps the build time.
+    func testDictionaryFileFormat() throws {
+        var config = Configuration()
+        config.readonly = true
+        let queue = try DatabaseQueue(path: TestDictionary.bundledURL().path, configuration: config)
+        try queue.read { db in
+            XCTAssertEqual(try Int.fetchOne(db, sql: "PRAGMA user_version"), DictionaryFile.formatVersion,
+                           "the bundled file and DictionaryFile.formatVersion (FORMAT_VERSION in the build) must match")
+            XCTAssertEqual(try String.fetchOne(db, sql: "PRAGMA journal_mode")?.lowercased(), "delete")
+
+            let counts = try Dictionary(uniqueKeysWithValues: Row.fetchAll(db, sql: """
+                SELECT source, COUNT(*) AS n FROM entries GROUP BY source
+                """).map { ($0["source"] as String, $0["n"] as Int) })
+            let metadata = try Row.fetchAll(db, sql: "SELECT source, word_count, from_lang, to_lang FROM dict_metadata")
+            XCTAssertEqual(Set(metadata.map { $0["source"] as String }), Set(counts.keys),
+                           "dict_metadata lists exactly the entry sources")
+            for row in metadata {
+                let source: String = row["source"]
+                XCTAssertEqual(row["word_count"] as Int, counts[source], "\(source): word_count is its row count")
+                let languages = DictionaryGrouping.parse(sourceID: source).languages
+                XCTAssertEqual(row["from_lang"] as String, languages.first, "\(source): from_lang")
+                XCTAssertEqual(row["to_lang"] as String, languages.last, "\(source): to_lang")
+            }
+
+            XCTAssertFalse(try db.columns(in: "entries").map(\.name).contains("created_at"))
+            XCTAssertFalse(try db.columns(in: "dict_metadata").map(\.name).contains("built_at"))
+            XCTAssertTrue(try db.tableExists("data_source"), "credits table for non-dictionary data sets")
+        }
+    }
+
+    /// The rest of the file's shape (0129, "Dictionary file"): no triggers,
+    /// because the file never changes; no `ANALYZE` statistics, so the query
+    /// plans stay the measured ones; the unique `(word COLLATE NOCASE,
+    /// source)` index that makes `EntryKey` unique; the FTS5 index over
+    /// `entries` with the tokenizer the imported index shares; and every id
+    /// below 2^40, where imported ids start.
+    func testDictionaryFileStructure() throws {
+        var config = Configuration()
+        config.readonly = true
+        let queue = try DatabaseQueue(path: TestDictionary.bundledURL().path, configuration: config)
+        try queue.read { db in
+            XCTAssertEqual(try String.fetchAll(db, sql: "SELECT name FROM sqlite_master WHERE type = 'trigger'"), [],
+                           "no triggers: the FTS index is rebuilt once by the build")
+            XCTAssertFalse(try db.tableExists("sqlite_stat1"), "no ANALYZE")
+            XCTAssertFalse(try db.tableExists("history") || db.tableExists("bookmarks"),
+                           "the 1.x seed's empty user tables are gone")
+
+            let uniqueIndexes = try Row.fetchAll(db, sql: "PRAGMA index_list(entries)")
+                .filter { ($0["unique"] as Int) == 1 }
+                .map { $0["name"] as String }
+            let keys = try uniqueIndexes.map { name in
+                try Row.fetchAll(db, sql: "PRAGMA index_xinfo(\(name.quotedDatabaseIdentifier))")
+                    .filter { ($0["key"] as Int) == 1 }
+                    .map { "\($0["name"] as String? ?? "?") \($0["coll"] as String)" }
+            }
+            XCTAssertTrue(keys.contains(["word NOCASE", "source BINARY"]),
+                          "entries is unique on (word COLLATE NOCASE, source): \(keys)")
+
+            let fts = try XCTUnwrap(String.fetchOne(db, sql: "SELECT sql FROM sqlite_master WHERE name = 'entries_fts'"))
+            for clause in ["fts5", "word_normalized, definition", "content='entries'", "content_rowid='id'",
+                           "tokenize='unicode61 remove_diacritics 2'"] {
+                XCTAssertTrue(fts.contains(clause), "entries_fts has \(clause): \(fts)")
+            }
+
+            let maxID = try XCTUnwrap(Int64.fetchOne(db, sql: "SELECT MAX(id) FROM entries"))
+            XCTAssertGreaterThan(maxID, 0)
+            XCTAssertLessThan(maxID, Int64(1) << 40, "bundled ids stay below the first imported id")
+        }
+    }
+
+    /// A dictionary file the app cannot read fails setup loudly instead of
+    /// attaching an empty `dict`, so the app shows its database error rather
+    /// than a Search that fails on every query:
+    /// - missing: `mode=ro` never creates a file at the path (SQLITE_CANTOPEN);
+    /// - a Git LFS pointer checked out instead of the file (the 1.x "SQLite
+    ///   error 26" crash): SQLITE_NOTADB, and the pointer is left as it was.
+    func testSetupFailsWithoutAReadableDictionaryFile() async throws {
+        await DictAppTests.waitForHostAppLaunch()
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let userPath = folder.appendingPathComponent("user.sqlite").path
+
+        let missing = folder.appendingPathComponent("missing.sqlite")
+        do {
+            try await DatabaseService.shared.setup(userPath: userPath, dictionaryURL: missing)
+            XCTFail("setup must fail on a missing dictionary file")
+        } catch let error as DatabaseError {
+            XCTAssertEqual(error.resultCode, .SQLITE_CANTOPEN, "\(error)")
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: missing.path),
+                       "a read-only attach creates no empty file at the dictionary path")
+
+        let pointer = folder.appendingPathComponent("pointer.sqlite")
+        let pointerText = """
+            version https://git-lfs.github.com/spec/v1
+            oid sha256:14dcb3318077de8dc872412683e9d12a6ede8d6cb3a7ce43751b05f9c61c6ff5
+            size 126050304
+
+            """
+        try pointerText.write(to: pointer, atomically: true, encoding: .utf8)
+        do {
+            try await DatabaseService.shared.setup(userPath: userPath, dictionaryURL: pointer)
+            XCTFail("setup must fail on a Git LFS pointer")
+        } catch let error as DatabaseError {
+            XCTAssertEqual(error.resultCode, .SQLITE_NOTADB, "\(error)")
+        }
+        XCTAssertEqual(try String(contentsOf: pointer, encoding: .utf8), pointerText, "the pointer file is untouched")
+    }
+
+    /// #129, #139, #140: the dictionaries are stored once, in the bundle.
+    /// The host app launched through the real `setup()`, so `Application
+    /// Support/DictApp` holds the user database alone (`user.sqlite` with its
+    /// `-wal` and `-shm`), and all of Application Support and Documents stays
+    /// under 5 MB with no copy of the dictionary file (1.4.0 unpacked ~138 MB
+    /// there). A 1.x `dict.sqlite` left by an earlier install on this
+    /// simulator is #139's to move and delete, so it is left out.
+    func testDictionaryFileIsNeverCopied() async throws {
+        await DictAppTests.waitForHostAppLaunch()
+        let fileManager = FileManager.default
+        let userDatabase = DatabaseService.userDatabaseURL().resolvingSymlinksInPath()
+        let folder = userDatabase.deletingLastPathComponent()
+        let legacy = DatabaseService.legacyDatabaseURL().resolvingSymlinksInPath()
+        let legacyPaths = Set(["", "-wal", "-shm", "-journal"].map { legacy.path + $0 })
+        let userNames = Set(["", "-wal", "-shm"].map { userDatabase.lastPathComponent + $0 })
+
+        let names = try fileManager.contentsOfDirectory(atPath: folder.path)
+            .filter { !legacyPaths.contains(folder.appendingPathComponent($0).path) }
+        XCTAssertTrue(names.contains(userDatabase.lastPathComponent), "the launch created the user database: \(names)")
+        XCTAssertTrue(Set(names).isSubset(of: userNames), "only the user database lives in \(folder.path): \(names.sorted())")
+
+        let files = try [FileManager.SearchPathDirectory.applicationSupportDirectory, .documentDirectory]
+            .compactMap { fileManager.urls(for: $0, in: .userDomainMask).first }
+            .flatMap(Self.regularFiles(under:))
+            .filter { !legacyPaths.contains($0.url.resolvingSymlinksInPath().path) }
+        let total = files.reduce(0) { $0 + $1.size }
+        let listing = files.map { "\($0.url.lastPathComponent) \($0.size) B" }
+        XCTAssertLessThan(total, 5_000_000, "Application Support and Documents hold \(total) bytes: \(listing)")
+        let bundledName = DictionaryFile.resourceName + "." + DictionaryFile.resourceExtension
+        XCTAssertFalse(files.contains { $0.url.lastPathComponent == bundledName },
+                       "the dictionary file is never copied: \(listing)")
+    }
+
+    /// Every regular file below `root`, with its size.
+    private static func regularFiles(under root: URL) throws -> [(url: URL, size: Int)] {
+        let keys: [URLResourceKey] = [.isRegularFileKey, .fileSizeKey]
+        guard let walker = FileManager.default.enumerator(at: root, includingPropertiesForKeys: keys) else { return [] }
+        var files: [(url: URL, size: Int)] = []
+        for case let url as URL in walker {
+            let values = try url.resourceValues(forKeys: Set(keys))
+            if values.isRegularFile == true { files.append((url, values.fileSize ?? 0)) }
+        }
+        return files
+    }
+}
+
 // MARK: - Issue #138: test dictionary files
 
 /// Dictionary files for unit tests: the bundled dictionary file's schema
@@ -6641,12 +6781,14 @@ enum TestDictionary {
     }
 
     /// One `dict_metadata` row. A source without one gets its ID as the
-    /// display name and an empty license and version.
+    /// display name, an empty license and version, and `eng` → `eng`.
     struct Metadata {
         var source: String
         var displayName: String
         var license = ""
         var version = ""
+        var fromLang = "eng"
+        var toLang = "eng"
     }
 
     /// `count` distinct rows for `source` (`<source>-w<i>`, "def <i>").
@@ -6662,10 +6804,11 @@ enum TestDictionary {
             }
             return .main
         }()
+        let name = DictionaryFile.resourceName, ext = DictionaryFile.resourceExtension
         return try XCTUnwrap(
-            hostBundle.url(forResource: "seed", withExtension: "sqlite")
-                ?? Bundle.main.url(forResource: "seed", withExtension: "sqlite"),
-            "Bundled seed.sqlite is missing from the app bundle")
+            hostBundle.url(forResource: name, withExtension: ext)
+                ?? Bundle.main.url(forResource: name, withExtension: ext),
+            "Bundled \(name).\(ext) is missing from the app bundle")
     }
 
     /// Writes a dictionary file with `rows` (in this order, `INSERT OR
@@ -6717,11 +6860,11 @@ enum TestDictionary {
                 let entry = metadata.first { $0.source == source } ?? Metadata(source: source, displayName: source)
                 try db.execute(
                     sql: """
-                        INSERT INTO dict_metadata(source, display_name, license, version, word_count)
-                        VALUES (?, ?, ?, ?, ?)
+                        INSERT INTO dict_metadata(source, display_name, license, version, word_count, from_lang, to_lang)
+                        VALUES (?, ?, ?, ?, ?, ?, ?)
                         """,
                     arguments: [source, entry.displayName, entry.license, entry.version,
-                                counts.first { $0.0 == source }?.1 ?? 0])
+                                counts.first { $0.0 == source }?.1 ?? 0, entry.fromLang, entry.toLang])
             }
         }
         return url
@@ -7164,9 +7307,9 @@ final class UserDatabaseTests: XCTestCase {
     }
 
     /// No user table shares a name with a table of the bundled dictionary
-    /// file, so an unqualified name can never reach the wrong store. The
-    /// 1.x seed still carries empty `history` and `bookmarks` tables; #140's
-    /// `dictionaries.sqlite` drops them.
+    /// file, so an unqualified name can never reach the wrong store. #140's
+    /// `dictionaries.sqlite` no longer carries the 1.x seed's empty
+    /// `history` and `bookmarks` tables.
     func testUserSchemaSharesNoTableNameWithTheDictionaryFile() async throws {
         try await db.setup(userPath: userPath, dictionaryURL: try TestDictionary.bundledURL())
         let (user, dictionary) = try await db.writeForTesting { conn in
@@ -7175,8 +7318,7 @@ final class UserDatabaseTests: XCTestCase {
                     try String.fetchAll(conn, sql: "SELECT name FROM dict.sqlite_master WHERE \(tables)"))
         }
         XCTAssertTrue(user.contains("imported_entries") && dictionary.contains("entries"), "\(user) / \(dictionary)")
-        let legacySeedTables: Set = ["history", "bookmarks"]
-        XCTAssertEqual(Set(user).intersection(dictionary).subtracting(legacySeedTables), [])
+        XCTAssertEqual(Set(user).intersection(dictionary), [])
     }
 
     // MARK: History rows (Kirill, 2026-10-27)

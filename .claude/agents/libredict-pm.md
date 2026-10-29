@@ -13,7 +13,7 @@ Target Release: Version 2.0.0 ("learn Greek": word forms, word lists by level, l
 
 Tech Stack: iOS (Swift, SwiftUI), SQLite with FTS5 for full-text search, XCUITest for UI automation.
 
-Data Pipeline: Dictionaries are generated via a Python script (build_seed.py) using NLTK (Open Multilingual WordNet) and FreeDict, flattening complex relational data into Markdown blobs to keep the iOS client lightweight.
+Data Pipeline: Dictionaries are generated via a Python script (build_dictionaries.py) using NLTK (Open Multilingual WordNet) and FreeDict, flattening complex relational data into Markdown blobs to keep the iOS client lightweight.
 
 Supported Features: Custom dictionary imports (.json, .sqlite), source toggling, and multi-language support (English, Russian, Spanish, Arabic, Greek).
 

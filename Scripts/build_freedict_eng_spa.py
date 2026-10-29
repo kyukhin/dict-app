@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """
 build_freedict_eng_spa.py
-Download a FreeDict TEI/XML release and emit
+Read a pinned FreeDict TEI/XML release and emit
 `(word, definition, phonetic, pos, source)` tuples that match the
-existing `entries` schema in `seed.sqlite`. Written for English–Spanish
-(`eng-spa`, still the default everywhere), it now fetches any FreeDict
-pair: `build_greek.py` uses it for `ell-eng` (same `<cit><quote>` shape,
+`entries` table of `dictionaries.sqlite`. Written for English–Spanish
+(`eng-spa`, still the default everywhere), it reads any FreeDict pair:
+`build_greek.py` uses it for `ell-eng` (same `<cit><quote>` shape,
 `parse_tei`) and `eng-ell` (`<sense><def>` shape, `parse_def_tei`).
-Designed to be called from `build_seed.py` (orchestrator) but also
-runnable stand-alone for debugging.
+Designed to be called from `build_dictionaries.py` (orchestrator) but
+also runnable stand-alone for debugging.
 
 Source identifier convention (for multi-language dictionaries):
     provider-srclang-tgtlang (ISO-639-3 codes)
@@ -20,29 +20,33 @@ Usage:
     python Scripts/build_freedict_eng_spa.py --pair ell-eng --dump 5
 
 Requirements:
-    pip install requests defusedxml
+    pip install -r Scripts/requirements.txt
 
-Network artifacts (TEI tarballs) are cached under
-`Scripts/.cache/freedict-<pair>/<version>/` so re-runs are offline.
+The release of each pair is pinned in `RELEASES` and `inputs.json`; the
+tarball is cached as `<cache>/freedict/freedict-<pair>-<version>.src.tar.xz`
+and verified before use, so re-runs are offline.
 """
 
 from __future__ import annotations
 
 import argparse
-import io
 import os
-import re
 import sys
 import tarfile
 from pathlib import Path
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import inputs  # noqa: E402
+
 # ---------------------------------------------------------------------------
-# Public constants — consumed by build_seed.py for dict_metadata.
+# Public constants — consumed by build_dictionaries.py for dict_metadata.
 # ---------------------------------------------------------------------------
 
 SOURCE = "freedict-eng-spa"
 DISPLAY_NAME = "English – Spanish (FreeDict)"
 URL = "https://freedict.org/freedict-database/eng-spa/"
+FROM_LANG = "eng"
+TO_LANG = "spa"
 
 # WikDict license text, shared by every FreeDict+WikDict pair we ship
 # (`eng-spa`, `ell-eng`). It follows the TEI header `<availability>` of
@@ -67,41 +71,19 @@ DESCRIPTION_TEXT = (
 )
 
 # ---------------------------------------------------------------------------
-# Network + cache
+# Pinned releases (Scripts/inputs.json)
 # ---------------------------------------------------------------------------
 
 DEFAULT_PAIR = "eng-spa"
 
-# One cache directory per pair: `.cache/freedict-<pair>/<version>/`.
-CACHE_BASE = Path(__file__).parent / ".cache"
-
-# FreeDict hosts dictionaries on their own CDN, one directory per
-# language pair. Each version directory exposes `*.src.tar.xz` (which
-# contains the TEI XML), `*.dictd.tar.xz`, `*.slob`, and `*.stardict.*`.
-FREEDICT_INDEX_URL = "https://download.freedict.org/dictionaries/{pair}/"
-FREEDICT_VERSION_DIR_RE = re.compile(r'href="([0-9]+\.[0-9.]+)/"')
-FREEDICT_SRC_ASSET = "freedict-{pair}-{version}.src.tar.xz"
-
-
-def _release_url(pair: str, version: str) -> str:
-    return (FREEDICT_INDEX_URL.format(pair=pair) + f"{version}/"
-            + FREEDICT_SRC_ASSET.format(pair=pair, version=version))
-
-
-def _ensure_requests():
-    """Return the `requests` module, failing fast if it isn't installed.
-
-    Build dependencies are listed in the module docstring; we don't
-    `pip install` at runtime, which would make builds non-deterministic
-    and break in offline/restricted CI."""
-    try:
-        import requests
-    except ImportError as err:
-        raise RuntimeError(
-            "Missing build dependency 'requests'. Install it first: "
-            "pip install requests defusedxml"
-        ) from err
-    return requests
+# The FreeDict release of each pair the build reads. A new release is a
+# reviewed change: bump the version here and pin its `*.src.tar.xz` (which
+# contains the TEI XML) in `inputs.json` under the same name.
+RELEASES = {
+    "eng-spa": "2025.11.23",
+    "ell-eng": "2025.11.23",
+    "eng-ell": "0.1.1",
+}
 
 
 def _safe_etree():
@@ -109,77 +91,16 @@ def _safe_etree():
 
     The TEI dump comes from a remote source, so we parse it with
     defusedxml's hardened `iterparse` to mitigate XML attacks (billion
-    laughs / entity expansion, external entity resolution). Like
-    `_ensure_requests`, this never installs at runtime."""
+    laughs / entity expansion, external entity resolution). It never
+    installs at runtime."""
     try:
         import defusedxml.ElementTree as safe_et
     except ImportError as err:
         raise RuntimeError(
             "Missing build dependency 'defusedxml'. Install it first: "
-            "pip install requests defusedxml"
+            "pip install -r Scripts/requirements.txt"
         ) from err
     return safe_et
-
-
-def _version_sort_key(v: str) -> tuple:
-    """Sort '2025.11.23' above '0.3.1' above '0.3'. Pure-numeric tuple
-    comparison handles both `0.x` and date-based `YYYY.MM.DD` variants."""
-    parts = []
-    for chunk in v.split("."):
-        try:
-            parts.append(int(chunk))
-        except ValueError:
-            parts.append(-1)
-    return tuple(parts)
-
-
-def _resolve_release(requests_mod, pair: str = DEFAULT_PAIR) -> tuple[str, str]:
-    """Return (version_tag, download_url) for the newest source tarball of
-    `pair` on the FreeDict CDN. Falls back to a known-good pinned release
-    if the CDN is unreachable — see `_PINNED_FALLBACK`."""
-    try:
-        resp = requests_mod.get(FREEDICT_INDEX_URL.format(pair=pair), timeout=30)
-        resp.raise_for_status()
-        versions = FREEDICT_VERSION_DIR_RE.findall(resp.text)
-        if not versions:
-            raise RuntimeError("no version directories found in CDN listing")
-        versions.sort(key=_version_sort_key)
-        latest = versions[-1]
-        return latest, _release_url(pair, latest)
-    except Exception as exc:
-        print(f"  WARNING: FreeDict CDN listing failed ({exc}); using pinned fallback.")
-    version = _PINNED_FALLBACK[pair]
-    return version, _release_url(pair, version)
-
-
-# Pinned baseline per pair — updated whenever a known-good release is verified.
-_PINNED_FALLBACK = {
-    "eng-spa": "2025.11.23",
-    "ell-eng": "2025.11.23",
-    "eng-ell": "0.1.1",
-}
-
-
-def _download(requests_mod, url: str, dest: Path) -> None:
-    print(f"  Downloading {url} -> {dest.name}")
-    resp = requests_mod.get(url, stream=True, timeout=120)
-    resp.raise_for_status()
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    with open(dest, "wb") as out:
-        for chunk in resp.iter_content(chunk_size=64 * 1024):
-            if chunk:
-                out.write(chunk)
-
-
-def _ensure_tarball(version: str, url: str, pair: str = DEFAULT_PAIR) -> Path:
-    """Return the local path to the cached tarball, downloading if absent."""
-    cache_dir = CACHE_BASE / f"freedict-{pair}" / version
-    tarball = cache_dir / os.path.basename(url)
-    if tarball.exists() and tarball.stat().st_size > 0:
-        return tarball
-    requests_mod = _ensure_requests()
-    _download(requests_mod, url, tarball)
-    return tarball
 
 
 def _extract_tei(tarball: Path) -> Path:
@@ -399,28 +320,29 @@ def parse_def_tei(tei_path: Path) -> list[tuple[str, str, str]]:
 # Public entry points
 # ---------------------------------------------------------------------------
 
-def fetch_tei(pair: str = DEFAULT_PAIR) -> tuple[Path, str]:
-    """Resolve, fetch, cache and extract the latest TEI release of `pair`.
+def fetch_tei(pair: str = DEFAULT_PAIR,
+              cache_dir: Path = inputs.DEFAULT_CACHE_DIR) -> tuple[Path, str]:
+    """Fetch, verify and extract the pinned TEI release of `pair`.
 
-    Returns `(tei_path, version)`, where `version` is the upstream release
-    tag (used for `dict_metadata.version`)."""
-    requests_mod = _ensure_requests()
-    version, url = _resolve_release(requests_mod, pair)
-    tarball = _ensure_tarball(version, url, pair)
+    Returns `(tei_path, version)`, where `version` is the release tag (used
+    for `dict_metadata.version`)."""
+    version = RELEASES[pair]
+    tarball = inputs.fetch(f"freedict/freedict-{pair}-{version}.src.tar.xz", cache_dir)
     return _extract_tei(tarball), version
 
 
-def download_and_parse(pair: str = DEFAULT_PAIR) -> tuple[list[tuple], str]:
-    """Resolve, fetch, cache, extract, and parse the latest TEI of `pair`
-    (a `<cit><quote>`-shaped FreeDict release such as eng-spa or ell-eng).
+def download_and_parse(pair: str = DEFAULT_PAIR,
+                       cache_dir: Path = inputs.DEFAULT_CACHE_DIR) -> tuple[list[tuple], str]:
+    """Fetch, verify, extract and parse the pinned TEI of `pair` (a
+    `<cit><quote>`-shaped FreeDict release such as eng-spa or ell-eng).
 
     Returns:
         (rows, version) where `rows` is the list of
         `(word, definition, phonetic, pos, "freedict-<pair>")` tuples
-        and `version` is the upstream release tag (used by `build_seed`
+        and `version` is the release tag (used by `build_dictionaries`
         for `dict_metadata.version`).
     """
-    tei_path, version = fetch_tei(pair)
+    tei_path, version = fetch_tei(pair, cache_dir)
     rows = parse_tei(tei_path, source=f"freedict-{pair}")
     return rows, version
 

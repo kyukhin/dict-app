@@ -15,7 +15,7 @@
 - **Interface in five languages:** English, Russian, Spanish, Arabic (right to left) and Greek.
 - **Search as you type:** SQLite FTS5 results in milliseconds; Greek search ignores accents and final sigma, Arabic search ignores diacritics.
 - **Dictionary order:** one row per language pair; switch pairs on or off, drag to reorder, tap (i) for each source's provider, version, size and license.
-- **Quick first launch:** Search is ready in about a second; the dictionaries are prepared in the background.
+- **Instant first launch:** every dictionary is searchable right after install, with nothing to unpack.
 - **Reading Mode:** keeps the screen awake while you read.
 - **History and bookmarks**, pronunciation with text-to-speech, and import of your own `.json` / `.sqlite` dictionaries.
 - **Private:** no accounts, no analytics, no third-party SDKs.
@@ -58,16 +58,16 @@ Pick a simulator or a device and press **Run** (⌘R). Xcode resolves the GRDB p
 
 ### Rebuild the dictionary data (optional)
 
-`DictApp/DictApp/Resources/seed.sqlite` is prebuilt. To regenerate it from the sources, run from the repository root:
+`DictApp/DictApp/Resources/dictionaries.sqlite` is prebuilt: the app reads its dictionaries straight from this read-only file. To regenerate it from the sources, run from the repository root:
 
 ```bash
 python3 -m venv .venv
-source .venv/bin/activate
-pip install nltk requests defusedxml
-python Scripts/build_seed.py
+.venv/bin/pip install -r Scripts/requirements.txt
+.venv/bin/python Scripts/build_dictionaries.py
+.venv/bin/python Scripts/build_dictionaries.py --verify   # rebuild and compare with the committed file
 ```
 
-`build_seed.py` calls the per-source builders in `Scripts/` (`build_freedict_eng_spa.py`, `build_spanish_wordnet.py`, `build_arabic_wordnet.py`, `build_greek.py`); `--skip-…` flags leave a source out, see its header for the options.
+`build_dictionaries.py` calls the per-source builders in `Scripts/` (`build_freedict_eng_spa.py`, `build_spanish_wordnet.py`, `build_arabic_wordnet.py`, `build_greek.py`). Every input is pinned in `Scripts/inputs.json` (an immutable URL and its sha256) and checked before use, so the same inputs and SQLite version give a byte-identical file. Downloads are cached in `Scripts/.cache/` (`--cache-dir` to change it).
 
 ## Project Structure
 
@@ -80,7 +80,7 @@ dict-app/
 │   │   ├── Services/        # Database, settings, localization, speech, support
 │   │   ├── ViewModels/      # Search, Definition, History, Bookmarks, Settings
 │   │   ├── Views/           # SwiftUI screens
-│   │   └── Resources/       # seed.sqlite, Schema.sql, Localizable.xcstrings
+│   │   └── Resources/       # dictionaries.sqlite, Localizable.xcstrings
 │   ├── DictAppTests/        # Unit tests
 │   └── DictAppUITests/      # UI tests (page objects + test cases)
 ├── Scripts/                 # Dictionary data builders, build-info scripts

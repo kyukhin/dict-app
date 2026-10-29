@@ -1,0 +1,38 @@
+{
+  "freedict/freedict-ell-eng-2025.11.23.src.tar.xz": {
+    "url": "https://download.freedict.org/dictionaries/ell-eng/2025.11.23/freedict-ell-eng-2025.11.23.src.tar.xz",
+    "sha256": "3a102b1a72b5b7773dcd3669bc14c3e5d0df04616b525dca96c82d0d79ab17ef"
+  },
+  "freedict/freedict-eng-ell-0.1.1.src.tar.xz": {
+    "url": "https://download.freedict.org/dictionaries/eng-ell/0.1.1/freedict-eng-ell-0.1.1.src.tar.xz",
+    "sha256": "911891a256974eea76fdba927757326046c2a9a2175dcf6e354954ef034398d5"
+  },
+  "freedict/freedict-eng-spa-2025.11.23.src.tar.xz": {
+    "url": "https://download.freedict.org/dictionaries/eng-spa/2025.11.23/freedict-eng-spa-2025.11.23.src.tar.xz",
+    "sha256": "dd724fb48c5701395c15d7d648a9e6f6b75d6ff4269e465dce6d3a292700198d"
+  },
+  "nltk_data/corpora/omw-1.4.zip": {
+    "url": "https://raw.githubusercontent.com/nltk/nltk_data/e2e07981c2f09b1c0a847164fa7e4a4fc0297a20/packages/corpora/omw-1.4.zip",
+    "sha256": "3b941e664852f3297b6040236626065796a2aaf7d7f9eec8779a3beaa1096c2d"
+  },
+  "nltk_data/corpora/wordnet.zip": {
+    "url": "https://raw.githubusercontent.com/nltk/nltk_data/e2e07981c2f09b1c0a847164fa7e4a4fc0297a20/packages/corpora/wordnet.zip",
+    "sha256": "cbda5ea6eef7f36a97a43d4a75f85e07fccbb4f23657d27b4ccbc93e2646ab59"
+  },
+  "openrussian/adjectives.csv": {
+    "url": "https://raw.githubusercontent.com/Badestrand/russian-dictionary/50e210c4803237779cb562bc1abcea529066031c/adjectives.csv",
+    "sha256": "89ab5d10dcd2f21f6b485de704aef372f32251468e3aa96f18b21e259f26b80a"
+  },
+  "openrussian/nouns.csv": {
+    "url": "https://raw.githubusercontent.com/Badestrand/russian-dictionary/50e210c4803237779cb562bc1abcea529066031c/nouns.csv",
+    "sha256": "c388f9e6dde51932832be8d7e9afdbe9f0acee72fcf70677f0fe25ea61293c84"
+  },
+  "openrussian/others.csv": {
+    "url": "https://raw.githubusercontent.com/Badestrand/russian-dictionary/50e210c4803237779cb562bc1abcea529066031c/others.csv",
+    "sha256": "9f22a16b17fc9a564298112168b667fced11aafb254ccebf5b7544fc37cdaa92"
+  },
+  "openrussian/verbs.csv": {
+    "url": "https://raw.githubusercontent.com/Badestrand/russian-dictionary/50e210c4803237779cb562bc1abcea529066031c/verbs.csv",
+    "sha256": "8659de6799b949fb35f080b08088fb7d347ed300490954ebb380a31642646e1d"
+  }
+}
