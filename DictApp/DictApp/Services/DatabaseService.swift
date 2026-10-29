@@ -1,6 +1,7 @@
 // DatabaseService.swift
 // The user database with the bundled dictionary file attached (Issue #138):
 // connections, the user schema, FTS5 search, History, My words and imports.
+// Also the move of a 1.x database into the user database (Issue #139).
 
 import Foundation
 import GRDB
@@ -102,6 +103,10 @@ actor DatabaseService {
     /// every connection (Issue #138).
     private var dbPool: DatabasePool?
 
+    /// The move of a 1.x database, once started (Issue #139). Every method
+    /// that touches user data awaits it first; Search does not.
+    private var legacyMove: Task<Void, Never>?
+
     private init() {}
 
     // MARK: - Setup (Issue #138)
@@ -143,6 +148,36 @@ actor DatabaseService {
         let pool = try DatabasePool(path: userPath, configuration: config)
         try Self.migrator.migrate(pool)
         dbPool = pool
+        // A move belongs to the pool it writes; a new pool starts without one.
+        legacyMove = nil
+    }
+
+    // MARK: - 1.x migration (Issue #139)
+
+    /// Starts moving the 1.x database at `legacyURL` into the user database
+    /// as a detached utility task, if the file exists, and returns at once.
+    /// Launch calls it before showing the UI, so every user-data call finds
+    /// the move. Returns the move, which tests await.
+    @discardableResult
+    func startLegacyMigration(legacyURL: URL = DatabaseService.legacyDatabaseURL()) -> Task<Void, Never>? {
+        guard let pool = dbPool, FileManager.default.fileExists(atPath: legacyURL.path) else { return nil }
+        let previous = legacyMove
+        let move = Task.detached(priority: .utility) {
+            await previous?.value
+            await LegacyMigration.run(legacyURL: legacyURL, pool: pool)
+        }
+        legacyMove = move
+        return move
+    }
+
+    /// The pool, once a running 1.x move has ended: committed, or failed and
+    /// left for the next launch. Every method that touches user data starts
+    /// here, so History, My words, imports and their counts never show a
+    /// half-moved state.
+    private func userPool() async throws -> DatabasePool {
+        await legacyMove?.value
+        guard let pool = dbPool else { throw DBError.notConnected }
+        return pool
     }
 
     /// The user database schema. Migrations are append-only once merged to
@@ -400,7 +435,7 @@ actor DatabaseService {
     /// dictionaries; `nil` when neither has it. A disabled source resolves
     /// too: the enabled set only filters Search.
     func entry(for key: EntryKey) async throws -> DictionaryEntry? {
-        guard let pool = dbPool else { throw DBError.notConnected }
+        let pool = try await userPool()
         return try await pool.read { db in try Self.entry(for: key, in: db) }
     }
 
@@ -421,7 +456,7 @@ actor DatabaseService {
     /// Records a viewed word with the `source` of the entry that was viewed
     /// (Issue #6). On a repeat view the last-viewed source wins (`excluded.source`).
     func addToHistory(word: String, source: String) async throws {
-        guard let pool = dbPool else { throw DBError.notConnected }
+        let pool = try await userPool()
         try await pool.write { db in
             try db.execute(
                 sql: """
@@ -434,7 +469,7 @@ actor DatabaseService {
     }
 
     func fetchHistory(limit: Int = 100) async throws -> [HistoryItem] {
-        guard let pool = dbPool else { throw DBError.notConnected }
+        let pool = try await userPool()
         return try await pool.read { db in
             try HistoryItem
                 .order(Column("looked_at").desc)
@@ -444,7 +479,7 @@ actor DatabaseService {
     }
 
     func clearHistory() async throws {
-        guard let pool = dbPool else { throw DBError.notConnected }
+        let pool = try await userPool()
         try await pool.write { db in
             try db.execute(sql: "DELETE FROM history")
         }
@@ -456,7 +491,7 @@ actor DatabaseService {
     // read and write My words, by stable entry key.
 
     func addToMyWords(_ key: EntryKey) async throws {
-        guard let pool = dbPool else { throw DBError.notConnected }
+        let pool = try await userPool()
         try await pool.write { db in
             try db.execute(
                 sql: "INSERT OR IGNORE INTO my_words(source, word) VALUES (?, ?)",
@@ -466,7 +501,7 @@ actor DatabaseService {
     }
 
     func removeFromMyWords(_ key: EntryKey) async throws {
-        guard let pool = dbPool else { throw DBError.notConnected }
+        let pool = try await userPool()
         try await pool.write { db in
             try db.execute(
                 sql: "DELETE FROM my_words WHERE source = ? AND word = ?",
@@ -476,7 +511,7 @@ actor DatabaseService {
     }
 
     func isInMyWords(_ key: EntryKey) async throws -> Bool {
-        guard let pool = dbPool else { throw DBError.notConnected }
+        let pool = try await userPool()
         return try await pool.read { db in
             try Bool.fetchOne(
                 db,
@@ -489,7 +524,7 @@ actor DatabaseService {
     /// My words whose entry resolves, newest first. A key that no longer
     /// resolves stays stored and is skipped here.
     func fetchMyWords() async throws -> [DictionaryEntry] {
-        guard let pool = dbPool else { throw DBError.notConnected }
+        let pool = try await userPool()
         return try await pool.read { db in
             try Row.fetchAll(db, sql: "SELECT source, word FROM my_words ORDER BY added_at DESC")
                 .compactMap { row in
@@ -499,7 +534,7 @@ actor DatabaseService {
     }
 
     func clearMyWords() async throws {
-        guard let pool = dbPool else { throw DBError.notConnected }
+        let pool = try await userPool()
         try await pool.write { db in
             try db.execute(sql: "DELETE FROM my_words")
         }
@@ -535,7 +570,7 @@ actor DatabaseService {
     /// its ID; an imported source counts its rows (indexed) and shows its ID
     /// with an empty license and version. No scan of the bundled rows.
     func fetchSourceStats() async throws -> [SourceStat] {
-        guard let pool = dbPool else { throw DBError.notConnected }
+        let pool = try await userPool()
         return try await pool.read { db in
             let sql = """
                 WITH i AS MATERIALIZED (SELECT source, COUNT(*) AS cnt FROM imported_entries GROUP BY source)
@@ -571,7 +606,7 @@ actor DatabaseService {
 
     /// Bulk-insert entries from a JSON array. Expects `[{word, definition, phonetic?, pos?}]`.
     func importJSON(at url: URL, source: String) async throws -> Int {
-        guard let pool = dbPool else { throw DBError.notConnected }
+        let pool = try await userPool()
         let raw = try JSONDecoder().decode([[String: String]].self, from: Data(contentsOf: url))
         let rows = raw.compactMap { item -> ImportedRow? in
             guard let word = item["word"], let definition = item["definition"] else { return nil }
@@ -583,7 +618,7 @@ actor DatabaseService {
 
     /// Import entries from an external SQLite file that has the same `entries` schema.
     func importSQLite(at url: URL, source: String) async throws -> Int {
-        guard let pool = dbPool else { throw DBError.notConnected }
+        let pool = try await userPool()
         // Use DatabaseQueue — works with any journal mode (the file may not be in WAL mode).
         // Read-only (Issue #111, PM decision 7): the user's file is never
         // written or created (a missing path fails instead of leaving an empty
@@ -641,7 +676,7 @@ actor DatabaseService {
     /// row. Used by UI tests (`-clearFixtureImports`) to scrub previously
     /// imported fixture data before re-running.
     func clearEntries(fromSource source: String) async throws {
-        guard let pool = dbPool else { throw DBError.notConnected }
+        let pool = try await userPool()
         try await pool.write { db in
             try db.execute(sql: "DELETE FROM imported_entries WHERE source = ?", arguments: [source])
             try db.execute(sql: "DELETE FROM imported_sources WHERE source = ?", arguments: [source])
@@ -652,7 +687,7 @@ actor DatabaseService {
 
     /// Rows of `source` in both stores.
     func entryCount(source: String) async throws -> Int {
-        guard let pool = dbPool else { throw DBError.notConnected }
+        let pool = try await userPool()
         return try await pool.read { db in
             try Int.fetchOne(db, sql: """
                 SELECT (SELECT COUNT(*) FROM dict.entries WHERE source = ?)
@@ -662,7 +697,7 @@ actor DatabaseService {
     }
 
     func entryCount() async throws -> Int {
-        guard let pool = dbPool else { throw DBError.notConnected }
+        let pool = try await userPool()
         return try await pool.read { db in
             try Int.fetchOne(db, sql: """
                 SELECT (SELECT COUNT(*) FROM dict.entries) + (SELECT COUNT(*) FROM imported_entries)
@@ -671,7 +706,7 @@ actor DatabaseService {
     }
 
     func historyCount() async throws -> Int {
-        guard let pool = dbPool else { throw DBError.notConnected }
+        let pool = try await userPool()
         return try await pool.read { db in
             try HistoryItem.fetchCount(db)
         }
@@ -691,7 +726,8 @@ actor DatabaseService {
         appSupportDirectory().appendingPathComponent("user.sqlite")
     }
 
-    /// The 1.x database. Nothing reads it until #139 moves its data.
+    /// The 1.x database. Launch moves its user data into the user database
+    /// and deletes it (Issue #139).
     static func legacyDatabaseURL() -> URL {
         appSupportDirectory().appendingPathComponent("dict.sqlite")
     }
@@ -736,6 +772,163 @@ actor DatabaseService {
             switch self {
             case .notConnected: return "Database is not connected. Call setup() first."
             case .dictionaryMissing: return "The bundled dictionary file is missing."
+            }
+        }
+    }
+}
+
+// MARK: - 1.x migration (Issue #139)
+
+/// Moves the user data of a 1.x database (`Application Support/DictApp/
+/// dict.sqlite`) into the user database, then deletes the 1.x file. That
+/// file holds a copy of every bundled dictionary next to the user's imports,
+/// History and bookmarks; only the user data moves.
+///
+/// One write on the user database writer: the 1.x file is attached as
+/// `legacy` outside the transaction, and one transaction copies the rows and
+/// sets the `user_meta` marker. Crash safety:
+/// - killed before the commit: nothing changed, the next launch moves again;
+/// - killed after the commit: the marker is set, the next launch only deletes;
+/// - an unreadable file is logged and kept for the next launch. It is never
+///   deleted without a committed copy.
+/// Reads only columns that every 1.x schema (1.1.0+) has.
+enum LegacyMigration {
+    /// The `user_meta` key; its value is the time the move committed.
+    static let markerKey = "legacy_migration"
+
+    /// Posted when the move has committed, so Search re-runs its query once.
+    static let didCommit = Notification.Name("LegacyMigrationDidCommit")
+
+    #if DEBUG
+    /// Test seams. `failBeforeCommit` throws inside the transaction, like a
+    /// kill before the commit. `failBeforeDelete` stops after the commit,
+    /// like a kill before the delete. `beforeCopy` is the delay seam: it runs
+    /// on the writer inside the transaction, before the copy, so a test can
+    /// hold the move there.
+    static var failBeforeCommit = false
+    static var failBeforeDelete = false
+    static var beforeCopy: (@Sendable () -> Void)?
+
+    struct InjectedFailure: Error {}
+    #endif
+
+    /// What one move copied, for the log.
+    struct Moved: Sendable {
+        var imported = 0
+        var history = 0
+        var myWords = 0
+    }
+
+    /// Moves `legacyURL` into the user database of `pool`, then deletes it.
+    /// Never throws: a failure is logged and the file stays for the next
+    /// launch, so the calls waiting for the move go on with the user
+    /// database alone.
+    static func run(legacyURL: URL, pool: DatabasePool) async {
+        let started = Date()
+        do {
+            let moved = try await pool.writeWithoutTransaction { db in try move(legacyURL, in: db) }
+            if moved != nil {
+                NotificationCenter.default.post(name: didCommit, object: nil)
+            }
+            #if DEBUG
+            if failBeforeDelete { return }
+            #endif
+            try deleteFiles(legacyURL)
+            let ms = Int(Date().timeIntervalSince(started) * 1000)
+            if let moved {
+                print("LegacyMigration: moved \(moved.imported) imported rows, \(moved.history) History rows "
+                      + "and \(moved.myWords) bookmarks, then deleted the 1.x database, in \(ms) ms")
+            } else {
+                print("LegacyMigration: deleted the 1.x database an earlier launch had moved")
+            }
+        } catch {
+            print("LegacyMigration: \(legacyURL.lastPathComponent) stays for the next launch: \(error)")
+        }
+    }
+
+    /// The move, on the writer outside a transaction. `nil` when the marker
+    /// is already set: an earlier launch committed and was killed before the
+    /// delete.
+    private static func move(_ legacyURL: URL, in db: Database) throws -> Moved? {
+        if try String.fetchOne(db, sql: "SELECT value FROM user_meta WHERE key = ?", arguments: [markerKey]) != nil {
+            return nil
+        }
+        // ATTACH and DETACH cannot run inside a transaction. Not read-only:
+        // SQLite may have to replay the 1.x WAL.
+        try db.execute(sql: "ATTACH DATABASE ? AS legacy", arguments: [legacyURL.path])
+        var moved = Moved()
+        do {
+            try db.inTransaction {
+                moved = try copy(db)
+                #if DEBUG
+                if failBeforeCommit { throw InjectedFailure() }
+                #endif
+                return .commit
+            }
+        } catch {
+            try? db.execute(sql: "DETACH DATABASE legacy")
+            throw error
+        }
+        try db.execute(sql: "DETACH DATABASE legacy")
+        return moved
+    }
+
+    /// The copy, inside the transaction, with the 1.x file attached as `legacy`.
+    private static func copy(_ db: Database) throws -> Moved {
+        #if DEBUG
+        beforeCopy?()
+        #endif
+        var moved = Moved()
+        // Imported dictionaries: every 1.x row whose key the dictionary file
+        // lacks. This carries custom imports and imports named like a bundled
+        // source, and drops the 1.x copy of the bundled rows. The search key
+        // is the word, as on import; the triggers fill `imported_fts`.
+        try db.execute(sql: """
+            INSERT OR IGNORE INTO imported_entries(word, word_normalized, definition, phonetic, pos, source, created_at)
+            SELECT l.word, l.word, l.definition, COALESCE(l.phonetic, ''), COALESCE(l.pos, ''), l.source, l.created_at
+            FROM legacy.entries l
+            WHERE NOT EXISTS (SELECT 1 FROM dict.entries d WHERE d.word = l.word COLLATE NOCASE AND d.source = l.source)
+            ORDER BY l.id
+            """)
+        moved.imported = db.changesCount
+        // One row per imported dictionary, dated by its earliest row. A source
+        // that an import after a failed move registered keeps its row.
+        try db.execute(sql: """
+            INSERT OR IGNORE INTO imported_sources(source, imported_at)
+            SELECT source, COALESCE(MIN(created_at), datetime('now')) FROM imported_entries GROUP BY source
+            """)
+        // History: `source` exists from 1.3.0 on (#6); older rows get ''. On
+        // a word already in History, the newer `looked_at` wins.
+        let hasSource = try Row.fetchAll(db, sql: "PRAGMA legacy.table_info(history)")
+            .contains { ($0["name"] as String?) == "source" }
+        try db.execute(sql: """
+            INSERT INTO history(word, source, looked_at)
+            SELECT word, \(hasSource ? "source" : "''"), looked_at FROM legacy.history WHERE true ORDER BY id
+            ON CONFLICT(word) DO UPDATE SET source = excluded.source, looked_at = excluded.looked_at
+            WHERE excluded.looked_at > COALESCE(history.looked_at, '')
+            """)
+        moved.history = db.changesCount
+        // My words: each bookmark's entry key, dated by the bookmark.
+        try db.execute(sql: """
+            INSERT OR IGNORE INTO my_words(source, word, added_at)
+            SELECT e.source, e.word, COALESCE(b.created_at, datetime('now'))
+            FROM legacy.bookmarks b JOIN legacy.entries e ON e.id = b.entry_id
+            ORDER BY b.id
+            """)
+        moved.myWords = db.changesCount
+        try db.execute(sql: "INSERT OR REPLACE INTO user_meta(key, value) VALUES (?, datetime('now'))",
+                       arguments: [markerKey])
+        return moved
+    }
+
+    /// Deletes the 1.x file with its `-wal` and `-shm`. The sidecars go
+    /// first, so a kill in between leaves the file, and with it the next
+    /// launch's delete, rather than an orphan sidecar.
+    private static func deleteFiles(_ legacyURL: URL) throws {
+        for suffix in ["-wal", "-shm", ""] {
+            let path = legacyURL.path + suffix
+            if FileManager.default.fileExists(atPath: path) {
+                try FileManager.default.removeItem(atPath: path)
             }
         }
     }

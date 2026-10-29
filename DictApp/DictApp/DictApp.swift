@@ -80,7 +80,8 @@ struct DictApp: App {
 
     /// Issue #138: opening the user database (the dictionary file is
     /// attached, nothing is unpacked) and migrating it takes milliseconds,
-    /// so Search is ready with every dictionary when the UI shows.
+    /// so Search is ready with every dictionary when the UI shows. A 1.x
+    /// database moves in the background (Issue #139).
     private func initializeDatabase() async {
         // `.task` runs once per scene: a second iPad window must not reopen the
         // pool. The window shares `isReady` / `setupError`, so it simply waits
@@ -90,7 +91,7 @@ struct DictApp: App {
         do {
             #if DEBUG
             // UI-test hook: a deterministic fresh install without uninstalling.
-            // Also deletes a 1.x database, so no legacy data comes back (#139).
+            // Also deletes a 1.x database, so no legacy data moves in (#139).
             if CommandLine.arguments.contains("-resetDatabase") {
                 DatabaseService.removeDatabaseFiles()
             }
@@ -134,6 +135,12 @@ struct DictApp: App {
             // expansion, and this avoids a full `entries` scan at launch.
             let knownSources = try await DatabaseService.shared.fetchMetadata().map(\.source)
             SettingsService.shared.normalizeDictionaryPreferences(knownSources: knownSources)
+
+            // Issue #139: a 1.x database moves into the user database as a
+            // detached utility task. Started just before the UI shows, so
+            // every user-data call from the first frame waits for it (Search
+            // does not), and on the pool opened above.
+            await DatabaseService.shared.startLegacyMigration()
 
             isReady = true
         } catch {
