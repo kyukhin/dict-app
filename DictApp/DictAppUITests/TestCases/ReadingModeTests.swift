@@ -27,8 +27,7 @@ final class ReadingModeTests: XCTestCase {
         XCUIDevice.shared.orientation = .portrait
         app.launch()
 
-        // Issue #111: the tests search WordNet; `TabBarPage` waits until
-        // every bundled dictionary is unpacked.
+        // The tests search WordNet; `TabBarPage` waits for the Search screen.
         tabBarPage = TabBarPage(app: app)
     }
 

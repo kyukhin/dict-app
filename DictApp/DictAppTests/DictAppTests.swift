@@ -4,6 +4,7 @@
 import XCTest
 @testable import DictApp
 import GRDB
+import SQLite3
 import MessageUI
 import Combine
 import CoreText
@@ -13,6 +14,9 @@ final class DictAppTests: XCTestCase {
 
     private var db: DatabaseService!
     private var tempDir: URL!
+    /// Issue #138: the test's dictionary file (empty until a test adds rows)
+    /// and its user database, both in `tempDir`.
+    private var dictionary: TestDictionaryFixture!
 
     override func setUp() async throws {
         try await super.setUp()
@@ -22,17 +26,11 @@ final class DictAppTests: XCTestCase {
         try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
 
         db = DatabaseService.shared
-        let path = tempDir.appendingPathComponent("test.sqlite").path
-        try await db.setup(path: path)
+        dictionary = TestDictionaryFixture(directory: tempDir)
+        try await dictionary.open()
     }
 
     override func tearDown() async throws {
-        // Issue #111: never leak a background unpack (it holds the
-        // single-flight slot and writes into `tempDir`) or a test seam into
-        // the next test.
-        await DatabaseService.shared.waitForBundledUnpack()
-        DatabaseService.unpackFailureAfterInsert = nil
-        Self.setUnpackSourceDelay(nil)
         try? FileManager.default.removeItem(at: tempDir)
         try await super.tearDown()
     }
@@ -42,25 +40,22 @@ final class DictAppTests: XCTestCase {
     @MainActor private static var hostLaunchSettled = false
 
     /// The test host is the real app: its launch-time `initializeDatabase`
-    /// (setup, prepareBundledSeed, the test hooks) runs on
-    /// `DatabaseService.shared` while the first tests run, and its later steps
-    /// re-read the `dbPool` that each `setUp` swaps in, so they can write into
-    /// (and lock) a test's DB. Since Issue #111 the host then unpacks the
-    /// bundled dictionaries in the background (on the pool it started with)
-    /// and holds the single-flight unpack slot until done. Wait once per run,
-    /// before the first swap, until the host shows its tab bar (set only after
-    /// `isReady`) and its unpack is idle. Every test class that swaps the
-    /// shared database calls this first, so test order does not matter.
+    /// (setup, the test hooks) runs on `DatabaseService.shared` while the
+    /// first tests run, and its later steps re-read the `dbPool` that each
+    /// `setUp` swaps in, so they can write into (and lock) a test's DB. Wait
+    /// once per run, before the first swap, until the host shows its tab bar
+    /// (set only after `isReady`). Every test class that swaps the shared
+    /// database calls this first, so test order does not matter.
     @MainActor
-    static func waitForHostAppLaunch(timeout: TimeInterval = 120) async {
+    static func waitForHostAppLaunch(timeout: TimeInterval = 30) async {
         guard !hostLaunchSettled else { return }
         hostLaunchSettled = true
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
-            if hostShowsTabBar() && DictionaryUnpackStatus.shared.phase == .idle { return }
+            if hostShowsTabBar() { return }
             try? await Task.sleep(nanoseconds: 50_000_000)
         }
-        print("DictAppTests: the host app was not ready and idle within \(Int(timeout)) s; continuing")
+        print("DictAppTests: the host app was not ready within \(Int(timeout)) s; continuing")
     }
 
     @MainActor
@@ -80,58 +75,29 @@ final class DictAppTests: XCTestCase {
     }
 
     // MARK: - Helper: bulk insert
+    //
+    // Issue #138: rows go into the test's dictionary file, which is rebuilt
+    // and reattached (`TestDictionaryFixture`).
 
     private func seedEntries(count: Int) async throws {
-        // Directly write to the test database via a temporary GRDB pool.
-        let path = tempDir.appendingPathComponent("test.sqlite").path
-        let pool = try DatabasePool(path: path)
-        try await pool.writeWithoutTransaction { dbConn in
-            for i in 0..<count {
-                try dbConn.execute(
-                    sql: """
-                        INSERT OR IGNORE INTO entries(word, word_normalized, definition, phonetic, pos, source)
-                        VALUES (?, ?, ?, ?, ?, ?)
-                        """,
-                    arguments: [
-                        "word\(i)",
-                        // FTS indexes `word_normalized` (Issue #10); for these
-                        // Latin test words it equals `word` (normalization is a no-op).
-                        "word\(i)",
-                        "Definition for word number \(i). This is a sample definition.",
-                        "/wɜːrd/",
-                        "noun",
-                        "test"
-                    ]
-                )
-            }
-        }
+        try await dictionary.add((0..<count).map { i in
+            // FTS indexes `word_normalized` (Issue #10); for these Latin test
+            // words it equals `word` (normalization is a no-op).
+            TestDictionary.Row(word: "word\(i)",
+                               definition: "Definition for word number \(i). This is a sample definition.",
+                               phonetic: "/wɜːrd/", pos: "noun", source: "test")
+        })
     }
 
     /// Seeds a fixed set of words for the given source, used by the per-source
     /// filter tests in issue #2. Word prefix is namespaced so concurrent
     /// sources don't collide on the (word, source) unique index.
     private func seedSourcedEntries(source: String, words: [String]) async throws {
-        let path = tempDir.appendingPathComponent("test.sqlite").path
-        let pool = try DatabasePool(path: path)
-        try await pool.writeWithoutTransaction { dbConn in
-            for word in words {
-                try dbConn.execute(
-                    sql: """
-                        INSERT OR IGNORE INTO entries(word, word_normalized, definition, phonetic, pos, source)
-                        VALUES (?, ?, ?, ?, ?, ?)
-                        """,
-                    arguments: [
-                        word,
-                        // FTS indexes `word_normalized` (Issue #10); == word here.
-                        word,
-                        "Definition of \(word) in \(source).",
-                        "",
-                        "noun",
-                        source
-                    ]
-                )
-            }
-        }
+        try await dictionary.add(words.map { word in
+            // FTS indexes `word_normalized` (Issue #10); == word here.
+            TestDictionary.Row(word: word, definition: "Definition of \(word) in \(source).",
+                               pos: "noun", source: source)
+        })
     }
 
     // MARK: - Unit Tests
@@ -151,11 +117,11 @@ final class DictAppTests: XCTestCase {
         )
     }
 
-    /// Verifies exact lookup works.
+    /// Verifies exact lookup by entry key works (Issue #138: `entry(for:)`).
     func testExactLookup() async throws {
         try await seedEntries(count: 5)
 
-        let entry = try await db.lookup(word: "word3")
+        let entry = try await db.entry(for: EntryKey(source: "test", word: "word3"))
         XCTAssertNotNil(entry)
         XCTAssertEqual(entry?.word, "word3")
     }
@@ -194,21 +160,22 @@ final class DictAppTests: XCTestCase {
         XCTAssertEqual(count, 0)
     }
 
-    /// Verifies bookmark add / check / remove cycle.
+    /// Verifies the My words add / check / remove cycle (Issue #138: the
+    /// interim bookmark).
     func testBookmarkCycle() async throws {
         try await seedEntries(count: 1)
 
-        let entry = try await db.lookup(word: "word0")
-        let entryId = try XCTUnwrap(entry?.id)
+        let entry = try await db.entry(for: EntryKey(source: "test", word: "word0"))
+        let key = EntryKey(try XCTUnwrap(entry))
 
-        // Add bookmark.
-        try await db.addBookmark(entryId: entryId)
-        var isBookmarked = try await db.isBookmarked(entryId: entryId)
+        // Add.
+        try await db.addToMyWords(key)
+        var isBookmarked = try await db.isInMyWords(key)
         XCTAssertTrue(isBookmarked)
 
-        // Remove bookmark.
-        try await db.removeBookmark(entryId: entryId)
-        isBookmarked = try await db.isBookmarked(entryId: entryId)
+        // Remove.
+        try await db.removeFromMyWords(key)
+        isBookmarked = try await db.isInMyWords(key)
         XCTAssertFalse(isBookmarked)
     }
 
@@ -260,8 +227,11 @@ final class DictAppTests: XCTestCase {
             "seed.sqlite does not have a valid SQLite header."
         )
 
-        // And it must actually open and contain entries.
-        let queue = try DatabaseQueue(path: seedURL.path)
+        // And it must actually open and contain entries. Read-only: the
+        // bundle never gets a writable connection (#111).
+        var config = Configuration()
+        config.readonly = true
+        let queue = try DatabaseQueue(path: seedURL.path, configuration: config)
         let count = try queue.read { db in
             try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM entries") ?? 0
         }
@@ -553,8 +523,18 @@ final class DictAppTests: XCTestCase {
     /// issue-#26 split — the `isImporting` / `importResult` properties were
     /// removed. This is a structural guard, not a behavior test.
     @MainActor
-    func testSettingsViewModelNoLongerOwnsImportState() throws {
-        let vm = SettingsViewModel()
+    func testSettingsViewModelNoLongerOwnsImportState() async throws {
+        // In-memory prefs, so the init-time load writes nothing to the host's
+        // UserDefaults. Its first load stores the order; wait for it, so the
+        // load never reads this test's database after tearDown deleted it.
+        let settings = SettingsService(store: InMemoryKeyValueStore())
+        let vm = SettingsViewModel(settingsService: settings,
+                                   localization: LocalizationManager(settingsService: settings, bundle: .main))
+        let deadline = Date().addingTimeInterval(10)
+        while settings.dictionaryOrder == nil && Date() < deadline {
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+        XCTAssertNotNil(settings.dictionaryOrder, "the init-time load finished")
         let labels = Mirror(reflecting: vm).children.compactMap { $0.label }
 
         // @Published property wrappers manifest as `_propertyName` in Mirror,
@@ -1796,200 +1776,6 @@ final class DictAppTests: XCTestCase {
                       "Re-enable must round-trip through UserDefaults")
     }
 
-    // MARK: - Issue #10: Arabic dictionary (normalized search column)
-    //
-    // The riskiest unverified path in #10 is the v1.2.x → v1.3.0 client
-    // migration in `DatabaseService.applySchema`: it ALTERs `entries`, backfills
-    // `word_normalized`, and DROP/CREATE/rebuilds the FTS index so it points at
-    // the new column. Fresh install is exercised on every run; the upgrade path
-    // is not. These tests build a pre-#10 database by hand and drive the real
-    // migration through `setup(path:)`.
-
-    /// Source identifiers used by the migration fixtures (representative of the
-    /// en / ru / es data that exists on a pre-#10 install).
-    private static let preV10Sources = ["wordnet", "openrussian", "wordnet-spa-eng"]
-
-    /// The exact `entries` / `entries_fts` schema that shipped *before* #10:
-    /// no `word_normalized` column, FTS indexes `word`, triggers reference
-    /// `new.word`. `dict_metadata` is created without the `description` column
-    /// too, so the migration's pre-existing `description` ALTER also runs.
-    private static let preV10Schema = """
-        CREATE TABLE entries (
-            id          INTEGER PRIMARY KEY AUTOINCREMENT,
-            word        TEXT    NOT NULL,
-            definition  TEXT    NOT NULL,
-            phonetic    TEXT    DEFAULT '',
-            pos         TEXT    DEFAULT '',
-            source      TEXT    DEFAULT 'default',
-            created_at  TEXT    DEFAULT (datetime('now'))
-        );
-        CREATE UNIQUE INDEX idx_entries_word_source
-            ON entries(word COLLATE NOCASE, source);
-        CREATE VIRTUAL TABLE entries_fts USING fts5(
-            word, definition,
-            content='entries', content_rowid='id',
-            tokenize='unicode61 remove_diacritics 2'
-        );
-        CREATE TRIGGER entries_ai AFTER INSERT ON entries BEGIN
-            INSERT INTO entries_fts(rowid, word, definition)
-                VALUES (new.id, new.word, new.definition);
-        END;
-        CREATE TRIGGER entries_ad AFTER DELETE ON entries BEGIN
-            INSERT INTO entries_fts(entries_fts, rowid, word, definition)
-                VALUES ('delete', old.id, old.word, old.definition);
-        END;
-        CREATE TRIGGER entries_au AFTER UPDATE ON entries BEGIN
-            INSERT INTO entries_fts(entries_fts, rowid, word, definition)
-                VALUES ('delete', old.id, old.word, old.definition);
-            INSERT INTO entries_fts(rowid, word, definition)
-                VALUES (new.id, new.word, new.definition);
-        END;
-        CREATE TABLE history (
-            id          INTEGER PRIMARY KEY AUTOINCREMENT,
-            word        TEXT    NOT NULL UNIQUE,
-            looked_at   TEXT    DEFAULT (datetime('now'))
-        );
-        CREATE TABLE bookmarks (
-            id          INTEGER PRIMARY KEY AUTOINCREMENT,
-            entry_id    INTEGER NOT NULL UNIQUE REFERENCES entries(id) ON DELETE CASCADE,
-            created_at  TEXT    DEFAULT (datetime('now'))
-        );
-        CREATE TABLE dict_metadata (
-            source       TEXT PRIMARY KEY,
-            display_name TEXT NOT NULL,
-            version      TEXT NOT NULL DEFAULT '',
-            license      TEXT NOT NULL DEFAULT '',
-            url          TEXT NOT NULL DEFAULT '',
-            word_count   INTEGER NOT NULL DEFAULT 0,
-            built_at     TEXT NOT NULL DEFAULT (datetime('now'))
-        );
-        """
-
-    /// Representative pre-#10 rows. Latin/Cyrillic only (no Arabic exists
-    /// pre-#10), so every row's normalized form is exactly its `word`.
-    private static let preV10Rows: [(word: String, source: String)] = [
-        ("house", "wordnet"), ("water", "wordnet"), ("book", "wordnet"),
-        ("дом", "openrussian"), ("вода", "openrussian"),
-        ("casa", "wordnet-spa-eng"), ("agua", "wordnet-spa-eng"),
-    ]
-
-    /// Builds a standalone pre-#10 database at `path`, seeded with the rows
-    /// above and `user_version = 0`. The connection is closed before return
-    /// (the local queue deallocates) so `DatabaseService` can open it cleanly.
-    private func buildPreV10Database(at path: String) throws {
-        let queue = try DatabaseQueue(path: path)
-        try queue.write { db in
-            try db.execute(sql: Self.preV10Schema)
-            for (word, source) in Self.preV10Rows {
-                try db.execute(
-                    sql: "INSERT INTO entries(word, definition, phonetic, pos, source) VALUES (?, ?, '', 'noun', ?)",
-                    arguments: [word, "Definition of \(word).", source]
-                )
-            }
-            // Pre-#10 installs were never user_version-stamped.
-            try db.execute(sql: "PRAGMA user_version = 0")
-        }
-    }
-
-    /// Opens a fresh GRDB connection on `path` for schema introspection
-    /// (PRAGMAs, sqlite_master) without disturbing the service's pool.
-    private func openQueue(at path: String) throws -> DatabaseQueue {
-        try DatabaseQueue(path: path)
-    }
-
-    /// Migration v1 (#10): a pre-#10 database upgraded via `setup(path:)` must
-    /// gain a populated `word_normalized`, repoint FTS at it, preserve every
-    /// row, and remain searchable. This is the upgrade path no other test covers.
-    func testMigrationFromPreV10SchemaUpgradesAndPreservesData() async throws {
-        let path = tempDir.appendingPathComponent("legacy.sqlite").path
-        try buildPreV10Database(at: path)
-
-        // Drive the real migration (Schema.sql IF NOT EXISTS no-ops on the old
-        // tables, then `migrate` does the ALTER + FTS drop/recreate/rebuild).
-        try await db.setup(path: path)
-
-        // --- Schema post-conditions (raw introspection) ---
-        let introspect = try openQueue(at: path)
-        try await introspect.read { conn in
-            // user_version stamped to 1.
-            let version = try Int.fetchOne(conn, sql: "PRAGMA user_version") ?? -1
-            XCTAssertEqual(version, 1, "Migration must stamp PRAGMA user_version = 1")
-
-            // entries has a NOT NULL word_normalized column.
-            let cols = try Row.fetchAll(conn, sql: "PRAGMA table_info(entries)")
-            let wn = cols.first { ($0["name"] as String) == "word_normalized" }
-            let wnCol = try XCTUnwrap(wn, "entries must have a word_normalized column after migration")
-            XCTAssertEqual(wnCol["notnull"] as Int, 1, "word_normalized must be NOT NULL")
-
-            // Every row's word_normalized is populated and (pre-#10 data) == word.
-            let unpopulated = try Int.fetchOne(
-                conn, sql: "SELECT COUNT(*) FROM entries WHERE word_normalized IS NULL OR word_normalized = ''") ?? -1
-            XCTAssertEqual(unpopulated, 0, "Backfill must populate word_normalized for every existing row")
-            let mismatched = try Int.fetchOne(
-                conn, sql: "SELECT COUNT(*) FROM entries WHERE word_normalized <> word") ?? -1
-            XCTAssertEqual(mismatched, 0, "Pre-#10 rows must backfill word_normalized = word exactly")
-
-            // FTS was recreated against word_normalized.
-            let ftsSQL = try String.fetchOne(
-                conn, sql: "SELECT sql FROM sqlite_master WHERE name = 'entries_fts'") ?? ""
-            XCTAssertTrue(ftsSQL.contains("word_normalized"),
-                          "entries_fts must be recreated indexing word_normalized; got: \(ftsSQL)")
-        }
-
-        // --- Data survived: per-source counts unchanged ---
-        for source in Self.preV10Sources {
-            let expected = Self.preV10Rows.filter { $0.source == source }.count
-            let actual = try await db.entryCount(source: source)
-            XCTAssertEqual(actual, expected,
-                           "Source '\(source)' must keep all \(expected) rows through migration; got \(actual)")
-        }
-
-        // --- FTS rebuild worked: a known word is searchable, and the
-        //     content matches (proves the rebuild indexed real content) ---
-        let houseResults = try await db.search(query: "house")
-        XCTAssertTrue(houseResults.contains { $0.word == "house" },
-                      "A pre-existing English word must be searchable after the FTS rebuild")
-        let cyrillic = try await db.search(query: "дом")
-        XCTAssertTrue(cyrillic.contains { $0.word == "дом" },
-                      "A pre-existing Cyrillic word must be searchable after the FTS rebuild")
-    }
-
-    /// Running the migration twice must be a no-op the second time: no error,
-    /// user_version stays 1, and no rows or FTS entries are duplicated.
-    func testMigrationIsIdempotent() async throws {
-        let path = tempDir.appendingPathComponent("legacy_idem.sqlite").path
-        try buildPreV10Database(at: path)
-
-        try await db.setup(path: path)               // first migration
-        let countAfterFirst = try await db.entryCount()
-        try await db.setup(path: path)               // second run — must skip
-
-        // Row count unchanged (no double-insert).
-        let countAfterSecond = try await db.entryCount()
-        XCTAssertEqual(countAfterSecond, countAfterFirst,
-                       "Re-running the migration must not change the row count")
-        XCTAssertEqual(countAfterSecond, Self.preV10Rows.count,
-                       "Row count must equal the original fixture size")
-
-        let introspect = try openQueue(at: path)
-        try await introspect.read { conn in
-            // Still stamped exactly 1.
-            XCTAssertEqual(try Int.fetchOne(conn, sql: "PRAGMA user_version") ?? -1, 1,
-                           "user_version must remain 1 after a second run (no re-stamp loop)")
-            // FTS row count must equal entries row count — a double rebuild or
-            // duplicate trigger fire would inflate the external-content index.
-            let entriesCount = try Int.fetchOne(conn, sql: "SELECT COUNT(*) FROM entries") ?? -1
-            let ftsCount = try Int.fetchOne(conn, sql: "SELECT COUNT(*) FROM entries_fts") ?? -2
-            XCTAssertEqual(ftsCount, entriesCount,
-                           "entries_fts must hold exactly one row per entry (no duplicates from a second migration)")
-        }
-
-        // And search still returns exactly one match for a unique word.
-        let results = try await db.search(query: "house")
-        XCTAssertEqual(results.filter { $0.word == "house" }.count, 1,
-                       "A unique word must match exactly once (no duplicate FTS rows)")
-    }
-
     // MARK: - Issue #10: Arabic search symmetry (§1 / §2)
 
     /// Inserts one row with an explicit `word_normalized` (mimicking what the
@@ -2000,17 +1786,9 @@ final class DictAppTests: XCTestCase {
     private func insertNormalizedEntry(word: String, normalized: String,
                                        definition: String, source: String,
                                        decomposeGreekDefinition: Bool = false) async throws {
-        let path = tempDir.appendingPathComponent("test.sqlite").path
-        let pool = try DatabasePool(path: path)
         let stored = decomposeGreekDefinition ? Self.decomposeGreek(definition) : definition
-        try await pool.writeWithoutTransaction { conn in
-            try conn.execute(
-                sql: """
-                    INSERT OR IGNORE INTO entries(word, word_normalized, definition, phonetic, pos, source)
-                    VALUES (?, ?, ?, '', 'noun', ?)
-                    """,
-                arguments: [word, normalized, stored, source])
-        }
+        try await dictionary.add([TestDictionary.Row(word: word, normalized: normalized, definition: stored,
+                                                     pos: "noun", source: source)])
     }
 
     /// §1 (the load-bearing AC: "Arabic terms searchable *without* diacritics"),
@@ -2154,18 +1932,12 @@ final class DictAppTests: XCTestCase {
     // boost, so it must sort BELOW any sibling's "term_bN" rows inside a
     // shared bucket, regardless of member order in the group.
 
-    /// Inserts a `dict_metadata` row the way `build_seed.py` does for bundled
-    /// sources (custom imports never get one).
+    /// Gives a source a `dict_metadata` row the way `build_seed.py` does for
+    /// bundled sources (by default a test source shows its ID and no license).
     private func insertMetadata(source: String, displayName: String,
                                 license: String, version: String) async throws {
-        let path = tempDir.appendingPathComponent("test.sqlite").path
-        let pool = try DatabasePool(path: path)
-        try await pool.write { dbConn in
-            try dbConn.execute(
-                sql: "INSERT INTO dict_metadata(source, display_name, license, version) VALUES (?, ?, ?, ?)",
-                arguments: [source, displayName, license, version]
-            )
-        }
+        try await dictionary.setMetadata(TestDictionary.Metadata(source: source, displayName: displayName,
+                                                                 license: license, version: version))
     }
 
     /// groups `[[srcA, srcB], [srcC]]`, each source with > topN matches →
@@ -2306,12 +2078,14 @@ final class DictAppTests: XCTestCase {
     }
 
     /// Source with a metadata row → `license` / `version` populated;
-    /// custom source (no metadata row) → `""`.
+    /// imported source (no metadata row, Issue #138) → `""`.
     func testFetchSourceStatsCarriesLicenseAndVersion() async throws {
         // Distinct counts (3 > 2 > 1) so the count-desc order is deterministic.
         try await seedSourcedEntries(source: "wordnet", words: ["alpha", "beta", "delta"])
         try await seedSourcedEntries(source: "freedict-eng-spa", words: ["gato", "perro"])
-        try await seedSourcedEntries(source: "test_import_fixture", words: ["gamma"])
+        let importFile = tempDir.appendingPathComponent("test_import_fixture.json")
+        try Data(#"[{"word": "gamma", "definition": "Definition of gamma."}]"#.utf8).write(to: importFile)
+        _ = try await db.importJSON(at: importFile, source: "test_import_fixture")
         try await insertMetadata(source: "wordnet", displayName: "WordNet",
                                  license: "WordNet 3.0 License", version: "3.0")
         try await insertMetadata(source: "freedict-eng-spa", displayName: "English – Spanish (FreeDict)",
@@ -2940,6 +2714,8 @@ final class DictionaryDefaultsTests: XCTestCase {
     ]
 
     private var tempDir: URL!
+    /// Issue #138: the test's dictionary file and user database.
+    private var dictionary: TestDictionaryFixture!
 
     override func setUp() async throws {
         try await super.setUp()
@@ -2947,15 +2723,14 @@ final class DictionaryDefaultsTests: XCTestCase {
             .appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
         await DictAppTests.waitForHostAppLaunch()
-        try await DatabaseService.shared.setup(path: dbPath)
+        dictionary = TestDictionaryFixture(directory: tempDir)
+        try await dictionary.open()
     }
 
     override func tearDown() async throws {
         try? FileManager.default.removeItem(at: tempDir)
         try await super.tearDown()
     }
-
-    private var dbPath: String { tempDir.appendingPathComponent("test.sqlite").path }
 
     private func language(_ code: String) -> UILanguage {
         UILanguage(code: code, displayKey: "language.\(code)", nativeName: code)
@@ -2965,18 +2740,7 @@ final class DictionaryDefaultsTests: XCTestCase {
     /// sources by descending row count. Words are namespaced per source so the
     /// (word, source) unique index never collides across sources.
     private func seed(source: String, count: Int) async throws {
-        let pool = try DatabasePool(path: dbPath)
-        try await pool.writeWithoutTransaction { db in
-            for i in 0..<count {
-                try db.execute(
-                    sql: """
-                        INSERT OR IGNORE INTO entries(word, word_normalized, definition, phonetic, pos, source)
-                        VALUES (?, ?, ?, ?, ?, ?)
-                        """,
-                    arguments: ["\(source)-w\(i)", "\(source)-w\(i)", "def \(i)", "", "noun", source]
-                )
-            }
-        }
+        try await dictionary.add(TestDictionary.rows(source: source, count: count))
     }
 
     /// Asserts `result` is exactly a reordering of `input`: same length, same
@@ -3494,7 +3258,8 @@ final class SettingsViewModelPairTests: XCTestCase {
     ]
 
     private var tempDir: URL!
-    private var dbPath: String { tempDir.appendingPathComponent("test.sqlite").path }
+    /// Issue #138: the test's dictionary file and user database.
+    private var dictionary: TestDictionaryFixture!
 
     override func setUp() async throws {
         try await super.setUp()
@@ -3502,7 +3267,8 @@ final class SettingsViewModelPairTests: XCTestCase {
             .appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
         await DictAppTests.waitForHostAppLaunch()
-        try await DatabaseService.shared.setup(path: dbPath)
+        dictionary = TestDictionaryFixture(directory: tempDir)
+        try await dictionary.open()
     }
 
     override func tearDown() async throws {
@@ -3512,30 +3278,15 @@ final class SettingsViewModelPairTests: XCTestCase {
 
     private func seed(source: String) async throws {
         let count = try XCTUnwrap(counts[source], "no seed count for \(source)")
-        let pool = try DatabasePool(path: dbPath)
-        try await pool.writeWithoutTransaction { db in
-            for i in 0..<count {
-                try db.execute(
-                    sql: """
-                        INSERT OR IGNORE INTO entries(word, word_normalized, definition, phonetic, pos, source)
-                        VALUES (?, ?, ?, ?, ?, ?)
-                        """,
-                    arguments: ["\(source)-w\(i)", "\(source)-w\(i)", "def \(i)", "", "noun", source]
-                )
-            }
-        }
+        try await dictionary.add(TestDictionary.rows(source: source, count: count))
     }
 
     private func seedBundled() async throws {
-        for source in bundledSources { try await seed(source: source) }
+        try await dictionary.add(bundledSources.flatMap { TestDictionary.rows(source: $0, count: counts[$0] ?? 0) })
     }
 
     private func insertMetadata(source: String, displayName: String) async throws {
-        let pool = try DatabasePool(path: dbPath)
-        try await pool.write { db in
-            try db.execute(sql: "INSERT INTO dict_metadata(source, display_name) VALUES (?, ?)",
-                           arguments: [source, displayName])
-        }
+        try await dictionary.setMetadata(TestDictionary.Metadata(source: source, displayName: displayName))
     }
 
     /// Builds a VM whose `LocalizationManager` is pinned to `languageCode` and
@@ -4192,28 +3943,16 @@ final class DictionaryInfoDetailTests: XCTestCase {
         try await super.tearDown()
     }
 
-    /// Clones the bundled seed (APFS clone, so no 100 MB copy) and opens it
-    /// on `DatabaseService.shared`, so the real `fetchSourceStats()` SQL runs
-    /// against the shipped metadata.
+    /// Opens `DatabaseService.shared` on a fresh user database with the
+    /// bundled dictionary file attached (Issue #138), so the real
+    /// `fetchSourceStats()` SQL runs against the shipped metadata.
     private func seedSourceStats() async throws -> [SourceStat] {
-        let hostBundle: Bundle = {
-            if let url = Bundle.main.url(forResource: "DictApp", withExtension: "app") {
-                return Bundle(url: url) ?? .main
-            }
-            return .main
-        }()
-        let seedURL = try XCTUnwrap(
-            hostBundle.url(forResource: "seed", withExtension: "sqlite")
-                ?? Bundle.main.url(forResource: "seed", withExtension: "sqlite"),
-            "Bundled seed.sqlite is missing from the app bundle"
-        )
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         tempDir = dir
-        let copy = dir.appendingPathComponent("seed.sqlite")
-        try FileManager.default.copyItem(at: seedURL, to: copy)
         await DictAppTests.waitForHostAppLaunch()
-        try await DatabaseService.shared.setup(path: copy.path)
+        try await DatabaseService.shared.setup(userPath: dir.appendingPathComponent("user.sqlite").path,
+                                               dictionaryURL: try TestDictionary.bundledURL())
         return try await DatabaseService.shared.fetchSourceStats()
     }
 
@@ -4962,36 +4701,23 @@ extension DictAppTests {
             source: "wordnet-eng-ell", decomposeGreekDefinition: true)
     }
 
-    /// The stored `definition` of one fixture row, read back raw.
+    /// The stored `definition` of one fixture row, read back raw from the
+    /// test's dictionary file.
     private func storedDefinition(word: String, source: String) async throws -> String {
-        let pool = try DatabasePool(path: tempDir.appendingPathComponent("test.sqlite").path)
-        return try await pool.read { conn in
+        var config = Configuration()
+        config.readonly = true
+        let queue = try DatabaseQueue(path: try XCTUnwrap(dictionary.dictionaryURL).path, configuration: config)
+        return try await queue.read { conn in
             try String.fetchOne(conn, sql: "SELECT definition FROM entries WHERE word = ? AND source = ?",
                                 arguments: [word, source]) ?? ""
         }
     }
 
-    /// The bundled seed's URL (same host-bundle resolution as
-    /// `openBundledSeedReadOnly`).
-    private static func greekSeedURL() throws -> URL {
-        let hostBundle: Bundle = {
-            if let url = Bundle.main.url(forResource: "DictApp", withExtension: "app") {
-                return Bundle(url: url) ?? .main
-            }
-            return .main
-        }()
-        return try XCTUnwrap(
-            hostBundle.url(forResource: "seed", withExtension: "sqlite")
-                ?? Bundle.main.url(forResource: "seed", withExtension: "sqlite"),
-            "Bundled seed.sqlite is missing from the app bundle")
-    }
-
-    /// Clones the bundled seed into `tempDir` (APFS clone, no 130 MB copy) and
-    /// points `db` at it, so the app's real `search` SQL runs on shipped rows.
+    /// Points `db` at the bundled dictionary file (Issue #138: attached, not
+    /// copied), so the app's real `search` SQL runs on shipped rows.
     private func useSeedClone() async throws {
-        let copy = tempDir.appendingPathComponent("seed-clone.sqlite")
-        try FileManager.default.copyItem(at: try Self.greekSeedURL(), to: copy)
-        try await db.setup(path: copy.path)
+        try await db.setup(userPath: tempDir.appendingPathComponent("seed-user.sqlite").path,
+                           dictionaryURL: try TestDictionary.bundledURL())
     }
 
     /// One seed row's definition (NFC, for contains-checks: Greek-source
@@ -5204,25 +4930,20 @@ extension DictAppTests {
         let vocabulary = ["λόγος", "θάλασσα", "άνθρωπος", "προϊόν", "σαΐτα", "καταπραΰνω", "καλημέρα", "αύριο",
                           "γρήγορα", "βιβλίο", "νερό", "σπίτι", "γάτα", "δρόμος", "ουρανός", "ήλιος",
                           "φεγγάρι", "πόλη", "χώρα", "γλώσσα"]
-        let pool = try DatabasePool(path: tempDir.appendingPathComponent("test.sqlite").path)
-        try await pool.write { conn in
-            let insert = try conn.makeStatement(sql: """
-                INSERT INTO entries(word, word_normalized, definition, phonetic, pos, source)
-                VALUES (?, ?, ?, '', 'noun', ?)
-                """)
-            for i in 0..<89_999 {
-                try insert.execute(arguments: ["word\(i)", "word\(i)",
-                                               "Definition for word number \(i). This is a sample definition.", "test"])
-            }
-            for i in 0..<10_000 {
-                let a = vocabulary[i % vocabulary.count]
-                let b = vocabulary[(i / vocabulary.count) % vocabulary.count]
-                let mention = i % 500 == 0 ? ", σκύλος" : ""
-                let definition = Self.decomposeGreek("**noun**\n1. \(a), \(b)\(mention) — gloss number \(i)")
-                try insert.execute(arguments: ["gword\(i)", "gword\(i)", definition, "wordnet-eng-ell"])
-            }
-            try insert.execute(arguments: ["σκύλος", "σκυλοσ", "**noun**\n1. dog, hound", "freedict-ell-eng"])
+        var rows = (0..<89_999).map { i in
+            TestDictionary.Row(word: "word\(i)", definition: "Definition for word number \(i). This is a sample definition.",
+                               pos: "noun", source: "test")
         }
+        for i in 0..<10_000 {
+            let a = vocabulary[i % vocabulary.count]
+            let b = vocabulary[(i / vocabulary.count) % vocabulary.count]
+            let mention = i % 500 == 0 ? ", σκύλος" : ""
+            let definition = Self.decomposeGreek("**noun**\n1. \(a), \(b)\(mention) — gloss number \(i)")
+            rows.append(TestDictionary.Row(word: "gword\(i)", definition: definition, pos: "noun", source: "wordnet-eng-ell"))
+        }
+        rows.append(TestDictionary.Row(word: "σκύλος", normalized: "σκυλοσ", definition: "**noun**\n1. dog, hound",
+                                       pos: "noun", source: "freedict-ell-eng"))
+        try await dictionary.add(rows)
         let count = try await db.entryCount()
         XCTAssertEqual(count, 100_000, "Database should contain 100k entries")
 
@@ -5961,385 +5682,6 @@ final class GreekFoldAndBadgeTests: XCTestCase {
     }
 }
 
-// MARK: - Issue #108: Existing installs get updated bundled data
-//
-// DESIGN_DOC_108 §6. The app DB is the `setUp` DB; the "bundle" is a tiny
-// SQLite built from `DatabaseService.inlineSchema` (rollback journal, like the
-// shipped seed) and passed through the `seedIfNeeded(bundledSeedURL:)` seam.
-
-extension DictAppTests {
-
-    /// Every column of one `entries` row, for byte-identical comparisons.
-    struct SyncedRow: Equatable {
-        var id: Int64
-        var word: String
-        var wordNormalized: String
-        var definition: String
-        var phonetic: String
-        var pos: String
-        var source: String
-        var createdAt: String
-    }
-
-    private static let syncEngSpa = "freedict-eng-spa"
-    private static let oldQuickly = "1. deprisa"
-    private static let newQuickly = "1. deprisa, rápido, rápidamente, con prontitud, velozmente, con celeridad"
-
-    private var syncAppPath: String { tempDir.appendingPathComponent("test.sqlite").path }
-
-    /// Inserts `(word, definition, source)` rows (`word_normalized` = lowercased
-    /// word) and, when `builtAt` is non-nil, one `dict_metadata` row per source.
-    private static func insertSyncRows(_ rows: [(String, String, String)], builtAt: String?,
-                                       into conn: Database) throws {
-        for (word, definition, source) in rows {
-            try conn.execute(
-                sql: """
-                    INSERT INTO entries(word, word_normalized, definition, phonetic, pos, source)
-                    VALUES (?, ?, ?, '', 'adverb', ?)
-                    """,
-                arguments: [word, word.lowercased(), definition, source])
-        }
-        guard let builtAt else { return }
-        for source in Set(rows.map { $0.2 }) {
-            try conn.execute(
-                sql: "INSERT OR REPLACE INTO dict_metadata(source, display_name, built_at) VALUES (?, ?, ?)",
-                arguments: [source, source, builtAt])
-        }
-    }
-
-    /// The fixture "bundle": `rows` plus metadata stamped `built_at = builtAt`.
-    private func makeSyncBundle(_ rows: [(String, String, String)], builtAt: String = "new") throws -> URL {
-        let url = tempDir.appendingPathComponent("bundle.sqlite")
-        let queue = try DatabaseQueue(path: url.path)
-        try queue.write { conn in
-            try conn.execute(sql: DatabaseService.inlineSchema)
-            try Self.insertSyncRows(rows, builtAt: builtAt, into: conn)
-        }
-        try queue.close()
-        return url
-    }
-
-    /// Writes rows to the app DB. `builtAt: nil` = a custom import (no metadata).
-    private func seedSyncApp(_ rows: [(String, String, String)], builtAt: String? = "old") async throws {
-        let pool = try DatabasePool(path: syncAppPath)
-        try await pool.write { conn in try Self.insertSyncRows(rows, builtAt: builtAt, into: conn) }
-    }
-
-    private func syncRows(source: String, path: String? = nil) async throws -> [SyncedRow] {
-        let pool = try DatabasePool(path: path ?? syncAppPath)
-        return try await pool.read { conn in
-            try Row.fetchAll(conn, sql: "SELECT * FROM entries WHERE source = ? ORDER BY id", arguments: [source])
-                .map {
-                    SyncedRow(id: $0["id"], word: $0["word"], wordNormalized: $0["word_normalized"],
-                              definition: $0["definition"], phonetic: $0["phonetic"], pos: $0["pos"],
-                              source: $0["source"], createdAt: $0["created_at"])
-                }
-        }
-    }
-
-    /// Throws (failing the test) if the external-content FTS index disagrees with `entries`.
-    private func checkFTSIntegrity(path: String? = nil) async throws {
-        let pool = try DatabasePool(path: path ?? syncAppPath)
-        try await pool.write { conn in
-            try conn.execute(sql: "INSERT INTO entries_fts(entries_fts, rank) VALUES('integrity-check', 1)")
-        }
-    }
-
-    /// §6.1 Upgrade in place: new definition, same id, bookmark kept, FTS
-    /// finds the new text and stays consistent.
-    func testBundledSyncUpdatesExistingInstallInPlace() async throws {
-        try await seedSyncApp([("quickly", Self.oldQuickly, Self.syncEngSpa)])
-        let bundle = try makeSyncBundle([("quickly", Self.newQuickly, Self.syncEngSpa)])
-        let rowsBefore = try await syncRows(source: Self.syncEngSpa)
-        let before = try XCTUnwrap(rowsBefore.first)
-        try await db.addBookmark(entryId: before.id)
-        let ftsBefore = try await db.search(query: "velozmente")
-        XCTAssertTrue(ftsBefore.isEmpty, "precondition: the old definition lacks 'velozmente'")
-
-        try await db.seedIfNeeded(bundledSeedURL: bundle)
-
-        let rowsAfter = try await syncRows(source: Self.syncEngSpa)
-        let after = try XCTUnwrap(rowsAfter.first)
-        XCTAssertTrue(after.definition.contains("rápidamente"), "got \(after.definition)")
-        XCTAssertEqual(after.id, before.id, "updated in place: the id is kept")
-        let bookmarked = try await db.isBookmarked(entryId: before.id)
-        XCTAssertTrue(bookmarked, "the bookmark survives the sync")
-        let bookmarks = try await db.fetchBookmarkedEntries()
-        XCTAssertEqual(bookmarks.compactMap(\.entry.id), [before.id])
-        let hits = try await db.search(query: "velozmente")
-        XCTAssertEqual(hits.map(\.word), ["quickly"], "entries_au re-indexed the new definition")
-        try await checkFTSIntegrity()
-    }
-
-    /// §6.2 Idempotent: the sync closes the gate, and a forced re-run writes nothing.
-    func testBundledSyncIsIdempotentAndClosesGate() async throws {
-        try await seedSyncApp([("quickly", Self.oldQuickly, Self.syncEngSpa)])
-        let bundle = try makeSyncBundle([("quickly", Self.newQuickly, Self.syncEngSpa)])
-
-        try await db.seedIfNeeded(bundledSeedURL: bundle)
-
-        let meta = try await db.fetchMetadata(source: Self.syncEngSpa)
-        XCTAssertEqual(meta?.builtAt, "new", "refreshMetadata copied the bundle's built_at (gate closed)")
-        let again = try await db.syncBundledSources(from: bundle, sources: [Self.syncEngSpa])
-        XCTAssertEqual(again.updated, 0, "nothing differs on a second run")
-        XCTAssertEqual(again.inserted, 0)
-    }
-
-    /// §6.3 Gate: equal `built_at` means no sync, even if the content differs.
-    func testBundledSyncSkippedWhenBuiltAtMatches() async throws {
-        try await seedSyncApp([("quickly", Self.oldQuickly, Self.syncEngSpa)], builtAt: "new")
-        let bundle = try makeSyncBundle([("quickly", Self.newQuickly, Self.syncEngSpa)], builtAt: "new")
-
-        try await db.seedIfNeeded(bundledSeedURL: bundle)
-
-        let rows = try await syncRows(source: Self.syncEngSpa)
-        XCTAssertEqual(rows.map(\.definition), [Self.oldQuickly], "closed gate: no sync on every launch")
-    }
-
-    /// §6.4 Custom imports are never touched, even with a colliding headword.
-    func testBundledSyncLeavesCustomImportUntouched() async throws {
-        try await seedSyncApp([("quickly", Self.oldQuickly, Self.syncEngSpa)])
-        try await seedSyncApp([("quickly", "my own quickly", "my_dict"),
-                               ("velozmente", "my extra row", "my_dict")], builtAt: nil)
-        let before = try await syncRows(source: "my_dict")
-        let countBefore = try await db.entryCount(source: "my_dict")
-        let bundle = try makeSyncBundle([("quickly", Self.newQuickly, Self.syncEngSpa)])
-
-        try await db.seedIfNeeded(bundledSeedURL: bundle)
-
-        let after = try await syncRows(source: "my_dict")
-        XCTAssertEqual(after, before, "custom rows are byte-identical")
-        let countAfter = try await db.entryCount(source: "my_dict")
-        XCTAssertEqual(countAfter, countBefore)
-        XCTAssertEqual(countAfter, 2)
-        let engSpa = try await syncRows(source: Self.syncEngSpa)
-        XCTAssertEqual(engSpa.map(\.definition), [Self.newQuickly], "the bundled source still synced")
-    }
-
-    /// §6.5 A new bundle headword is inserted and searchable; an app headword
-    /// the bundle dropped is kept as it was.
-    func testBundledSyncInsertsNewHeadwordAndKeepsDroppedOne() async throws {
-        try await seedSyncApp([("quickly", Self.oldQuickly, Self.syncEngSpa),
-                               ("slowly", "1. despacio", Self.syncEngSpa)])
-        let slowlyBefore = try await syncRows(source: Self.syncEngSpa).filter { $0.word == "slowly" }
-        let bundle = try makeSyncBundle([("quickly", Self.newQuickly, Self.syncEngSpa),
-                                         ("swiftly", "1. raudamente", Self.syncEngSpa)])
-
-        try await db.seedIfNeeded(bundledSeedURL: bundle)
-
-        let rows = try await syncRows(source: Self.syncEngSpa)
-        XCTAssertEqual(Set(rows.map(\.word)), ["quickly", "slowly", "swiftly"])
-        XCTAssertEqual(rows.filter { $0.word == "slowly" }, slowlyBefore, "dropped headword kept unchanged")
-        let hits = try await db.search(query: "swiftly")
-        XCTAssertEqual(hits.map(\.word), ["swiftly"], "the inserted headword is searchable")
-        try await checkFTSIntegrity()
-    }
-
-    /// §6.6 One call imports a source missing from the app (rows + metadata)
-    /// and syncs the stale one.
-    func testSeedIfNeededImportsMissingSourceAndSyncsStaleOne() async throws {
-        try await seedSyncApp([("quickly", Self.oldQuickly, Self.syncEngSpa)])
-        let bundle = try makeSyncBundle([("quickly", Self.newQuickly, Self.syncEngSpa),
-                                         ("σκύλος", "1. dog", "freedict-ell-eng")])
-
-        try await db.seedIfNeeded(bundledSeedURL: bundle)
-
-        let greek = try await syncRows(source: "freedict-ell-eng")
-        XCTAssertEqual(greek.map(\.definition), ["1. dog"], "missing source imported")
-        let greekMeta = try await db.fetchMetadata(source: "freedict-ell-eng")
-        XCTAssertEqual(greekMeta?.builtAt, "new", "missing source's metadata imported")
-        let engSpa = try await syncRows(source: Self.syncEngSpa)
-        XCTAssertEqual(engSpa.map(\.definition), [Self.newQuickly], "stale source synced in the same call")
-        let engSpaMeta = try await db.fetchMetadata(source: Self.syncEngSpa)
-        XCTAssertEqual(engSpaMeta?.builtAt, "new")
-    }
-
-    /// §6.7 Real seed as both the "old install" and the bundle: every source
-    /// stale, ~20k eng-spa definitions differ. Simulator budget 10 s (Mac ~1.4 s).
-    func testBundledSyncOnRealSeedIsFastAndComplete() async throws {
-        try await useSeedClone()
-        let clonePath = tempDir.appendingPathComponent("seed-clone.sqlite").path
-        let pool = try DatabasePool(path: clonePath)
-        try await pool.write { conn in
-            try conn.execute(
-                sql: "UPDATE entries SET definition = ? WHERE word = 'quickly' AND source = ?",
-                arguments: ["**adverb**\n1. deprisa", Self.syncEngSpa])
-            try conn.execute(
-                sql: "UPDATE entries SET definition = definition || ' ' WHERE source = ? AND id % 3 = 0",
-                arguments: [Self.syncEngSpa])
-            try conn.execute(sql: "UPDATE dict_metadata SET built_at = 'stale'")
-        }
-
-        let start = CFAbsoluteTimeGetCurrent()
-        try await db.seedIfNeeded(bundledSeedURL: try Self.greekSeedURL())
-        let elapsed = CFAbsoluteTimeGetCurrent() - start
-        print("⏱ seedIfNeeded sync on the real seed: \(String(format: "%.3f", elapsed))s")
-
-        let quickly = try await pool.read { conn in
-            try String.fetchOne(conn, sql: "SELECT definition FROM entries WHERE word = 'quickly' AND source = ?",
-                                arguments: [Self.syncEngSpa]) ?? ""
-        }
-        XCTAssertTrue(quickly.contains("rápidamente"), "got \(quickly)")
-        let trailing = try await pool.read { conn in
-            try Int.fetchOne(conn, sql: "SELECT COUNT(*) FROM entries WHERE source = ? AND substr(definition, -1) = ' '",
-                             arguments: [Self.syncEngSpa]) ?? -1
-        }
-        XCTAssertEqual(trailing, 0, "every modified eng-spa definition was restored")
-        XCTAssertLessThan(elapsed, 10.0, "sync must stay well inside the cold-start budget (got \(elapsed)s)")
-    }
-
-    // MARK: Issue #108 failure paths (PM decision 1)
-
-    /// The app's eng-spa `quickly` (old definition, `built_at = "old"`),
-    /// bookmarked. Returns the row as stored.
-    private func seedBookmarkedOldQuickly() async throws -> SyncedRow {
-        try await seedSyncApp([("quickly", Self.oldQuickly, Self.syncEngSpa)])
-        let rows = try await syncRows(source: Self.syncEngSpa)
-        let row = try XCTUnwrap(rows.first)
-        try await db.addBookmark(entryId: row.id)
-        return row
-    }
-
-    /// The old install is exactly as `before`: same eng-spa rows (ids and
-    /// content), the bookmark on the same id, the old `built_at` (gate still
-    /// open, so the next launch retries), no new text in FTS, FTS consistent.
-    private func assertOldInstallIntact(_ before: SyncedRow, _ context: String,
-                                        file: StaticString = #filePath, line: UInt = #line) async throws {
-        let rows = try await syncRows(source: Self.syncEngSpa)
-        XCTAssertEqual(rows, [before], "\(context): eng-spa rows unchanged", file: file, line: line)
-        let bookmarks = try await db.fetchBookmarkedEntries()
-        XCTAssertEqual(bookmarks.compactMap(\.entry.id), [before.id],
-                       "\(context): bookmark kept on the same id", file: file, line: line)
-        let meta = try await db.fetchMetadata(source: Self.syncEngSpa)
-        XCTAssertEqual(meta?.builtAt, "old", "\(context): gate stays open for a retry", file: file, line: line)
-        let hits = try await db.search(query: "velozmente")
-        XCTAssertTrue(hits.isEmpty, "\(context): nothing new reached FTS, got \(hits.map(\.word))",
-                      file: file, line: line)
-        try await checkFTSIntegrity()
-    }
-
-    /// The next launch with a good bundle applies the sync: same id, new
-    /// definition, bookmark kept, gate closed, FTS finds the new text.
-    private func assertRetrySucceeds(_ before: SyncedRow, file: StaticString = #filePath,
-                                     line: UInt = #line) async throws {
-        let good = try makeSyncBundle([("quickly", Self.newQuickly, Self.syncEngSpa)])
-        try await db.seedIfNeeded(bundledSeedURL: good)
-        let rows = try await syncRows(source: Self.syncEngSpa)
-        XCTAssertEqual(rows.map(\.id), [before.id], "retry updates in place", file: file, line: line)
-        XCTAssertEqual(rows.map(\.definition), [Self.newQuickly], file: file, line: line)
-        let bookmarked = try await db.isBookmarked(entryId: before.id)
-        XCTAssertTrue(bookmarked, "bookmark survives the retry", file: file, line: line)
-        let meta = try await db.fetchMetadata(source: Self.syncEngSpa)
-        XCTAssertEqual(meta?.builtAt, "new", "retry closes the gate", file: file, line: line)
-        let hits = try await db.search(query: "velozmente")
-        XCTAssertEqual(hits.map(\.word), ["quickly"], file: file, line: line)
-        try await checkFTSIntegrity()
-    }
-
-    /// A sync that fails inside its transaction does not throw out of
-    /// `seedIfNeeded` (the app must still start), keeps the old data and the
-    /// old `built_at`, and DETACHes the bundle: the retry ATTACHes the same
-    /// alias on the same writer connection, which fails if it is still attached.
-    /// The bundle's `entries` lacks `word_normalized`/`phonetic`/`pos`, so
-    /// source discovery and the gate succeed but `UPDATE … FROM` cannot prepare.
-    func testBundledSyncFailureIsNonFatalAndRetriesNextLaunch() async throws {
-        let before = try await seedBookmarkedOldQuickly()
-        let bad = tempDir.appendingPathComponent("bad-columns-bundle.sqlite")
-        let queue = try DatabaseQueue(path: bad.path)
-        try await queue.write { conn in
-            try conn.execute(sql: """
-                CREATE TABLE entries(id INTEGER PRIMARY KEY, word TEXT NOT NULL,
-                                     definition TEXT NOT NULL, source TEXT);
-                CREATE TABLE dict_metadata(source TEXT PRIMARY KEY, display_name TEXT NOT NULL,
-                    version TEXT NOT NULL DEFAULT '', license TEXT NOT NULL DEFAULT '',
-                    url TEXT NOT NULL DEFAULT '', word_count INTEGER NOT NULL DEFAULT 0,
-                    built_at TEXT NOT NULL, description TEXT NOT NULL DEFAULT '');
-                """)
-            try conn.execute(sql: "INSERT INTO entries(word, definition, source) VALUES ('quickly', ?, ?)",
-                             arguments: [Self.newQuickly, Self.syncEngSpa])
-            try conn.execute(sql: "INSERT INTO dict_metadata(source, display_name, built_at) VALUES (?, 'Bad', 'new')",
-                             arguments: [Self.syncEngSpa])
-        }
-        try queue.close()
-
-        do {
-            try await db.seedIfNeeded(bundledSeedURL: bad)
-        } catch {
-            XCTFail("a failed sync must not throw out of seeding: \(error)")
-        }
-
-        try await assertOldInstallIntact(before, "after a failed sync")
-        let meta = try await db.fetchMetadata(source: Self.syncEngSpa)
-        XCTAssertEqual(meta?.displayName, Self.syncEngSpa, "refreshMetadata skipped after a failed sync")
-        try await assertRetrySucceeds(before)
-    }
-
-    /// The sync is one transaction: when its INSERT step aborts after the
-    /// UPDATE step has already rewritten `quickly`, the UPDATE and its FTS
-    /// re-index roll back too. The injected trigger fires only once `quickly`
-    /// holds the new text, so an intact `quickly` proves a rollback, not a
-    /// skipped UPDATE (a skipped UPDATE would let `swiftly` in and fail below).
-    func testBundledSyncRollsBackUpdateWhenInsertStepFails() async throws {
-        let before = try await seedBookmarkedOldQuickly()
-        let bundle = try makeSyncBundle([("quickly", Self.newQuickly, Self.syncEngSpa),
-                                         ("swiftly", "1. raudamente", Self.syncEngSpa)])
-        let appPool = try DatabasePool(path: syncAppPath)
-        try await appPool.write { conn in
-            try conn.execute(sql: """
-                CREATE TRIGGER qa_fail_insert BEFORE INSERT ON entries
-                WHEN NEW.word = 'swiftly' AND (SELECT definition FROM entries
-                    WHERE word = 'quickly' AND source = '\(Self.syncEngSpa)') LIKE '%velozmente%'
-                BEGIN SELECT RAISE(ABORT, 'qa: injected failure after the UPDATE step'); END
-                """)
-        }
-
-        do {
-            try await db.seedIfNeeded(bundledSeedURL: bundle)
-        } catch {
-            XCTFail("a failed sync must not throw out of seeding: \(error)")
-        }
-        try await assertOldInstallIntact(before, "after a rolled-back sync")
-
-        try await appPool.write { conn in try conn.execute(sql: "DROP TRIGGER qa_fail_insert") }
-        try await db.seedIfNeeded(bundledSeedURL: bundle)
-        let rows = try await syncRows(source: Self.syncEngSpa)
-        XCTAssertEqual(rows.map(\.word), ["quickly", "swiftly"], "retry applies both steps")
-        XCTAssertEqual(rows.first?.id, before.id)
-        XCTAssertEqual(rows.first?.definition, Self.newQuickly)
-        let bookmarked = try await db.isBookmarked(entryId: before.id)
-        XCTAssertTrue(bookmarked)
-        let meta = try await db.fetchMetadata(source: Self.syncEngSpa)
-        XCTAssertEqual(meta?.builtAt, "new")
-        try await checkFTSIntegrity()
-    }
-
-    /// A bundle that is not SQLite, or has no `entries` table, fails in source
-    /// discovery before any write. That throw predates #108 (master does the
-    /// same; a shipped bundle cannot be unreadable without a broken build), so
-    /// it is asserted as is. What #108 must guarantee: the install is left
-    /// exactly as it was, and a later good bundle still syncs.
-    func testUnreadableBundleLeavesExistingInstallIntact() async throws {
-        let before = try await seedBookmarkedOldQuickly()
-        let notSQLite = tempDir.appendingPathComponent("not-sqlite.sqlite")
-        try Data(String(repeating: "not an SQLite database\n", count: 200).utf8).write(to: notSQLite)
-        let noEntries = tempDir.appendingPathComponent("no-entries.sqlite")
-        let queue = try DatabaseQueue(path: noEntries.path)
-        try await queue.write { conn in
-            try conn.execute(sql: "CREATE TABLE dict_metadata(source TEXT PRIMARY KEY, built_at TEXT)")
-            try conn.execute(sql: "INSERT INTO dict_metadata VALUES (?, 'new')", arguments: [Self.syncEngSpa])
-        }
-        try queue.close()
-
-        for (name, url) in [("not SQLite", notSQLite), ("no entries table", noEntries)] {
-            var threw = false
-            do { try await db.seedIfNeeded(bundledSeedURL: url) } catch { threw = true }
-            XCTAssertTrue(threw, "\(name): source discovery fails before the sync (pre-#108 behaviour)")
-            try await assertOldInstallIntact(before, name)
-        }
-        try await assertRetrySucceeds(before)
-    }
-}
-
 // MARK: - PR #113 review: rank custom Greek imports on the raw key too
 
 extension DictAppTests {
@@ -6698,18 +6040,7 @@ extension SettingsViewModelPairTests {
     /// Inserts `count` rows for `source` (the class's `seed(source:)` only
     /// knows the pre-Greek counts).
     private func seedRows(source: String, count: Int) async throws {
-        let pool = try DatabasePool(path: dbPath)
-        try await pool.writeWithoutTransaction { db in
-            for i in 0..<count {
-                try db.execute(
-                    sql: """
-                        INSERT OR IGNORE INTO entries(word, word_normalized, definition, phonetic, pos, source)
-                        VALUES (?, ?, ?, ?, ?, ?)
-                        """,
-                    arguments: ["\(source)-w\(i)", "\(source)-w\(i)", "def \(i)", "", "noun", source]
-                )
-            }
-        }
+        try await dictionary.add(TestDictionary.rows(source: source, count: count))
     }
 
     /// First launch in `el` (nil stored order): the Greek pair is row 1
@@ -6799,894 +6130,13 @@ extension DictionaryDefaultsTests {
     }
 }
 
-// MARK: - Issue #111: Instant start, background unpack of the bundled seed
-//
-// DESIGN_DOC_111 §7.5, plus PM decisions 3 (re-run on landing), 4 (a failure
-// never blocks) and 7 (no writable connection on someone else's file). The app
-// DB is the `setUp` DB or a seed clone. Fixture "bundles" are tiny SQLite
-// files with the seed's shape (`inlineSchema`, one `dict_metadata` row per
-// source in seed order, `word_count` = its rows); the real seed is used where
-// its size or shipped content matters. Seams: `DatabaseService.
-// unpackFailureAfterInsert` (a kill mid-source) and `unpackSourceDelay`, set in
-// the argument domain where `-unpackSourceDelay` lands.
+// MARK: - Bundled dictionary file shape
 
 extension DictAppTests {
-
-    // MARK: Fixtures
-
-    /// The seed's sources in `dict_metadata` rowid order (= entry block order).
-    static let seedOrder = ["wordnet", "openrussian", "freedict-eng-spa", "wordnet-spa-eng", "wordnet-arb-eng",
-                            "wordnet-ell-eng", "wordnet-eng-ell", "freedict-ell-eng", "freedict-eng-ell"]
-
-    /// Four fixture sources with distinct sizes (4 + 3 + 2 + 1 = 10 rows), in
-    /// seed order. Headwords are unique tokens, so a search hits one row.
-    static let fixtureSources: [(String, [String])] = [
-        ("wordnet", ["qawnalpha", "qawnbeta", "qawngamma", "qawndelta"]),
-        ("openrussian", ["qaorone", "qaortwo", "qaorthree"]),
-        ("freedict-eng-spa", ["qaesuno", "qaesdos"]),
-        ("wordnet-spa-eng", ["qawsone"]),
-    ]
-
-    /// One `dict_metadata` row of the real seed.
-    struct BundleSource {
-        let source: String
-        let wordCount: Int
-        let builtAt: String
-        let displayName: String
-        let license: String
-        let version: String
-    }
-
-    /// The real seed's metadata rows in rowid order.
-    private static func realSeedMetadata() throws -> [BundleSource] {
-        try openBundledSeedReadOnly().read { conn in
-            try Row.fetchAll(conn, sql: """
-                SELECT source, word_count, built_at, display_name, license, version
-                FROM dict_metadata ORDER BY rowid
-                """).map {
-                BundleSource(source: $0["source"], wordCount: $0["word_count"], builtAt: $0["built_at"],
-                             displayName: $0["display_name"], license: $0["license"], version: $0["version"])
-            }
-        }
-    }
-
-    /// A fixture bundle: `sources` (id, headwords) in seed order, each with a
-    /// metadata row (`display_name` "<prefix> <id>", `word_count` = its rows,
-    /// `built_at` = `builtAt`). Definitions are "<word> in <source>" plus
-    /// `definitionSuffix`, so a rebuilt bundle can change content.
-    private func makeUnpackBundle(_ sources: [(String, [String])], builtAt: String = "b1",
-                                  name: String = "unpack-bundle.sqlite", displayPrefix: String = "Bundle",
-                                  definitionSuffix: String = "") throws -> URL {
-        let url = tempDir.appendingPathComponent(name)
-        try? FileManager.default.removeItem(at: url)
-        let queue = try DatabaseQueue(path: url.path)
-        try queue.write { conn in
-            try conn.execute(sql: DatabaseService.inlineSchema)
-            for (source, words) in sources {
-                for word in words {
-                    try conn.execute(
-                        sql: """
-                            INSERT INTO entries(word, word_normalized, definition, phonetic, pos, source)
-                            VALUES (?, ?, ?, '', 'noun', ?)
-                            """,
-                        arguments: [word, word.lowercased(), "\(word) in \(source)\(definitionSuffix)", source])
-                }
-                try conn.execute(
-                    sql: """
-                        INSERT INTO dict_metadata(source, display_name, version, license, url, word_count,
-                                                  built_at, description)
-                        VALUES (?, ?, 'v1', ?, 'https://example.org', ?, ?, ?)
-                        """,
-                    arguments: [source, "\(displayPrefix) \(source)", "License of \(source)", words.count,
-                                builtAt, "About \(source)"])
-            }
-        }
-        try queue.close()
-        return url
-    }
-
-    /// `source → built_at` of an app DB (default: the `setUp` DB).
-    private func appMarkers(path: String? = nil) async throws -> [String: String] {
-        let pool = try DatabasePool(path: path ?? syncAppPath)
-        return try await pool.read { conn in
-            var markers: [String: String] = [:]
-            for row in try Row.fetchAll(conn, sql: "SELECT source, built_at FROM dict_metadata") {
-                markers[row["source"] as String] = (row["built_at"] as String?) ?? ""
-            }
-            return markers
-        }
-    }
-
-    /// `source → row count` of an app DB's `entries`.
-    private func appCounts(path: String? = nil) async throws -> [String: Int] {
-        let pool = try DatabasePool(path: path ?? syncAppPath)
-        return try await pool.read { conn in
-            var counts: [String: Int] = [:]
-            for row in try Row.fetchAll(conn, sql: "SELECT source, COUNT(*) AS n FROM entries GROUP BY source") {
-                counts[row["source"] as String] = row["n"] as Int
-            }
-            return counts
-        }
-    }
-
-    /// Sets (or with `nil` removes) `unpackSourceDelay` in the volatile
-    /// argument domain, where `-unpackSourceDelay` lands: never persisted, so
-    /// a crashed test cannot slow a later app launch. `startBundledUnpack`
-    /// reads it once, when it starts.
-    static func setUnpackSourceDelay(_ seconds: Double?) {
-        let defaults = UserDefaults.standard
-        var arguments = defaults.volatileDomain(forName: UserDefaults.argumentDomain)
-        if let seconds {
-            arguments["unpackSourceDelay"] = seconds
-        } else {
-            arguments.removeValue(forKey: "unpackSourceDelay")
-        }
-        defaults.setVolatileDomain(arguments, forName: UserDefaults.argumentDomain)
-    }
-
-    /// The fraction of an `.unpacking` phase, `nil` for `.idle`.
-    private static func fraction(_ phase: DictionaryUnpackStatus.Phase) -> Double? {
-        if case .unpacking(let fraction) = phase { return fraction }
-        return nil
-    }
-
-    /// Records every phase a `DictionaryUnpackStatus` publishes from now on;
-    /// the first value is the phase at subscription.
-    @MainActor
-    final class PhaseRecorder {
-        private(set) var phases: [DictionaryUnpackStatus.Phase] = []
-        private var subscription: AnyCancellable?
-
-        init(_ status: DictionaryUnpackStatus) {
-            subscription = status.$phase.sink { [weak self] in self?.phases.append($0) }
-        }
-    }
-
-    /// Polls `condition` every 20 ms until it holds or `timeout` passes.
-    @MainActor
-    private func waitUntil(timeout: TimeInterval, _ condition: () -> Bool) async -> Bool {
-        let deadline = Date().addingTimeInterval(timeout)
-        while !condition() {
-            if Date() > deadline { return false }
-            try? await Task.sleep(nanoseconds: 20_000_000)
-        }
-        return true
-    }
-
-    /// Runs `plan` the way the app does (status first, then the background
-    /// task) and returns once the loop is done and `.idle` is published. The
-    /// task frees its single-flight slot just before it publishes `.idle`, so
-    /// `waitForBundledUnpack()` alone can return a moment before `.idle` lands.
-    @MainActor
-    private func runAppUnpack(_ plan: BundledUnpackPlan) async {
-        DictionaryUnpackStatus.shared.begin(plan)
-        await db.startBundledUnpack(plan)
-        await waitForUnpackIdle()
-    }
-
-    /// `waitForBundledUnpack()`, then until `.idle` has been published.
-    @MainActor
-    private func waitForUnpackIdle() async {
-        await db.waitForBundledUnpack()
-        let idle = await waitUntil(timeout: 5) { DictionaryUnpackStatus.shared.phase == .idle }
-        XCTAssertTrue(idle, "the unpack must end by publishing .idle")
-    }
-
-    // MARK: Plan
-
-    /// 1. A fresh install: preparing registers the nine bundled sources
-    /// (`built_at ''`, descriptive columns from the bundle), writes no entry,
-    /// and plans all nine as new, `wordnet` first and then the UI language's
-    /// dictionaries, for every shipped UI language. Re-preparing (a kill
-    /// before the first commit) plans the same.
-    func testUnpackPlanOnEmptyDatabase() async throws {
-        let seedURL = try Self.greekSeedURL()
-        let bundle = try Self.realSeedMetadata()
-        XCTAssertEqual(bundle.map(\.source), Self.seedOrder, "precondition: the seed's metadata order")
-        let wordCounts = Dictionary(uniqueKeysWithValues: bundle.map { ($0.source, $0.wordCount) })
-        let seedRows = try await Self.openBundledSeedReadOnly().read { conn in
-            try Int.fetchOne(conn, sql: "SELECT COUNT(*) FROM entries") ?? 0
-        }
-        let expected: [String: [String]] = [
-            "en": Self.seedOrder,
-            "ru": ["wordnet", "openrussian", "freedict-eng-spa", "wordnet-spa-eng", "wordnet-arb-eng",
-                   "wordnet-ell-eng", "wordnet-eng-ell", "freedict-ell-eng", "freedict-eng-ell"],
-            "es": ["wordnet", "wordnet-spa-eng", "freedict-eng-spa", "openrussian", "wordnet-arb-eng",
-                   "wordnet-ell-eng", "wordnet-eng-ell", "freedict-ell-eng", "freedict-eng-ell"],
-            "ar": ["wordnet", "wordnet-arb-eng", "openrussian", "freedict-eng-spa", "wordnet-spa-eng",
-                   "wordnet-ell-eng", "wordnet-eng-ell", "freedict-ell-eng", "freedict-eng-ell"],
-            "el": ["wordnet", "freedict-ell-eng", "wordnet-ell-eng", "freedict-eng-ell", "wordnet-eng-ell",
-                   "openrussian", "freedict-eng-spa", "wordnet-spa-eng", "wordnet-arb-eng"],
-        ]
-        let shipped = try Self.shippedUILanguages().map(\.code)
-        XCTAssertEqual(Set(shipped), Set(expected.keys), "one expected order per shipped UI language")
-
-        for code in shipped {
-            let plan = try await db.prepareBundledSeed(bundledSeedURL: seedURL, languageCode: code)
-            XCTAssertEqual(plan.items.map(\.source), expected[code], "\(code): unpack order")
-            XCTAssertTrue(plan.items.allSatisfy(\.isNew), "\(code): nothing unpacked yet, so every source is new")
-            XCTAssertEqual(plan.items.map(\.rowCount), plan.items.map { wordCounts[$0.source] ?? -1 },
-                           "\(code): each source weighs its bundle word_count")
-            XCTAssertEqual(plan.allRows, seedRows, "\(code): progress covers every seed row")
-            XCTAssertEqual(plan.initialFraction, 0, "\(code): a fresh install starts at 0%")
-            XCTAssertEqual(plan.seedURL, seedURL)
-        }
-
-        let metadata = try await db.fetchMetadata()
-        XCTAssertEqual(metadata.map(\.source).sorted(), Self.seedOrder.sorted(), "nine rows, registered once")
-        for row in metadata {
-            let source = try XCTUnwrap(bundle.first { $0.source == row.source })
-            XCTAssertEqual(row.builtAt, "", "\(row.source): registered, not unpacked")
-            XCTAssertEqual(row.displayName, source.displayName, "\(row.source): display name")
-            XCTAssertEqual(row.license, source.license, "\(row.source): license")
-            XCTAssertEqual(row.version, source.version, "\(row.source): version")
-            XCTAssertEqual(row.wordCount, source.wordCount, "\(row.source): word count")
-        }
-        let entries = try await db.entryCount()
-        XCTAssertEqual(entries, 0, "preparing never writes entries: the UI must not wait for rows")
-        let hits = try await db.search(query: "dog")
-        XCTAssertTrue(hits.isEmpty)
-    }
-
-    /// 2. Every bundled source complete and current: an empty plan that
-    /// starts nothing and keeps the bar hidden. Registration still refreshes
-    /// the descriptive columns of current rows but never writes `built_at`,
-    /// and with the gate closed rows are not re-synced even if they differ.
-    @MainActor
-    func testUnpackPlanOnSyncedDatabaseIsEmpty() async throws {
-        let first = try makeUnpackBundle(Self.fixtureSources, name: "b1.sqlite")
-        try await db.seedIfNeeded(bundledSeedURL: first)
-        let markersBefore = try await appMarkers()
-        XCTAssertEqual(markersBefore, Dictionary(uniqueKeysWithValues: Self.fixtureSources.map { ($0.0, "b1") }),
-                       "precondition: synced")
-        var rowsBefore: [String: [SyncedRow]] = [:]
-        for (source, _) in Self.fixtureSources {
-            rowsBefore[source] = try await syncRows(source: source)
-        }
-
-        // Same build stamp, renamed sources and different definitions.
-        let renamed = try makeUnpackBundle(Self.fixtureSources, name: "b1-renamed.sqlite",
-                                           displayPrefix: "Renamed", definitionSuffix: " (changed)")
-        let plan = try await db.prepareBundledSeed(bundledSeedURL: renamed, languageCode: "en")
-
-        XCTAssertTrue(plan.isEmpty, "nothing pending; got \(plan.items.map(\.source))")
-        XCTAssertEqual(plan.initialFraction, 1, "a complete install is at 100% before any work")
-        let markersAfter = try await appMarkers()
-        XCTAssertEqual(markersAfter, markersBefore, "registration never writes built_at for a current source")
-        for meta in try await db.fetchMetadata() {
-            XCTAssertEqual(meta.displayName, "Renamed \(meta.source)", "descriptive columns follow the bundle")
-        }
-        for (source, before) in rowsBefore {
-            let after = try await syncRows(source: source)
-            XCTAssertEqual(after, before, "\(source): a current source is never re-synced")
-        }
-
-        let recorder = PhaseRecorder(DictionaryUnpackStatus.shared)
-        await runAppUnpack(plan)
-        XCTAssertTrue(recorder.phases.allSatisfy { $0 == .idle }, "a normal launch never shows the bar; got \(recorder.phases)")
-        let markersFinal = try await appMarkers()
-        XCTAssertEqual(markersFinal, markersBefore, "an empty plan writes nothing")
-    }
-
-    /// 3. A 1.3.0-shaped install (five sources from an older seed): the four
-    /// Greek sources are new and come first, in the UI language's priority,
-    /// then the five stale ones. Registration adds the Greek rows with
-    /// `built_at ''` and leaves the stale rows (old stamp, old names) to
-    /// their unpack, which replaces them in the same transaction as the data.
-    func testUnpackPlanOnUpgradePutsNewSourcesFirst() async throws {
-        let five = Array(Self.seedOrder.prefix(5))
-        let greek = Array(Self.seedOrder.suffix(4))
-        let all = Self.seedOrder.map { ($0, ["qa\($0.replacingOccurrences(of: "-", with: ""))word"]) }
-        let bundle = try makeUnpackBundle(all, builtAt: "1.4.0")
-        let old = try makeUnpackBundle(all.filter { five.contains($0.0) }, builtAt: "1.3.0", name: "old.sqlite",
-                                       displayPrefix: "Old")
-        try await db.seedIfNeeded(bundledSeedURL: old)
-
-        let expected: [(String, [String])] = [
-            ("en", greek + five),
-            ("ru", greek + five),
-            ("es", greek + ["wordnet", "wordnet-spa-eng", "freedict-eng-spa", "openrussian", "wordnet-arb-eng"]),
-            ("ar", greek + ["wordnet", "wordnet-arb-eng", "openrussian", "freedict-eng-spa", "wordnet-spa-eng"]),
-            ("el", ["freedict-ell-eng", "wordnet-ell-eng", "freedict-eng-ell", "wordnet-eng-ell"] + five),
-        ]
-        for (code, order) in expected {
-            let plan = try await db.prepareBundledSeed(bundledSeedURL: bundle, languageCode: code)
-            XCTAssertEqual(plan.items.map(\.source), order, "\(code): new sources first, each group by priority")
-            XCTAssertEqual(plan.items.map(\.isNew), [true, true, true, true, false, false, false, false, false],
-                           "\(code): the four Greek sources are new, the five old ones stale")
-            XCTAssertEqual(plan.initialFraction, 0, "\(code): stale sources are pending too")
-        }
-        let markers = try await appMarkers()
-        for source in five {
-            XCTAssertEqual(markers[source], "1.3.0", "\(source): the stale gate stays open until its unpack")
-        }
-        for source in greek {
-            XCTAssertEqual(markers[source], "", "\(source): registered, not unpacked")
-        }
-        for meta in try await db.fetchMetadata() {
-            let prefix = five.contains(meta.source) ? "Old" : "Bundle"
-            XCTAssertEqual(meta.displayName, "\(prefix) \(meta.source)",
-                           "a stale row keeps its old metadata until its data is replaced")
-        }
-        let counts = try await appCounts()
-        XCTAssertEqual(Set(counts.keys), Set(five), "preparing writes no entries")
-    }
-
-    // MARK: Unpack
-
-    /// 4. Fresh install on the real seed through the app path: every source
-    /// complete and byte-identical to the seed (`word_normalized` included,
-    /// Arabic and Greek search depend on it), one contiguous id block per
-    /// source in plan order, every marker closed, FTS consistent, WAL
-    /// truncated. AC: total unpack time not worse than the 26.9 s import it
-    /// replaces (simulator budget 20 s; the Mac does the same SQL in ~4.5 s).
-    @MainActor
-    func testUnpackOfRealSeedIsCompleteAndFast() async throws {
-        let seedURL = try Self.greekSeedURL()
-        let bundle = try Self.realSeedMetadata()
-        let plan = try await db.prepareBundledSeed(bundledSeedURL: seedURL, languageCode: "en")
-        XCTAssertEqual(plan.items.count, 9)
-
-        let start = CFAbsoluteTimeGetCurrent()
-        await runAppUnpack(plan)
-        let elapsed = CFAbsoluteTimeGetCurrent() - start
-        print("⏱ fresh-install unpack of the real seed: \(String(format: "%.3f", elapsed))s")
-
-        let walSize = (try? FileManager.default.attributesOfItem(atPath: syncAppPath + "-wal")[.size] as? Int) ?? 0
-        XCTAssertEqual(walSize, 0, "the final TRUNCATE checkpoint shrinks the WAL left by the wordnet transaction")
-
-        let counts = try await appCounts()
-        let markers = try await appMarkers()
-        for item in bundle {
-            XCTAssertEqual(counts[item.source], item.wordCount, "\(item.source): every row")
-            XCTAssertEqual(markers[item.source], item.builtAt, "\(item.source): completion marker")
-        }
-        try await checkFTSIntegrity()
-
-        let pool = try DatabasePool(path: syncAppPath)
-        let mismatches = try await pool.writeWithoutTransaction { conn -> Int in
-            try conn.execute(sql: "ATTACH DATABASE ? AS seed", arguments: [seedURL.path])
-            defer { try? conn.execute(sql: "DETACH DATABASE seed") }
-            return try Int.fetchOne(conn, sql: """
-                SELECT COUNT(*) FROM seed.entries s
-                LEFT JOIN main.entries e ON e.source = s.source AND e.word = s.word COLLATE NOCASE
-                WHERE e.id IS NULL OR e.word IS NOT s.word OR e.word_normalized IS NOT s.word_normalized
-                   OR e.definition IS NOT s.definition OR e.phonetic IS NOT s.phonetic OR e.pos IS NOT s.pos
-                """) ?? -1
-        }
-        XCTAssertEqual(mismatches, 0, "every seed row arrives byte-identical")
-
-        let blocks = try await pool.read { conn in
-            try Row.fetchAll(conn, sql: "SELECT source, MIN(id) AS lo, MAX(id) AS hi FROM entries GROUP BY source ORDER BY lo")
-        }
-        XCTAssertEqual(blocks.map { $0["source"] as String }, plan.items.map(\.source),
-                       "sources commit one after another, in plan order")
-        for (earlier, later) in zip(blocks, blocks.dropFirst()) {
-            XCTAssertLessThan(earlier["hi"] as Int64, later["lo"] as Int64, "one contiguous id block per source")
-        }
-
-        let greek = try await db.search(query: "καλημερα")
-        XCTAssertTrue(greek.contains { $0.word == "καλημέρα" && $0.source == "freedict-ell-eng" },
-                      "the last source is searchable, accent-free")
-        XCTAssertLessThan(elapsed, 20, "unpack must stay far below the 26.9 s import it replaces (got \(elapsed)s)")
-    }
-
-    /// Update path (1.3.0 → 1.4.0) on the real seed: the five old sources
-    /// with an older stamp and an outdated eng-spa definition, two bookmarks,
-    /// no Greek. The old sources are searchable before any work; the unpack
-    /// adds the four Greek sources first, then syncs the five in place (#108):
-    /// every old id survives, nothing is re-inserted, the bookmarks stay on
-    /// their rows, the definition is updated and re-indexed, FTS is consistent.
-    @MainActor
-    func testUpdatePathAddsGreekInBackgroundAndKeepsBookmarks() async throws {
-        let seedURL = try Self.greekSeedURL()
-        let bundle = try Self.realSeedMetadata()
-        let five = Array(Self.seedOrder.prefix(5))
-        let greek = Array(Self.seedOrder.suffix(4))
-        try await useSeedClone()
-        let clonePath = tempDir.appendingPathComponent("seed-clone.sqlite").path
-        let clone = try DatabasePool(path: clonePath)
-        let greekList = greek.map { "'\($0)'" }.joined(separator: ", ")
-        try await clone.write { conn in
-            try conn.execute(sql: "DELETE FROM entries WHERE source IN (\(greekList))")
-            try conn.execute(sql: "DELETE FROM dict_metadata WHERE source IN (\(greekList))")
-            try conn.execute(sql: "UPDATE dict_metadata SET built_at = '1.3.0'")
-            try conn.execute(sql: "UPDATE entries SET definition = ? WHERE word = 'quickly' AND source = ?",
-                             arguments: [Self.oldQuickly, Self.syncEngSpa])
-        }
-        func rowID(_ word: String, _ source: String) async throws -> Int64 {
-            let id = try await clone.read { conn in
-                try Int64.fetchOne(conn, sql: "SELECT id FROM entries WHERE word = ? AND source = ?",
-                                   arguments: [word, source])
-            }
-            return try XCTUnwrap(id, "\(word) / \(source)")
-        }
-        func fingerprint() async throws -> [String: [Int64]] {
-            try await clone.read { conn in
-                var result: [String: [Int64]] = [:]
-                for row in try Row.fetchAll(conn, sql: "SELECT source, COUNT(*) AS n, SUM(id) AS s FROM entries GROUP BY source") {
-                    result[row["source"] as String] = [row["n"] as Int64, row["s"] as Int64]
-                }
-                return result
-            }
-        }
-        let dogID = try await rowID("dog", "wordnet")
-        let quicklyID = try await rowID("quickly", Self.syncEngSpa)
-        try await db.addBookmark(entryId: dogID)
-        try await db.addBookmark(entryId: quicklyID)
-        let before = try await fingerprint()
-        XCTAssertEqual(Set(before.keys), Set(five), "precondition: a 1.3.0 install has no Greek rows")
-
-        let plan = try await db.prepareBundledSeed(bundledSeedURL: seedURL, languageCode: "en")
-        XCTAssertEqual(plan.items.map(\.source), greek + five)
-        XCTAssertEqual(plan.items.map(\.isNew), [true, true, true, true, false, false, false, false, false])
-        let early = try await db.search(query: "dog")
-        XCTAssertTrue(early.contains { $0.id == dogID }, "the old dictionaries are searchable before any work")
-        XCTAssertFalse(early.contains { greek.contains($0.source) }, "Greek is not unpacked yet")
-
-        let recorder = PhaseRecorder(DictionaryUnpackStatus.shared)
-        let start = CFAbsoluteTimeGetCurrent()
-        await runAppUnpack(plan)
-        print("⏱ update-path unpack (4 new + 5 stale) on the real seed: \(String(format: "%.3f", CFAbsoluteTimeGetCurrent() - start))s")
-
-        let after = try await fingerprint()
-        for source in five {
-            XCTAssertEqual(after[source], before[source], "\(source): every old id kept, nothing re-inserted")
-        }
-        let markers = try await appMarkers(path: clonePath)
-        for item in bundle {
-            XCTAssertEqual(markers[item.source], item.builtAt, "\(item.source): gate closed")
-            if greek.contains(item.source) {
-                XCTAssertEqual(after[item.source]?.first, Int64(item.wordCount), "\(item.source): imported completely")
-            }
-        }
-        let bookmarks = try await db.fetchBookmarkedEntries()
-        XCTAssertEqual(Set(bookmarks.compactMap(\.entry.id)), [dogID, quicklyID], "bookmarks stay on their rows")
-        let quickly = try await db.search(query: "velozmente")
-        XCTAssertTrue(quickly.contains { $0.id == quicklyID }, "the #108 update reached the same row and FTS")
-        let kalimera = try await db.search(query: "καλημέρα")
-        XCTAssertTrue(kalimera.contains { $0.source == "freedict-ell-eng" }, "Greek arrived")
-        try await checkFTSIntegrity(path: clonePath)
-
-        let fractions = recorder.phases.compactMap(Self.fraction)
-        XCTAssertEqual(fractions.count, 1 + plan.items.count, "the start plus one step per source; got \(fractions)")
-        XCTAssertEqual(fractions.first, 0, "every source is pending on the update path")
-        XCTAssertEqual(fractions, fractions.sorted(), "progress never goes back")
-        XCTAssertEqual(recorder.phases.last, .idle)
-    }
-
-    /// 5. A kill mid-source (the seam throws inside the source's transaction,
-    /// after its INSERT): the sources before it stay complete, the killed one
-    /// has no row and no marker, the rest are untouched, and the app stays
-    /// usable (PM decision 4): the bar hides, committed sources are
-    /// searchable, the writer and the bundle alias are free. The next launch
-    /// resumes from the markers: only the remaining sources run, the
-    /// committed ones keep their rows and ids, every count is exact.
-    @MainActor
-    func testUnpackKilledMidSourceResumesWithoutDuplicates() async throws {
-        let bundleURL = try makeUnpackBundle(Self.fixtureSources)
-        let plan = try await db.prepareBundledSeed(bundledSeedURL: bundleURL, languageCode: "en")
-        XCTAssertEqual(plan.items.map(\.source), Self.fixtureSources.map(\.0))
-
-        DatabaseService.unpackFailureAfterInsert = "freedict-eng-spa"
-        let recorder = PhaseRecorder(DictionaryUnpackStatus.shared)
-        await runAppUnpack(plan)
-        DatabaseService.unpackFailureAfterInsert = nil
-
-        let counts = try await appCounts()
-        XCTAssertEqual(counts, ["wordnet": 4, "openrussian": 3], "committed sources complete, the killed one rolled back")
-        let markers = try await appMarkers()
-        XCTAssertEqual(markers, ["wordnet": "b1", "openrussian": "b1", "freedict-eng-spa": "", "wordnet-spa-eng": ""])
-        XCTAssertEqual(recorder.phases, [.idle, .unpacking(fraction: 0), .unpacking(fraction: 0.4),
-                                         .unpacking(fraction: 0.7), .idle],
-                       "no progress for the failed source, and the bar is not left stuck")
-
-        let committed = try await db.search(query: "qawnbeta")
-        XCTAssertEqual(committed.map(\.source), ["wordnet"], "committed sources stay searchable")
-        let killed = try await db.search(query: "qaesuno")
-        XCTAssertTrue(killed.isEmpty, "no partial source is ever visible")
-        try await db.addToHistory(word: "qawnbeta", source: "wordnet")
-        let history = try await db.historyCount()
-        XCTAssertEqual(history, 1, "the writer is free after the failure")
-        try await checkFTSIntegrity()
-        let wordnetRows = try await syncRows(source: "wordnet")
-        let russianRows = try await syncRows(source: "openrussian")
-
-        let resumed = try await db.prepareBundledSeed(bundledSeedURL: bundleURL, languageCode: "en")
-        XCTAssertEqual(resumed.items.map(\.source), ["freedict-eng-spa", "wordnet-spa-eng"], "only what is left")
-        XCTAssertTrue(resumed.items.allSatisfy(\.isNew))
-        XCTAssertEqual(resumed.initialFraction, 0.7, accuracy: 1e-9, "the bar resumes at the share already done")
-        await runAppUnpack(resumed)
-
-        let countsAfter = try await appCounts()
-        XCTAssertEqual(countsAfter, ["wordnet": 4, "openrussian": 3, "freedict-eng-spa": 2, "wordnet-spa-eng": 1])
-        let markersAfter = try await appMarkers()
-        XCTAssertEqual(Set(markersAfter.values), ["b1"])
-        let wordnetAfter = try await syncRows(source: "wordnet")
-        let russianAfter = try await syncRows(source: "openrussian")
-        XCTAssertEqual(wordnetAfter, wordnetRows, "wordnet not re-imported: same rows, same ids")
-        XCTAssertEqual(russianAfter, russianRows, "openrussian not re-imported: same rows, same ids")
-        let spanish = try await db.search(query: "qaesuno")
-        XCTAssertEqual(spanish.map(\.source), ["freedict-eng-spa"])
-        try await checkFTSIntegrity()
-    }
-
-    /// 6. A source half-imported by 1.3.x or older (rows but no metadata row,
-    /// one row outdated, one bookmarked): registered as new, then completed in
-    /// place. Existing ids and the bookmark survive, the outdated row is
-    /// updated and re-indexed, the missing rows arrive, FTS stays consistent.
-    func testUnpackCompletesLegacyHalfImportedSource() async throws {
-        let words = ["qahalfa", "qahalfb", "qahalfc", "qahalfd"]
-        let bundleURL = try makeUnpackBundle([("wordnet", ["qawnonly"]), (Self.syncEngSpa, words)])
-        try await seedSyncApp([("qahalfa", "qahalfa in \(Self.syncEngSpa)", Self.syncEngSpa),
-                               ("qahalfb", "an outdated definition", Self.syncEngSpa)], builtAt: nil)
-        let before = try await syncRows(source: Self.syncEngSpa)
-        let bookmarked = try XCTUnwrap(before.first)
-        try await db.addBookmark(entryId: bookmarked.id)
-
-        let plan = try await db.prepareBundledSeed(bundledSeedURL: bundleURL, languageCode: "en")
-        XCTAssertEqual(plan.items.map(\.source), ["wordnet", Self.syncEngSpa])
-        XCTAssertTrue(plan.items.allSatisfy(\.isNew), "no metadata row = never completed = new")
-        await db.startBundledUnpack(plan)
-        await db.waitForBundledUnpack()
-
-        let after = try await syncRows(source: Self.syncEngSpa)
-        XCTAssertEqual(after.map(\.word), words)
-        XCTAssertEqual(after.prefix(2).map(\.id), before.map(\.id), "existing rows completed in place")
-        XCTAssertEqual(after.map(\.definition), words.map { "\($0) in \(Self.syncEngSpa)" })
-        XCTAssertEqual(Set(after.map(\.pos)), ["noun"], "every column follows the bundle")
-        let isBookmarked = try await db.isBookmarked(entryId: bookmarked.id)
-        XCTAssertTrue(isBookmarked, "the bookmark survives")
-        let markers = try await appMarkers()
-        XCTAssertEqual(markers, ["wordnet": "b1", Self.syncEngSpa: "b1"])
-        let added = try await db.search(query: "qahalfd")
-        XCTAssertEqual(added.map(\.word), ["qahalfd"])
-        let stale = try await db.search(query: "outdated")
-        XCTAssertTrue(stale.isEmpty, "the outdated text left the FTS index")
-        try await checkFTSIntegrity()
-    }
-
-    /// 7. Searching while the real seed unpacks: never an error, and a reader
-    /// sees a source completely or not at all. Phase A holds the unpack 3 s
-    /// after `wordnet` commits: English search returns WordNet rows and the
-    /// pending sources give nothing. Phase B resumes the other seven with no
-    /// delay while searches and a per-source count check loop until idle.
-    @MainActor
-    func testSearchDuringUnpack() async throws {
-        let seedURL = try Self.greekSeedURL()
-        let bundle = try Self.realSeedMetadata()
-        let wordCounts = Dictionary(uniqueKeysWithValues: bundle.map { ($0.source, $0.wordCount) })
-        let full = try await db.prepareBundledSeed(bundledSeedURL: seedURL, languageCode: "en")
-        XCTAssertEqual(full.items.first?.source, "wordnet", "English search is served first")
-
-        // Phase A: wordnet and openrussian, held `hold` s between them.
-        let firstTwo = BundledUnpackPlan(
-            seedURL: seedURL,
-            bundled: bundle.filter { ["wordnet", "openrussian"].contains($0.source) }
-                .map { BundledUnpackPlan.BundledSource(source: $0.source, rowCount: $0.wordCount, builtAt: $0.builtAt) },
-            appBuiltAt: [:], languageCode: "en")
-        let hold: TimeInterval = 3
-        Self.setUnpackSourceDelay(hold)
-        XCTAssertEqual(UserDefaults.standard.double(forKey: "unpackSourceDelay"), hold, "precondition: the delay seam")
-        DictionaryUnpackStatus.shared.begin(firstTwo)
-        await db.startBundledUnpack(firstTwo)
-        Self.setUnpackSourceDelay(nil)
-        let wordnetCommitted = await waitUntil(timeout: 60) { (Self.fraction(DictionaryUnpackStatus.shared.phase) ?? 0) > 0 }
-        let heldAt = Date()
-        XCTAssertTrue(wordnetCommitted, "wordnet must commit")
-
-        let dog = try await db.search(query: "dog")
-        let russian = try await db.search(query: "яблоко")
-        let counts = try await appCounts()
-        if Date().timeIntervalSince(heldAt) < hold - 0.25 {
-            XCTAssertEqual(counts, ["wordnet": wordCounts["wordnet"] ?? -1], "only the committed source is visible")
-            XCTAssertEqual(Set(dog.map(\.source)), ["wordnet"], "results come from committed sources only")
-            XCTAssertTrue(russian.allSatisfy { $0.source == "wordnet" }, "nothing from the pending openrussian")
-        } else {
-            print("note: phase A took longer than the hold; skipped the pending-source assertions")
-        }
-        XCTAssertTrue(dog.contains { $0.word == "dog" && $0.source == "wordnet" }, "WordNet answers mid-unpack")
-        await db.waitForBundledUnpack()
-        let russianAfter = try await db.search(query: "яблоко")
-        XCTAssertTrue(russianAfter.contains { $0.word == "яблоко" && $0.source == "openrussian" },
-                      "a source that lands is found on the next query")
-
-        // Phase B: the seven others, searched while they are written.
-        let rest = try await db.prepareBundledSeed(bundledSeedURL: seedURL, languageCode: "en")
-        XCTAssertEqual(rest.items.map(\.source), Array(Self.seedOrder.dropFirst(2)))
-        let done = Double((wordCounts["wordnet"] ?? 0) + (wordCounts["openrussian"] ?? 0)) / Double(full.allRows)
-        XCTAssertEqual(rest.initialFraction, done, accuracy: 1e-9)
-        let watcher = try DatabasePool(path: syncAppPath)
-        var rounds = 0
-        var partial: [String] = []
-        DictionaryUnpackStatus.shared.begin(rest)
-        await db.startBundledUnpack(rest)
-        while DictionaryUnpackStatus.shared.phase != .idle {
-            for query in ["water", "σκυλος", "casa", "كتاب"] {
-                _ = try await db.search(query: query)   // a lock or busy error fails the test
-            }
-            let seen = try await watcher.read { conn in
-                try Row.fetchAll(conn, sql: "SELECT source, COUNT(*) AS n FROM entries GROUP BY source")
-            }
-            for row in seen where (row["n"] as Int) != wordCounts[row["source"] as String] {
-                partial.append("\(row["source"] as String): \(row["n"] as Int)")
-            }
-            rounds += 1
-        }
-        await db.waitForBundledUnpack()
-        XCTAssertGreaterThan(rounds, 0, "searches ran while the unpack was writing")
-        XCTAssertEqual(partial, [], "a reader never sees a partly unpacked source")
-        let finalCounts = try await appCounts()
-        XCTAssertEqual(finalCounts, wordCounts)
-    }
-
-    /// 8. Dictionary order mid-unpack (after wordnet and openrussian):
-    /// `fetchSourceStats` lists all nine with the bundle counts, count-desc,
-    /// with full metadata; the first Settings load gives the five pairs and
-    /// persists the #74 default; a toggle mid-unpack keeps every pending
-    /// dictionary on (F3). After the unpack: the same list and the same order.
-    @MainActor
-    func testSourceStatsMidUnpackListAllBundledSources() async throws {
-        let seedURL = try Self.greekSeedURL()
-        let bundle = try Self.realSeedMetadata()
-        let plan = try await db.prepareBundledSeed(bundledSeedURL: seedURL, languageCode: "en")
-        DatabaseService.unpackFailureAfterInsert = "freedict-eng-spa"
-        await runAppUnpack(plan)
-        DatabaseService.unpackFailureAfterInsert = nil
-        let counts = try await appCounts()
-        XCTAssertEqual(Set(counts.keys), ["wordnet", "openrussian"], "precondition: mid-unpack")
-
-        let mid = try await db.fetchSourceStats()
-        XCTAssertEqual(mid.map(\.source).sorted(), Self.seedOrder.sorted(), "all nine bundled sources are listed")
-        XCTAssertEqual(mid.map(\.count), mid.map(\.count).sorted(by: >), "count-desc base order")
-        for stat in mid {
-            let meta = try XCTUnwrap(bundle.first { $0.source == stat.source })
-            XCTAssertEqual(stat.count, meta.wordCount, "\(stat.source): the final count, unpacked or not")
-            XCTAssertEqual(stat.displayName, meta.displayName, "\(stat.source)")
-            XCTAssertEqual(stat.license, meta.license, "\(stat.source)")
-            XCTAssertEqual(stat.version, meta.version, "\(stat.source)")
-        }
-
-        let (vmMid, settingsMid) = makeEnglishSettingsViewModel()
-        let loadedMid = await waitUntil(timeout: 10) { !vmMid.dictionaries.isEmpty }
-        XCTAssertTrue(loadedMid)
-        XCTAssertEqual(vmMid.dictionaries.map(\.id), ["eng", "eng-spa", "eng-rus", "ell-eng", "arb-eng"])
-        let orderMid = try XCTUnwrap(settingsMid.dictionaryOrder, "the first load persists the default order")
-        XCTAssertEqual(orderMid.sorted(), Self.seedOrder.sorted(), "the persisted order holds every bundled source")
-        vmMid.togglePair(id: "eng-rus")
-        XCTAssertEqual(settingsMid.enabledSources, Set(Self.seedOrder).subtracting(["openrussian"]),
-                       "switching Russian off mid-unpack keeps every pending dictionary on")
-
-        let rest = try await db.prepareBundledSeed(bundledSeedURL: seedURL, languageCode: "en")
-        await runAppUnpack(rest)
-        let done = try await db.fetchSourceStats()
-        XCTAssertEqual(done, mid, "Dictionary order does not change when the dictionaries land")
-        let (vmDone, settingsDone) = makeEnglishSettingsViewModel()
-        let loadedDone = await waitUntil(timeout: 10) { !vmDone.dictionaries.isEmpty }
-        XCTAssertTrue(loadedDone)
-        XCTAssertEqual(vmDone.dictionaries.map(\.id), vmMid.dictionaries.map(\.id))
-        XCTAssertEqual(settingsDone.dictionaryOrder, orderMid, "the #74 default is the same during and after")
-    }
-
-    /// A `SettingsViewModel` on fresh in-memory prefs, in-app language English.
-    @MainActor
-    private func makeEnglishSettingsViewModel() -> (SettingsViewModel, SettingsService) {
-        let settings = SettingsService(store: InMemoryKeyValueStore())
-        settings.selectedUILanguageCode = "en"
-        let localization = LocalizationManager(settingsService: settings, bundle: .main)
-        return (SettingsViewModel(settingsService: settings, localization: localization), settings)
-    }
-
-    // MARK: Progress and Search screen
-
-    /// 9. Progress on a resumed unpack (a first launch killed after wordnet,
-    /// 4 of 10 rows): the bar starts at the share already done, rises with
-    /// each committed source to 100%, and ends `.idle`; the killed launch
-    /// itself ended `.idle` too. The `seedIfNeeded` facade never publishes.
-    /// The bar shows whole percents, floored and clamped.
-    @MainActor
-    func testUnpackProgressIsMonotonicAndEndsIdle() async throws {
-        let bundleURL = try makeUnpackBundle(Self.fixtureSources)
-        let first = try await db.prepareBundledSeed(bundledSeedURL: bundleURL, languageCode: "en")
-        DatabaseService.unpackFailureAfterInsert = "openrussian"
-        let killed = PhaseRecorder(DictionaryUnpackStatus.shared)
-        await runAppUnpack(first)
-        DatabaseService.unpackFailureAfterInsert = nil
-        XCTAssertEqual(killed.phases, [.idle, .unpacking(fraction: 0), .unpacking(fraction: 0.4), .idle])
-
-        let plan = try await db.prepareBundledSeed(bundledSeedURL: bundleURL, languageCode: "en")
-        XCTAssertEqual(plan.initialFraction, 0.4, accuracy: 1e-9)
-        let recorder = PhaseRecorder(DictionaryUnpackStatus.shared)
-        await runAppUnpack(plan)
-        XCTAssertEqual(recorder.phases.first, .idle, "the phase at subscription")
-        XCTAssertEqual(recorder.phases.last, .idle, "ends idle: the bar hides")
-        XCTAssertEqual(recorder.phases.filter { $0 == .idle }.count, 2, "no idle in between")
-        let fractions = recorder.phases.compactMap(Self.fraction)
-        XCTAssertEqual(fractions.count, 4, "the start plus one step per remaining source; got \(fractions)")
-        for (got, want) in zip(fractions, [0.4, 0.7, 0.9, 1.0]) {
-            XCTAssertEqual(got, want, accuracy: 1e-9, "fractions \(fractions)")
-        }
-        XCTAssertTrue(zip(fractions, fractions.dropFirst()).allSatisfy { $0 < $1 }, "strictly rising: \(fractions)")
-
-        let rebuilt = try makeUnpackBundle(Self.fixtureSources, builtAt: "b2", name: "b2.sqlite", definitionSuffix: " (b2)")
-        let silent = PhaseRecorder(DictionaryUnpackStatus.shared)
-        try await db.seedIfNeeded(bundledSeedURL: rebuilt)
-        XCTAssertEqual(silent.phases, [.idle], "the seedIfNeeded facade never publishes")
-        let markers = try await appMarkers()
-        XCTAssertEqual(Set(markers.values), ["b2"], "the facade still synced every source")
-
-        XCTAssertNil(SearchViewModel.displayFraction(for: .idle))
-        XCTAssertEqual(SearchViewModel.displayFraction(for: .unpacking(fraction: 0)), 0)
-        XCTAssertEqual(SearchViewModel.displayFraction(for: .unpacking(fraction: 0.29)), 0.29, "an exact percent stays")
-        XCTAssertEqual(SearchViewModel.displayFraction(for: .unpacking(fraction: 0.3549)), 0.35, "floored")
-        XCTAssertEqual(SearchViewModel.displayFraction(for: .unpacking(fraction: 0.999)), 0.99, "never 100% early")
-        XCTAssertEqual(SearchViewModel.displayFraction(for: .unpacking(fraction: 1)), 1)
-        XCTAssertEqual(SearchViewModel.displayFraction(for: .unpacking(fraction: -0.2)), 0, "clamped")
-        XCTAssertEqual(SearchViewModel.displayFraction(for: .unpacking(fraction: 1.7)), 1, "clamped")
-    }
-
-    /// PM decision 3: when a dictionary lands, the current query re-runs
-    /// (debounced) so its results fill in without retyping. Nothing polls:
-    /// only a status change triggers it; `.idle` adds no data and triggers
-    /// nothing; a burst costs one re-run; an empty query never searches.
-    @MainActor
-    func testSearchReRunsWhenADictionaryLands() async throws {
-        let status = DictionaryUnpackStatus()
-        let settings = SettingsService(store: InMemoryKeyValueStore())
-        let vm = SearchViewModel(db: db, settings: settings, unpackStatus: status)
-        var searches = 0
-        let counter = vm.$isSearching.dropFirst().filter { $0 }.sink { _ in searches += 1 }
-        defer { counter.cancel() }
-
-        XCTAssertNil(vm.unpackFraction, "idle: no bar")
-        status.update(.unpacking(fraction: 0.3549))
-        XCTAssertEqual(vm.unpackFraction, 0.35, "the bar shows whole percents")
-        try await Task.sleep(nanoseconds: 600_000_000)
-        XCTAssertEqual(searches, 0, "a landing dictionary starts no search on an empty query")
-
-        vm.query = "qalanding"
-        vm.onQueryChanged()
-        let firstDone = await waitUntil(timeout: 5) { !vm.isSearching }
-        XCTAssertTrue(firstDone)
-        XCTAssertTrue(vm.results.isEmpty, "precondition: the word's dictionary has not landed")
-        XCTAssertEqual(searches, 1)
-
-        try await insertNormalizedEntry(word: "qalanding", normalized: "qalanding", definition: "arrived",
-                                        source: "wordnet")
-        try await Task.sleep(nanoseconds: 600_000_000)
-        XCTAssertTrue(vm.results.isEmpty, "no polling: the list changes only when the status does")
-        XCTAssertEqual(searches, 1)
-
-        status.update(.unpacking(fraction: 0.6))
-        let filled = await waitUntil(timeout: 5) { vm.results.map(\.word) == ["qalanding"] && !vm.isSearching }
-        XCTAssertTrue(filled, "results fill in without retyping; got \(vm.results.map(\.word))")
-        XCTAssertEqual(searches, 2)
-        XCTAssertNil(vm.errorMessage)
-
-        status.update(.unpacking(fraction: 0.7))
-        status.update(.unpacking(fraction: 0.8))
-        status.update(.unpacking(fraction: 0.9))
-        let burst = await waitUntil(timeout: 5) { searches == 3 && !vm.isSearching }
-        XCTAssertTrue(burst, "the burst re-runs the query")
-        try await Task.sleep(nanoseconds: 600_000_000)
-        XCTAssertEqual(searches, 3, "debounced: one re-run for three landings")
-
-        try await insertNormalizedEntry(word: "qalandings", normalized: "qalandings", definition: "late",
-                                        source: "wordnet")
-        status.update(.idle)
-        XCTAssertNil(vm.unpackFraction, "the bar goes away")
-        try await Task.sleep(nanoseconds: 600_000_000)
-        XCTAssertEqual(searches, 3, "`.idle` triggers no re-run")
-        XCTAssertEqual(vm.results.map(\.word), ["qalanding"])
-    }
-
-    // MARK: Priority, single flight, pool
-
-    /// 10. `DictionaryDefaults.unpackPriority`: `wordnet` first, then the UI
-    /// language's dictionaries in mapping order, then the rest in incoming
-    /// order; IDs that are not in the input are skipped, never invented; the
-    /// result is always a permutation.
-    func testUnpackPriority() throws {
-        let seed = Self.seedOrder
-        func priority(_ code: String, _ sources: [String]) -> [String] {
-            DictionaryDefaults.unpackPriority(forLanguageCode: code, sources: sources)
-        }
-        XCTAssertEqual(priority("en", seed), seed)
-        XCTAssertEqual(priority("ru", seed), seed, "openrussian already follows wordnet")
-        XCTAssertEqual(priority("es", seed), ["wordnet", "wordnet-spa-eng", "freedict-eng-spa", "openrussian",
-                                              "wordnet-arb-eng", "wordnet-ell-eng", "wordnet-eng-ell",
-                                              "freedict-ell-eng", "freedict-eng-ell"])
-        XCTAssertEqual(priority("ar", seed), ["wordnet", "wordnet-arb-eng", "openrussian", "freedict-eng-spa",
-                                              "wordnet-spa-eng", "wordnet-ell-eng", "wordnet-eng-ell",
-                                              "freedict-ell-eng", "freedict-eng-ell"])
-        XCTAssertEqual(priority("el", seed), ["wordnet", "freedict-ell-eng", "wordnet-ell-eng", "freedict-eng-ell",
-                                              "wordnet-eng-ell", "openrussian", "freedict-eng-spa",
-                                              "wordnet-spa-eng", "wordnet-arb-eng"])
-        XCTAssertEqual(priority("fr", ["openrussian", "my_dict", "wordnet"]), ["wordnet", "openrussian", "my_dict"],
-                       "unknown language: wordnet first, the rest untouched")
-        XCTAssertEqual(priority("es", ["openrussian", "freedict-eng-spa", "my_dict"]),
-                       ["freedict-eng-spa", "openrussian", "my_dict"],
-                       "no wordnet and a missing preferred id: skipped, never invented")
-        XCTAssertEqual(priority("ru", ["wordnet-arb-eng", "openrussian", "wordnet"]),
-                       ["wordnet", "openrussian", "wordnet-arb-eng"])
-        XCTAssertEqual(priority("el", []), [])
-        for code in ["en", "ru", "es", "ar", "el", "fr", ""] {
-            for k in seed.indices {
-                let rotated = Array(seed[k...] + seed[..<k])
-                let result = priority(code, rotated)
-                XCTAssertEqual(result.sorted(), rotated.sorted(), "\(code)/\(k): a permutation")
-                XCTAssertEqual(result.first, "wordnet", "\(code)/\(k): English is served first")
-            }
-        }
-    }
-
-    /// 11. Single flight: a second `startBundledUnpack` while one runs (the
-    /// WindowGroup `.task` running again), or one with another plan, is a
-    /// no-op: one loop, one progress step per source. `waitForBundledUnpack`
-    /// returns only when the loop is done, and the slot is free afterwards.
-    @MainActor
-    func testStartBundledUnpackIsSingleFlight() async throws {
-        let bundleURL = try makeUnpackBundle(Self.fixtureSources)
-        let plan = try await db.prepareBundledSeed(bundledSeedURL: bundleURL, languageCode: "en")
-        let otherURL = try makeUnpackBundle([("wordnet-arb-eng", ["qaarb"])], name: "other.sqlite")
-        let otherPlan = BundledUnpackPlan(
-            seedURL: otherURL,
-            bundled: [BundledUnpackPlan.BundledSource(source: "wordnet-arb-eng", rowCount: 1, builtAt: "b1")],
-            appBuiltAt: [:], languageCode: "en")
-
-        let recorder = PhaseRecorder(DictionaryUnpackStatus.shared)
-        Self.setUnpackSourceDelay(0.3)
-        DictionaryUnpackStatus.shared.begin(plan)
-        await db.startBundledUnpack(plan)
-        Self.setUnpackSourceDelay(nil)
-        await db.startBundledUnpack(plan)
-        await db.startBundledUnpack(otherPlan)
-        await waitForUnpackIdle()
-
-        let markers = try await appMarkers()
-        XCTAssertEqual(markers.filter { $0.value == "b1" }.count, 4, "waitForBundledUnpack returns after the last source")
-        let fractions = recorder.phases.compactMap(Self.fraction)
-        XCTAssertEqual(fractions.count, 1 + plan.items.count, "one loop; got \(fractions)")
-        XCTAssertEqual(recorder.phases.last, .idle)
-        let counts = try await appCounts()
-        XCTAssertEqual(counts, ["wordnet": 4, "openrussian": 3, "freedict-eng-spa": 2, "wordnet-spa-eng": 1],
-                       "the other plan never ran alongside")
-
-        await db.startBundledUnpack(otherPlan)
-        await db.waitForBundledUnpack()
-        let countsAfter = try await appCounts()
-        XCTAssertEqual(countsAfter["wordnet-arb-eng"], 1, "the slot is free once the first unpack has finished")
-    }
-
-    /// §3.6 "capture the pool once" (F4): an unpack keeps writing into the
-    /// database it started on after `setup(path:)` swaps the shared pool, so
-    /// the host's unpack can never write into a test's database.
-    @MainActor
-    func testUnpackKeepsThePoolItStartedWith() async throws {
-        let bundleURL = try makeUnpackBundle(Self.fixtureSources)
-        let plan = try await db.prepareBundledSeed(bundledSeedURL: bundleURL, languageCode: "en")
-        Self.setUnpackSourceDelay(0.3)
-        await db.startBundledUnpack(plan)
-        Self.setUnpackSourceDelay(nil)
-        let swappedPath = tempDir.appendingPathComponent("swapped.sqlite").path
-        try await db.setup(path: swappedPath)
-        await db.waitForBundledUnpack()
-
-        let started = try await appCounts()
-        XCTAssertEqual(started, ["wordnet": 4, "openrussian": 3, "freedict-eng-spa": 2, "wordnet-spa-eng": 1])
-        let swappedCounts = try await appCounts(path: swappedPath)
-        XCTAssertEqual(swappedCounts, [:], "nothing leaked into the database swapped in mid-unpack")
-        let swappedMarkers = try await appMarkers(path: swappedPath)
-        XCTAssertEqual(swappedMarkers, [:])
-    }
-
-    // MARK: Seed and catalog
-
-    /// 12. The plan is driven by the seed's metadata, so: the sources of its
-    /// `entries` are exactly its `dict_metadata` sources; every `built_at` is
-    /// non-empty ('' means "not unpacked" in the app); `word_count` is exact
-    /// (the progress weights); the metadata order is the entry block order;
-    /// the seed is not in WAL mode (it is ATTACHed from the read-only bundle).
+    /// The sources of the bundled file's `entries` are exactly its
+    /// `dict_metadata` sources, in entry block order, with an exact
+    /// `word_count` (Settings counts read it since #138); the file is not in
+    /// WAL mode (it is attached read-only and immutable from the bundle).
     func testSeedEntrySourcesMatchMetadata() throws {
         let queue = try Self.openBundledSeedReadOnly()
         let blocks = try queue.read { conn in
@@ -7695,7 +6145,7 @@ extension DictAppTests {
                 """)
         }
         let metadata = try queue.read { conn in
-            try Row.fetchAll(conn, sql: "SELECT source, word_count, built_at FROM dict_metadata ORDER BY rowid")
+            try Row.fetchAll(conn, sql: "SELECT source, word_count FROM dict_metadata ORDER BY rowid")
         }
         let journal = try queue.read { conn in try String.fetchOne(conn, sql: "PRAGMA journal_mode") }
 
@@ -7708,35 +6158,9 @@ extension DictAppTests {
         let rows = Dictionary(uniqueKeysWithValues: blocks.map { ($0["source"] as String, $0["n"] as Int) })
         for row in metadata {
             let source: String = row["source"]
-            let builtAt: String = row["built_at"]
-            XCTAssertFalse(builtAt.isEmpty, "\(source): '' is reserved for 'registered, not unpacked'")
-            XCTAssertEqual(row["word_count"] as Int, rows[source], "\(source): word_count is the progress weight")
+            XCTAssertEqual(row["word_count"] as Int, rows[source], "\(source): word_count is its row count")
         }
-        XCTAssertNotEqual(journal?.lowercased(), "wal", "a WAL seed could not be ATTACHed from the read-only bundle")
-    }
-
-    /// 13. `search.unpacking.title` is compiled for every shipped UI
-    /// language with the agreed text and carries no number (the percent is
-    /// formatted separately with the in-app locale).
-    func testUnpackingTitleIsLocalized() throws {
-        let expected = [
-            "en": "Preparing dictionaries…",
-            "ru": "Подготовка словарей…",
-            "es": "Preparando diccionarios…",
-            "ar": "جارٍ تجهيز القواميس…",
-            "el": "Προετοιμασία λεξικών…",
-        ]
-        let shipped = try Self.shippedUILanguages().map(\.code)
-        XCTAssertEqual(Set(shipped), Set(expected.keys), "an expected value for every shipped UI language")
-        for code in shipped {
-            let value = try XCTUnwrap(Self.compiledTables(code: code).strings["search.unpacking.title"],
-                                      "\(code): compiled")
-            XCTAssertEqual(value, expected[code], "\(code)")
-            XCTAssertFalse(value.contains("%"), "\(code): no format specifier in the title")
-            let resolved = try Self.lprojBundle(forLocale: code)
-                .localizedString(forKey: "search.unpacking.title", value: "MISSING", table: nil)
-            XCTAssertEqual(resolved, expected[code], "\(code): resolves at runtime")
-        }
+        XCTAssertNotEqual(journal?.lowercased(), "wal", "a WAL file could not be attached from the read-only bundle")
     }
 }
 
@@ -8185,5 +6609,815 @@ final class SpeechLanguageTests: XCTestCase {
         let englishOnly: (String) -> Bool = { $0 == "en-US" }
         XCTAssertFalse(DefinitionViewModel(entry: entry("σπίτι", "freedict-ell-eng"), hasVoice: englishOnly).canSpeak)
         XCTAssertTrue(DefinitionViewModel(entry: entry("house", "wordnet"), hasVoice: englishOnly).canSpeak)
+    }
+}
+
+// MARK: - Issue #138: test dictionary files
+
+/// Dictionary files for unit tests: the bundled dictionary file's schema
+/// (copied from its `sqlite_master`) holding only the given rows, so a test
+/// controls exactly what Search sees. Rollback journal, like the bundled
+/// file, and no triggers: the FTS index is rebuilt once after the inserts.
+/// `DatabaseService.setup(userPath:dictionaryURL:)` attaches the result.
+enum TestDictionary {
+    struct Row {
+        var word: String
+        var wordNormalized: String
+        var definition: String
+        var phonetic: String
+        var pos: String
+        var source: String
+
+        /// `normalized` defaults to `word`, as for every en, ru and es source.
+        init(word: String, normalized: String? = nil, definition: String,
+             phonetic: String = "", pos: String = "", source: String) {
+            self.word = word
+            self.wordNormalized = normalized ?? word
+            self.definition = definition
+            self.phonetic = phonetic
+            self.pos = pos
+            self.source = source
+        }
+    }
+
+    /// One `dict_metadata` row. A source without one gets its ID as the
+    /// display name and an empty license and version.
+    struct Metadata {
+        var source: String
+        var displayName: String
+        var license = ""
+        var version = ""
+    }
+
+    /// `count` distinct rows for `source` (`<source>-w<i>`, "def <i>").
+    static func rows(source: String, count: Int) -> [Row] {
+        (0..<count).map { Row(word: "\(source)-w\($0)", definition: "def \($0)", pos: "noun", source: source) }
+    }
+
+    /// The bundled dictionary file of the host app.
+    static func bundledURL() throws -> URL {
+        let hostBundle: Bundle = {
+            if let url = Bundle.main.url(forResource: "DictApp", withExtension: "app") {
+                return Bundle(url: url) ?? .main
+            }
+            return .main
+        }()
+        return try XCTUnwrap(
+            hostBundle.url(forResource: "seed", withExtension: "sqlite")
+                ?? Bundle.main.url(forResource: "seed", withExtension: "sqlite"),
+            "Bundled seed.sqlite is missing from the app bundle")
+    }
+
+    /// Writes a dictionary file with `rows` (in this order, `INSERT OR
+    /// IGNORE` as the build does) and one `dict_metadata` row per source:
+    /// `metadata` where given, else the default, with `word_count` = its
+    /// rows. Returns its URL: `url`, or a new temp file.
+    @discardableResult
+    static func make(rows: [Row], metadata: [Metadata] = [], at url: URL? = nil) throws -> URL {
+        let url = url ?? FileManager.default.temporaryDirectory
+            .appendingPathComponent("dictionary-\(UUID().uuidString).sqlite")
+        var readonly = Configuration()
+        readonly.readonly = true
+        let schema = try DatabaseQueue(path: bundledURL().path, configuration: readonly).read { db in
+            try GRDB.Row.fetchAll(db, sql: """
+                SELECT type, name, sql FROM sqlite_master
+                WHERE sql IS NOT NULL AND type IN ('table', 'index') AND name NOT LIKE 'sqlite%'
+                ORDER BY rowid
+                """)
+        }
+        // A virtual table creates its own shadow tables (`entries_fts_data`, …).
+        let virtualTables = schema.filter { ($0["sql"] as String).hasPrefix("CREATE VIRTUAL TABLE") }
+            .map { $0["name"] as String }
+        let statements = schema.filter { row in
+            let name: String = row["name"]
+            let sql: String = row["sql"]
+            return sql.hasPrefix("CREATE VIRTUAL TABLE") || !virtualTables.contains { name.hasPrefix($0 + "_") }
+        }.map { $0["sql"] as String }
+
+        try? FileManager.default.removeItem(at: url)
+        let queue = try DatabaseQueue(path: url.path)
+        try queue.write { db in
+            for sql in statements { try db.execute(sql: sql) }
+            let insert = try db.makeStatement(sql: """
+                INSERT OR IGNORE INTO entries(word, word_normalized, definition, phonetic, pos, source)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """)
+            for row in rows {
+                try insert.execute(arguments: [row.word, row.wordNormalized, row.definition,
+                                               row.phonetic, row.pos, row.source])
+            }
+            try db.execute(sql: "INSERT INTO entries_fts(entries_fts) VALUES('rebuild')")
+
+            let counts = try GRDB.Row.fetchAll(db, sql: """
+                SELECT source, COUNT(*) AS n FROM entries GROUP BY source ORDER BY MIN(id)
+                """).map { ($0["source"] as String, $0["n"] as Int) }
+            var sources = counts.map(\.0)
+            sources += metadata.map(\.source).filter { !sources.contains($0) }
+            for source in sources {
+                let entry = metadata.first { $0.source == source } ?? Metadata(source: source, displayName: source)
+                try db.execute(
+                    sql: """
+                        INSERT INTO dict_metadata(source, display_name, license, version, word_count)
+                        VALUES (?, ?, ?, ?, ?)
+                        """,
+                    arguments: [source, entry.displayName, entry.license, entry.version,
+                                counts.first { $0.0 == source }?.1 ?? 0])
+            }
+        }
+        return url
+    }
+}
+
+/// The dictionary a unit test searches, on `DatabaseService.shared`. An
+/// attached dictionary file is immutable, so every change writes a new file
+/// with all rows so far and reopens the service on it. The user database
+/// (`user.sqlite` in `directory`) carries over: History, My words and
+/// imports survive a change.
+final class TestDictionaryFixture {
+    let directory: URL
+    private(set) var rows: [TestDictionary.Row] = []
+    private var metadata: [TestDictionary.Metadata] = []
+    /// The file the service has attached, once `open()` ran.
+    private(set) var dictionaryURL: URL?
+    private var generation = 0
+
+    var userPath: String { directory.appendingPathComponent("user.sqlite").path }
+
+    init(directory: URL) {
+        self.directory = directory
+    }
+
+    /// Writes the current rows into a new file and reopens the service on it.
+    func open() async throws {
+        generation += 1
+        let url = try TestDictionary.make(
+            rows: rows, metadata: metadata,
+            at: directory.appendingPathComponent("dictionary-\(generation).sqlite"))
+        dictionaryURL = url
+        try await DatabaseService.shared.setup(userPath: userPath, dictionaryURL: url)
+    }
+
+    func add(_ newRows: [TestDictionary.Row]) async throws {
+        rows += newRows
+        try await open()
+    }
+
+    func setMetadata(_ entry: TestDictionary.Metadata) async throws {
+        metadata.removeAll { $0.source == entry.source }
+        metadata.append(entry)
+        try await open()
+    }
+}
+
+// MARK: - Issue #138: user database and the attached dictionary file
+//
+// The spec's #138 tests (0129-dictionary-file.md, Test plan), plus the
+// import, preferred-mode and My words cases around them.
+
+/// The user database with a `TestDictionary` file attached as `dict`, on
+/// `DatabaseService.shared`. Each test opens a fresh user database in its own
+/// folder. A test that swaps the dictionary file reopens the service on the
+/// same user database, as an app update does.
+final class UserDatabaseTests: XCTestCase {
+    private var tempDir: URL!
+    private var db: DatabaseService { .shared }
+    /// The source ID an import of the bundled fixtures gets (their file name).
+    private let fixtureSource = "test_import_fixture"
+    /// Imported ids start here; dictionary file ids stay below.
+    private static let firstImportedID: Int64 = 1 << 40
+
+    /// "dog" in two bundled sources. `wordnet` has the lower id, so 1.4.0's
+    /// lookup in any source opened every "dog" History row from WordNet.
+    private static let dogRows = [
+        TestDictionary.Row(word: "dog", definition: "**noun**\n1. a member of the genus Canis", pos: "noun",
+                           source: "wordnet"),
+        TestDictionary.Row(word: "dog", definition: "**noun**\n1. perro, can", pos: "noun",
+                           source: "freedict-eng-spa"),
+        TestDictionary.Row(word: "cat", definition: "**noun**\n1. a feline mammal", pos: "noun", source: "wordnet"),
+    ]
+
+    override func setUp() async throws {
+        try await super.setUp()
+        await DictAppTests.waitForHostAppLaunch()
+        tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+    }
+
+    override func tearDown() async throws {
+        try? FileManager.default.removeItem(at: tempDir)
+        try await super.tearDown()
+    }
+
+    private var userPath: String { tempDir.appendingPathComponent("user.sqlite").path }
+
+    /// Writes `rows` into the dictionary file `name` and opens the service on
+    /// it. The user database carries over.
+    @discardableResult
+    private func open(_ rows: [TestDictionary.Row], name: String = "dictionary-a.sqlite") async throws -> URL {
+        let url = try TestDictionary.make(rows: rows, at: tempDir.appendingPathComponent(name))
+        try await db.setup(userPath: userPath, dictionaryURL: url)
+        return url
+    }
+
+    private func fixture(_ ext: String) throws -> URL {
+        try XCTUnwrap(Bundle.main.url(forResource: "test_import_fixture", withExtension: ext),
+                      "the bundled import fixture .\(ext)")
+    }
+
+    /// Writes `rows` as an import file named `name` (its source ID).
+    private func importFile(_ name: String, _ rows: [[String: String]]) throws -> URL {
+        let url = tempDir.appendingPathComponent(name + ".json")
+        try JSONSerialization.data(withJSONObject: rows).write(to: url)
+        return url
+    }
+
+    /// A read-only connection of the test's own, outside the service.
+    private func inspect(_ path: String) throws -> DatabaseQueue {
+        var config = Configuration()
+        config.readonly = true
+        return try DatabaseQueue(path: path, configuration: config)
+    }
+
+    /// The files SQLite would create next to a database it writes.
+    private func sidecars(of url: URL) -> [String] {
+        ["-journal", "-wal", "-shm"].map { url.path + $0 }.filter { FileManager.default.fileExists(atPath: $0) }
+    }
+
+    private func historyItem(_ word: String, file: StaticString = #filePath,
+                             line: UInt = #line) async throws -> HistoryItem {
+        let items = try await db.fetchHistory()
+        return try XCTUnwrap(items.first { $0.word == word }, "History row '\(word)'", file: file, line: line)
+    }
+
+    private static func keys(_ entries: [DictionaryEntry]) -> [EntryKey] {
+        entries.map { EntryKey($0) }
+    }
+
+    // MARK: Dictionary file and user database
+
+    /// Every kind of write to `dict.*` fails with SQLITE_READONLY on the
+    /// writer, the one connection that writes. `dict` is the test's file
+    /// itself, so iOS SQLite honours the URI (`mode=ro&immutable=1`). The
+    /// file stays byte-identical with no journal next to it, and the writer
+    /// keeps serving the user database.
+    func testDictionaryFileIsReadOnly() async throws {
+        let url = try await open(Self.dogRows)
+        let bytes = try Data(contentsOf: url)
+
+        let (files, readOnly) = try await db.writeForTesting { conn in
+            let files = try Row.fetchAll(conn, sql: "PRAGMA database_list")
+                .map { ($0["name"] as String, $0["file"] as String) }
+            return (Dictionary(uniqueKeysWithValues: files), sqlite3_db_readonly(conn.sqliteConnection, "dict"))
+        }
+        let attached = try XCTUnwrap(files["dict"], "dict is attached on the writer: \(files)")
+        XCTAssertEqual(URL(fileURLWithPath: attached).resolvingSymlinksInPath().path,
+                       url.resolvingSymlinksInPath().path,
+                       "dict is the dictionary file, not a new file named after the URI")
+        XCTAssertEqual(readOnly, 1, "SQLite opened dict read-only")
+
+        let writes = [
+            "INSERT INTO dict.entries(word, word_normalized, definition, source) VALUES ('wolf', 'wolf', 'x', 'wordnet')",
+            "UPDATE dict.entries SET definition = 'changed' WHERE word = 'dog'",
+            "DELETE FROM dict.entries",
+            "UPDATE dict.dict_metadata SET word_count = 0",
+            "INSERT INTO dict.entries_fts(entries_fts) VALUES('rebuild')",
+            "CREATE TABLE dict.scratch(x)",
+            "DROP TABLE dict.dict_metadata",
+        ]
+        for sql in writes {
+            do {
+                try await db.writeForTesting { conn in try conn.execute(sql: sql) }
+                XCTFail("'\(sql)' must fail: the dictionary file is read-only")
+            } catch let error as DatabaseError {
+                XCTAssertEqual(error.resultCode, .SQLITE_READONLY, "'\(sql)': \(error)")
+            }
+        }
+
+        XCTAssertEqual(try Data(contentsOf: url), bytes, "the dictionary file is byte-identical")
+        XCTAssertEqual(sidecars(of: url), [], "no journal, WAL or SHM next to the dictionary file")
+        let dog = try await db.entry(for: EntryKey(source: "freedict-eng-spa", word: "dog"))
+        XCTAssertEqual(dog?.definition, "**noun**\n1. perro, can", "readers see the original rows")
+        let rows = try await db.entryCount()
+        XCTAssertEqual(rows, 3)
+        let found = try await db.search(query: "dog")
+        XCTAssertEqual(found.count, 2)
+
+        // The failed writes rolled back; the writer still serves the user database.
+        try await db.addToHistory(word: "dog", source: "wordnet")
+        let history = try await db.historyCount()
+        XCTAssertEqual(history, 1)
+    }
+
+    /// History, My words and an import are written to `user.sqlite` only.
+    /// The dictionary file stays byte-identical (its leftover 1.x `history`
+    /// and `bookmarks` tables stay empty), and a connection of the test's
+    /// own finds every row in the user tables. Removing them touches only the
+    /// user database too.
+    func testUserWritesLandInUserDatabase() async throws {
+        let url = try await open(Self.dogRows)
+        let bytes = try Data(contentsOf: url)
+
+        try await db.addToHistory(word: "dog", source: "freedict-eng-spa")
+        try await db.addToMyWords(EntryKey(source: "wordnet", word: "dog"))
+        let read = try await db.importJSON(at: fixture("json"), source: fixtureSource)
+        XCTAssertEqual(read, 10)
+
+        XCTAssertEqual(try Data(contentsOf: url), bytes, "the dictionary file is never written")
+        XCTAssertEqual(sidecars(of: url), [])
+        let dictionaryCounts = try await inspect(url.path).read { conn -> [String: Int] in
+            var counts: [String: Int] = [:]
+            for table in ["entries", "history", "bookmarks"] {
+                if try conn.tableExists(table) {
+                    counts[table] = try Int.fetchOne(conn, sql: "SELECT COUNT(*) FROM \(table)")
+                }
+            }
+            return counts
+        }
+        XCTAssertEqual(dictionaryCounts["entries"], 3)
+        XCTAssertEqual(dictionaryCounts["history", default: 0], 0, "History is not written to the dictionary file")
+        XCTAssertEqual(dictionaryCounts["bookmarks", default: 0], 0, "My words are not written to the dictionary file")
+
+        let user = try await inspect(userPath).read { conn in
+            (hasEntries: try conn.tableExists("entries"),
+             history: try Row.fetchAll(conn, sql: "SELECT source, word FROM history")
+                .map { "\($0["source"] as String)/\($0["word"] as String)" },
+             myWords: try Row.fetchAll(conn, sql: "SELECT source, word FROM my_words")
+                .map { "\($0["source"] as String)/\($0["word"] as String)" },
+             importedSources: try String.fetchAll(conn, sql: "SELECT DISTINCT source FROM imported_entries"),
+             importedCount: try Int.fetchOne(conn, sql: "SELECT COUNT(*) FROM imported_entries") ?? 0,
+             lowestImportedID: try Int64.fetchOne(conn, sql: "SELECT MIN(id) FROM imported_entries") ?? 0,
+             registered: try String.fetchAll(conn, sql: "SELECT source FROM imported_sources"),
+             indexed: try Int.fetchOne(conn, sql: "SELECT COUNT(*) FROM imported_fts WHERE imported_fts MATCH 'qaflux'") ?? 0)
+        }
+        XCTAssertFalse(user.hasEntries, "the user database has no table named like a dictionary table")
+        XCTAssertEqual(user.history, ["freedict-eng-spa/dog"])
+        XCTAssertEqual(user.myWords, ["wordnet/dog"])
+        XCTAssertEqual(user.importedSources, [fixtureSource])
+        XCTAssertEqual(user.importedCount, 10)
+        XCTAssertGreaterThanOrEqual(user.lowestImportedID, Self.firstImportedID, "imported ids start at 2^40")
+        XCTAssertEqual(user.registered, [fixtureSource])
+        XCTAssertEqual(user.indexed, 1, "the trigger indexed the import")
+
+        try await db.clearHistory()
+        try await db.removeFromMyWords(EntryKey(source: "wordnet", word: "dog"))
+        try await db.clearEntries(fromSource: fixtureSource)
+        let left = try await inspect(userPath).read { conn in
+            try Int.fetchOne(conn, sql: """
+                SELECT (SELECT COUNT(*) FROM history) + (SELECT COUNT(*) FROM my_words)
+                     + (SELECT COUNT(*) FROM imported_entries) + (SELECT COUNT(*) FROM imported_sources)
+                """) ?? -1
+        }
+        XCTAssertEqual(left, 0)
+        XCTAssertEqual(try Data(contentsOf: url), bytes)
+        let bundledLeft = try await db.entryCount()
+        XCTAssertEqual(bundledLeft, 3)
+    }
+
+    /// An app update brings a new dictionary file with reshuffled ids (a new
+    /// source first, rows reversed, one headword dropped). Both imports stay
+    /// searchable in both modes with their ids, Settings still counts them,
+    /// My words keys resolve to the new rows, and the key of the dropped
+    /// headword stays stored but is skipped (#137 rule).
+    func testImportSurvivesDictionaryFileReplacement() async throws {
+        let alpha = (0..<6).map {
+            TestDictionary.Row(word: "alpha\($0)", definition: "alpha word \($0)", source: "alpha")
+        }
+        try await open(alpha + Self.dogRows, name: "dictionary-a.sqlite")
+        let json = try await db.importJSON(at: fixture("json"), source: fixtureSource)
+        let sqlite = try await db.importSQLite(at: fixture("sqlite"), source: "sqlite_fixture")
+        XCTAssertEqual([json, sqlite], [10, 10])
+
+        let kept = EntryKey(source: "alpha", word: "alpha3")
+        let dropped = EntryKey(source: "alpha", word: "alpha5")
+        let imported = EntryKey(source: fixtureSource, word: "qaflux")
+        for key in [kept, dropped, imported] {
+            try await db.addToMyWords(key)
+        }
+        try await db.addToHistory(word: "alpha3", source: "alpha")
+        let idInA = try await db.entry(for: kept)?.id
+        let importedIDs = try await db.search(query: "qaflux").map(\.id)
+
+        let fileB = [TestDictionary.Row(word: "zeta", definition: "a new source", source: "zeta")]
+            + (alpha + Self.dogRows).reversed().filter { $0.word != dropped.word }
+        try await open(fileB, name: "dictionary-b.sqlite")
+
+        let keptInB = try await db.entry(for: kept)
+        XCTAssertEqual(keptInB?.definition, "alpha word 3")
+        XCTAssertNotNil(keptInB?.id)
+        XCTAssertNotEqual(keptInB?.id, idInA, "precondition: the new file reshuffled the ids")
+
+        let qaflux = try await db.search(query: "qaflux")
+        XCTAssertEqual(Self.keys(qaflux), [imported])
+        XCTAssertEqual(qaflux.map(\.id), importedIDs, "an imported row keeps its id")
+        let zarboom = try await db.search(query: "zarboom")
+        XCTAssertEqual(Self.keys(zarboom), [EntryKey(source: "sqlite_fixture", word: "zarboom")])
+        let groups = [["alpha"], ["zeta"], ["wordnet"], ["freedict-eng-spa"], [fixtureSource], ["sqlite_fixture"]]
+        let preferred = try await db.searchPreferred(query: "qaflux", groups: groups,
+                                                     enabledSources: Set(groups.joined()))
+        XCTAssertEqual(Self.keys(preferred), [imported], "preferred mode finds the import too")
+        let jsonRows = try await db.entryCount(source: fixtureSource)
+        XCTAssertEqual(jsonRows, 10)
+
+        let stats = Dictionary(uniqueKeysWithValues: try await db.fetchSourceStats().map { ($0.source, $0.count) })
+        XCTAssertEqual(stats[fixtureSource], 10)
+        XCTAssertEqual(stats["sqlite_fixture"], 10)
+        XCTAssertEqual(stats["alpha"], 5, "the bundled count comes from the new file")
+        XCTAssertEqual(stats["zeta"], 1)
+
+        let myWords = try await db.fetchMyWords()
+        XCTAssertEqual(Set(Self.keys(myWords)), [kept, imported])
+        XCTAssertEqual(myWords.first { EntryKey($0) == kept }?.id, keptInB?.id, "the key resolves to the new row")
+        let droppedStored = try await db.isInMyWords(dropped)
+        XCTAssertTrue(droppedStored, "a key that no longer resolves stays stored")
+
+        let opened = await HistoryDestination.entry(for: try await historyItem("alpha3"))
+        XCTAssertEqual(opened?.id, keptInB?.id, "History reopens the row of the new file")
+    }
+
+    /// A file named like a bundled source (`freedict-eng-spa.json`) adds only
+    /// the words that source lacks, case-insensitively, as 1.4.0 did. They
+    /// are searched, opened and counted under the bundled ID. A file whose
+    /// words are all bundled stores nothing and registers no dictionary.
+    func testImportNamedLikeBundledSourceAddsOnlyMissingWords() async throws {
+        try await open(Self.dogRows)
+        let file = try importFile("freedict-eng-spa", [
+            ["word": "DOG", "definition": "imported perro"],
+            ["word": "kennel", "definition": "perrera"],
+            ["word": "puppy", "definition": "cachorro"],
+        ])
+        let read = try await db.importJSON(at: file, source: "freedict-eng-spa")
+        XCTAssertEqual(read, 3, "the message counts the rows read, as in 1.4.0")
+
+        let dog = try await db.entry(for: EntryKey(source: "freedict-eng-spa", word: "dog"))
+        XCTAssertEqual(dog?.definition, "**noun**\n1. perro, can", "the bundled row wins over 'DOG'")
+        let dogs = try await db.search(query: "dog")
+        XCTAssertEqual(Set(Self.keys(dogs)), [EntryKey(source: "wordnet", word: "dog"),
+                                               EntryKey(source: "freedict-eng-spa", word: "dog")])
+        let kennel = try await db.search(query: "kennel")
+        XCTAssertEqual(Self.keys(kennel), [EntryKey(source: "freedict-eng-spa", word: "kennel")])
+        XCTAssertGreaterThanOrEqual(kennel.first?.id ?? 0, Self.firstImportedID)
+        let puppy = try await db.entry(for: EntryKey(source: "freedict-eng-spa", word: "Puppy"))
+        XCTAssertEqual(puppy?.definition, "cachorro", "an imported key resolves, case-insensitively")
+        let disabled = try await db.search(query: "kennel", enabledSources: ["wordnet"])
+        XCTAssertEqual(disabled, [], "the import follows its pair's enabled state")
+
+        let stats = try await db.fetchSourceStats().filter { $0.source == "freedict-eng-spa" }
+        XCTAssertEqual(stats.map(\.count), [3], "one Settings row: 1 bundled + 2 imported")
+
+        let allBundled = try importFile("wordnet", [["word": "Cat", "definition": "another cat"]])
+        _ = try await db.importJSON(at: allBundled, source: "wordnet")
+        let cats = try await db.entryCount(source: "wordnet")
+        XCTAssertEqual(cats, 2, "nothing stored")
+        let registered = try await inspect(userPath).read { conn in
+            try String.fetchAll(conn, sql: "SELECT source FROM imported_sources ORDER BY source")
+        }
+        XCTAssertEqual(registered, ["freedict-eng-spa"], "a file that stored nothing registers no dictionary")
+    }
+
+    /// Preferred mode with imports enabled: an import named like a bundled
+    /// source ranks inside its pair's bucket (exact matches before prefix
+    /// matches across both stores, one top 4), a custom import is its own
+    /// bucket in Dictionary Order, and the relevance tail takes the rest.
+    func testPreferredModeRanksImportsInTheirBuckets() async throws {
+        try await open([
+            TestDictionary.Row(word: "dog", definition: "a canine", source: "wordnet"),
+            TestDictionary.Row(word: "dog", definition: "perro", source: "freedict-eng-spa"),
+            TestDictionary.Row(word: "dogma", definition: "dogma", source: "freedict-eng-spa"),
+            TestDictionary.Row(word: "dogo", definition: "mastiff", source: "wordnet-spa-eng"),
+        ])
+        _ = try await db.importJSON(at: try importFile("wordnet-spa-eng", [
+            ["word": "dog", "definition": "imported perro"],
+            ["word": "doggerel", "definition": "ripio"],
+        ]), source: "wordnet-spa-eng")
+        _ = try await db.importJSON(at: try importFile("my_dogs", [
+            ["word": "dogcart", "definition": "a cart"],
+            ["word": "dog", "definition": "my dog"],
+        ]), source: "my_dogs")
+
+        let groups = [["wordnet"], ["freedict-eng-spa", "wordnet-spa-eng"], ["my_dogs"]]
+        let rows = Self.keys(try await db.searchPreferred(query: "dog", groups: groups,
+                                                          enabledSources: Set(groups.joined())))
+        let prefixRows: Set = [EntryKey(source: "freedict-eng-spa", word: "dogma"),
+                               EntryKey(source: "wordnet-spa-eng", word: "dogo"),
+                               EntryKey(source: "wordnet-spa-eng", word: "doggerel")]
+        XCTAssertEqual(rows.count, 8, "every match once: \(rows)")
+        XCTAssertEqual(Set(rows).count, 8)
+        guard rows.count == 8 else { return }
+        XCTAssertEqual(rows[0], EntryKey(source: "wordnet", word: "dog"))
+        XCTAssertEqual(Set(rows[1...2]), [EntryKey(source: "freedict-eng-spa", word: "dog"),
+                                          EntryKey(source: "wordnet-spa-eng", word: "dog")],
+                       "the pair's exact matches lead its bucket, the imported one included")
+        XCTAssertTrue(Set(rows[3...4]).isSubset(of: prefixRows), "then two prefix matches (top 4): \(rows)")
+        XCTAssertEqual(Array(rows[5...6]), [EntryKey(source: "my_dogs", word: "dog"),
+                                            EntryKey(source: "my_dogs", word: "dogcart")],
+                       "the custom import's own bucket, in Dictionary Order")
+        XCTAssertTrue(prefixRows.contains(rows[7]), "the tail takes the pair's fifth match")
+
+        let relevance = Self.keys(try await db.search(query: "dog"))
+        XCTAssertEqual(Set(relevance.prefix(4)), [EntryKey(source: "wordnet", word: "dog"),
+                                                  EntryKey(source: "freedict-eng-spa", word: "dog"),
+                                                  EntryKey(source: "wordnet-spa-eng", word: "dog"),
+                                                  EntryKey(source: "my_dogs", word: "dog")],
+                       "relevance mode: exact matches from both stores first")
+    }
+
+    /// The interim Bookmarks tab and star (until #158) read and write My
+    /// words by `(source, word)`: the same headword in another source keeps
+    /// its own star, the tab skips a key whose entry is gone, and removing a
+    /// word on the tab clears its star.
+    @MainActor
+    func testStarAndBookmarksTabUseMyWords() async throws {
+        try await open(Self.dogRows)
+        let freeDictEntry = try await db.entry(for: EntryKey(source: "freedict-eng-spa", word: "dog"))
+        let wordNetEntry = try await db.entry(for: EntryKey(source: "wordnet", word: "dog"))
+        let freeDictDog = try XCTUnwrap(freeDictEntry)
+        let wordNetDog = try XCTUnwrap(wordNetEntry)
+
+        let star = DefinitionViewModel(entry: freeDictDog, hasVoice: { _ in false })
+        await star.onAppear()
+        XCTAssertFalse(star.isBookmarked)
+        await star.toggleBookmark()
+        XCTAssertTrue(star.isBookmarked)
+        XCTAssertNil(star.errorMessage)
+        let stored = try await db.isInMyWords(EntryKey(source: "freedict-eng-spa", word: "dog"))
+        XCTAssertTrue(stored)
+
+        let otherStar = DefinitionViewModel(entry: wordNetDog, hasVoice: { _ in false })
+        await otherStar.onAppear()
+        XCTAssertFalse(otherStar.isBookmarked, "the key is (source, word), not the word")
+        let viewed = try await historyItem("dog")
+        XCTAssertEqual(viewed.source, "wordnet", "opening a definition records its source")
+
+        try await db.addToMyWords(EntryKey(source: "freedict-eng-spa", word: "wolf"))
+        let tab = BookmarksViewModel()
+        await tab.load()
+        XCTAssertEqual(Self.keys(tab.entries), [EntryKey(freeDictDog)], "a key that does not resolve is skipped")
+        XCTAssertNil(tab.errorMessage)
+        let wolfStored = try await db.isInMyWords(EntryKey(source: "freedict-eng-spa", word: "wolf"))
+        XCTAssertTrue(wolfStored, "and stays stored")
+
+        await tab.remove(freeDictDog)
+        XCTAssertEqual(tab.entries, [])
+        let reopened = DefinitionViewModel(entry: freeDictDog, hasVoice: { _ in false })
+        await reopened.onAppear()
+        XCTAssertFalse(reopened.isBookmarked, "removing on the tab clears the star")
+    }
+
+    /// No user table shares a name with a table of the bundled dictionary
+    /// file, so an unqualified name can never reach the wrong store. The
+    /// 1.x seed still carries empty `history` and `bookmarks` tables; #140's
+    /// `dictionaries.sqlite` drops them.
+    func testUserSchemaSharesNoTableNameWithTheDictionaryFile() async throws {
+        try await db.setup(userPath: userPath, dictionaryURL: try TestDictionary.bundledURL())
+        let (user, dictionary) = try await db.writeForTesting { conn in
+            let tables = "type IN ('table', 'view') AND name NOT LIKE 'sqlite%'"
+            return (try String.fetchAll(conn, sql: "SELECT name FROM main.sqlite_master WHERE \(tables)"),
+                    try String.fetchAll(conn, sql: "SELECT name FROM dict.sqlite_master WHERE \(tables)"))
+        }
+        XCTAssertTrue(user.contains("imported_entries") && dictionary.contains("entries"), "\(user) / \(dictionary)")
+        let legacySeedTables: Set = ["history", "bookmarks"]
+        XCTAssertEqual(Set(user).intersection(dictionary).subtracting(legacySeedTables), [])
+    }
+
+    // MARK: History rows (Kirill, 2026-10-27)
+
+    /// A History row opens the entry of its stored source, not the first
+    /// source that has the word (1.4.0 opened WordNet). The last viewed
+    /// source wins, the key matches case-insensitively, an imported row
+    /// opens from the user database, and a Recent word on Search carries the
+    /// same source.
+    @MainActor
+    func testHistoryOpensStoredSource() async throws {
+        try await open(Self.dogRows)
+        try await db.addToHistory(word: "dog", source: "freedict-eng-spa")
+
+        let item = try await historyItem("dog")
+        XCTAssertEqual(item.source, "freedict-eng-spa")
+        let opened = await HistoryDestination.entry(for: item)
+        XCTAssertEqual(opened.map { EntryKey($0) }, EntryKey(source: "freedict-eng-spa", word: "dog"))
+        XCTAssertEqual(opened?.definition, "**noun**\n1. perro, can")
+
+        let search = SearchViewModel(settings: SettingsService(store: InMemoryKeyValueStore()))
+        await search.loadRecent()
+        let recent = try XCTUnwrap(search.recentWords.first)
+        XCTAssertEqual(recent, item, "a Recent word carries the History row")
+        let fromRecent = await HistoryDestination.entry(for: recent)
+        XCTAssertEqual(fromRecent?.source, "freedict-eng-spa")
+
+        try await db.addToHistory(word: "dog", source: "wordnet")
+        let reread = await HistoryDestination.entry(for: try await historyItem("dog"))
+        XCTAssertEqual(reread?.definition, "**noun**\n1. a member of the genus Canis", "the last viewed source wins")
+
+        let upper = await HistoryDestination.entry(for: HistoryItem(word: "DOG", source: "freedict-eng-spa"))
+        XCTAssertEqual(upper?.word, "dog", "the word matches case-insensitively")
+
+        _ = try await db.importJSON(at: fixture("json"), source: fixtureSource)
+        try await db.addToHistory(word: "qaflux", source: fixtureSource)
+        let importedEntry = await HistoryDestination.entry(for: try await historyItem("qaflux"))
+        XCTAssertEqual(importedEntry?.source, fixtureSource)
+        XCTAssertGreaterThanOrEqual(importedEntry?.id ?? 0, Self.firstImportedID)
+        XCTAssertTrue(importedEntry?.definition.hasPrefix("JSON-FIXTURE") ?? false)
+    }
+
+    /// The enabled sources only filter Search: a History row of a disabled
+    /// source (or with every source off) still opens that source's entry.
+    func testHistoryOpensDisabledSource() async throws {
+        try await open(Self.dogRows)
+        try await db.addToHistory(word: "dog", source: "freedict-eng-spa")
+        let settings = SettingsService.shared
+        let saved = settings.enabledSources
+        defer { settings.enabledSources = saved }
+
+        for enabled: Set<String> in [["wordnet"], []] {
+            settings.enabledSources = enabled
+            let visible = try await db.search(query: "dog", enabledSources: settings.enabledSources)
+            XCTAssertFalse(visible.contains { $0.source == "freedict-eng-spa" },
+                           "precondition: Search hides the disabled source (\(enabled))")
+            let opened = await HistoryDestination.entry(for: try await historyItem("dog"))
+            XCTAssertEqual(opened.map { EntryKey($0) }, EntryKey(source: "freedict-eng-spa", word: "dog"),
+                           "enabled \(enabled)")
+        }
+    }
+
+    /// A History row whose entry is gone shows "not found" (`nil`), with no
+    /// lookup in other sources, and stays in History: a headword a
+    /// dictionary update dropped (another source still has it), an imported
+    /// dictionary that was removed, a source the app never had.
+    func testHistoryShowsNotFoundWhenEntryMissing() async throws {
+        let kennels = [TestDictionary.Row(word: "kennel", definition: "perrera", source: "freedict-eng-spa"),
+                       TestDictionary.Row(word: "kennel", definition: "a dog house", source: "wordnet")]
+        try await open(Self.dogRows + kennels, name: "dictionary-a.sqlite")
+        try await db.addToHistory(word: "kennel", source: "freedict-eng-spa")
+        _ = try await db.importJSON(at: fixture("json"), source: fixtureSource)
+        try await db.addToHistory(word: "qaflux", source: fixtureSource)
+
+        try await open(Self.dogRows + [kennels[1]], name: "dictionary-b.sqlite")
+        try await db.clearEntries(fromSource: fixtureSource)
+
+        let wordNetKennel = try await db.entry(for: EntryKey(source: "wordnet", word: "kennel"))
+        XCTAssertNotNil(wordNetKennel, "precondition: another source still has the word")
+        let dropped = await HistoryDestination.entry(for: try await historyItem("kennel"))
+        XCTAssertNil(dropped, "a dropped headword is not found, not opened from WordNet")
+        let removedImport = await HistoryDestination.entry(for: try await historyItem("qaflux"))
+        XCTAssertNil(removedImport, "a removed import is not found")
+        let unknown = await HistoryDestination.entry(for: HistoryItem(word: "dog", source: "freedict-deu-eng"))
+        XCTAssertNil(unknown, "a source the app never had is not found")
+
+        let words = try await db.fetchHistory().map(\.word)
+        XCTAssertEqual(Set(words), ["kennel", "qaflux"], "the rows stay in History")
+    }
+
+    /// A row from before 1.3.0 has no source (`''`): it shows "not found"
+    /// even though two sources have the word, and it stays in History.
+    func testHistoryShowsNotFoundForEmptySource() async throws {
+        try await open(Self.dogRows)
+        try await db.addToHistory(word: "dog", source: "")
+
+        let item = try await historyItem("dog")
+        XCTAssertEqual(item.source, "")
+        let found = try await db.search(query: "dog")
+        XCTAssertEqual(found.count, 2, "precondition: both sources have the word")
+        let opened = await HistoryDestination.entry(for: item)
+        XCTAssertNil(opened, "no lookup in other sources")
+        let words = try await db.fetchHistory().map(\.word)
+        XCTAssertEqual(words, ["dog"], "the row stays in History")
+    }
+}
+
+// MARK: - Issue #138: search probe against 1.4.0
+
+/// Search on the bundled dictionary file against 1.4.0 (0129 Test plan).
+/// `search-probe-1.4.0.json`, next to this file, holds the top 50
+/// `(source, word)` of each probe query as 1.4.0 ranked them; it is written
+/// by `Scripts/make_search_probe.py`. The test reads it from the source tree
+/// (the simulator shares the Mac's file system), so it needs no target
+/// membership. A PR that changes the bundled entries regenerates it.
+final class SearchProbeTests: XCTestCase {
+    private struct Probe: Decodable {
+        struct Query: Decodable {
+            let query: String
+            let groups: [[String]]?
+            let results: [[String]]
+        }
+        let tag: String
+        let limit: Int
+        let topN: Int
+        let relevance: [Query]
+        let preferred: [Query]
+    }
+
+    private var tempDir: URL!
+    private var db: DatabaseService { .shared }
+    private let jsonSource = "test_import_fixture"
+    private let sqliteSource = "test_import_fixture_sqlite"
+
+    override func setUp() async throws {
+        try await super.setUp()
+        await DictAppTests.waitForHostAppLaunch()
+        tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        try await db.setup(userPath: tempDir.appendingPathComponent("user.sqlite").path,
+                           dictionaryURL: try TestDictionary.bundledURL())
+    }
+
+    override func tearDown() async throws {
+        try? FileManager.default.removeItem(at: tempDir)
+        try await super.tearDown()
+    }
+
+    private static func loadProbe() throws -> Probe {
+        let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+            .appendingPathComponent("search-probe-1.4.0.json")
+        let data = try XCTUnwrap(try? Data(contentsOf: url),
+                                 "golden file missing at \(url.path); run Scripts/make_search_probe.py")
+        let probe = try JSONDecoder().decode(Probe.self, from: data)
+        XCTAssertEqual(probe.tag, "v1.4.0")
+        XCTAssertEqual(probe.limit, 50)
+        XCTAssertEqual(probe.topN, Search.preferredDictionaryTopN)
+        XCTAssertGreaterThanOrEqual(probe.relevance.count, 20)
+        XCTAssertEqual(probe.preferred.count, 3)
+        let sources = Set((probe.relevance + probe.preferred).flatMap { $0.results.map { $0[0] } })
+        XCTAssertEqual(sources.count, 9, "the probe reaches every bundled dictionary: \(sources.sorted())")
+        return probe
+    }
+
+    private static func keys(_ entries: [DictionaryEntry]) -> [[String]] {
+        entries.map { [$0.source, $0.word] }
+    }
+
+    /// Fails with the first position where `got` leaves the 1.4.0 list.
+    private func assertSameList(_ got: [[String]], _ expected: [[String]], _ label: String,
+                                file: StaticString = #filePath, line: UInt = #line) {
+        guard got != expected else { return }
+        let index = zip(got, expected).enumerated().first { $0.element.0 != $0.element.1 }?.offset
+            ?? min(got.count, expected.count)
+        let gotRow = index < got.count ? got[index].joined(separator: "/") : "end"
+        let expectedRow = index < expected.count ? expected[index].joined(separator: "/") : "end"
+        XCTFail("\(label): row \(index + 1) is \(gotRow), 1.4.0 has \(expectedRow) "
+                + "(\(got.count) rows against \(expected.count))", file: file, line: line)
+    }
+
+    private func fixture(_ ext: String) throws -> URL {
+        try XCTUnwrap(Bundle.main.url(forResource: "test_import_fixture", withExtension: ext))
+    }
+
+    /// Every probe list, relevance and preferred mode, equals 1.4.0's.
+    func testBundledProbeMatches140() async throws {
+        let probe = try Self.loadProbe()
+        for item in probe.relevance {
+            let got = try await db.search(query: item.query, limit: probe.limit)
+            assertSameList(Self.keys(got), item.results, "relevance '\(item.query)'")
+        }
+        for item in probe.preferred {
+            let groups = try XCTUnwrap(item.groups)
+            let got = try await db.searchPreferred(query: item.query, groups: groups,
+                                                   enabledSources: Set(groups.joined()),
+                                                   topN: probe.topN, limit: probe.limit)
+            assertSameList(Self.keys(got), item.results, "preferred '\(item.query)'")
+        }
+    }
+
+    /// With both fixtures imported: the bundled rows of every list keep
+    /// 1.4.0's order (imported rows only interleave), each list holds every
+    /// imported match up to the limit, `qaflux` and `zarboom` come first and
+    /// `json` returns exactly the 10 JSON fixture rows.
+    func testProbeWithFixtureImports() async throws {
+        let probe = try Self.loadProbe()
+        let read = [try await db.importJSON(at: fixture("json"), source: jsonSource),
+                    try await db.importSQLite(at: fixture("sqlite"), source: sqliteSource)]
+        XCTAssertEqual(read, [10, 10])
+        let imported: Set = [jsonSource, sqliteSource]
+
+        for item in probe.relevance {
+            let got = try await db.search(query: item.query, limit: probe.limit)
+            let bundled = got.filter { !imported.contains($0.source) }
+            assertSameList(Self.keys(bundled), Array(item.results.prefix(bundled.count)),
+                           "relevance '\(item.query)', bundled rows")
+            let importedMatches = try await db.search(query: item.query, limit: 1_000, enabledSources: imported).count
+            XCTAssertEqual(got.count, min(probe.limit, item.results.count + importedMatches),
+                           "relevance '\(item.query)': imports add rows, never hide one below the limit")
+        }
+        for item in probe.preferred {
+            let groups = try XCTUnwrap(item.groups) + [[jsonSource], [sqliteSource]]
+            let got = try await db.searchPreferred(query: item.query, groups: groups,
+                                                   enabledSources: Set(groups.joined()),
+                                                   topN: probe.topN, limit: probe.limit)
+            let bundled = got.filter { !imported.contains($0.source) }
+            assertSameList(Self.keys(bundled), Array(item.results.prefix(bundled.count)),
+                           "preferred '\(item.query)', bundled rows")
+            XCTAssertEqual(got.count, probe.limit, "preferred '\(item.query)'")
+        }
+
+        let qaflux = try await db.search(query: "qaflux")
+        XCTAssertEqual(Self.keys(qaflux).first, [jsonSource, "qaflux"])
+        let zarboom = try await db.search(query: "zarboom")
+        XCTAssertEqual(Self.keys(zarboom).first, [sqliteSource, "zarboom"])
+
+        let fixtureWords = try JSONDecoder().decode([[String: String]].self, from: Data(contentsOf: fixture("json")))
+            .compactMap { $0["word"] }
+        let json = try await db.search(query: "json")
+        XCTAssertEqual(json.count, 10)
+        XCTAssertEqual(Set(Self.keys(json)), Set(fixtureWords.map { [jsonSource, $0] }))
+        XCTAssertTrue(json.allSatisfy { ($0.id ?? 0) >= 1 << 40 }, "imported ids start at 2^40")
     }
 }

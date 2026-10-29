@@ -24,7 +24,7 @@ struct HistoryView: View {
                     List {
                         ForEach(vm.items) { item in
                             NavigationLink {
-                                HistoryDestination(word: item.word)
+                                HistoryDestination(item: item)
                             } label: {
                                 SourceStripeRow(source: item.source) {
                                     VStack(alignment: .leading) {
@@ -62,9 +62,13 @@ struct HistoryView: View {
     }
 }
 
-/// Looks up the word and shows its definition, or an error if not found.
-private struct HistoryDestination: View {
-    let word: String
+/// Opens a History row or a Search Recent word (Issue #138): the entry of
+/// the stored `(source, word)`, also when that source is disabled. A missing
+/// entry (a row from before 1.3.0 with no source, a headword a dictionary
+/// update dropped, an imported dictionary that is gone) shows "not found";
+/// there is no lookup in other sources.
+struct HistoryDestination: View {
+    let item: HistoryItem
     @State private var entry: DictionaryEntry?
     @State private var loaded = false
 
@@ -76,20 +80,21 @@ private struct HistoryDestination: View {
                 ContentUnavailableView(
                     "search.notFound.title",
                     systemImage: "magnifyingglass",
-                    description: Text("search.notFound.description \(word)")
+                    description: Text("search.notFound.description \(item.word)")
                 )
             } else {
                 ProgressView()
             }
         }
         .task {
-            entry = try? await DatabaseService.shared.lookup(word: word)
-            if entry == nil {
-                // Try FTS search as fallback (handles case differences, etc.)
-                let results = (try? await DatabaseService.shared.search(query: word, limit: 1)) ?? []
-                entry = results.first
-            }
+            entry = await Self.entry(for: item)
             loaded = true
         }
+    }
+
+    /// The entry `item` opens, or `nil` for "not found". The enabled
+    /// sources are not consulted. Static so unit tests run the same lookup.
+    static func entry(for item: HistoryItem, db: DatabaseService = .shared) async -> DictionaryEntry? {
+        try? await db.entry(for: EntryKey(source: item.source, word: item.word))
     }
 }

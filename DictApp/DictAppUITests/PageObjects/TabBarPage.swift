@@ -19,19 +19,16 @@ class TabBarPage: BasePage {
         }
     }
 
-    /// Budget for the one-time unpack of the bundled dictionaries on a fresh
-    /// install. Since Issue #111 the tab bar shows in seconds and the unpack
-    /// runs behind it; see `XCUIApplication.waitForDictionariesReady`.
-    static let coldSeedTimeout: TimeInterval = TestData.Timeouts.dictionariesReady
+    /// Budget for a launch to the Search screen, fresh install included
+    /// (Issue #138: nothing is unpacked); see `XCUIApplication.waitForDictionariesReady`.
+    static let coldSeedTimeout: TimeInterval = TestData.Timeouts.launch
 
     /// Every suite builds this page right after `app.launch()`, so wait here,
-    /// once, until the Search screen is up and every bundled dictionary is
-    /// unpacked (Issue #111) rather than in each `setUp`. Returns at once on
-    /// a warm launch.
+    /// once, until the Search screen is up rather than in each `setUp`.
+    /// Returns at once on a warm launch.
     override init(app: XCUIApplication) {
         super.init(app: app)
-        XCTAssertTrue(app.waitForDictionariesReady(),
-                      "Search screen with every dictionary unpacked after launch")
+        XCTAssertTrue(app.waitForDictionariesReady(), "Search screen after launch")
     }
 
     // MARK: - Navigation Methods

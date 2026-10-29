@@ -376,9 +376,9 @@ final class GreekLocalizationTests: XCTestCase {
 
     // MARK: - Launch
 
-    /// The one launch wait. While the loading screen shows (a few ms since
-    /// Issue #111) it must be Greek; captured once if seen. Then waits until
-    /// every bundled dictionary is unpacked, before any search or count.
+    /// The one launch wait. While the loading screen shows (a few ms) it must
+    /// be Greek; captured once if seen. Then waits for the Search screen,
+    /// before any search or count.
     private func waitForColdSeed() {
         let tabBar = app.tabButton(.search)
         let greekLoading = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Φόρτωση λεξικού…")).firstMatch
@@ -395,7 +395,7 @@ final class GreekLocalizationTests: XCTestCase {
         }
         XCTAssertTrue(tabBar.waitForExistence(timeout: 1), "tab bar after the cold seed")
         XCTAssertTrue(app.waitForDictionariesReady(),
-                      "Search screen with every dictionary unpacked after launch")
+                      "Search screen after launch")
     }
 
     // MARK: - Navigation

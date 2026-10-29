@@ -57,7 +57,8 @@ struct DictionaryEntry: Codable, Identifiable, Equatable, FetchableRecord, Persi
 
 // MARK: - HistoryItem
 
-struct HistoryItem: Codable, Identifiable, Equatable, FetchableRecord, PersistableRecord {
+/// `Hashable` so Search's Recent words can push it (`NavigationLink(value:)`).
+struct HistoryItem: Codable, Identifiable, Hashable, FetchableRecord, PersistableRecord {
     var id: Int64?
     var word: String
     /// Dictionary source of the entry that was last viewed for this word
@@ -87,44 +88,39 @@ enum ResultSortMode: String {
     case preferredDictionary
 }
 
-// MARK: - Bookmark
+// MARK: - EntryKey (Issue #138)
 
-struct Bookmark: Codable, Identifiable, Equatable, FetchableRecord, PersistableRecord {
-    var id: Int64?
-    var entryId: Int64
-    var createdAt: String?
+/// The stable key of a dictionary entry: its source ID and its headword as
+/// stored. User data (History, My words) points at entries by this key,
+/// never by a row id, so it survives a new dictionary file. Resolution is
+/// case-insensitive on `word` (`DatabaseService.entry(for:)`).
+struct EntryKey: Hashable, Sendable {
+    let source: String
+    let word: String
 
-    static let databaseTableName = "bookmarks"
-
-    enum CodingKeys: String, CodingKey {
-        case id
-        case entryId = "entry_id"
-        case createdAt = "created_at"
+    init(source: String, word: String) {
+        self.source = source
+        self.word = word
     }
-}
 
-// MARK: - BookmarkedEntry (join result)
-
-struct BookmarkedEntry: Identifiable, Equatable {
-    var id: Int64 { entry.id ?? 0 }
-    let entry: DictionaryEntry
-    let bookmark: Bookmark
+    init(_ entry: DictionaryEntry) {
+        self.init(source: entry.source, word: entry.word)
+    }
 }
 
 // MARK: - DictMetadata
 
-struct DictMetadata: Codable, Identifiable, Equatable, FetchableRecord, PersistableRecord {
+/// One `dict.dict_metadata` row: a bundled dictionary (Issue #138).
+struct DictMetadata: Codable, Identifiable, Equatable, FetchableRecord {
     var source: String
     var displayName: String
     var version: String
     var license: String
     var url: String
     var wordCount: Int
-    var builtAt: String?
     var description: String
 
     var id: String { source }
-    static let databaseTableName = "dict_metadata"
 
     enum CodingKeys: String, CodingKey {
         case source
@@ -133,7 +129,6 @@ struct DictMetadata: Codable, Identifiable, Equatable, FetchableRecord, Persista
         case license
         case url
         case wordCount = "word_count"
-        case builtAt = "built_at"
         case description
     }
 }

@@ -1,0 +1,4385 @@
+{
+ "about": "Top 50 (source, word) per query as LibreDict 1.4.0 ranks them. Written by Scripts/make_search_probe.py; do not edit by hand.",
+ "tag": "v1.4.0",
+ "seedSha256": "2ceb5c511d8cb99118d9399e50cd3facc5a922e6e725ec8a26189e1c7f586cea",
+ "sqliteVersion": "3.51.2",
+ "limit": 50,
+ "topN": 4,
+ "relevance": [
+  {
+   "query": "house",
+   "results": [
+    [
+     "freedict-eng-ell",
+     "house"
+    ],
+    [
+     "wordnet",
+     "house"
+    ],
+    [
+     "freedict-eng-spa",
+     "house"
+    ],
+    [
+     "wordnet-eng-ell",
+     "house"
+    ],
+    [
+     "wordnet",
+     "housewrecker"
+    ],
+    [
+     "freedict-eng-spa",
+     "house music"
+    ],
+    [
+     "wordnet",
+     "housewifely"
+    ],
+    [
+     "wordnet",
+     "houseclean"
+    ],
+    [
+     "wordnet",
+     "housetop"
+    ],
+    [
+     "wordnet",
+     "housebreaker"
+    ],
+    [
+     "wordnet",
+     "housewifery"
+    ],
+    [
+     "wordnet",
+     "housekeep"
+    ],
+    [
+     "wordnet",
+     "house-to-house"
+    ],
+    [
+     "wordnet",
+     "houseful"
+    ],
+    [
+     "wordnet",
+     "houseroom"
+    ],
+    [
+     "wordnet",
+     "houseguest"
+    ],
+    [
+     "wordnet",
+     "housekeeping"
+    ],
+    [
+     "wordnet",
+     "house guest"
+    ],
+    [
+     "wordnet",
+     "housebuilder"
+    ],
+    [
+     "wordnet",
+     "housedog"
+    ],
+    [
+     "wordnet",
+     "house painting"
+    ],
+    [
+     "wordnet",
+     "houses of parliament"
+    ],
+    [
+     "wordnet",
+     "house-builder"
+    ],
+    [
+     "wordnet",
+     "house painter"
+    ],
+    [
+     "wordnet",
+     "house wren"
+    ],
+    [
+     "wordnet",
+     "housework"
+    ],
+    [
+     "wordnet-eng-ell",
+     "houseful"
+    ],
+    [
+     "freedict-eng-ell",
+     "housewife"
+    ],
+    [
+     "wordnet",
+     "house of commons"
+    ],
+    [
+     "wordnet",
+     "house of lords"
+    ],
+    [
+     "wordnet",
+     "housebreak"
+    ],
+    [
+     "wordnet",
+     "housemate"
+    ],
+    [
+     "wordnet-eng-ell",
+     "houseclean"
+    ],
+    [
+     "wordnet-eng-ell",
+     "housecleaning"
+    ],
+    [
+     "wordnet",
+     "house-train"
+    ],
+    [
+     "wordnet",
+     "house of burgesses"
+    ],
+    [
+     "wordnet",
+     "housepaint"
+    ],
+    [
+     "wordnet-eng-ell",
+     "house painting"
+    ],
+    [
+     "wordnet-eng-ell",
+     "housebreak"
+    ],
+    [
+     "wordnet-eng-ell",
+     "housebreaking"
+    ],
+    [
+     "freedict-eng-spa",
+     "houseboy"
+    ],
+    [
+     "freedict-eng-spa",
+     "houseleek"
+    ],
+    [
+     "freedict-eng-spa",
+     "housepainter"
+    ],
+    [
+     "freedict-eng-ell",
+     "houseman"
+    ],
+    [
+     "wordnet",
+     "house-proud"
+    ],
+    [
+     "wordnet",
+     "house of representatives"
+    ],
+    [
+     "wordnet",
+     "house paint"
+    ],
+    [
+     "wordnet-eng-ell",
+     "house-train"
+    ],
+    [
+     "wordnet-eng-ell",
+     "house-trained"
+    ],
+    [
+     "wordnet",
+     "housebroken"
+    ]
+   ]
+  },
+  {
+   "query": "a",
+   "results": [
+    [
+     "wordnet-spa-eng",
+     "A"
+    ],
+    [
+     "freedict-eng-spa",
+     "a"
+    ],
+    [
+     "wordnet-eng-ell",
+     "a"
+    ],
+    [
+     "wordnet",
+     "a"
+    ],
+    [
+     "freedict-eng-ell",
+     "a"
+    ],
+    [
+     "freedict-eng-spa",
+     "Appalachian"
+    ],
+    [
+     "freedict-eng-spa",
+     "apricot"
+    ],
+    [
+     "freedict-eng-spa",
+     "appalling"
+    ],
+    [
+     "freedict-eng-spa",
+     "attach"
+    ],
+    [
+     "wordnet-spa-eng",
+     "anfotericina"
+    ],
+    [
+     "freedict-eng-spa",
+     "Arcadian"
+    ],
+    [
+     "freedict-eng-spa",
+     "Austrian"
+    ],
+    [
+     "freedict-eng-spa",
+     "adaptable"
+    ],
+    [
+     "freedict-eng-spa",
+     "appetizing"
+    ],
+    [
+     "freedict-eng-spa",
+     "arcuate"
+    ],
+    [
+     "wordnet",
+     "acetanilid"
+    ],
+    [
+     "wordnet",
+     "acetanilide"
+    ],
+    [
+     "wordnet",
+     "acetophenetidin"
+    ],
+    [
+     "wordnet",
+     "acetphenetidin"
+    ],
+    [
+     "wordnet-spa-eng",
+     "alegorizar"
+    ],
+    [
+     "freedict-eng-spa",
+     "affluent"
+    ],
+    [
+     "wordnet-spa-eng",
+     "accesorio para automóvil"
+    ],
+    [
+     "wordnet-spa-eng",
+     "anaglífico"
+    ],
+    [
+     "wordnet",
+     "adjectivally"
+    ],
+    [
+     "freedict-eng-spa",
+     "aberrant"
+    ],
+    [
+     "freedict-eng-spa",
+     "also"
+    ],
+    [
+     "wordnet",
+     "abdominal aortic aneurysm"
+    ],
+    [
+     "wordnet",
+     "amphotericin"
+    ],
+    [
+     "wordnet",
+     "appendant"
+    ],
+    [
+     "freedict-eng-spa",
+     "accessible"
+    ],
+    [
+     "freedict-eng-spa",
+     "affected"
+    ],
+    [
+     "freedict-eng-spa",
+     "accrue"
+    ],
+    [
+     "freedict-eng-spa",
+     "Alabamian"
+    ],
+    [
+     "freedict-eng-spa",
+     "Anglophone"
+    ],
+    [
+     "freedict-eng-spa",
+     "Arabic"
+    ],
+    [
+     "freedict-eng-spa",
+     "accepting"
+    ],
+    [
+     "freedict-eng-spa",
+     "accrued"
+    ],
+    [
+     "freedict-eng-spa",
+     "alternating"
+    ],
+    [
+     "freedict-eng-spa",
+     "anguished"
+    ],
+    [
+     "freedict-eng-spa",
+     "antaphrodisiac"
+    ],
+    [
+     "freedict-eng-spa",
+     "anti-aging"
+    ],
+    [
+     "freedict-eng-spa",
+     "ashamed"
+    ],
+    [
+     "freedict-eng-spa",
+     "announcement"
+    ],
+    [
+     "freedict-eng-spa",
+     "assure"
+    ],
+    [
+     "wordnet-spa-eng",
+     "auxiliar"
+    ],
+    [
+     "wordnet",
+     "assertive"
+    ],
+    [
+     "wordnet",
+     "adjectively"
+    ],
+    [
+     "freedict-eng-spa",
+     "ascribe"
+    ],
+    [
+     "wordnet-spa-eng",
+     "aneurisma aórtico"
+    ],
+    [
+     "wordnet-spa-eng",
+     "asertivo"
+    ]
+   ]
+  },
+  {
+   "query": "the",
+   "results": [
+    [
+     "freedict-eng-ell",
+     "the"
+    ],
+    [
+     "freedict-eng-spa",
+     "the"
+    ],
+    [
+     "wordnet",
+     "thenar"
+    ],
+    [
+     "wordnet",
+     "thermostatically"
+    ],
+    [
+     "wordnet-eng-ell",
+     "thenar"
+    ],
+    [
+     "wordnet",
+     "thermodynamic"
+    ],
+    [
+     "wordnet",
+     "thermodynamical"
+    ],
+    [
+     "wordnet",
+     "thermostatics"
+    ],
+    [
+     "wordnet-spa-eng",
+     "thelipteridáceas"
+    ],
+    [
+     "wordnet-spa-eng",
+     "thelypteridáceas"
+    ],
+    [
+     "wordnet",
+     "thereunder"
+    ],
+    [
+     "wordnet",
+     "thermosphere"
+    ],
+    [
+     "wordnet",
+     "thereness"
+    ],
+    [
+     "wordnet",
+     "theatergoer"
+    ],
+    [
+     "wordnet",
+     "theatregoer"
+    ],
+    [
+     "wordnet",
+     "thenal"
+    ],
+    [
+     "wordnet",
+     "theogony"
+    ],
+    [
+     "wordnet",
+     "thermodynamics of equilibrium"
+    ],
+    [
+     "wordnet",
+     "thermoelectric thermometer"
+    ],
+    [
+     "wordnet-eng-ell",
+     "theologise"
+    ],
+    [
+     "wordnet-eng-ell",
+     "theologize"
+    ],
+    [
+     "wordnet-eng-ell",
+     "thermosphere"
+    ],
+    [
+     "wordnet",
+     "theologically"
+    ],
+    [
+     "wordnet",
+     "theoretically"
+    ],
+    [
+     "wordnet",
+     "theologise"
+    ],
+    [
+     "wordnet",
+     "theologize"
+    ],
+    [
+     "freedict-eng-spa",
+     "theriotype"
+    ],
+    [
+     "wordnet",
+     "theorisation"
+    ],
+    [
+     "wordnet",
+     "theorization"
+    ],
+    [
+     "wordnet",
+     "thermometric"
+    ],
+    [
+     "wordnet",
+     "the great unwashed"
+    ],
+    [
+     "wordnet",
+     "the hague"
+    ],
+    [
+     "wordnet-eng-ell",
+     "the hague"
+    ],
+    [
+     "wordnet",
+     "the whole way"
+    ],
+    [
+     "wordnet",
+     "thermionics"
+    ],
+    [
+     "freedict-eng-spa",
+     "the bigger they are, the harder they fall"
+    ],
+    [
+     "wordnet",
+     "the holy see"
+    ],
+    [
+     "wordnet",
+     "thematically"
+    ],
+    [
+     "wordnet",
+     "theosophical"
+    ],
+    [
+     "wordnet",
+     "theta"
+    ],
+    [
+     "wordnet",
+     "theoretical"
+    ],
+    [
+     "freedict-eng-spa",
+     "theremin"
+    ],
+    [
+     "wordnet",
+     "theatrical"
+    ],
+    [
+     "wordnet",
+     "the halt"
+    ],
+    [
+     "wordnet",
+     "theodicy"
+    ],
+    [
+     "wordnet",
+     "thermic"
+    ],
+    [
+     "wordnet",
+     "thereto"
+    ],
+    [
+     "wordnet",
+     "thermostatic"
+    ],
+    [
+     "wordnet-spa-eng",
+     "thet"
+    ],
+    [
+     "wordnet-eng-ell",
+     "theorisation"
+    ]
+   ]
+  },
+  {
+   "query": "ice cream",
+   "results": [
+    [
+     "freedict-eng-ell",
+     "ice cream"
+    ],
+    [
+     "wordnet",
+     "ice cream"
+    ],
+    [
+     "wordnet-eng-ell",
+     "ice cream"
+    ],
+    [
+     "freedict-eng-spa",
+     "ice cream"
+    ],
+    [
+     "freedict-eng-spa",
+     "ice cream vendor"
+    ],
+    [
+     "freedict-eng-spa",
+     "ice cream maker"
+    ],
+    [
+     "freedict-eng-ell",
+     "ice cream parlour"
+    ],
+    [
+     "freedict-eng-spa",
+     "ice cream cone"
+    ],
+    [
+     "freedict-eng-spa",
+     "ice cream parlor"
+    ],
+    [
+     "freedict-eng-spa",
+     "ice cream sandwich"
+    ],
+    [
+     "freedict-eng-spa",
+     "ice cream shop"
+    ],
+    [
+     "freedict-eng-spa",
+     "ice cream scoop"
+    ],
+    [
+     "freedict-ell-eng",
+     "παγωτομηχανή"
+    ],
+    [
+     "openrussian",
+     "мороженщик"
+    ],
+    [
+     "openrussian",
+     "мороженщица"
+    ],
+    [
+     "wordnet",
+     "chocolate ice cream"
+    ],
+    [
+     "wordnet",
+     "ice-cream sundae"
+    ],
+    [
+     "wordnet",
+     "peach ice cream"
+    ],
+    [
+     "wordnet",
+     "strawberry ice cream"
+    ],
+    [
+     "wordnet",
+     "vanilla ice cream"
+    ],
+    [
+     "freedict-ell-eng",
+     "παγωτό"
+    ],
+    [
+     "wordnet-spa-eng",
+     "helado con soda"
+    ],
+    [
+     "openrussian",
+     "мороженое"
+    ],
+    [
+     "wordnet",
+     "ice-cream cone"
+    ],
+    [
+     "wordnet-ell-eng",
+     "παγωτό σοκολάτα"
+    ],
+    [
+     "wordnet-eng-ell",
+     "chocolate ice cream"
+    ],
+    [
+     "wordnet",
+     "ice-cream cake"
+    ],
+    [
+     "wordnet",
+     "ice-cream float"
+    ],
+    [
+     "wordnet",
+     "ice-cream soda"
+    ],
+    [
+     "wordnet-spa-eng",
+     "helado de chocolate"
+    ],
+    [
+     "wordnet-spa-eng",
+     "sundae"
+    ],
+    [
+     "wordnet-ell-eng",
+     "παγωτό βανίλια"
+    ],
+    [
+     "wordnet-ell-eng",
+     "παγωτό φράουλα"
+    ],
+    [
+     "wordnet-eng-ell",
+     "strawberry ice cream"
+    ],
+    [
+     "wordnet-eng-ell",
+     "vanilla ice cream"
+    ],
+    [
+     "openrussian",
+     "пломбир"
+    ],
+    [
+     "wordnet-spa-eng",
+     "helado de vainilla"
+    ],
+    [
+     "wordnet",
+     "soft ice cream"
+    ],
+    [
+     "wordnet-spa-eng",
+     "cucurucho de helado"
+    ],
+    [
+     "openrussian",
+     "мороженица"
+    ],
+    [
+     "wordnet",
+     "root beer float"
+    ],
+    [
+     "freedict-ell-eng",
+     "χωνάκι"
+    ],
+    [
+     "wordnet",
+     "choc-ice"
+    ],
+    [
+     "wordnet",
+     "ice milk"
+    ],
+    [
+     "wordnet",
+     "parfait"
+    ],
+    [
+     "wordnet",
+     "neapolitan ice cream"
+    ],
+    [
+     "wordnet-eng-ell",
+     "ice lolly"
+    ],
+    [
+     "wordnet",
+     "ice coffee"
+    ],
+    [
+     "wordnet-spa-eng",
+     "parfait"
+    ],
+    [
+     "wordnet-ell-eng",
+     "παγωτό"
+    ]
+   ]
+  },
+  {
+   "query": "dog",
+   "results": [
+    [
+     "freedict-eng-ell",
+     "dog"
+    ],
+    [
+     "freedict-eng-spa",
+     "dog"
+    ],
+    [
+     "wordnet",
+     "dog"
+    ],
+    [
+     "wordnet-eng-ell",
+     "dog"
+    ],
+    [
+     "freedict-eng-spa",
+     "dogal"
+    ],
+    [
+     "freedict-eng-spa",
+     "dogma"
+    ],
+    [
+     "freedict-eng-spa",
+     "dogmatic"
+    ],
+    [
+     "freedict-eng-spa",
+     "dogmatically"
+    ],
+    [
+     "freedict-eng-spa",
+     "dogmatism"
+    ],
+    [
+     "wordnet",
+     "dogmatise"
+    ],
+    [
+     "wordnet",
+     "dogmatize"
+    ],
+    [
+     "freedict-eng-spa",
+     "doge"
+    ],
+    [
+     "wordnet",
+     "dog breeding"
+    ],
+    [
+     "freedict-eng-spa",
+     "Dogo Argentino"
+    ],
+    [
+     "wordnet",
+     "doglike"
+    ],
+    [
+     "wordnet",
+     "doggie"
+    ],
+    [
+     "wordnet",
+     "doggy"
+    ],
+    [
+     "wordnet",
+     "dogsled"
+    ],
+    [
+     "wordnet",
+     "dog food"
+    ],
+    [
+     "wordnet-eng-ell",
+     "dog breeding"
+    ],
+    [
+     "wordnet",
+     "dog biscuit"
+    ],
+    [
+     "wordnet",
+     "dog do"
+    ],
+    [
+     "wordnet",
+     "dog shit"
+    ],
+    [
+     "wordnet",
+     "dog show"
+    ],
+    [
+     "wordnet",
+     "dog sled"
+    ],
+    [
+     "wordnet",
+     "dog sleigh"
+    ],
+    [
+     "wordnet",
+     "dog turd"
+    ],
+    [
+     "wordnet",
+     "dogcart"
+    ],
+    [
+     "wordnet",
+     "doggo"
+    ],
+    [
+     "wordnet",
+     "doggy do"
+    ],
+    [
+     "wordnet-eng-ell",
+     "doggie"
+    ],
+    [
+     "wordnet-eng-ell",
+     "doggy"
+    ],
+    [
+     "wordnet",
+     "dog bite"
+    ],
+    [
+     "wordnet",
+     "dog flea"
+    ],
+    [
+     "wordnet",
+     "doggedly"
+    ],
+    [
+     "wordnet-spa-eng",
+     "dogfight"
+    ],
+    [
+     "wordnet",
+     "dogmatically"
+    ],
+    [
+     "wordnet",
+     "dogtrot"
+    ],
+    [
+     "wordnet",
+     "dog pound"
+    ],
+    [
+     "freedict-eng-ell",
+     "dogue"
+    ],
+    [
+     "wordnet",
+     "dog paddle"
+    ],
+    [
+     "wordnet",
+     "dogfighter"
+    ],
+    [
+     "wordnet-spa-eng",
+     "dogmatismo"
+    ],
+    [
+     "wordnet",
+     "dog-sized"
+    ],
+    [
+     "wordnet",
+     "dog house"
+    ],
+    [
+     "wordnet",
+     "doghouse"
+    ],
+    [
+     "freedict-eng-spa",
+     "dogcatcher"
+    ],
+    [
+     "freedict-eng-spa",
+     "dogfish"
+    ],
+    [
+     "freedict-eng-spa",
+     "doggy"
+    ],
+    [
+     "freedict-eng-spa",
+     "dogsbody"
+    ]
+   ]
+  },
+  {
+   "query": "water",
+   "results": [
+    [
+     "freedict-eng-ell",
+     "water"
+    ],
+    [
+     "wordnet",
+     "water"
+    ],
+    [
+     "wordnet-eng-ell",
+     "water"
+    ],
+    [
+     "freedict-eng-spa",
+     "water"
+    ],
+    [
+     "wordnet",
+     "waterborne"
+    ],
+    [
+     "freedict-eng-spa",
+     "water polo player"
+    ],
+    [
+     "wordnet",
+     "waterproofed"
+    ],
+    [
+     "wordnet",
+     "waterproof"
+    ],
+    [
+     "wordnet-spa-eng",
+     "Waters"
+    ],
+    [
+     "wordnet",
+     "watercolor"
+    ],
+    [
+     "wordnet",
+     "watercolour"
+    ],
+    [
+     "wordnet",
+     "water-wash"
+    ],
+    [
+     "wordnet",
+     "water travel"
+    ],
+    [
+     "freedict-eng-spa",
+     "water polo"
+    ],
+    [
+     "wordnet",
+     "water-repellent"
+    ],
+    [
+     "wordnet",
+     "water-resistant"
+    ],
+    [
+     "wordnet",
+     "water-color"
+    ],
+    [
+     "wordnet",
+     "water-colour"
+    ],
+    [
+     "wordnet",
+     "waterless"
+    ],
+    [
+     "wordnet",
+     "water-soluble"
+    ],
+    [
+     "wordnet",
+     "waterway"
+    ],
+    [
+     "wordnet-eng-ell",
+     "watercolor"
+    ],
+    [
+     "wordnet-eng-ell",
+     "watercolour"
+    ],
+    [
+     "wordnet",
+     "watering"
+    ],
+    [
+     "wordnet",
+     "waterproofing"
+    ],
+    [
+     "wordnet",
+     "water cart"
+    ],
+    [
+     "wordnet",
+     "waterer"
+    ],
+    [
+     "wordnet-eng-ell",
+     "water-color"
+    ],
+    [
+     "wordnet-eng-ell",
+     "water-colour"
+    ],
+    [
+     "wordnet",
+     "water-insoluble"
+    ],
+    [
+     "wordnet",
+     "water bottle"
+    ],
+    [
+     "wordnet",
+     "water caltrop"
+    ],
+    [
+     "wordnet",
+     "water conservation"
+    ],
+    [
+     "wordnet",
+     "water fern"
+    ],
+    [
+     "wordnet",
+     "water jug"
+    ],
+    [
+     "wordnet",
+     "water right"
+    ],
+    [
+     "wordnet",
+     "water spirit"
+    ],
+    [
+     "wordnet",
+     "water tower"
+    ],
+    [
+     "wordnet",
+     "watercolorist"
+    ],
+    [
+     "wordnet",
+     "watercolourist"
+    ],
+    [
+     "wordnet",
+     "waterside"
+    ],
+    [
+     "wordnet",
+     "water-cooled"
+    ],
+    [
+     "wordnet",
+     "water down"
+    ],
+    [
+     "wordnet",
+     "watered"
+    ],
+    [
+     "wordnet",
+     "water boy"
+    ],
+    [
+     "wordnet",
+     "water company"
+    ],
+    [
+     "wordnet",
+     "water sport"
+    ],
+    [
+     "wordnet",
+     "waterskin"
+    ],
+    [
+     "wordnet-eng-ell",
+     "watercraft"
+    ],
+    [
+     "wordnet-eng-ell",
+     "waterway"
+    ]
+   ]
+  },
+  {
+   "query": "run",
+   "results": [
+    [
+     "freedict-eng-ell",
+     "run"
+    ],
+    [
+     "freedict-eng-spa",
+     "run"
+    ],
+    [
+     "wordnet",
+     "run"
+    ],
+    [
+     "wordnet-eng-ell",
+     "run"
+    ],
+    [
+     "freedict-eng-spa",
+     "runestone"
+    ],
+    [
+     "freedict-eng-spa",
+     "rune"
+    ],
+    [
+     "freedict-eng-spa",
+     "runic"
+    ],
+    [
+     "freedict-eng-spa",
+     "runology"
+    ],
+    [
+     "wordnet",
+     "runic"
+    ],
+    [
+     "wordnet",
+     "run by"
+    ],
+    [
+     "wordnet",
+     "run bases"
+    ],
+    [
+     "wordnet",
+     "running shoe"
+    ],
+    [
+     "wordnet",
+     "running stitch"
+    ],
+    [
+     "wordnet",
+     "runproof"
+    ],
+    [
+     "wordnet-eng-ell",
+     "run out"
+    ],
+    [
+     "wordnet",
+     "run over"
+    ],
+    [
+     "freedict-eng-spa",
+     "runaway"
+    ],
+    [
+     "freedict-eng-spa",
+     "rundown"
+    ],
+    [
+     "freedict-eng-spa",
+     "running"
+    ],
+    [
+     "freedict-eng-ell",
+     "run aground"
+    ],
+    [
+     "freedict-eng-ell",
+     "run ashore"
+    ],
+    [
+     "freedict-eng-ell",
+     "runner"
+    ],
+    [
+     "freedict-eng-ell",
+     "runny nose"
+    ],
+    [
+     "freedict-eng-ell",
+     "runway"
+    ],
+    [
+     "wordnet",
+     "run-resistant"
+    ],
+    [
+     "wordnet-eng-ell",
+     "run away"
+    ],
+    [
+     "wordnet",
+     "runup"
+    ],
+    [
+     "wordnet",
+     "run-up"
+    ],
+    [
+     "wordnet",
+     "run dry"
+    ],
+    [
+     "wordnet",
+     "running time"
+    ],
+    [
+     "wordnet-eng-ell",
+     "run over"
+    ],
+    [
+     "freedict-eng-spa",
+     "run after"
+    ],
+    [
+     "freedict-eng-spa",
+     "run errands"
+    ],
+    [
+     "freedict-eng-spa",
+     "run off"
+    ],
+    [
+     "freedict-eng-spa",
+     "runaround"
+    ],
+    [
+     "freedict-eng-spa",
+     "runner"
+    ],
+    [
+     "freedict-eng-spa",
+     "running board"
+    ],
+    [
+     "freedict-eng-spa",
+     "running in"
+    ],
+    [
+     "freedict-eng-ell",
+     "runaway horse"
+    ],
+    [
+     "freedict-eng-ell",
+     "run errands"
+    ],
+    [
+     "freedict-eng-ell",
+     "run out"
+    ],
+    [
+     "wordnet",
+     "runtime error"
+    ],
+    [
+     "wordnet",
+     "run away"
+    ],
+    [
+     "wordnet",
+     "runnel"
+    ],
+    [
+     "wordnet",
+     "runtiness"
+    ],
+    [
+     "freedict-eng-spa",
+     "run along"
+    ],
+    [
+     "freedict-eng-spa",
+     "run over"
+    ],
+    [
+     "freedict-eng-spa",
+     "run-down"
+    ],
+    [
+     "freedict-eng-spa",
+     "run-in"
+    ],
+    [
+     "freedict-eng-spa",
+     "running lights"
+    ]
+   ]
+  },
+  {
+   "query": "entry",
+   "results": [
+    [
+     "freedict-eng-ell",
+     "entry"
+    ],
+    [
+     "freedict-eng-spa",
+     "entry"
+    ],
+    [
+     "wordnet-eng-ell",
+     "entry"
+    ],
+    [
+     "wordnet",
+     "entry"
+    ],
+    [
+     "freedict-eng-spa",
+     "entryless"
+    ],
+    [
+     "freedict-eng-spa",
+     "entryphone"
+    ],
+    [
+     "freedict-eng-spa",
+     "entryway"
+    ],
+    [
+     "freedict-eng-ell",
+     "entry to"
+    ],
+    [
+     "wordnet",
+     "entry word"
+    ],
+    [
+     "wordnet",
+     "entryway"
+    ],
+    [
+     "wordnet-eng-ell",
+     "entryway"
+    ],
+    [
+     "wordnet",
+     "notebook entry"
+    ],
+    [
+     "openrussian",
+     "вхождение"
+    ],
+    [
+     "openrussian",
+     "вход"
+    ],
+    [
+     "openrussian",
+     "въезд"
+    ],
+    [
+     "openrussian",
+     "вписка"
+    ],
+    [
+     "wordnet",
+     "credit entry"
+    ],
+    [
+     "wordnet",
+     "debit entry"
+    ],
+    [
+     "freedict-ell-eng",
+     "αντρέ"
+    ],
+    [
+     "freedict-ell-eng",
+     "κονδύλι"
+    ],
+    [
+     "wordnet",
+     "dictionary entry"
+    ],
+    [
+     "wordnet",
+     "lexical entry"
+    ],
+    [
+     "freedict-ell-eng",
+     "αντιλογισμός"
+    ],
+    [
+     "freedict-ell-eng",
+     "διπλογραφία"
+    ],
+    [
+     "openrussian",
+     "запись"
+    ],
+    [
+     "openrussian",
+     "поступление"
+    ],
+    [
+     "openrussian",
+     "вступление"
+    ],
+    [
+     "openrussian",
+     "допуск"
+    ],
+    [
+     "openrussian",
+     "вокабула"
+    ],
+    [
+     "freedict-ell-eng",
+     "απλογραφία"
+    ],
+    [
+     "freedict-eng-ell",
+     "no entry"
+    ],
+    [
+     "wordnet-arb-eng",
+     "نُقْطَة دُخُول"
+    ],
+    [
+     "freedict-eng-spa",
+     "data entry"
+    ],
+    [
+     "freedict-ell-eng",
+     "λήμμα"
+    ],
+    [
+     "freedict-eng-ell",
+     "reduced entry"
+    ],
+    [
+     "wordnet-spa-eng",
+     "vía de acceso"
+    ],
+    [
+     "wordnet",
+     "adjusting entry"
+    ],
+    [
+     "wordnet",
+     "main diagonal"
+    ],
+    [
+     "wordnet",
+     "main entry word"
+    ],
+    [
+     "wordnet",
+     "principal diagonal"
+    ],
+    [
+     "wordnet",
+     "secondary diagonal"
+    ],
+    [
+     "wordnet-spa-eng",
+     "partida doble"
+    ],
+    [
+     "freedict-ell-eng",
+     "είσοδος"
+    ],
+    [
+     "freedict-ell-eng",
+     "εγγραφή"
+    ],
+    [
+     "wordnet",
+     "point of entry"
+    ],
+    [
+     "wordnet",
+     "port of entry"
+    ],
+    [
+     "wordnet",
+     "accounting entry"
+    ],
+    [
+     "wordnet",
+     "closed in"
+    ],
+    [
+     "wordnet",
+     "intravasation"
+    ],
+    [
+     "wordnet",
+     "ledger entry"
+    ]
+   ]
+  },
+  {
+   "query": "light",
+   "results": [
+    [
+     "wordnet",
+     "light"
+    ],
+    [
+     "freedict-eng-ell",
+     "light"
+    ],
+    [
+     "freedict-eng-spa",
+     "light"
+    ],
+    [
+     "wordnet-eng-ell",
+     "light"
+    ],
+    [
+     "wordnet",
+     "lightproof"
+    ],
+    [
+     "wordnet",
+     "light-tight"
+    ],
+    [
+     "wordnet",
+     "lighting-up"
+    ],
+    [
+     "wordnet",
+     "light-armed"
+    ],
+    [
+     "wordnet",
+     "light-sensitive"
+    ],
+    [
+     "wordnet-eng-ell",
+     "lightlessness"
+    ],
+    [
+     "wordnet",
+     "light-footed"
+    ],
+    [
+     "wordnet",
+     "light-handedly"
+    ],
+    [
+     "wordnet",
+     "lighthouse keeper"
+    ],
+    [
+     "wordnet",
+     "lighting fixture"
+    ],
+    [
+     "wordnet",
+     "lightly-armed"
+    ],
+    [
+     "freedict-eng-spa",
+     "lighter"
+    ],
+    [
+     "wordnet",
+     "lightsomely"
+    ],
+    [
+     "wordnet-eng-ell",
+     "lighten"
+    ],
+    [
+     "wordnet-eng-ell",
+     "lightening"
+    ],
+    [
+     "wordnet",
+     "lightship"
+    ],
+    [
+     "wordnet-eng-ell",
+     "lighten up"
+    ],
+    [
+     "wordnet",
+     "light-colored"
+    ],
+    [
+     "wordnet",
+     "lightsome"
+    ],
+    [
+     "wordnet",
+     "lighterage"
+    ],
+    [
+     "wordnet",
+     "light-blue"
+    ],
+    [
+     "wordnet",
+     "light brown"
+    ],
+    [
+     "wordnet",
+     "light circuit"
+    ],
+    [
+     "wordnet",
+     "lighting circuit"
+    ],
+    [
+     "wordnet-eng-ell",
+     "lighting fixture"
+    ],
+    [
+     "wordnet",
+     "lighthearted"
+    ],
+    [
+     "wordnet",
+     "light-heartedly"
+    ],
+    [
+     "wordnet",
+     "light filter"
+    ],
+    [
+     "freedict-eng-ell",
+     "lightbulb"
+    ],
+    [
+     "freedict-eng-ell",
+     "lighthouse"
+    ],
+    [
+     "freedict-eng-ell",
+     "lighting"
+    ],
+    [
+     "freedict-eng-ell",
+     "lightning"
+    ],
+    [
+     "wordnet",
+     "lighten up"
+    ],
+    [
+     "wordnet",
+     "light-hearted"
+    ],
+    [
+     "wordnet",
+     "light beam"
+    ],
+    [
+     "wordnet",
+     "light meter"
+    ],
+    [
+     "wordnet",
+     "light-duty"
+    ],
+    [
+     "wordnet",
+     "light show"
+    ],
+    [
+     "wordnet-eng-ell",
+     "light beam"
+    ],
+    [
+     "freedict-eng-spa",
+     "lightly"
+    ],
+    [
+     "freedict-eng-ell",
+     "lighter"
+    ],
+    [
+     "freedict-eng-ell",
+     "lighthouse keeper"
+    ],
+    [
+     "freedict-eng-ell",
+     "lightly"
+    ],
+    [
+     "freedict-eng-ell",
+     "lightning conductor"
+    ],
+    [
+     "freedict-eng-ell",
+     "lightning rod"
+    ],
+    [
+     "freedict-eng-ell",
+     "light up"
+    ]
+   ]
+  },
+  {
+   "query": "дом",
+   "results": [
+    [
+     "openrussian",
+     "дом"
+    ],
+    [
+     "openrussian",
+     "домовый"
+    ],
+    [
+     "openrussian",
+     "доменный"
+    ],
+    [
+     "openrussian",
+     "домик"
+    ],
+    [
+     "openrussian",
+     "домкрат"
+    ],
+    [
+     "openrussian",
+     "доминион"
+    ],
+    [
+     "openrussian",
+     "домогательство"
+    ],
+    [
+     "openrussian",
+     "домочадцы"
+    ],
+    [
+     "openrussian",
+     "домра"
+    ],
+    [
+     "openrussian",
+     "домогаться"
+    ],
+    [
+     "openrussian",
+     "доминирующий"
+    ],
+    [
+     "openrussian",
+     "домотканый"
+    ],
+    [
+     "openrussian",
+     "домысел"
+    ],
+    [
+     "openrussian",
+     "домишко"
+    ],
+    [
+     "openrussian",
+     "домино"
+    ],
+    [
+     "openrussian",
+     "домработница"
+    ],
+    [
+     "openrussian",
+     "домоуправление"
+    ],
+    [
+     "openrussian",
+     "домна"
+    ],
+    [
+     "openrussian",
+     "доминошник"
+    ],
+    [
+     "openrussian",
+     "домовладелица"
+    ],
+    [
+     "openrussian",
+     "домостроение"
+    ],
+    [
+     "openrussian",
+     "домостроительский"
+    ],
+    [
+     "openrussian",
+     "домохозяин"
+    ],
+    [
+     "openrussian",
+     "домрист"
+    ],
+    [
+     "openrussian",
+     "домоправитель"
+    ],
+    [
+     "openrussian",
+     "домалывать"
+    ],
+    [
+     "openrussian",
+     "дометать"
+    ],
+    [
+     "openrussian",
+     "домолачивать"
+    ],
+    [
+     "openrussian",
+     "домывать"
+    ],
+    [
+     "openrussian",
+     "домыть"
+    ],
+    [
+     "openrussian",
+     "домовитый"
+    ],
+    [
+     "openrussian",
+     "домодельный"
+    ],
+    [
+     "openrussian",
+     "домонополистический"
+    ],
+    [
+     "openrussian",
+     "дома"
+    ],
+    [
+     "openrussian",
+     "домохозяйка"
+    ],
+    [
+     "openrussian",
+     "домовой"
+    ],
+    [
+     "openrussian",
+     "доменщик"
+    ],
+    [
+     "openrussian",
+     "домоводство"
+    ],
+    [
+     "openrussian",
+     "домосед"
+    ],
+    [
+     "openrussian",
+     "домоседка"
+    ],
+    [
+     "openrussian",
+     "доминанта"
+    ],
+    [
+     "openrussian",
+     "доминировать"
+    ],
+    [
+     "openrussian",
+     "доморощенный"
+    ],
+    [
+     "openrussian",
+     "домой"
+    ],
+    [
+     "openrussian",
+     "домовладелец"
+    ],
+    [
+     "openrussian",
+     "домчать"
+    ],
+    [
+     "openrussian",
+     "домчаться"
+    ],
+    [
+     "openrussian",
+     "домешивать"
+    ],
+    [
+     "openrussian",
+     "домострой"
+    ],
+    [
+     "openrussian",
+     "домашний"
+    ]
+   ]
+  },
+  {
+   "query": "вод",
+   "results": [
+    [
+     "openrussian",
+     "вод"
+    ],
+    [
+     "openrussian",
+     "водочный"
+    ],
+    [
+     "openrussian",
+     "водосточный"
+    ],
+    [
+     "openrussian",
+     "вода"
+    ],
+    [
+     "openrussian",
+     "водка"
+    ],
+    [
+     "openrussian",
+     "водитель"
+    ],
+    [
+     "openrussian",
+     "водород"
+    ],
+    [
+     "openrussian",
+     "водоём"
+    ],
+    [
+     "openrussian",
+     "водохранилище"
+    ],
+    [
+     "openrussian",
+     "водопроводчик"
+    ],
+    [
+     "openrussian",
+     "водораздел"
+    ],
+    [
+     "openrussian",
+     "водянка"
+    ],
+    [
+     "openrussian",
+     "водоизмещение"
+    ],
+    [
+     "openrussian",
+     "водолечебница"
+    ],
+    [
+     "openrussian",
+     "водоотлив"
+    ],
+    [
+     "openrussian",
+     "водорез"
+    ],
+    [
+     "openrussian",
+     "водосброс"
+    ],
+    [
+     "openrussian",
+     "водоспуск"
+    ],
+    [
+     "openrussian",
+     "водворяться"
+    ],
+    [
+     "openrussian",
+     "водный"
+    ],
+    [
+     "openrussian",
+     "водозащитный"
+    ],
+    [
+     "openrussian",
+     "водолазный"
+    ],
+    [
+     "openrussian",
+     "водолюбивый"
+    ],
+    [
+     "openrussian",
+     "водоотливный"
+    ],
+    [
+     "openrussian",
+     "водоупорный"
+    ],
+    [
+     "openrussian",
+     "водокачка"
+    ],
+    [
+     "openrussian",
+     "водовоз"
+    ],
+    [
+     "openrussian",
+     "водоснабжение"
+    ],
+    [
+     "openrussian",
+     "водосток"
+    ],
+    [
+     "openrussian",
+     "водворение"
+    ],
+    [
+     "openrussian",
+     "воднолыжник"
+    ],
+    [
+     "openrussian",
+     "воднолыжница"
+    ],
+    [
+     "openrussian",
+     "водобоязнь"
+    ],
+    [
+     "openrussian",
+     "водолив"
+    ],
+    [
+     "openrussian",
+     "водомер"
+    ],
+    [
+     "openrussian",
+     "водомоина"
+    ],
+    [
+     "openrussian",
+     "водонос"
+    ],
+    [
+     "openrussian",
+     "водораспределитель"
+    ],
+    [
+     "openrussian",
+     "водочерпалка"
+    ],
+    [
+     "openrussian",
+     "водрузить"
+    ],
+    [
+     "openrussian",
+     "водружать"
+    ],
+    [
+     "openrussian",
+     "водородный"
+    ],
+    [
+     "openrussian",
+     "воднолыжный"
+    ],
+    [
+     "openrussian",
+     "водогрейный"
+    ],
+    [
+     "openrussian",
+     "водоизмерительный"
+    ],
+    [
+     "openrussian",
+     "водоносный"
+    ],
+    [
+     "openrussian",
+     "водоотводный"
+    ],
+    [
+     "openrussian",
+     "водоотталкивающий"
+    ],
+    [
+     "openrussian",
+     "водостойкий"
+    ],
+    [
+     "openrussian",
+     "водочерпательный"
+    ]
+   ]
+  },
+  {
+   "query": "говорить",
+   "results": [
+    [
+     "openrussian",
+     "говорить"
+    ],
+    [
+     "openrussian",
+     "говориться"
+    ]
+   ]
+  },
+  {
+   "query": "casa",
+   "results": [
+    [
+     "wordnet-spa-eng",
+     "casa"
+    ],
+    [
+     "freedict-eng-spa",
+     "Casablanca"
+    ],
+    [
+     "freedict-eng-spa",
+     "Casanova"
+    ],
+    [
+     "wordnet-spa-eng",
+     "casado"
+    ],
+    [
+     "wordnet",
+     "casaba"
+    ],
+    [
+     "wordnet",
+     "casaba melon"
+    ],
+    [
+     "wordnet-spa-eng",
+     "casa llena"
+    ],
+    [
+     "wordnet",
+     "casablanca"
+    ],
+    [
+     "wordnet-spa-eng",
+     "casa de playa"
+    ],
+    [
+     "wordnet-spa-eng",
+     "casa señorial"
+    ],
+    [
+     "wordnet-spa-eng",
+     "casa cural"
+    ],
+    [
+     "wordnet-spa-eng",
+     "casa del guarda"
+    ],
+    [
+     "wordnet",
+     "casals"
+    ],
+    [
+     "wordnet",
+     "casanova de seingalt"
+    ],
+    [
+     "wordnet",
+     "casava"
+    ],
+    [
+     "wordnet-spa-eng",
+     "casa de naipes"
+    ],
+    [
+     "wordnet-spa-eng",
+     "casa del cura"
+    ],
+    [
+     "wordnet-spa-eng",
+     "casarse"
+    ],
+    [
+     "wordnet-spa-eng",
+     "casa de campo"
+    ],
+    [
+     "wordnet-spa-eng",
+     "casa de empeño"
+    ],
+    [
+     "wordnet",
+     "casanova"
+    ],
+    [
+     "wordnet-spa-eng",
+     "casa parroquial"
+    ],
+    [
+     "wordnet-spa-eng",
+     "casa de locos"
+    ],
+    [
+     "wordnet-spa-eng",
+     "Casa Blanca"
+    ],
+    [
+     "wordnet-spa-eng",
+     "casar"
+    ],
+    [
+     "freedict-eng-spa",
+     "marry"
+    ],
+    [
+     "freedict-eng-spa",
+     "house"
+    ],
+    [
+     "freedict-eng-spa",
+     "wed"
+    ],
+    [
+     "freedict-eng-spa",
+     "make yourself at home"
+    ],
+    [
+     "freedict-eng-spa",
+     "are you married"
+    ],
+    [
+     "freedict-eng-spa",
+     "married"
+    ],
+    [
+     "freedict-eng-spa",
+     "country house"
+    ],
+    [
+     "freedict-eng-spa",
+     "parsonage"
+    ],
+    [
+     "freedict-eng-spa",
+     "haunted house"
+    ],
+    [
+     "freedict-eng-spa",
+     "home"
+    ],
+    [
+     "freedict-eng-spa",
+     "marry me"
+    ],
+    [
+     "freedict-eng-spa",
+     "matchmaker"
+    ],
+    [
+     "freedict-eng-spa",
+     "pithouse"
+    ],
+    [
+     "freedict-eng-spa",
+     "I'm married"
+    ],
+    [
+     "freedict-eng-spa",
+     "homemaker"
+    ],
+    [
+     "freedict-eng-spa",
+     "homeowner"
+    ],
+    [
+     "freedict-eng-spa",
+     "manor"
+    ],
+    [
+     "freedict-eng-spa",
+     "orphanage"
+    ],
+    [
+     "freedict-eng-spa",
+     "will you marry me"
+    ],
+    [
+     "wordnet-spa-eng",
+     "Pablo Casals"
+    ],
+    [
+     "freedict-eng-spa",
+     "brothel"
+    ],
+    [
+     "freedict-eng-spa",
+     "housewife"
+    ],
+    [
+     "freedict-eng-spa",
+     "casemate"
+    ],
+    [
+     "freedict-eng-spa",
+     "cassation"
+    ],
+    [
+     "freedict-eng-spa",
+     "Cassandra"
+    ]
+   ]
+  },
+  {
+   "query": "comer",
+   "results": [
+    [
+     "wordnet",
+     "comer"
+    ],
+    [
+     "freedict-eng-spa",
+     "comer"
+    ],
+    [
+     "wordnet-spa-eng",
+     "comer"
+    ],
+    [
+     "wordnet-spa-eng",
+     "Comer Wann Woodward"
+    ],
+    [
+     "wordnet",
+     "comer vann woodward"
+    ],
+    [
+     "wordnet-spa-eng",
+     "comer carroña"
+    ],
+    [
+     "wordnet-spa-eng",
+     "comerciar"
+    ],
+    [
+     "wordnet-spa-eng",
+     "comerse"
+    ],
+    [
+     "wordnet-spa-eng",
+     "comer el rancho"
+    ],
+    [
+     "wordnet-spa-eng",
+     "comerciante de lanas"
+    ],
+    [
+     "wordnet-spa-eng",
+     "comerciante de textiles"
+    ],
+    [
+     "wordnet-spa-eng",
+     "comercio electrónico"
+    ],
+    [
+     "wordnet-spa-eng",
+     "comercializar"
+    ],
+    [
+     "wordnet-spa-eng",
+     "comercio de bonos"
+    ],
+    [
+     "wordnet-spa-eng",
+     "comercio de esclavos"
+    ],
+    [
+     "wordnet-spa-eng",
+     "comercial"
+    ],
+    [
+     "wordnet-spa-eng",
+     "comercio"
+    ],
+    [
+     "wordnet-spa-eng",
+     "comerciante"
+    ],
+    [
+     "freedict-eng-spa",
+     "entrepreneur"
+    ],
+    [
+     "freedict-eng-spa",
+     "eat up"
+    ],
+    [
+     "freedict-eng-spa",
+     "free trade"
+    ],
+    [
+     "freedict-eng-spa",
+     "merchandising"
+    ],
+    [
+     "openrussian",
+     "опоздавший"
+    ],
+    [
+     "freedict-eng-spa",
+     "commerce"
+    ],
+    [
+     "freedict-eng-spa",
+     "commercial"
+    ],
+    [
+     "freedict-eng-spa",
+     "commercialization"
+    ],
+    [
+     "freedict-eng-spa",
+     "commercialize"
+    ],
+    [
+     "freedict-eng-spa",
+     "commercially"
+    ],
+    [
+     "freedict-eng-spa",
+     "merchantable"
+    ],
+    [
+     "openrussian",
+     "новоприбывший"
+    ],
+    [
+     "freedict-eng-spa",
+     "marketable"
+    ],
+    [
+     "freedict-eng-spa",
+     "ampersand"
+    ],
+    [
+     "freedict-eng-spa",
+     "eat out"
+    ],
+    [
+     "freedict-eng-spa",
+     "fair trade"
+    ],
+    [
+     "freedict-eng-spa",
+     "foreign trade"
+    ],
+    [
+     "freedict-eng-spa",
+     "loss leader"
+    ],
+    [
+     "freedict-eng-spa",
+     "mall"
+    ],
+    [
+     "freedict-eng-spa",
+     "sociable"
+    ],
+    [
+     "freedict-eng-spa",
+     "trade name"
+    ],
+    [
+     "freedict-eng-spa",
+     "trade route"
+    ],
+    [
+     "freedict-eng-spa",
+     "trade secret"
+    ],
+    [
+     "freedict-eng-spa",
+     "trade surplus"
+    ],
+    [
+     "freedict-eng-spa",
+     "trading partner"
+    ],
+    [
+     "freedict-eng-spa",
+     "trading post"
+    ],
+    [
+     "freedict-eng-spa",
+     "wholesaler"
+    ],
+    [
+     "freedict-eng-spa",
+     "eat"
+    ],
+    [
+     "freedict-eng-spa",
+     "play hooky"
+    ],
+    [
+     "freedict-eng-spa",
+     "at sign"
+    ],
+    [
+     "freedict-eng-spa",
+     "balance of trade"
+    ],
+    [
+     "freedict-eng-spa",
+     "demoralize"
+    ]
+   ]
+  },
+  {
+   "query": "agua",
+   "results": [
+    [
+     "wordnet",
+     "agua"
+    ],
+    [
+     "wordnet-spa-eng",
+     "agua"
+    ],
+    [
+     "freedict-eng-spa",
+     "Aguascalientes"
+    ],
+    [
+     "freedict-eng-spa",
+     "Agua Caliente"
+    ],
+    [
+     "wordnet-spa-eng",
+     "aguante"
+    ],
+    [
+     "wordnet-spa-eng",
+     "aguacate"
+    ],
+    [
+     "wordnet-spa-eng",
+     "aguafuertista"
+    ],
+    [
+     "wordnet-spa-eng",
+     "agua carbonatada"
+    ],
+    [
+     "wordnet-spa-eng",
+     "aguantar más"
+    ],
+    [
+     "wordnet-spa-eng",
+     "agua de Seltzer"
+    ],
+    [
+     "wordnet-spa-eng",
+     "agua de nieve"
+    ],
+    [
+     "wordnet-spa-eng",
+     "agua potable"
+    ],
+    [
+     "wordnet-spa-eng",
+     "aguantarse"
+    ],
+    [
+     "wordnet-spa-eng",
+     "aguardiente de manzana"
+    ],
+    [
+     "wordnet-spa-eng",
+     "agua de mar"
+    ],
+    [
+     "wordnet-spa-eng",
+     "aguas movedizas"
+    ],
+    [
+     "wordnet-spa-eng",
+     "agua dulce"
+    ],
+    [
+     "wordnet-spa-eng",
+     "agua destilada"
+    ],
+    [
+     "wordnet-spa-eng",
+     "aguanieve"
+    ],
+    [
+     "wordnet-spa-eng",
+     "aguardar"
+    ],
+    [
+     "wordnet-spa-eng",
+     "aguachirle"
+    ],
+    [
+     "wordnet-spa-eng",
+     "aguafiestas"
+    ],
+    [
+     "wordnet",
+     "agua toad"
+    ],
+    [
+     "wordnet-spa-eng",
+     "agua de lluvia"
+    ],
+    [
+     "wordnet-spa-eng",
+     "agua de Javel"
+    ],
+    [
+     "wordnet-spa-eng",
+     "aguamarina"
+    ],
+    [
+     "wordnet-spa-eng",
+     "aguantar firme"
+    ],
+    [
+     "wordnet-spa-eng",
+     "agua de colonia"
+    ],
+    [
+     "wordnet-spa-eng",
+     "agua pesada"
+    ],
+    [
+     "wordnet-spa-eng",
+     "agua mineral"
+    ],
+    [
+     "wordnet-spa-eng",
+     "aguada"
+    ],
+    [
+     "wordnet-spa-eng",
+     "aguas termales"
+    ],
+    [
+     "wordnet",
+     "aguacate"
+    ],
+    [
+     "wordnet-eng-ell",
+     "aguacate"
+    ],
+    [
+     "wordnet-spa-eng",
+     "aguafuerte"
+    ],
+    [
+     "wordnet-spa-eng",
+     "aguacero"
+    ],
+    [
+     "wordnet-spa-eng",
+     "aguantar"
+    ],
+    [
+     "freedict-eng-spa",
+     "watery"
+    ],
+    [
+     "freedict-eng-spa",
+     "water"
+    ],
+    [
+     "freedict-eng-spa",
+     "brine"
+    ],
+    [
+     "freedict-eng-spa",
+     "bottled water"
+    ],
+    [
+     "freedict-eng-spa",
+     "running water"
+    ],
+    [
+     "freedict-eng-spa",
+     "body of water"
+    ],
+    [
+     "freedict-eng-spa",
+     "jellyfish"
+    ],
+    [
+     "freedict-eng-spa",
+     "gray water"
+    ],
+    [
+     "freedict-eng-spa",
+     "mineral water"
+    ],
+    [
+     "freedict-eng-spa",
+     "rainwater"
+    ],
+    [
+     "freedict-eng-spa",
+     "seawater"
+    ],
+    [
+     "freedict-eng-spa",
+     "springwater"
+    ],
+    [
+     "freedict-eng-spa",
+     "tonic water"
+    ]
+   ]
+  },
+  {
+   "query": "perro",
+   "results": [
+    [
+     "wordnet-spa-eng",
+     "perro"
+    ],
+    [
+     "wordnet-spa-eng",
+     "perro guardián"
+    ],
+    [
+     "wordnet-spa-eng",
+     "perro guía"
+    ],
+    [
+     "wordnet-spa-eng",
+     "perro raposero"
+    ],
+    [
+     "wordnet-spa-eng",
+     "perro zorrero"
+    ],
+    [
+     "wordnet-spa-eng",
+     "perro esquimal"
+    ],
+    [
+     "wordnet-spa-eng",
+     "perro siberiano"
+    ],
+    [
+     "wordnet-spa-eng",
+     "perro policía"
+    ],
+    [
+     "wordnet-spa-eng",
+     "perro cazador"
+    ],
+    [
+     "wordnet-spa-eng",
+     "perro de trineo"
+    ],
+    [
+     "wordnet-spa-eng",
+     "perro de caza"
+    ],
+    [
+     "wordnet-spa-eng",
+     "perro pastor"
+    ],
+    [
+     "freedict-eng-spa",
+     "harehound"
+    ],
+    [
+     "freedict-eng-spa",
+     "police dog"
+    ],
+    [
+     "freedict-eng-spa",
+     "guide dog"
+    ],
+    [
+     "freedict-eng-spa",
+     "dog food"
+    ],
+    [
+     "freedict-eng-spa",
+     "dog"
+    ],
+    [
+     "freedict-eng-spa",
+     "barking dogs seldom bite"
+    ],
+    [
+     "freedict-eng-spa",
+     "sheepdog"
+    ],
+    [
+     "freedict-eng-spa",
+     "Löwchen"
+    ],
+    [
+     "freedict-eng-spa",
+     "Otterhound"
+    ],
+    [
+     "freedict-eng-spa",
+     "dachshund"
+    ],
+    [
+     "freedict-eng-spa",
+     "dogfight"
+    ],
+    [
+     "freedict-eng-spa",
+     "guard dog"
+    ],
+    [
+     "freedict-eng-spa",
+     "herding dog"
+    ],
+    [
+     "freedict-eng-spa",
+     "raccoon dog"
+    ],
+    [
+     "freedict-eng-spa",
+     "retriever"
+    ],
+    [
+     "freedict-eng-spa",
+     "sniffer dog"
+    ],
+    [
+     "freedict-eng-spa",
+     "spaniel"
+    ],
+    [
+     "freedict-eng-spa",
+     "wolf dog"
+    ],
+    [
+     "freedict-eng-spa",
+     "Canaan Dog"
+    ],
+    [
+     "freedict-eng-spa",
+     "Rhodesian Ridgeback"
+    ],
+    [
+     "freedict-eng-spa",
+     "bush dog"
+    ],
+    [
+     "freedict-eng-spa",
+     "dogsled"
+    ],
+    [
+     "freedict-eng-spa",
+     "hunting dog"
+    ],
+    [
+     "freedict-eng-spa",
+     "mudpuppy"
+    ],
+    [
+     "freedict-eng-spa",
+     "old hand"
+    ],
+    [
+     "freedict-eng-spa",
+     "stray dog"
+    ],
+    [
+     "freedict-eng-spa",
+     "water dog"
+    ],
+    [
+     "freedict-eng-spa",
+     "working dog"
+    ],
+    [
+     "freedict-eng-spa",
+     "one's bark is worse than one's bite"
+    ],
+    [
+     "freedict-eng-spa",
+     "Aidi"
+    ],
+    [
+     "freedict-eng-spa",
+     "Chinese Crested Dog"
+    ],
+    [
+     "freedict-eng-spa",
+     "Saluki"
+    ],
+    [
+     "freedict-eng-spa",
+     "St. George's mushroom"
+    ],
+    [
+     "freedict-eng-spa",
+     "dine and dash"
+    ],
+    [
+     "freedict-eng-spa",
+     "dog's life"
+    ],
+    [
+     "freedict-eng-spa",
+     "hound"
+    ],
+    [
+     "freedict-eng-spa",
+     "hound's tongue"
+    ],
+    [
+     "freedict-eng-spa",
+     "lap dog"
+    ]
+   ]
+  },
+  {
+   "query": "كتاب",
+   "results": [
+    [
+     "wordnet-arb-eng",
+     "كِتاب"
+    ],
+    [
+     "wordnet-arb-eng",
+     "كِتابِي"
+    ],
+    [
+     "wordnet-arb-eng",
+     "كِتَابات تَلْمُودِيَّة"
+    ],
+    [
+     "wordnet-arb-eng",
+     "كِتابة يدوِيّة"
+    ],
+    [
+     "wordnet-arb-eng",
+     "كِتابِيّ"
+    ],
+    [
+     "wordnet-arb-eng",
+     "كِتابَة"
+    ],
+    [
+     "wordnet-arb-eng",
+     "كِتابَة مَنْقُوشَة"
+    ],
+    [
+     "wordnet-arb-eng",
+     "كِتاب حَقَائِق"
+    ],
+    [
+     "wordnet-arb-eng",
+     "كِتاب مَرْجِعِيّ"
+    ],
+    [
+     "wordnet-arb-eng",
+     "كِتابَة دِينِيَّة"
+    ],
+    [
+     "wordnet-arb-eng",
+     "كِتابَة مُقَدَّسَة"
+    ],
+    [
+     "wordnet-arb-eng",
+     "كِتابة"
+    ],
+    [
+     "wordnet-arb-eng",
+     "نشر كتابا"
+    ],
+    [
+     "wordnet-arb-eng",
+     "مادّة كِتابِيّة"
+    ],
+    [
+     "wordnet-arb-eng",
+     "أسْلُوب كِتابِي"
+    ],
+    [
+     "wordnet-arb-eng",
+     "نمط كِتابة"
+    ],
+    [
+     "wordnet-arb-eng",
+     "أعد بشكل كتابي"
+    ],
+    [
+     "wordnet-arb-eng",
+     "رمْز كِتابِي"
+    ],
+    [
+     "wordnet-arb-eng",
+     "سِجِلّ كِتابِيّ"
+    ],
+    [
+     "wordnet-arb-eng",
+     "هدى كتاب"
+    ],
+    [
+     "wordnet-arb-eng",
+     "تقْرِير كِتابِي"
+    ],
+    [
+     "wordnet-arb-eng",
+     "عمل كِتابِي"
+    ],
+    [
+     "wordnet-arb-eng",
+     "أعاد كتابا"
+    ]
+   ]
+  },
+  {
+   "query": "ماء",
+   "results": [
+    [
+     "wordnet-arb-eng",
+     "ماء"
+    ],
+    [
+     "wordnet-arb-eng",
+     "ماء البحْر"
+    ],
+    [
+     "wordnet-arb-eng",
+     "ماء شُرْب"
+    ]
+   ]
+  },
+  {
+   "query": "بيت",
+   "results": [
+    [
+     "wordnet-arb-eng",
+     "بَيْت"
+    ],
+    [
+     "wordnet-arb-eng",
+     "بيْت"
+    ],
+    [
+     "wordnet-arb-eng",
+     "بيْت الشّباب"
+    ],
+    [
+     "wordnet-arb-eng",
+     "بيْت الطلبة"
+    ],
+    [
+     "wordnet-arb-eng",
+     "بيْتُ الأدب"
+    ],
+    [
+     "wordnet-arb-eng",
+     "بيْتُ الخلاء"
+    ],
+    [
+     "wordnet-arb-eng",
+     "بيْت اللّه"
+    ],
+    [
+     "wordnet-arb-eng",
+     "بيْت عِبادة"
+    ],
+    [
+     "wordnet-arb-eng",
+     "بيْت زُجاجِي"
+    ],
+    [
+     "wordnet-arb-eng",
+     "بيْت لحْم"
+    ],
+    [
+     "wordnet-arb-eng",
+     "قُنْبُلَة أُنْبُوبِيَّة بَيْتِيَّة الصُّنْع"
+    ],
+    [
+     "wordnet-arb-eng",
+     "ربّة بيْت"
+    ]
+   ]
+  },
+  {
+   "query": "γράφω",
+   "results": [
+    [
+     "freedict-ell-eng",
+     "γράφω"
+    ],
+    [
+     "wordnet-ell-eng",
+     "γράφω"
+    ],
+    [
+     "freedict-ell-eng",
+     "γράφω στα παλιά μου τα παπούτσια"
+    ],
+    [
+     "freedict-ell-eng",
+     "θεωρία γράφων"
+    ],
+    [
+     "freedict-eng-ell",
+     "prescribe for"
+    ],
+    [
+     "freedict-eng-ell",
+     "make out"
+    ],
+    [
+     "freedict-eng-ell",
+     "make out a cheque"
+    ],
+    [
+     "freedict-eng-ell",
+     "prescribe"
+    ],
+    [
+     "freedict-eng-ell",
+     "scribble"
+    ],
+    [
+     "wordnet-eng-ell",
+     "drop a line"
+    ],
+    [
+     "wordnet-eng-ell",
+     "write"
+    ],
+    [
+     "wordnet-eng-ell",
+     "written"
+    ],
+    [
+     "wordnet-eng-ell",
+     "said"
+    ],
+    [
+     "wordnet-eng-ell",
+     "say"
+    ],
+    [
+     "wordnet-eng-ell",
+     "saying"
+    ],
+    [
+     "wordnet-eng-ell",
+     "writing"
+    ],
+    [
+     "wordnet-eng-ell",
+     "read"
+    ],
+    [
+     "wordnet-eng-ell",
+     "reading"
+    ]
+   ]
+  },
+  {
+   "query": "γραφω",
+   "results": [
+    [
+     "freedict-ell-eng",
+     "γράφω"
+    ],
+    [
+     "wordnet-ell-eng",
+     "γράφω"
+    ],
+    [
+     "freedict-ell-eng",
+     "γράφω στα παλιά μου τα παπούτσια"
+    ],
+    [
+     "freedict-ell-eng",
+     "θεωρία γράφων"
+    ],
+    [
+     "freedict-eng-ell",
+     "prescribe for"
+    ],
+    [
+     "freedict-eng-ell",
+     "make out"
+    ],
+    [
+     "freedict-eng-ell",
+     "make out a cheque"
+    ],
+    [
+     "freedict-eng-ell",
+     "prescribe"
+    ],
+    [
+     "freedict-eng-ell",
+     "scribble"
+    ],
+    [
+     "wordnet-eng-ell",
+     "drop a line"
+    ],
+    [
+     "wordnet-eng-ell",
+     "write"
+    ],
+    [
+     "wordnet-eng-ell",
+     "written"
+    ],
+    [
+     "wordnet-eng-ell",
+     "said"
+    ],
+    [
+     "wordnet-eng-ell",
+     "say"
+    ],
+    [
+     "wordnet-eng-ell",
+     "saying"
+    ],
+    [
+     "wordnet-eng-ell",
+     "writing"
+    ],
+    [
+     "wordnet-eng-ell",
+     "read"
+    ],
+    [
+     "wordnet-eng-ell",
+     "reading"
+    ]
+   ]
+  },
+  {
+   "query": "νερο",
+   "results": [
+    [
+     "freedict-ell-eng",
+     "νερό"
+    ],
+    [
+     "wordnet-ell-eng",
+     "νερό"
+    ],
+    [
+     "freedict-ell-eng",
+     "νεροδεσιά"
+    ],
+    [
+     "freedict-ell-eng",
+     "νεροκολόκυθο"
+    ],
+    [
+     "freedict-ell-eng",
+     "νεροποντή"
+    ],
+    [
+     "freedict-ell-eng",
+     "νεροχελώνα"
+    ],
+    [
+     "freedict-ell-eng",
+     "νερόλακκος"
+    ],
+    [
+     "freedict-ell-eng",
+     "νερόμυλος"
+    ],
+    [
+     "freedict-ell-eng",
+     "Νεροτριβιά"
+    ],
+    [
+     "freedict-ell-eng",
+     "Νερόμυλοι"
+    ],
+    [
+     "freedict-ell-eng",
+     "νεροκάρδαμο"
+    ],
+    [
+     "freedict-ell-eng",
+     "νεροκολοκυθιά"
+    ],
+    [
+     "freedict-ell-eng",
+     "νεροπίστολο"
+    ],
+    [
+     "freedict-ell-eng",
+     "νερουλός"
+    ],
+    [
+     "freedict-ell-eng",
+     "νεροφάγωμα"
+    ],
+    [
+     "freedict-ell-eng",
+     "νερόκρινο"
+    ],
+    [
+     "freedict-ell-eng",
+     "νερόμπομπα"
+    ],
+    [
+     "freedict-ell-eng",
+     "νερομάνα"
+    ],
+    [
+     "freedict-ell-eng",
+     "νεροτσουλήθρα"
+    ],
+    [
+     "freedict-ell-eng",
+     "νεροχύτης"
+    ],
+    [
+     "freedict-ell-eng",
+     "νερολάπαθο"
+    ],
+    [
+     "freedict-ell-eng",
+     "νεροφίδα"
+    ],
+    [
+     "freedict-ell-eng",
+     "νερόκοτα"
+    ],
+    [
+     "freedict-ell-eng",
+     "νερόφιδο"
+    ],
+    [
+     "wordnet-ell-eng",
+     "νεροποντή"
+    ],
+    [
+     "freedict-ell-eng",
+     "νεροκότσυφας"
+    ],
+    [
+     "wordnet-ell-eng",
+     "νερόμυλος"
+    ],
+    [
+     "wordnet-ell-eng",
+     "νερό βροχής"
+    ],
+    [
+     "wordnet-ell-eng",
+     "νεροβελανιδιά"
+    ],
+    [
+     "wordnet-ell-eng",
+     "νερομπογιά"
+    ],
+    [
+     "freedict-eng-ell",
+     "draw water"
+    ],
+    [
+     "freedict-eng-ell",
+     "tap water"
+    ],
+    [
+     "freedict-eng-ell",
+     "dipper"
+    ],
+    [
+     "freedict-eng-ell",
+     "downpour"
+    ],
+    [
+     "freedict-eng-ell",
+     "moorhen"
+    ],
+    [
+     "freedict-eng-ell",
+     "pratincole"
+    ],
+    [
+     "freedict-eng-ell",
+     "watersnake"
+    ],
+    [
+     "wordnet-eng-ell",
+     "tap water"
+    ],
+    [
+     "freedict-eng-ell",
+     "freshwater"
+    ],
+    [
+     "freedict-eng-ell",
+     "millwheel"
+    ],
+    [
+     "freedict-eng-ell",
+     "sleet"
+    ],
+    [
+     "freedict-eng-ell",
+     "water colour"
+    ],
+    [
+     "freedict-eng-ell",
+     "water rail"
+    ],
+    [
+     "freedict-eng-ell",
+     "well head"
+    ],
+    [
+     "freedict-ell-eng",
+     "μεταλλικό νερό"
+    ],
+    [
+     "freedict-eng-ell",
+     "cloudburst"
+    ],
+    [
+     "freedict-eng-ell",
+     "distilled water"
+    ],
+    [
+     "freedict-eng-ell",
+     "drown"
+    ],
+    [
+     "freedict-eng-ell",
+     "mineral water"
+    ],
+    [
+     "freedict-eng-ell",
+     "water"
+    ]
+   ]
+  },
+  {
+   "query": "σκυλος",
+   "results": [
+    [
+     "freedict-ell-eng",
+     "σκύλος"
+    ],
+    [
+     "wordnet-ell-eng",
+     "σκύλος"
+    ],
+    [
+     "freedict-ell-eng",
+     "σκυλόσπιτο"
+    ],
+    [
+     "wordnet-ell-eng",
+     "σκύλος φύλακας"
+    ],
+    [
+     "wordnet-ell-eng",
+     "σκύλος γένους Canis familiaris"
+    ],
+    [
+     "freedict-eng-ell",
+     "dog"
+    ],
+    [
+     "freedict-eng-ell",
+     "foxhound"
+    ],
+    [
+     "freedict-eng-ell",
+     "guard dog"
+    ],
+    [
+     "freedict-eng-ell",
+     "hound"
+    ],
+    [
+     "wordnet-eng-ell",
+     "watchdog"
+    ],
+    [
+     "wordnet-eng-ell",
+     "guard dog"
+    ],
+    [
+     "wordnet-eng-ell",
+     "dalmatian"
+    ],
+    [
+     "wordnet-eng-ell",
+     "carriage dog"
+    ],
+    [
+     "wordnet-eng-ell",
+     "coach dog"
+    ],
+    [
+     "wordnet-ell-eng",
+     "δαλματικός σκύλος"
+    ],
+    [
+     "wordnet-eng-ell",
+     "working dog"
+    ],
+    [
+     "wordnet-eng-ell",
+     "canis familiaris"
+    ],
+    [
+     "wordnet-eng-ell",
+     "domestic dog"
+    ],
+    [
+     "wordnet-eng-ell",
+     "dog"
+    ]
+   ]
+  }
+ ],
+ "preferred": [
+  {
+   "query": "house",
+   "groups": [
+    [
+     "wordnet"
+    ],
+    [
+     "freedict-eng-spa",
+     "wordnet-spa-eng"
+    ],
+    [
+     "openrussian"
+    ],
+    [
+     "freedict-ell-eng",
+     "wordnet-eng-ell",
+     "freedict-eng-ell",
+     "wordnet-ell-eng"
+    ],
+    [
+     "wordnet-arb-eng"
+    ]
+   ],
+   "results": [
+    [
+     "wordnet",
+     "house"
+    ],
+    [
+     "wordnet",
+     "housewrecker"
+    ],
+    [
+     "wordnet",
+     "housewifely"
+    ],
+    [
+     "wordnet",
+     "houseclean"
+    ],
+    [
+     "freedict-eng-spa",
+     "house"
+    ],
+    [
+     "freedict-eng-spa",
+     "house music"
+    ],
+    [
+     "freedict-eng-spa",
+     "houseboy"
+    ],
+    [
+     "freedict-eng-spa",
+     "houseleek"
+    ],
+    [
+     "openrussian",
+     "домохозяйка"
+    ],
+    [
+     "openrussian",
+     "домохозяин"
+    ],
+    [
+     "openrussian",
+     "домоводство"
+    ],
+    [
+     "openrussian",
+     "дом"
+    ],
+    [
+     "freedict-eng-ell",
+     "house"
+    ],
+    [
+     "wordnet-eng-ell",
+     "house"
+    ],
+    [
+     "wordnet-eng-ell",
+     "houseful"
+    ],
+    [
+     "freedict-eng-ell",
+     "housewife"
+    ],
+    [
+     "wordnet-arb-eng",
+     "مجْلِسُ الأعْيان"
+    ],
+    [
+     "wordnet-arb-eng",
+     "مجْلِسُ العُمُوم"
+    ],
+    [
+     "wordnet-arb-eng",
+     "ربّة بيْت"
+    ],
+    [
+     "wordnet-arb-eng",
+     "مجْلِسُ الأعْيان البرِيطانِيّ"
+    ],
+    [
+     "freedict-ell-eng",
+     "νοικοκυριό"
+    ],
+    [
+     "wordnet-spa-eng",
+     "rompehogares"
+    ],
+    [
+     "openrussian",
+     "домовладелец"
+    ],
+    [
+     "openrussian",
+     "халупа"
+    ],
+    [
+     "freedict-eng-spa",
+     "future house"
+    ],
+    [
+     "freedict-ell-eng",
+     "χάουζ"
+    ],
+    [
+     "wordnet",
+     "housetop"
+    ],
+    [
+     "wordnet",
+     "clean house"
+    ],
+    [
+     "wordnet",
+     "housebreaker"
+    ],
+    [
+     "wordnet",
+     "housewifery"
+    ],
+    [
+     "wordnet",
+     "housekeep"
+    ],
+    [
+     "wordnet-spa-eng",
+     "asear la casa"
+    ],
+    [
+     "wordnet-spa-eng",
+     "hacer el aseo"
+    ],
+    [
+     "wordnet-spa-eng",
+     "limpiar la corrupción"
+    ],
+    [
+     "wordnet-ell-eng",
+     "καθαρίζω το σπίτι"
+    ],
+    [
+     "wordnet",
+     "house-to-house"
+    ],
+    [
+     "wordnet",
+     "houseful"
+    ],
+    [
+     "wordnet",
+     "houseroom"
+    ],
+    [
+     "wordnet",
+     "detached house"
+    ],
+    [
+     "wordnet",
+     "houseguest"
+    ],
+    [
+     "wordnet",
+     "mansion house"
+    ],
+    [
+     "openrussian",
+     "пивная"
+    ],
+    [
+     "openrussian",
+     "экономка"
+    ],
+    [
+     "openrussian",
+     "домочадцы"
+    ],
+    [
+     "wordnet",
+     "housekeeping"
+    ],
+    [
+     "wordnet",
+     "house guest"
+    ],
+    [
+     "wordnet",
+     "housebuilder"
+    ],
+    [
+     "wordnet",
+     "housedog"
+    ],
+    [
+     "wordnet",
+     "lodging house"
+    ],
+    [
+     "wordnet",
+     "rooming house"
+    ]
+   ]
+  },
+  {
+   "query": "casa",
+   "groups": [
+    [
+     "wordnet"
+    ],
+    [
+     "freedict-eng-spa",
+     "wordnet-spa-eng"
+    ],
+    [
+     "openrussian"
+    ],
+    [
+     "freedict-ell-eng",
+     "wordnet-eng-ell",
+     "freedict-eng-ell",
+     "wordnet-ell-eng"
+    ],
+    [
+     "wordnet-arb-eng"
+    ]
+   ],
+   "results": [
+    [
+     "wordnet",
+     "casaba"
+    ],
+    [
+     "wordnet",
+     "casaba melon"
+    ],
+    [
+     "wordnet",
+     "casablanca"
+    ],
+    [
+     "wordnet",
+     "casals"
+    ],
+    [
+     "wordnet-spa-eng",
+     "casa"
+    ],
+    [
+     "freedict-eng-spa",
+     "Casablanca"
+    ],
+    [
+     "freedict-eng-spa",
+     "Casanova"
+    ],
+    [
+     "wordnet-spa-eng",
+     "casado"
+    ],
+    [
+     "freedict-ell-eng",
+     "Καζαμπλάνκα"
+    ],
+    [
+     "freedict-ell-eng",
+     "Καζανόβας"
+    ],
+    [
+     "wordnet-eng-ell",
+     "gran casa"
+    ],
+    [
+     "wordnet-ell-eng",
+     "γκρανκάσα"
+    ],
+    [
+     "freedict-eng-spa",
+     "marry"
+    ],
+    [
+     "freedict-eng-spa",
+     "house"
+    ],
+    [
+     "freedict-eng-spa",
+     "wed"
+    ],
+    [
+     "freedict-eng-spa",
+     "make yourself at home"
+    ],
+    [
+     "freedict-eng-spa",
+     "are you married"
+    ],
+    [
+     "freedict-eng-spa",
+     "married"
+    ],
+    [
+     "freedict-eng-spa",
+     "country house"
+    ],
+    [
+     "freedict-eng-spa",
+     "parsonage"
+    ],
+    [
+     "freedict-eng-spa",
+     "haunted house"
+    ],
+    [
+     "freedict-eng-spa",
+     "home"
+    ],
+    [
+     "freedict-eng-spa",
+     "marry me"
+    ],
+    [
+     "freedict-eng-spa",
+     "matchmaker"
+    ],
+    [
+     "freedict-eng-spa",
+     "pithouse"
+    ],
+    [
+     "freedict-eng-spa",
+     "I'm married"
+    ],
+    [
+     "freedict-eng-spa",
+     "homemaker"
+    ],
+    [
+     "freedict-eng-spa",
+     "homeowner"
+    ],
+    [
+     "freedict-eng-spa",
+     "manor"
+    ],
+    [
+     "freedict-eng-spa",
+     "orphanage"
+    ],
+    [
+     "freedict-eng-spa",
+     "will you marry me"
+    ],
+    [
+     "wordnet-spa-eng",
+     "Pablo Casals"
+    ],
+    [
+     "freedict-eng-spa",
+     "brothel"
+    ],
+    [
+     "freedict-eng-spa",
+     "housewife"
+    ],
+    [
+     "freedict-eng-spa",
+     "casemate"
+    ],
+    [
+     "freedict-eng-spa",
+     "cassation"
+    ],
+    [
+     "freedict-eng-spa",
+     "Cassandra"
+    ],
+    [
+     "freedict-eng-spa",
+     "Newhouse"
+    ],
+    [
+     "freedict-eng-spa",
+     "at home"
+    ],
+    [
+     "freedict-eng-spa",
+     "get married"
+    ],
+    [
+     "freedict-eng-spa",
+     "homeward"
+    ],
+    [
+     "freedict-eng-spa",
+     "longhouse"
+    ],
+    [
+     "freedict-eng-spa",
+     "marry off"
+    ],
+    [
+     "freedict-eng-spa",
+     "dormitory"
+    ],
+    [
+     "freedict-eng-spa",
+     "go to town"
+    ],
+    [
+     "freedict-eng-spa",
+     "make oneself at home"
+    ],
+    [
+     "freedict-eng-spa",
+     "pawnshop"
+    ],
+    [
+     "freedict-eng-spa",
+     "bathhouse"
+    ],
+    [
+     "freedict-eng-spa",
+     "cassata siciliana"
+    ],
+    [
+     "freedict-eng-spa",
+     "community centre"
+    ]
+   ]
+  },
+  {
+   "query": "νερο",
+   "groups": [
+    [
+     "wordnet"
+    ],
+    [
+     "freedict-eng-spa",
+     "wordnet-spa-eng"
+    ],
+    [
+     "openrussian"
+    ],
+    [
+     "freedict-ell-eng",
+     "wordnet-eng-ell",
+     "freedict-eng-ell",
+     "wordnet-ell-eng"
+    ],
+    [
+     "wordnet-arb-eng"
+    ]
+   ],
+   "results": [
+    [
+     "freedict-ell-eng",
+     "νερό"
+    ],
+    [
+     "wordnet-ell-eng",
+     "νερό"
+    ],
+    [
+     "freedict-ell-eng",
+     "νεροδεσιά"
+    ],
+    [
+     "freedict-ell-eng",
+     "νεροκολόκυθο"
+    ],
+    [
+     "freedict-eng-ell",
+     "draw water"
+    ],
+    [
+     "freedict-eng-ell",
+     "tap water"
+    ],
+    [
+     "freedict-eng-ell",
+     "dipper"
+    ],
+    [
+     "freedict-eng-ell",
+     "downpour"
+    ],
+    [
+     "freedict-eng-ell",
+     "moorhen"
+    ],
+    [
+     "freedict-eng-ell",
+     "pratincole"
+    ],
+    [
+     "freedict-eng-ell",
+     "watersnake"
+    ],
+    [
+     "wordnet-eng-ell",
+     "tap water"
+    ],
+    [
+     "freedict-ell-eng",
+     "νεροποντή"
+    ],
+    [
+     "freedict-ell-eng",
+     "νεροχελώνα"
+    ],
+    [
+     "freedict-ell-eng",
+     "νερόλακκος"
+    ],
+    [
+     "freedict-ell-eng",
+     "νερόμυλος"
+    ],
+    [
+     "freedict-eng-ell",
+     "freshwater"
+    ],
+    [
+     "freedict-eng-ell",
+     "millwheel"
+    ],
+    [
+     "freedict-eng-ell",
+     "sleet"
+    ],
+    [
+     "freedict-eng-ell",
+     "water colour"
+    ],
+    [
+     "freedict-eng-ell",
+     "water rail"
+    ],
+    [
+     "freedict-eng-ell",
+     "well head"
+    ],
+    [
+     "freedict-ell-eng",
+     "Νεροτριβιά"
+    ],
+    [
+     "freedict-ell-eng",
+     "Νερόμυλοι"
+    ],
+    [
+     "freedict-ell-eng",
+     "μεταλλικό νερό"
+    ],
+    [
+     "freedict-ell-eng",
+     "νεροκάρδαμο"
+    ],
+    [
+     "freedict-ell-eng",
+     "νεροκολοκυθιά"
+    ],
+    [
+     "freedict-ell-eng",
+     "νεροπίστολο"
+    ],
+    [
+     "freedict-ell-eng",
+     "νερουλός"
+    ],
+    [
+     "freedict-ell-eng",
+     "νεροφάγωμα"
+    ],
+    [
+     "freedict-ell-eng",
+     "νερόκρινο"
+    ],
+    [
+     "freedict-ell-eng",
+     "νερόμπομπα"
+    ],
+    [
+     "freedict-eng-ell",
+     "cloudburst"
+    ],
+    [
+     "freedict-eng-ell",
+     "distilled water"
+    ],
+    [
+     "freedict-eng-ell",
+     "drown"
+    ],
+    [
+     "freedict-eng-ell",
+     "mineral water"
+    ],
+    [
+     "freedict-eng-ell",
+     "water"
+    ],
+    [
+     "freedict-eng-ell",
+     "water pipe"
+    ],
+    [
+     "freedict-eng-ell",
+     "water softener"
+    ],
+    [
+     "freedict-eng-ell",
+     "watery"
+    ],
+    [
+     "freedict-ell-eng",
+     "αλμυρό νερό"
+    ],
+    [
+     "freedict-ell-eng",
+     "νερομάνα"
+    ],
+    [
+     "freedict-ell-eng",
+     "νεροτσουλήθρα"
+    ],
+    [
+     "freedict-ell-eng",
+     "νεροχύτης"
+    ],
+    [
+     "freedict-eng-ell",
+     "fresh water"
+    ],
+    [
+     "freedict-eng-ell",
+     "sink"
+    ],
+    [
+     "freedict-eng-ell",
+     "spring a leak"
+    ],
+    [
+     "freedict-ell-eng",
+     "γλυκό νερό"
+    ],
+    [
+     "freedict-ell-eng",
+     "νερολάπαθο"
+    ],
+    [
+     "freedict-ell-eng",
+     "νεροφίδα"
+    ]
+   ]
+  }
+ ]
+}

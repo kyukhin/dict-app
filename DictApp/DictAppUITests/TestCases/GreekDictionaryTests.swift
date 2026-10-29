@@ -6,7 +6,7 @@ import XCTest
 ///
 /// Test names and flows follow DESIGN_DOC.md §8b. Launch / interruption /
 /// orientation setup mirrors `DictionaryPairGroupingTests`; `TabBarPage`
-/// waits until every bundled dictionary is unpacked (Issue #111).
+/// waits for the Search screen.
 ///
 /// - Badges are read by identifier (`AccessibilityIdentifiers.Search.sourceBadge`):
 ///   with a VoiceOver label set, a badge's `label` is the spoken text
