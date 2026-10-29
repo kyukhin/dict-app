@@ -197,7 +197,7 @@ The change goes into `DatabaseService.search` and `searchPreferred` as #138 leav
 4. **Merge** with the pure `Search.mergeLemmaBucket(ranked:lemmaRows:limit:)`: exact rows, then lemma rows not already present, then the remaining base rows, cut to `limit`.
    - Relevance mode: the limit is 50.
    - Preferred mode: one merge per pair bucket with `topN`, before the tail query, so the tail excludes the merged ids. `Search.assemble` then works as today.
-   - Lemma rows from sources outside every pair group (imports not yet in the order) are dropped in preferred mode.
+   - Lemma rows from sources outside every pair group (imports not yet in the order) are merged into the relevance tail the same way, with the tail's limit.
 5. **Result type.** `SearchResult { entry: DictionaryEntry; formMatch: FormMatch? }` replaces `[DictionaryEntry]` in `SearchViewModel.results`; its identity is the entry id, unique across both stores (#129). `FormMatch` holds the lemma word and either a tag set (Greek) or a morphy pos, rule and suffix (English). Nothing of it is persisted.
 
 **Caption.** `FormCaption.text(for:locale:)` is pure. It resolves its strings through the per-locale bundle, as `SettingsViewModel.localizedString(_:locale:)` does.
@@ -308,3 +308,4 @@ None.
 - 2026-10-28: Approved by Kirill. Open questions resolved: verb columns in grammar-book order (Present, Imperfect, Aorist, Future), and "form of go" for English irregular forms.
 - 2026-10-28: CodeRabbit review: Morphy lowercases first, `pos` is matched per label, the imported branch also matches a lemma's own word, `better` gives good and well, the candidate cap is gone (LIMIT 10 applies after the enabled filter), and code-map paths start at the repository root.
 - 2026-10-28: CodeRabbit review: an ambiguous folded-only lemma match shows no table; the #141 criterion names `dict.data_source`.
+- 2026-10-28: CodeRabbit review: in preferred mode, lemma rows from sources outside the order join the relevance tail instead of being dropped.
