@@ -41,6 +41,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from build_greek import normalize_greek  # noqa: E402  (Search.foldGreek's twin)
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# Paths inside the tag's tree: 1.4.0 names (#140 removed Schema.sql and
+# renamed the seed to dictionaries.sqlite).
 SCHEMA_PATH = "DictApp/DictApp/Resources/Schema.sql"
 SEED_PATH = "DictApp/DictApp/Resources/seed.sqlite"
 DEFAULT_OUTPUT = "DictApp/DictAppTests/search-probe-1.4.0.json"

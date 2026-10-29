@@ -26,9 +26,10 @@ Usage:
     python Scripts/build_arabic_wordnet.py            # print summary
     python Scripts/build_arabic_wordnet.py --dump 5   # print 5 entries
 
-Requirements (NLTK + the WordNet and OMW corpora):
-    pip install nltk
-    # corpora are fetched on first run via nltk.download()
+Requirements:
+    pip install -r Scripts/requirements.txt
+    # the pinned WordNet and OMW corpora are fetched on first run
+    # (Scripts/inputs.json)
 """
 
 from __future__ import annotations
@@ -36,19 +37,23 @@ from __future__ import annotations
 import argparse
 import os
 import sys
+from pathlib import Path
 
 # Import the normalizer as the single source of truth for the search key.
-# Works whether this module is run directly or imported by build_seed.py.
+# Works whether this module is run directly or imported by build_dictionaries.py.
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from arabic_normalize import normalize_arabic
+import inputs  # noqa: E402
+from arabic_normalize import normalize_arabic  # noqa: E402
 
 # ---------------------------------------------------------------------------
-# Public constants — consumed by build_seed.py for dict_metadata.
+# Public constants — consumed by build_dictionaries.py for dict_metadata.
 # ---------------------------------------------------------------------------
 
 SOURCE = "wordnet-arb-eng"
 DISPLAY_NAME = "Arabic – English (WordNet)"
 URL = "https://compling.hss.ntu.edu.sg/omw/"
+FROM_LANG = "arb"
+TO_LANG = "eng"
 
 # License and authorship per OMW 1.4 `arb/LICENSE` (Issue #106: this used
 # to say CC BY 3.0).
@@ -94,38 +99,11 @@ _OMW_LANG = "arb"
 
 
 # ---------------------------------------------------------------------------
-# NLTK bootstrap (data download only — never a runtime `pip install`)
-# ---------------------------------------------------------------------------
-
-def _ensure_nltk():
-    """Return the `nltk` module, failing fast if it isn't installed, and
-    ensure the WordNet + OMW corpora are present. Mirrors
-    `build_spanish_wordnet._ensure_nltk` — never `pip install`s at runtime."""
-    try:
-        import nltk
-    except ImportError as err:
-        raise RuntimeError(
-            "Missing build dependency 'nltk'. Install it first: pip install nltk"
-        ) from err
-    for corpus in ("wordnet", "omw-1.4"):
-        try:
-            nltk.data.find(f"corpora/{corpus}")
-        except LookupError:
-            print(f"  Downloading NLTK corpus: {corpus}...")
-            if not nltk.download(corpus, quiet=True):
-                raise RuntimeError(
-                    f"Failed to download required NLTK corpus '{corpus}'. "
-                    "Ensure network access or pre-install the NLTK data."
-                )
-    return nltk
-
-
-# ---------------------------------------------------------------------------
 # Synset → row construction
 # ---------------------------------------------------------------------------
 
-# Mirror build_seed.pos_tag_to_label so the POS line is consistent across
-# sources. Kept local so this module stays stand-alone runnable.
+# Mirror build_dictionaries.pos_tag_to_label so the POS line is consistent
+# across sources. Kept local so this module stays stand-alone runnable.
 _POS_LABEL = {
     "n": "noun",
     "v": "verb",
@@ -175,7 +153,7 @@ def _extract_pos_tags(synsets) -> str:
 # Public entry point
 # ---------------------------------------------------------------------------
 
-def build_and_collect() -> tuple[list[tuple], str]:
+def build_and_collect(cache_dir: Path = inputs.DEFAULT_CACHE_DIR) -> tuple[list[tuple], str]:
     """Iterate every WordNet synset, index it by its Arabic lemmas, and emit
     one arb→eng row per Arabic headword.
 
@@ -184,7 +162,7 @@ def build_and_collect() -> tuple[list[tuple], str]:
         `(word, word_normalized, definition, phonetic, pos, "wordnet-arb-eng")`
         and `version` describes the WordNet/OMW data actually used.
     """
-    nltk = _ensure_nltk()  # noqa: F841 — ensures corpora are present
+    inputs.use_nltk_data(cache_dir)
     from nltk.corpus import wordnet as wn
 
     wn_version = wn.get_version() or "unknown"
@@ -199,7 +177,7 @@ def build_and_collect() -> tuple[list[tuple], str]:
             arabic_index.setdefault(display, []).append(ss)
 
     # Emit headwords in sorted order so the row sequence (and therefore the
-    # rebuilt seed.sqlite) is stable across runs.
+    # rebuilt dictionaries.sqlite) is stable across runs.
     rows: list[tuple] = []
     for arabic_word in sorted(arabic_index):
         synsets = arabic_index[arabic_word]

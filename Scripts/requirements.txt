@@ -1,0 +1,4 @@
+# Build dependencies of Scripts/build_dictionaries.py. Pinned: the NLTK
+# WordNet reader shapes the WordNet rows.
+nltk==3.9.4
+defusedxml==0.7.1

@@ -60,8 +60,8 @@ iPad Pro 13-inch (M5) (iOS 26.4) → screenshot-4-ipad13-<locale>-source.png.
 Steps:
 - Fresh install (xcrun simctl uninstall <udid> com.kyukhin.DictApp), launch with
   -AppleLanguages (<lang>) -AppleLocale <lang_REGION> -resetData -disableReviewPrompt
-- Wait until the dictionaries are ready: Search screen shows and the
-  "Preparing dictionaries…" bar (dictionary_unpack_progress) is gone.
+- Wait until the Search screen shows: every dictionary is searchable at once,
+  nothing is unpacked (#138).
 - Status bar: xcrun simctl status_bar <udid> override --time 9:41 --batteryState charged
   --batteryLevel 100 --cellularBars 4 --wifiBars 3
 - On iPadOS 26 the search field sits under the title (#120): tap it before typing.

@@ -1,7 +1,7 @@
 # Word forms
 
 > Spec written by Claude (AI) for LibreDict.
-> Status: Approved by Kirill on 2026-10-28 · Epic: #136 · Tickets: #141, #142, #143, #144 · Updated: 2026-10-28
+> Status: Approved by Kirill on 2026-10-28 · Epic: #136 · Tickets: #141, #142, #143, #144 · Updated: 2026-10-29
 
 Read [0000-overview.md](0000-overview.md) and [0129-dictionary-file.md](0129-dictionary-file.md) first. This epic builds on #129's read-only `dictionaries.sqlite`. Numbers marked "measured" come from a prototype of the pipeline, run on 2026-10-27 against the 2026-10-01 Wiktionary snapshot and the 1.4.0 seed.
 
@@ -97,7 +97,7 @@ E2 follows #129's rules for static data ("Adding static data" in [0129](0129-dic
 | Search: one SQL over `dict.entries_fts`, plus a `UNION ALL` branch over `imported_fts` when an imported source is enabled | The lemma-row query follows the same rule |
 | `SearchProbeTests` and the golden file `search-probe-1.4.0.json` | Stays green with the lemma step on. None of the probes named in 0129 gains lemma rows (checked with the prototype: `house`, `the`, `comer`, `casa`, `γράφω`, `γραφω`, `νερο`; `a` is too short). A probe that does is an intended change and its golden list is regenerated and reviewed |
 
-**Before #129 lands**, #141 runs standalone: `python3 Scripts/build_forms.py --standalone <dir>/forms.sqlite --headwords DictApp/DictApp/Resources/seed.sqlite` applies `SCHEMA`, runs `build()` and reads the QA report's headwords from the 1.4 seed. In the dictionary build the step reads them from `entries`. #142–#144 start once `dictionaries.sqlite` exists, following the epic's ticket order.
+**Before #129 lands**, #141 runs standalone: `python3 Scripts/build_forms.py --standalone <dir>/forms.sqlite --headwords DictApp/DictApp/Resources/dictionaries.sqlite` applies `SCHEMA`, runs `build()` and reads the QA report's headwords from the dictionary file (the 1.4 seed's rows; #140 renamed the seed). In the dictionary build the step reads them from `entries`. #142–#144 start once `dictionaries.sqlite` exists, following the epic's ticket order.
 
 ### Data
 
@@ -309,3 +309,4 @@ None.
 - 2026-10-28: CodeRabbit review: Morphy lowercases first, `pos` is matched per label, the imported branch also matches a lemma's own word, `better` gives good and well, the candidate cap is gone (LIMIT 10 applies after the enabled filter), and code-map paths start at the repository root.
 - 2026-10-28: CodeRabbit review: an ambiguous folded-only lemma match shows no table; the #141 criterion names `dict.data_source`.
 - 2026-10-28: CodeRabbit review: in preferred mode, lemma rows from sources outside the order join the relevance tail instead of being dropped.
+- 2026-10-29: #140 renamed the seed to `dictionaries.sqlite` (same rows), so the standalone `--headwords` path names it.

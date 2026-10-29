@@ -236,7 +236,7 @@ enum DictionaryDefaults {
 
 /// Pure pair→sources grouping over source IDs. No persistence, no database,
 /// no locale: the pair of a source is a function of its ID alone, following
-/// the `Scripts/build_seed.py` naming convention (bare provider name for the
+/// the `Scripts/build_dictionaries.py` naming convention (bare provider name for the
 /// legacy monolingual / unambiguous bundles, `provider-src-tgt` with ISO-639-3
 /// codes for bilingual ones). Kept in this file next to `DictionaryDefaults`
 /// for the same reason (the app target is not a synchronized folder).
@@ -252,7 +252,7 @@ enum DictionaryGrouping {
         "openrussian": ["rus", "eng"],
     ]
 
-    /// Exact bilingual `provider-src-tgt` IDs shipped in the seed. Only these
+    /// Exact bilingual `provider-src-tgt` IDs shipped in the dictionary file. Only these
     /// may merge into a pair: imports take their ID from the file name and
     /// write no `dict_metadata` row, so `freedict-spa-eng.json` must stay
     /// custom (PM decision #2). A new bundled dictionary is one entry here.

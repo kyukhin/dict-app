@@ -17,6 +17,7 @@
 		079C77052FBDFB5500AC5AB3 /* LocalizationManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 079C77042FBDFB5500AC5AB3 /* LocalizationManager.swift */; };
 		079C77082FBDFB7500AC5AB3 /* SupportedLocales.json in Resources */ = {isa = PBXBuildFile; fileRef = 079C77072FBDFB7500AC5AB3 /* SupportedLocales.json */; };
 		079C77092FBDFB7500AC5AB3 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = 079C77062FBDFB7500AC5AB3 /* Localizable.xcstrings */; };
+		07B0957530933DD700C07403 /* dictionaries.sqlite in Resources */ = {isa = PBXBuildFile; fileRef = 07B0957430933DD700C07403 /* dictionaries.sqlite */; };
 		07BE90832F8E4EB4007FCBBF /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 07BE90822F8E4EB4007FCBBF /* Assets.xcassets */; };
 		A10000000000000000000001 /* DictApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000001 /* DictApp.swift */; };
 		A10000000000000000000002 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000002 /* Models.swift */; };
@@ -32,10 +33,8 @@
 		A1000000000000000000000C /* HistoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000000C /* HistoryView.swift */; };
 		A1000000000000000000000D /* BookmarksView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000000D /* BookmarksView.swift */; };
 		A1000000000000000000000F /* DictionaryEntry+Hashable.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000000F /* DictionaryEntry+Hashable.swift */; };
-		A10000000000000000000010 /* Schema.sql in Resources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000010 /* Schema.sql */; };
 		A10000000000000000000011 /* DictAppTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000011 /* DictAppTests.swift */; };
 		A10000000000000000000012 /* GRDB in Frameworks */ = {isa = PBXBuildFile; productRef = A80000000000000000000001 /* GRDB */; };
-		A10000000000000000000013 /* seed.sqlite in Resources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000012 /* seed.sqlite */; };
 		A10000000000000000000014 /* AboutView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000013 /* AboutView.swift */; };
 		A10000000000000000000015 /* DictionaryDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000014 /* DictionaryDetailView.swift */; };
 		A10000000000000000000052 /* DictionaryOrderView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000052 /* DictionaryOrderView.swift */; };
@@ -83,6 +82,7 @@
 		079C77042FBDFB5500AC5AB3 /* LocalizationManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalizationManager.swift; sourceTree = "<group>"; };
 		079C77062FBDFB7500AC5AB3 /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
 		079C77072FBDFB7500AC5AB3 /* SupportedLocales.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = SupportedLocales.json; sourceTree = "<group>"; };
+		07B0957430933DD700C07403 /* dictionaries.sqlite */ = {isa = PBXFileReference; lastKnownFileType = file; path = dictionaries.sqlite; sourceTree = "<group>"; };
 		07BE90822F8E4EB4007FCBBF /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		A20000000000000000000001 /* DictApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DictApp.swift; sourceTree = "<group>"; };
 		A20000000000000000000002 /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
@@ -98,9 +98,7 @@
 		A2000000000000000000000C /* HistoryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HistoryView.swift; sourceTree = "<group>"; };
 		A2000000000000000000000D /* BookmarksView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookmarksView.swift; sourceTree = "<group>"; };
 		A2000000000000000000000F /* DictionaryEntry+Hashable.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DictionaryEntry+Hashable.swift"; sourceTree = "<group>"; };
-		A20000000000000000000010 /* Schema.sql */ = {isa = PBXFileReference; lastKnownFileType = text; path = Schema.sql; sourceTree = "<group>"; };
 		A20000000000000000000011 /* DictAppTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DictAppTests.swift; sourceTree = "<group>"; };
-		A20000000000000000000012 /* seed.sqlite */ = {isa = PBXFileReference; lastKnownFileType = file; path = seed.sqlite; sourceTree = "<group>"; };
 		A20000000000000000000013 /* AboutView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AboutView.swift; sourceTree = "<group>"; };
 		A20000000000000000000014 /* DictionaryDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DictionaryDetailView.swift; sourceTree = "<group>"; };
 		A20000000000000000000020 /* DictApp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = DictApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -245,10 +243,9 @@
 		A70000000000000000000008 /* Resources */ = {
 			isa = PBXGroup;
 			children = (
+				07B0957430933DD700C07403 /* dictionaries.sqlite */,
 				079C77062FBDFB7500AC5AB3 /* Localizable.xcstrings */,
 				079C77072FBDFB7500AC5AB3 /* SupportedLocales.json */,
-				A20000000000000000000010 /* Schema.sql */,
-				A20000000000000000000012 /* seed.sqlite */,
 				A20000000000000000000F01 /* test_import_fixture.json */,
 				A20000000000000000000F02 /* test_import_fixture.sqlite */,
 			);
@@ -402,9 +399,8 @@
 			files = (
 				079C77082FBDFB7500AC5AB3 /* SupportedLocales.json in Resources */,
 				079C77092FBDFB7500AC5AB3 /* Localizable.xcstrings in Resources */,
-				A10000000000000000000010 /* Schema.sql in Resources */,
 				07BE90832F8E4EB4007FCBBF /* Assets.xcassets in Resources */,
-				A10000000000000000000013 /* seed.sqlite in Resources */,
+				07B0957530933DD700C07403 /* dictionaries.sqlite in Resources */,
 				A10000000000000000000F01 /* test_import_fixture.json in Resources */,
 				A10000000000000000000F02 /* test_import_fixture.sqlite in Resources */,
 			);

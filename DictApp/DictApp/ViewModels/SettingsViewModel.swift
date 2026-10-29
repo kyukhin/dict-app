@@ -296,7 +296,7 @@ class SettingsViewModel: ObservableObject {
     }
 
     /// Header of a source block in the info detail (PM decision #4): the
-    /// provider brand, or the source ID for a custom import. Never the seed's
+    /// provider brand, or the source ID for a custom import. Never the bundled
     /// untranslated English `display_name`.
     nonisolated static func infoBlockTitle(for stat: SourceStat) -> String {
         providerName(for: stat) ?? stat.source

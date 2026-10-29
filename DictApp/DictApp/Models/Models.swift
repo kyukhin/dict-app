@@ -108,6 +108,20 @@ struct EntryKey: Hashable, Sendable {
     }
 }
 
+// MARK: - DictionaryFile (Issue #140)
+
+/// The bundled, read-only dictionary file `dictionaries.sqlite`, written by
+/// `Scripts/build_dictionaries.py` and attached as `dict`.
+enum DictionaryFile {
+    static let resourceName = "dictionaries"
+    static let resourceExtension = "sqlite"
+
+    /// The file's `PRAGMA user_version`. The app and the file ship together,
+    /// so nothing checks it at runtime; a unit test checks the bundled file.
+    /// A changed table shape bumps it and `FORMAT_VERSION` in the build script.
+    static let formatVersion = 1
+}
+
 // MARK: - DictMetadata
 
 /// One `dict.dict_metadata` row: a bundled dictionary (Issue #138).

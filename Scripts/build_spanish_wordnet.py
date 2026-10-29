@@ -20,23 +20,31 @@ Usage:
     python Scripts/build_spanish_wordnet.py            # print summary
     python Scripts/build_spanish_wordnet.py --dump 5   # print 5 entries
 
-Requirements (NLTK + the WordNet and OMW corpora):
-    pip install nltk
-    # corpora are fetched on first run via nltk.download()
+Requirements:
+    pip install -r Scripts/requirements.txt
+    # the pinned WordNet and OMW corpora are fetched on first run
+    # (Scripts/inputs.json)
 """
 
 from __future__ import annotations
 
 import argparse
+import os
 import sys
+from pathlib import Path
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import inputs  # noqa: E402
 
 # ---------------------------------------------------------------------------
-# Public constants — consumed by build_seed.py for dict_metadata.
+# Public constants — consumed by build_dictionaries.py for dict_metadata.
 # ---------------------------------------------------------------------------
 
 SOURCE = "wordnet-spa-eng"
 DISPLAY_NAME = "Spanish – English (WordNet)"
 URL = "https://adimen.si.ehu.es/web/MCR"
+FROM_LANG = "spa"
+TO_LANG = "eng"
 
 LICENSE_TEXT = (
     "Spanish WordNet — Multilingual Central Repository (MCR), "
@@ -73,42 +81,11 @@ _OMW_LANG = "spa"
 
 
 # ---------------------------------------------------------------------------
-# NLTK bootstrap (data download only — never a runtime `pip install`)
-# ---------------------------------------------------------------------------
-
-def _ensure_nltk():
-    """Return the `nltk` module, failing fast if it isn't installed, and
-    ensure the WordNet + OMW corpora are present.
-
-    Like the #24 build scripts, we never `pip install` at runtime (that
-    makes builds non-deterministic and breaks in offline CI). Corpus
-    *data* downloads via `nltk.download()` are the standard NLTK
-    bootstrap and mirror `build_seed.ensure_nltk()`."""
-    try:
-        import nltk
-    except ImportError as err:
-        raise RuntimeError(
-            "Missing build dependency 'nltk'. Install it first: pip install nltk"
-        ) from err
-    for corpus in ("wordnet", "omw-1.4"):
-        try:
-            nltk.data.find(f"corpora/{corpus}")
-        except LookupError:
-            print(f"  Downloading NLTK corpus: {corpus}...")
-            if not nltk.download(corpus, quiet=True):
-                raise RuntimeError(
-                    f"Failed to download required NLTK corpus '{corpus}'. "
-                    "Ensure network access or pre-install the NLTK data."
-                )
-    return nltk
-
-
-# ---------------------------------------------------------------------------
 # Synset → row construction
 # ---------------------------------------------------------------------------
 
-# Mirror build_seed.pos_tag_to_label so the POS line is consistent across
-# sources. Kept local so this module stays stand-alone runnable.
+# Mirror build_dictionaries.pos_tag_to_label so the POS line is consistent
+# across sources. Kept local so this module stays stand-alone runnable.
 _POS_LABEL = {
     "n": "noun",
     "v": "verb",
@@ -136,7 +113,7 @@ def _build_definition(synsets) -> str:
         by_pos.setdefault(_pos_label(ss.pos()), []).append(ss)
 
     # Iterate POS blocks and senses in a stable order so rebuilds produce
-    # byte-identical definitions (avoids noisy seed.sqlite diffs). Synsets
+    # byte-identical definitions (avoids noisy dictionaries.sqlite diffs). Synsets
     # sort by their unique name (e.g. "house.n.01"), which is deterministic.
     parts: list[str] = []
     for pos_label in sorted(by_pos):
@@ -159,7 +136,7 @@ def _build_definition(synsets) -> str:
 
 def _extract_pos_tags(synsets) -> str:
     # Sort the de-duplicated POS labels so the `pos` column is stable
-    # across rebuilds (no traversal-order churn in the seed).
+    # across rebuilds (no traversal-order churn in the dictionary file).
     tags = {_pos_label(ss.pos()) for ss in synsets}
     return ", ".join(sorted(tags))
 
@@ -168,7 +145,7 @@ def _extract_pos_tags(synsets) -> str:
 # Public entry point
 # ---------------------------------------------------------------------------
 
-def build_and_collect() -> tuple[list[tuple], str]:
+def build_and_collect(cache_dir: Path = inputs.DEFAULT_CACHE_DIR) -> tuple[list[tuple], str]:
     """Iterate every WordNet synset, index it by its Spanish lemmas, and
     emit one spa→eng row per Spanish headword.
 
@@ -177,7 +154,7 @@ def build_and_collect() -> tuple[list[tuple], str]:
         `(word, definition, phonetic, pos, "wordnet-spa-eng")` tuples and
         `version` describes the WordNet/OMW data actually used.
     """
-    nltk = _ensure_nltk()  # noqa: F841 — ensures corpora are present
+    inputs.use_nltk_data(cache_dir)
     from nltk.corpus import wordnet as wn
 
     wn_version = wn.get_version() or "unknown"
@@ -192,7 +169,7 @@ def build_and_collect() -> tuple[list[tuple], str]:
             spanish_index.setdefault(display, []).append(ss)
 
     # Emit headwords in sorted order so the row sequence (and therefore
-    # the rebuilt seed.sqlite) is stable across runs.
+    # the rebuilt dictionaries.sqlite) is stable across runs.
     rows: list[tuple] = []
     for spanish_word in sorted(spanish_index):
         synsets = spanish_index[spanish_word]

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 build_greek.py
-Everything Greek for the bundled seed (Issue #87): the search-key
+Everything Greek for the dictionary file (Issue #87): the search-key
 normaliser, the definition decomposer, and the four sources of the
 "Greek – English" pair.
 
@@ -28,8 +28,8 @@ Usage:
     python Scripts/build_greek.py --dump 3   # build all four sources, 3 rows each
 
 Requirements:
-    pip install nltk requests defusedxml
-    # NLTK corpora wordnet + omw-1.4 (fetched on first run)
+    pip install -r Scripts/requirements.txt
+    # inputs pinned in Scripts/inputs.json (fetched on first run)
 """
 
 from __future__ import annotations
@@ -39,10 +39,12 @@ import os
 import sys
 import unicodedata
 from dataclasses import dataclass
+from pathlib import Path
 
-# Sibling build modules (FreeDict fetch/parse, NLTK bootstrap), whether this
-# file runs directly or is imported by build_seed.py.
+# Sibling build modules (FreeDict fetch/parse, pinned inputs), whether this
+# file runs directly or is imported by build_dictionaries.py.
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import inputs  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -198,6 +200,8 @@ class GreekSource:
     license: str
     url: str
     description: str
+    from_lang: str
+    to_lang: str
     rows: list
 
 
@@ -248,12 +252,10 @@ def _omw_pos(synsets) -> str:
     return ", ".join(sorted({_pos_label(ss.pos()) for ss in synsets}))
 
 
-def build_omw() -> tuple[list[tuple], list[tuple], str]:
+def build_omw(cache_dir: Path) -> tuple[list[tuple], list[tuple], str]:
     """Return `(ell_eng_rows, eng_ell_rows, version)` from one WordNet
     instance, so the synset join is exact (as for Arabic and Spanish)."""
-    from build_arabic_wordnet import _ensure_nltk
-
-    _ensure_nltk()
+    inputs.use_nltk_data(cache_dir)
     from nltk.corpus import wordnet as wn
 
     version = f"OMW 1.4 / WordNet {wn.get_version() or 'unknown'}"
@@ -306,7 +308,7 @@ def build_omw() -> tuple[list[tuple], list[tuple], str]:
 # FreeDict Greek → English (WikDict)
 # ---------------------------------------------------------------------------
 
-def build_freedict_ell_eng() -> tuple[list[tuple], str]:
+def build_freedict_ell_eng(cache_dir: Path) -> tuple[list[tuple], str]:
     """Parse with the shared FreeDict importer, then merge homographs by the
     NOCASE key (125 of them; unmerged, `INSERT OR IGNORE` would keep e.g.
     the `suffix` entry of λάτρης and hide "worshipper"). Definition blocks
@@ -314,7 +316,7 @@ def build_freedict_ell_eng() -> tuple[list[tuple], str]:
     non-empty one, `pos` the sorted distinct labels."""
     from build_freedict_eng_spa import download_and_parse
 
-    parsed, version = download_and_parse(pair="ell-eng")
+    parsed, version = download_and_parse(pair="ell-eng", cache_dir=cache_dir)
     groups: dict[str, list[tuple]] = {}
     for word, definition, phonetic, pos, _source in parsed:
         groups.setdefault(nocase_key(word), []).append((word, definition, phonetic, pos))
@@ -355,14 +357,14 @@ def _eng_ell_definition(word: str, items: list[tuple[str, str, str]]) -> str:
     return "\n".join(parts)
 
 
-def build_freedict_eng_ell() -> tuple[list[tuple], str]:
+def build_freedict_eng_ell(cache_dir: Path) -> tuple[list[tuple], str]:
     """Parse the `<sense><def>` TEI and merge by the NOCASE key (22 exact
     duplicates and ~216 case-only groups such as `AD`/`ad`). The display
     word is the all-lowercase spelling when the group has one, else the
     first."""
     from build_freedict_eng_spa import fetch_tei, parse_def_tei
 
-    tei_path, version = fetch_tei(pair="eng-ell")
+    tei_path, version = fetch_tei(pair="eng-ell", cache_dir=cache_dir)
     groups: dict[str, list[tuple[str, str, str]]] = {}
     for item in parse_def_tei(tei_path):
         groups.setdefault(nocase_key(item[0]), []).append(item)
@@ -395,27 +397,27 @@ def _check_rows(src: GreekSource) -> None:
             raise RuntimeError(f"{src.source}: headword {word!r} is not NFC")
 
 
-def build_all() -> list[GreekSource]:
+def build_all(cache_dir: Path = inputs.DEFAULT_CACHE_DIR) -> list[GreekSource]:
     """Build the four Greek sources, in insertion order."""
-    omw_ell_eng, omw_eng_ell, omw_version = build_omw()
-    fd_ell_eng, fd_ell_eng_version = build_freedict_ell_eng()
-    fd_eng_ell, fd_eng_ell_version = build_freedict_eng_ell()
+    omw_ell_eng, omw_eng_ell, omw_version = build_omw(cache_dir)
+    fd_ell_eng, fd_ell_eng_version = build_freedict_ell_eng(cache_dir)
+    fd_eng_ell, fd_eng_ell_version = build_freedict_eng_ell(cache_dir)
     from build_freedict_eng_spa import LICENSE_TEXT as WIKDICT_LICENSE_TEXT
 
     wordnet_license = wordnet_license_text()
     sources = [
         GreekSource(WORDNET_ELL_ENG, "Greek – English (WordNet)", omw_version,
                     wordnet_license, WORDNET_URL, WORDNET_ELL_ENG_DESCRIPTION,
-                    omw_ell_eng),
+                    "ell", "eng", omw_ell_eng),
         GreekSource(WORDNET_ENG_ELL, "English – Greek (WordNet)", omw_version,
                     wordnet_license, WORDNET_URL, WORDNET_ENG_ELL_DESCRIPTION,
-                    omw_eng_ell),
+                    "eng", "ell", omw_eng_ell),
         GreekSource(FREEDICT_ELL_ENG, "Greek – English (FreeDict)", fd_ell_eng_version,
                     WIKDICT_LICENSE_TEXT, FREEDICT_ELL_ENG_URL,
-                    FREEDICT_ELL_ENG_DESCRIPTION, fd_ell_eng),
+                    FREEDICT_ELL_ENG_DESCRIPTION, "ell", "eng", fd_ell_eng),
         GreekSource(FREEDICT_ENG_ELL, "English – Greek (FreeDict)", fd_eng_ell_version,
                     FREEDICT_ENG_ELL_LICENSE_TEXT, FREEDICT_ENG_ELL_URL,
-                    FREEDICT_ENG_ELL_DESCRIPTION, fd_eng_ell),
+                    FREEDICT_ENG_ELL_DESCRIPTION, "eng", "ell", fd_eng_ell),
     ]
     for src in sources:
         _check_rows(src)

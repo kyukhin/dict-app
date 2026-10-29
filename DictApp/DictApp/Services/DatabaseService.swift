@@ -737,10 +737,9 @@ actor DatabaseService {
         return appSupport.appendingPathComponent("DictApp")
     }
 
-    /// The bundled dictionary file. Still `seed.sqlite` until #140 renames it
-    /// to `dictionaries.sqlite`.
+    /// The bundled dictionary file, `dictionaries.sqlite`.
     static func bundledDictionaryURL() -> URL? {
-        Bundle.main.url(forResource: "seed", withExtension: "sqlite")
+        Bundle.main.url(forResource: DictionaryFile.resourceName, withExtension: DictionaryFile.resourceExtension)
     }
 
     #if DEBUG
