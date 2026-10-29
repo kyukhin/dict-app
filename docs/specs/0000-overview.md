@@ -51,6 +51,7 @@ LibreDict is a free offline dictionary for iPhone and iPad. It has no account, n
 - TTS (`AVSpeechSynthesizer`) reads each headword in its source's headword language (#202). `SpeechService.language(forSource:)` takes the first language of `DictionaryGrouping.parse` and maps it to a voice: `eng` en-US, `rus` ru-RU, `spa` es-ES, `arb` ar-SA, `ell` el-GR. So `freedict-eng-spa`, `freedict-eng-ell` and `wordnet-eng-ell` speak English. Imports declare no language and get `en-US`, unless the file is named like a bundled source ID.
 - The review prompt (#12) needs at least 5 Definition views and 30 s, then 10 min, then 60 min of cumulative active time. It fires at most once per session and three times per install, and Apple decides whether it shows. `-disableReviewPrompt` turns it off.
 - On a fresh install or after an update, Search appears at once with every dictionary searchable: the app reads the bundled file in place, nothing is unpacked (#138).
+- The first launch after an upgrade from 1.x moves History, bookmarks (as My words) and imported dictionaries out of the old database, then deletes it (#139). Search works during the move; History, the Bookmarks tab and Dictionary Order wait for it.
 - Arabic: a bare (unvocalised) query finds vocalised headwords. A vocalised query does not (known limitation since 1.3.0). Greek: search ignores accents, case and final sigma, in headwords and in English → Greek translations (#87). Imported dictionaries are searched with their diacritics as stored.
 
 ### iPad and iPadOS 26
@@ -80,7 +81,7 @@ The app code is in `DictApp/DictApp/`. These are Xcode groups, not a synchronize
 |---|---|
 | [DictApp.swift](../../DictApp/DictApp/DictApp.swift) | `@main`. Runs the launch sequence (below) and sets the root environment (`\.locale`, `\.layoutDirection`, `.id(language)`) and the scene-phase hooks (review timer, Reading Mode) |
 | `Models/` | [Models.swift](../../DictApp/DictApp/Models/Models.swift): the GRDB records `DictionaryEntry`, `HistoryItem` and `DictMetadata`, the stable entry key `EntryKey`, plus `SourceStat`, `DictionaryPair`, `DictionaryItem` and `ResultSortMode`. Also `AppVersion`, `AppConstants` and `UILanguage` |
-| `Services/` | [DatabaseService](../../DictApp/DictApp/Services/DatabaseService.swift) (an `actor`; the same file holds `Search` and the user database migrator), [SettingsService](../../DictApp/DictApp/Services/SettingsService.swift) (also `KeyValueStore`, `DictionaryDefaults` and `DictionaryGrouping`), `LocalizationManager`, `ReviewRequestService` (also `ReadingModeService`), `SupportService`, `SpeechService` |
+| `Services/` | [DatabaseService](../../DictApp/DictApp/Services/DatabaseService.swift) (an `actor`; the same file holds `Search`, the user database migrator and `LegacyMigration`, the 1.x move), [SettingsService](../../DictApp/DictApp/Services/SettingsService.swift) (also `KeyValueStore`, `DictionaryDefaults` and `DictionaryGrouping`), `LocalizationManager`, `ReviewRequestService` (also `ReadingModeService`), `SupportService`, `SpeechService` |
 | `ViewModels/` | One `@MainActor ObservableObject` per screen |
 | `Views/` | SwiftUI views. `SourceStripeRow` is shared by Search and History |
 | `Resources/` | `seed.sqlite` (the dictionary file), `Schema.sql` (unused since #138, removed by #140), `Localizable.xcstrings`, `SupportedLocales.json` and the import test fixtures |
@@ -128,7 +129,7 @@ The full design is [0129-dictionary-file.md](0129-dictionary-file.md).
 
 - The dictionary file holds `entries` (unique on `(word COLLATE NOCASE, source)`), `entries_fts` and `dict_metadata`, as `build_seed.py` writes them (Bundled data).
 - User data points at entries by `EntryKey` `(source, word)`. `entry(for:)` tries `dict.entries`, then `imported_entries`.
-- A 1.x `Application Support/DictApp/dict.sqlite` stays on disk unread until #139 moves its data.
+- A 1.x `Application Support/DictApp/dict.sqlite` is moved into the user database at launch, then deleted (#139, see Launch). `user_meta.legacy_migration` records the commit.
 
 ### Launch (#138)
 
@@ -138,7 +139,8 @@ The full design is [0129-dictionary-file.md](0129-dictionary-file.md).
 2. `setup()` opens the pool, which attaches `dict`, and runs the migrator. This takes milliseconds.
 3. In DEBUG builds the launch test hooks run (`-resetData`, `-clearFixtureImports`).
 4. `normalizeDictionaryPreferences` runs on the `dict.dict_metadata` sources (pair invariants).
-5. `isReady = true` shows the UI.
+5. If a 1.x `dict.sqlite` exists, `startLegacyMigration()` moves its user data in a detached utility task and then deletes it (#139). Every `DatabaseService` method that touches user data awaits the move; Search does not, and re-runs its query once when the move commits. An unreadable file is kept and retried on the next launch. Details: [0129-dictionary-file.md](0129-dictionary-file.md), "1.x migration".
+6. `isReady = true` shows the UI.
 
 There is no unpack, sync or progress state, and the dictionary data is stored once, in the bundle.
 
@@ -206,7 +208,7 @@ These tests prove today's behaviour. A feature spec maps its acceptance criteria
 |---|---|---|
 | Search, ranking, filters | `DictAppTests`, `SearchAssembleTests`, `SearchProbeTests` (1.4.0 probe, #138) | `SearchFlowTests`, `DictionaryFilterTests`, `SearchHighlightTests` |
 | Greek and Arabic search | `GreekFoldAndBadgeTests`, `DictAppTests` (#10, #87) | `GreekDictionaryTests`, `ArabicLocalizationTests` |
-| History, My words (bookmarks), user database | `DictAppTests`, `HistoryTimestampTests`, `UserDatabaseTests` (#138) | `HistoryFlowTests`, `BookmarkFlowTests` |
+| History, My words (bookmarks), user database, 1.x upgrade | `DictAppTests`, `HistoryTimestampTests`, `UserDatabaseTests` (#138), `LegacyMigrationTests` (#139) | `HistoryFlowTests`, `BookmarkFlowTests` |
 | Preferences, pairs, order | `SettingsServiceTests`, `DictionaryGroupingTests`, `DictionaryDefaultsTests`, `SettingsViewModelPairTests` | `DictionaryPairGroupingTests`, `DictionaryOrderDefaultTests`, `DictionaryOrderReorderTests`, `DictionaryOrderRefreshTests` |
 | Dictionary info, import | `DictionaryInfoDetailTests`, `SettingsViewModelPairTests` (#105), `DictAppTests` | `DictionaryInfoTests`, `ImportDictionaryTests` |
 | Localization | `DictAppTests` (#88), `ArabicBidiOrderTests` | `SpanishLocalizationTests`, `ArabicLocalizationTests`, `GreekLocalizationTests` |
@@ -216,8 +218,9 @@ These tests prove today's behaviour. A feature spec maps its acceptance criteria
 
 ### Unit tests
 
-There are 226 tests in 15 classes, all in [DictAppTests.swift](../../DictApp/DictAppTests/DictAppTests.swift), target `DictAppTests`. The real app hosts the tests. A class that swaps the shared database first calls `DictAppTests.waitForHostAppLaunch()`, then `setup(userPath:dictionaryURL:)` on a temp user database. Test seams:
+There are 244 tests in 16 classes, all in [DictAppTests.swift](../../DictApp/DictAppTests/DictAppTests.swift), target `DictAppTests`. The real app hosts the tests. A class that swaps the shared database first calls `DictAppTests.waitForHostAppLaunch()`, then `setup(userPath:dictionaryURL:)` on a temp user database. Test seams:
 - `TestDictionary.make(rows:)`: a dictionary file with the bundled file's schema and only the given rows; `TestDictionaryFixture` writes a new one and reopens the service as a test adds rows (#138);
+- the 1.x fixtures `legacy-1.2.0.sqlite`, `legacy-1.3.0.sqlite` and `legacy-1.4.0.sqlite` from `Scripts/make_legacy_fixtures.py`, read from the source tree through `#filePath` like `search-probe-1.4.0.json`, and the DEBUG seams `LegacyMigration.failBeforeCommit`, `failBeforeDelete` and `beforeCopy` (#139);
 - `InMemoryKeyValueStore`;
 - `FakeIdleTimer`.
 
@@ -261,7 +264,7 @@ The unit tests do not run in parallel (see [DictApp.xctestplan](../../DictApp/Di
 
 The specs of these epics will replace parts of this overview:
 
-- #129 Dictionaries as one read-only file ([0129-dictionary-file.md](0129-dictionary-file.md)): #138 attaches the bundled file and moves user data to the user database (Database, Launch, Imported dictionaries above). Still to come: #139 migrates 1.x data, #140 builds `dictionaries.sqlite` and drops `built_at` and the seed resources.
+- #129 Dictionaries as one read-only file ([0129-dictionary-file.md](0129-dictionary-file.md)): #138 attaches the bundled file and moves user data to the user database, and #139 moves a 1.x database into it (Database, Launch, Imported dictionaries above). Still to come: #140 builds `dictionaries.sqlite` and drops `built_at` and the seed resources.
 - #131 Learning with spaced repetition: a Learn tab replaces Bookmarks, giving the tabs Search · Learn · History · Settings. Bookmarks migrate into a "My words" list, and the Definition bookmark becomes "Learn".
 - #136 Word forms: search by any inflected form (Greek from Wiktionary, English through WordNet morphy) and inflection tables on Definition. Affects Search, Definition and the seed pipeline.
 - #146 Quick dictionary chips on Search, in Dictionary Order sequence. Affects Search and Preferences.
@@ -280,3 +283,4 @@ The specs of these epics will replace parts of this overview:
 - 2026-10-27: Open questions 3–5 resolved and moved to Decisions on record (#203): the launch test hooks are DEBUG only, `AppVersion.verboseString` is gone, two stale root documents are deleted, and the agent prompts name the right unit-test target.
 - 2026-10-27: #202 speaks each headword in its source's language and hides the speaker button when the device has no voice for it (PM decision). Resolves open question 1.
 - 2026-10-29: #138: the app attaches the bundled seed read-only as `dict` and keeps user data in `user.sqlite`. The unpack, its progress bar and the 1.x schema code are gone. History and Recent words reopen the stored source; the bookmark star and tab use My words. Updated Screens, Rules, Code map, Bundled data, Database, Launch, Imported dictionaries, Search, Localization and the test sections.
+- 2026-10-29: #139: the first launch after a 1.x upgrade moves History, bookmarks (as My words) and imports into the user database, then deletes the old database. Updated Rules, Code map, Database, Launch, Upcoming changes and the unit-test section.

@@ -7421,3 +7421,879 @@ final class SearchProbeTests: XCTestCase {
         XCTAssertTrue(json.allSatisfy { ($0.id ?? 0) >= 1 << 40 }, "imported ids start at 2^40")
     }
 }
+
+// MARK: - Issue #139: 1.x migration
+
+/// The move of a 1.x database into the user database (0129, "1.x
+/// migration"). The fixtures next to this file (`legacy-1.2.0.sqlite`,
+/// `legacy-1.3.0.sqlite`, `legacy-1.4.0.sqlite`) are 1.x databases written by
+/// `Scripts/make_legacy_fixtures.py`: a subset of each release's bundled rows,
+/// two imports, bookmarks and History. The tests read them from the source
+/// tree through `#filePath`, like the search probe, so the target needs no
+/// resource. Each test copies one into a simulated `Application
+/// Support/DictApp` folder and attaches the bundled dictionary file, so the
+/// 1.x copy of the bundled rows is recognised and dropped.
+final class LegacyMigrationTests: XCTestCase {
+    /// What a fixture holds, as the script writes it.
+    private struct Fixture {
+        let name: String
+        /// The import named like a bundled source.
+        let named: String
+        /// Bookmark keys in bookmark order, dated `bookmarkedAt(i)`.
+        let bookmarks: [EntryKey]
+        let historyCount: Int
+    }
+
+    private static let glossary = "my_glossary"
+    private static let glossaryWords = ["house", "housesitter", "zorblat", "quindle", "flumox", "brantoor", "wexley"]
+    /// The named import also had "dog", which 1.x skipped: the bundle has it.
+    private static let namedWords = ["doomscroll", "photobomb", "dogsitter"]
+
+    private static let v140 = Fixture(
+        name: "legacy-1.4.0.sqlite", named: "freedict-eng-spa",
+        bookmarks: [EntryKey(source: "wordnet", word: "dog"), EntryKey(source: "freedict-eng-spa", word: "house"),
+                    EntryKey(source: "openrussian", word: "дом"), EntryKey(source: "wordnet-arb-eng", word: "كِتاب"),
+                    EntryKey(source: "freedict-ell-eng", word: "σπίτι"), EntryKey(source: glossary, word: "zorblat"),
+                    EntryKey(source: "freedict-eng-spa", word: "dogsitter")],
+        historyCount: 8)
+    private static let v130 = Fixture(
+        name: "legacy-1.3.0.sqlite", named: "freedict-eng-spa",
+        bookmarks: v140.bookmarks.filter { $0.source != "freedict-ell-eng" },
+        historyCount: 7)
+    /// The 1.1/1.2 shape: no `history.source`, WordNet and OpenRussian only.
+    private static let v120 = Fixture(
+        name: "legacy-1.2.0.sqlite", named: "wordnet",
+        bookmarks: [EntryKey(source: "wordnet", word: "dog"), EntryKey(source: "openrussian", word: "дом"),
+                    EntryKey(source: glossary, word: "zorblat"), EntryKey(source: "wordnet", word: "dogsitter")],
+        historyCount: 5)
+
+    private static func bookmarkedAt(_ index: Int) -> String {
+        String(format: "2026-06-01 %02d:00:00", 9 + index)
+    }
+
+    private var tempDir: URL!
+    private var db: DatabaseService { .shared }
+    /// The simulated `Application Support/DictApp` folder.
+    private var appSupport: URL { tempDir.appendingPathComponent("DictApp") }
+    private var legacyURL: URL { appSupport.appendingPathComponent("dict.sqlite") }
+    private var userPath: String { appSupport.appendingPathComponent("user.sqlite").path }
+    private static let userFiles: Set = ["user.sqlite", "user.sqlite-wal", "user.sqlite-shm"]
+
+    override func setUp() async throws {
+        try await super.setUp()
+        await DictAppTests.waitForHostAppLaunch()
+        tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: appSupport, withIntermediateDirectories: true)
+        try await db.setup(userPath: userPath, dictionaryURL: try TestDictionary.bundledURL())
+    }
+
+    override func tearDown() async throws {
+        LegacyMigration.failBeforeCommit = false
+        LegacyMigration.failBeforeDelete = false
+        LegacyMigration.beforeCopy = nil
+        try? FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: legacyURL.path)
+        try? FileManager.default.removeItem(at: tempDir)
+        try await super.tearDown()
+    }
+
+    // MARK: Helpers
+
+    private static func fixtureURL(_ name: String) -> URL {
+        URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent(name)
+    }
+
+    /// Copies the fixture `name` into the app folder as the 1.x `dict.sqlite`.
+    private func install(_ name: String) throws {
+        let source = Self.fixtureURL(name)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: source.path),
+                      "fixture missing at \(source.path); run Scripts/make_legacy_fixtures.py")
+        try? FileManager.default.removeItem(at: legacyURL)
+        try FileManager.default.copyItem(at: source, to: legacyURL)
+    }
+
+    /// Copies the fixture `name` into the app folder and edits it with
+    /// `edit`, in one transaction, for rows the fixtures do not hold.
+    /// Foreign keys are off, so a test can leave a bookmark without its entry.
+    private func install(_ name: String, editedBy edit: (Database) throws -> Void) throws {
+        try install(name)
+        var config = Configuration()
+        config.foreignKeysEnabled = false
+        let queue = try DatabaseQueue(path: legacyURL.path, configuration: config)
+        try queue.write(edit)
+        try queue.close()
+    }
+
+    /// Holds the move on the writer, inside its transaction, until `release`
+    /// is signalled (30 s at most).
+    private final class MoveGate: @unchecked Sendable {
+        private let lock = NSLock()
+        private var isEntered = false
+        let release = DispatchSemaphore(value: 0)
+        var entered: Bool { lock.withLock { isEntered } }
+        func enter() { lock.withLock { isEntered = true } }
+    }
+
+    /// Starts moving the installed 1.x file and returns once the move waits
+    /// inside its transaction (the `beforeCopy` seam), before the copy.
+    private func startHeldMove(file: StaticString = #filePath,
+                               line: UInt = #line) async throws -> (move: Task<Void, Never>, gate: MoveGate) {
+        let gate = MoveGate()
+        LegacyMigration.beforeCopy = {
+            gate.enter()
+            _ = gate.release.wait(timeout: .now() + 30)
+        }
+        let task = await db.startLegacyMigration(legacyURL: legacyURL)
+        let move = try XCTUnwrap(task, file: file, line: line)
+        let deadline = Date().addingTimeInterval(10)
+        while !gate.entered, Date() < deadline {
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        XCTAssertTrue(gate.entered, "the move is inside its transaction", file: file, line: line)
+        return (move, gate)
+    }
+
+    /// `datetime('now')` as SQLite writes it (UTC), for comparing dates the
+    /// move stamps.
+    private static func sqliteNow() -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(identifier: "UTC")
+        formatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
+        return formatter.string(from: Date())
+    }
+
+    /// Runs the move to its end and returns how long it took.
+    @discardableResult
+    private func move(file: StaticString = #filePath, line: UInt = #line) async throws -> TimeInterval {
+        let started = Date()
+        let task = await db.startLegacyMigration(legacyURL: legacyURL)
+        let move = try XCTUnwrap(task, "a 1.x file is there, so a move starts", file: file, line: line)
+        await move.value
+        return Date().timeIntervalSince(started)
+    }
+
+    private func exists(_ path: String) -> Bool { FileManager.default.fileExists(atPath: path) }
+
+    /// The 1.x file and its sidecars that are still on disk.
+    private func legacyFiles() -> [String] {
+        ["", "-wal", "-shm", "-journal"].map { legacyURL.path + $0 }.filter(exists)
+    }
+
+    /// A connection of the test's own on a copy of `url`: 1.x files are in
+    /// WAL mode, which a read-only connection cannot open without its `-shm`.
+    /// The `-wal` comes along, so rows not yet checkpointed are counted.
+    private func inspectCopy(of url: URL) throws -> DatabaseQueue {
+        let copy = tempDir.appendingPathComponent("inspect-\(UUID().uuidString).sqlite")
+        try FileManager.default.copyItem(at: url, to: copy)
+        if exists(url.path + "-wal") {
+            try FileManager.default.copyItem(atPath: url.path + "-wal", toPath: copy.path + "-wal")
+        }
+        return try DatabaseQueue(path: copy.path)
+    }
+
+    /// History rows as `word|source|looked_at`, in id order. `source` is
+    /// `''` where the table has no such column (1.1, 1.2); a NULL date reads
+    /// `NULL`.
+    private static func historyRows(_ conn: Database) throws -> [String] {
+        let hasSource = try Row.fetchAll(conn, sql: "PRAGMA table_info(history)")
+            .contains { ($0["name"] as String?) == "source" }
+        return try Row.fetchAll(conn, sql: """
+            SELECT word, \(hasSource ? "source" : "''") AS source, looked_at FROM history ORDER BY id
+            """).map { "\($0["word"] as String)|\($0["source"] as String)|\(($0["looked_at"] as String?) ?? "NULL")" }
+    }
+
+    /// The user database as a connection of the test's own reads it.
+    private struct UserState {
+        var history: [String] = []
+        /// `source/word|added_at`, in insertion order.
+        var myWords: [String] = []
+        /// `source/word`, in id order.
+        var imported: [String] = []
+        var lowestImportedID: Int64 = 0
+        /// `source|imported_at`.
+        var importedSources: [String] = []
+        var marker: String?
+    }
+
+    private func userState() throws -> UserState {
+        var config = Configuration()
+        config.readonly = true
+        return try DatabaseQueue(path: userPath, configuration: config).read { conn in
+            UserState(
+                history: try Self.historyRows(conn),
+                myWords: try Row.fetchAll(conn, sql: "SELECT source, word, added_at FROM my_words ORDER BY added_at")
+                    .map { "\($0["source"] as String)/\($0["word"] as String)|\($0["added_at"] as String)" },
+                imported: try Row.fetchAll(conn, sql: "SELECT source, word FROM imported_entries ORDER BY id")
+                    .map { "\($0["source"] as String)/\($0["word"] as String)" },
+                lowestImportedID: try Int64.fetchOne(conn, sql: "SELECT MIN(id) FROM imported_entries") ?? 0,
+                importedSources: try Row.fetchAll(conn, sql: "SELECT source, imported_at FROM imported_sources ORDER BY source")
+                    .map { "\($0["source"] as String)|\($0["imported_at"] as String)" },
+                marker: try String.fetchOne(conn, sql: "SELECT value FROM user_meta WHERE key = ?",
+                                            arguments: [LegacyMigration.markerKey]))
+        }
+    }
+
+    /// `imported_fts` matches `imported_entries` exactly (FTS5 integrity-check
+    /// on the writer), so a rolled-back move left no stray index rows.
+    private func assertImportIndexIntact(file: StaticString = #filePath, line: UInt = #line) async {
+        do {
+            try await db.writeForTesting { conn in
+                try conn.execute(sql: "INSERT INTO imported_fts(imported_fts) VALUES('integrity-check')")
+            }
+        } catch {
+            XCTFail("imported_fts integrity-check: \(error)", file: file, line: line)
+        }
+    }
+
+    private static func keys(_ entries: [DictionaryEntry]) -> [EntryKey] {
+        entries.map { EntryKey($0) }
+    }
+
+    /// The imports of `fixture` after a move, in 1.x row order.
+    private static func expectedImports(_ fixture: Fixture) -> [String] {
+        glossaryWords.map { "\(glossary)/\($0)" } + namedWords.map { "\(fixture.named)/\($0)" }
+    }
+
+    /// Moves `fixture` and checks every kind of user data: each bookmark is
+    /// a My words key that resolves, dated by the bookmark; History is equal
+    /// row for row; exactly the two imports moved (none of the 1.x copy of
+    /// the bundled rows), above 2^40, indexed, registered with their earliest
+    /// date and searchable; the marker is set; the 1.x file is gone.
+    private func assertMigrates(_ fixture: Fixture, file: StaticString = #filePath, line: UInt = #line) async throws {
+        try install(fixture.name)
+        let legacyHistory = try await inspectCopy(of: legacyURL).read { try Self.historyRows($0) }
+        XCTAssertEqual(legacyHistory.count, fixture.historyCount, "precondition", file: file, line: line)
+
+        let seconds = try await move(file: file, line: line)
+        print("LegacyMigrationTests: \(fixture.name) moved in \(Int(seconds * 1000)) ms")
+
+        let state = try userState()
+        XCTAssertEqual(state.history, legacyHistory, "History is equal row for row", file: file, line: line)
+        XCTAssertEqual(state.myWords, fixture.bookmarks.enumerated().map {
+            "\($0.element.source)/\($0.element.word)|\(Self.bookmarkedAt($0.offset))"
+        }, "each bookmark is a My words key, dated by the bookmark", file: file, line: line)
+        let myWords = try await db.fetchMyWords()
+        XCTAssertEqual(Self.keys(myWords), fixture.bookmarks.reversed(), "every key resolves, newest first",
+                       file: file, line: line)
+
+        XCTAssertEqual(state.imported, Self.expectedImports(fixture),
+                       "exactly the two imports moved; the 1.x copy of the bundled rows did not", file: file, line: line)
+        XCTAssertGreaterThanOrEqual(state.lowestImportedID, 1 << 40, file: file, line: line)
+        XCTAssertEqual(state.importedSources, [
+            "\(Self.glossary)|2026-05-10 12:00:00", "\(fixture.named)|2026-05-20 19:30:00",
+        ].sorted(), "one row per import, dated by its earliest row", file: file, line: line)
+        await assertImportIndexIntact(file: file, line: line)
+        let zorblat = try await db.search(query: "zorblat")
+        XCTAssertEqual(Self.keys(zorblat), [EntryKey(source: Self.glossary, word: "zorblat")], file: file, line: line)
+        let dogsitter = try await db.search(query: "dogsitter")
+        XCTAssertEqual(Self.keys(dogsitter), [EntryKey(source: fixture.named, word: "dogsitter")],
+                       "the import named like a bundled source is searchable under its ID", file: file, line: line)
+        let dog = try await db.entry(for: EntryKey(source: fixture.named, word: "dog"))
+        XCTAssertNil(dog?.createdAt, "\"dog\" stays the bundled row", file: file, line: line)
+
+        XCTAssertNotNil(state.marker, "the marker is set", file: file, line: line)
+        XCTAssertEqual(legacyFiles(), [], "the 1.x file is gone", file: file, line: line)
+    }
+
+    /// `enabled_sources` and `dictionary_order`, as a 1.x install stored
+    /// them, still apply after the move: the launch normalisation leaves
+    /// them alone, Search filters and orders by them, and Dictionary Order
+    /// lists the moved import where it stood, with the pair counts.
+    @MainActor
+    private func assertPreferencesStillApply(_ fixture: Fixture, file: StaticString = #filePath,
+                                             line: UInt = #line) async throws {
+        let bundled = try await db.fetchMetadata().map(\.source)
+        let store = InMemoryKeyValueStore()
+        let settings = SettingsService(store: store)
+        settings.selectedUILanguageCode = "en"
+        let order = DictionaryGrouping.groupedOrder([Self.glossary] + bundled)
+        let enabled = Set(bundled + [Self.glossary]).subtracting(["wordnet-arb-eng"])
+        settings.dictionaryOrder = order
+        settings.enabledSources = enabled
+        let writes = store.writeLog.count
+
+        settings.normalizeDictionaryPreferences(knownSources: bundled)
+        XCTAssertEqual(store.writeLog.count, writes, "the launch normalisation changes nothing", file: file, line: line)
+
+        let house = Self.keys(try await db.search(query: "house", enabledSources: settings.enabledSources))
+        XCTAssertTrue(house.contains(EntryKey(source: Self.glossary, word: "house")), "\(house)", file: file, line: line)
+        XCTAssertTrue(house.contains(EntryKey(source: "wordnet", word: "house")), file: file, line: line)
+        let arabic = try await db.search(query: "كتاب", enabledSources: settings.enabledSources)
+        XCTAssertFalse(arabic.contains { $0.source == "wordnet-arb-eng" }, "a disabled pair stays off",
+                       file: file, line: line)
+        let preferred = try await db.searchPreferred(
+            query: "house", groups: DictionaryGrouping.sourceGroups(order: try XCTUnwrap(settings.dictionaryOrder)),
+            enabledSources: try XCTUnwrap(settings.enabledSources))
+        XCTAssertEqual(Self.keys(Array(preferred.prefix(2))), [EntryKey(source: Self.glossary, word: "house"),
+                                                               EntryKey(source: Self.glossary, word: "housesitter")],
+                       "the import's bucket leads, as in the stored order", file: file, line: line)
+
+        let localization = LocalizationManager(settingsService: settings, bundle: .main)
+        let vm = SettingsViewModel(settingsService: settings, localization: localization)
+        await vm.loadDictionaries()
+        XCTAssertEqual(vm.dictionaries.first?.id, "custom:\(Self.glossary)", file: file, line: line)
+        XCTAssertEqual(vm.dictionaries.first?.count, Self.glossaryWords.count, file: file, line: line)
+        XCTAssertEqual(vm.dictionaries.first { $0.id == "arb-eng" }?.isEnabled, false, file: file, line: line)
+        let metadata = try await db.fetchMetadata()
+        let bundledSpanish = metadata.filter { ["freedict-eng-spa", "wordnet-spa-eng"].contains($0.source) }
+            .reduce(0) { $0 + $1.wordCount }
+        XCTAssertEqual(vm.dictionaries.first { $0.id == "eng-spa" }?.count, bundledSpanish + Self.namedWords.count,
+                       "the pair counts the import named like its source", file: file, line: line)
+        XCTAssertFalse(vm.dictionaries.contains { $0.id == "custom:\(fixture.named)" },
+                       "the import named like a bundled source joins its pair, with no row of its own",
+                       file: file, line: line)
+        XCTAssertEqual(settings.dictionaryOrder, order, file: file, line: line)
+        XCTAssertEqual(settings.enabledSources, enabled, file: file, line: line)
+    }
+
+    // MARK: Upgrades
+
+    /// Upgrade from 1.4.0 keeps bookmarks (as My words), History, both
+    /// imports and the preferences.
+    @MainActor
+    func testMigrates140Fixture() async throws {
+        try await assertMigrates(Self.v140)
+        try await assertPreferencesStillApply(Self.v140)
+    }
+
+    /// Upgrade from 1.3.0, before Greek: the same.
+    @MainActor
+    func testMigrates130Fixture() async throws {
+        try await assertMigrates(Self.v130)
+        try await assertPreferencesStillApply(Self.v130)
+    }
+
+    /// A 1.1 or 1.2 database has no `history.source` (and no
+    /// `word_normalized`): History moves with `source = ''`, and such a row
+    /// shows "not found" (#138). Bookmarks and imports move as from 1.4.0.
+    func testMigratesDatabaseWithoutHistorySource() async throws {
+        try install(Self.v120.name)
+        let columns = try await inspectCopy(of: legacyURL).read { conn in
+            (history: try Row.fetchAll(conn, sql: "PRAGMA table_info(history)").map { $0["name"] as String },
+             entries: try Row.fetchAll(conn, sql: "PRAGMA table_info(entries)").map { $0["name"] as String })
+        }
+        XCTAssertFalse(columns.history.contains("source"), "precondition: \(columns.history)")
+        XCTAssertFalse(columns.entries.contains("word_normalized"), "precondition: \(columns.entries)")
+
+        try await assertMigrates(Self.v120)
+        let history = try await db.fetchHistory()
+        XCTAssertEqual(history.count, Self.v120.historyCount)
+        XCTAssertTrue(history.allSatisfy { $0.source.isEmpty }, "\(history)")
+        let dog = try XCTUnwrap(history.first { $0.word == "dog" })
+        let opened = await HistoryDestination.entry(for: dog)
+        XCTAssertNil(opened, "a row without a source shows \"not found\"")
+    }
+
+    // MARK: Crash safety
+
+    /// Killed before the commit (the seam throws inside the transaction):
+    /// the user database is unchanged, with no marker and no stray index
+    /// rows, the 1.x file is intact, and the waiting calls go on. The next
+    /// launch moves everything once, with exact counts.
+    func testKilledBeforeCommitRetriesWithoutDuplicates() async throws {
+        try install(Self.v140.name)
+        let legacyCounts = try await inspectCopy(of: legacyURL).read { conn in
+            try Int.fetchAll(conn, sql: """
+                SELECT COUNT(*) FROM entries UNION ALL SELECT COUNT(*) FROM history
+                UNION ALL SELECT COUNT(*) FROM bookmarks
+                """)
+        }
+
+        LegacyMigration.failBeforeCommit = true
+        try await move()
+        let rolledBack = try userState()
+        XCTAssertEqual(rolledBack.history + rolledBack.myWords + rolledBack.imported + rolledBack.importedSources, [])
+        XCTAssertNil(rolledBack.marker)
+        await assertImportIndexIntact()
+        // SQLite may leave the 1.x `-wal` and `-shm` after the DETACH; the delete takes them too.
+        XCTAssertTrue(exists(legacyURL.path), "the 1.x file stays")
+        let stillThere = try await inspectCopy(of: legacyURL).read { conn in
+            try Int.fetchAll(conn, sql: """
+                SELECT COUNT(*) FROM entries UNION ALL SELECT COUNT(*) FROM history
+                UNION ALL SELECT COUNT(*) FROM bookmarks
+                """)
+        }
+        XCTAssertEqual(stillThere, legacyCounts, "the 1.x data is intact")
+        let waiting = try await db.fetchHistory()
+        XCTAssertEqual(waiting, [], "a call waiting for the failed move goes on with the user database")
+
+        LegacyMigration.failBeforeCommit = false
+        try await move()
+        let state = try userState()
+        XCTAssertEqual(state.history.count, Self.v140.historyCount)
+        XCTAssertEqual(state.myWords.count, Self.v140.bookmarks.count)
+        XCTAssertEqual(state.imported, Self.expectedImports(Self.v140))
+        XCTAssertEqual(state.importedSources.count, 2)
+        XCTAssertNotNil(state.marker)
+        await assertImportIndexIntact()
+        let zorblat = try await db.search(query: "zorblat")
+        XCTAssertEqual(zorblat.count, 1, "indexed once")
+        XCTAssertEqual(legacyFiles(), [])
+    }
+
+    /// Killed after the commit (the seam stops before the delete): the data
+    /// is in and the marker set, and the 1.x file is still there. The next
+    /// launch only deletes it: what the user changed in between stays
+    /// changed, nothing is copied twice, and Search does not re-run.
+    func testKilledAfterCommitOnlyDeletes() async throws {
+        try install(Self.v140.name)
+        let committed = expectation(forNotification: LegacyMigration.didCommit, object: nil)
+        LegacyMigration.failBeforeDelete = true
+        try await move()
+        await fulfillment(of: [committed], timeout: 5)
+        let first = try userState()
+        let marker = try XCTUnwrap(first.marker)
+        XCTAssertEqual(first.imported.count, 10)
+        XCTAssertEqual(first.myWords.count, Self.v140.bookmarks.count)
+        XCTAssertTrue(exists(legacyURL.path), "killed before the delete")
+
+        try await db.removeFromMyWords(EntryKey(source: "wordnet", word: "dog"))
+        try await db.clearEntries(fromSource: Self.glossary)
+        try await db.addToHistory(word: "dog", source: "freedict-eng-spa")
+
+        LegacyMigration.failBeforeDelete = false
+        let noRerun = expectation(forNotification: LegacyMigration.didCommit, object: nil)
+        noRerun.isInverted = true
+        try await move()
+        await fulfillment(of: [noRerun], timeout: 0.5)
+        XCTAssertEqual(legacyFiles(), [], "the next launch deletes the file")
+        let state = try userState()
+        XCTAssertEqual(state.marker, marker, "the marker is not rewritten")
+        XCTAssertEqual(state.myWords.count, Self.v140.bookmarks.count - 1, "a removed My word does not come back")
+        XCTAssertEqual(state.imported, Self.namedWords.map { "\(Self.v140.named)/\($0)" },
+                       "a removed import does not come back")
+        XCTAssertEqual(state.history.count, Self.v140.historyCount)
+        XCTAssertTrue(state.history.contains { $0.hasPrefix("dog|freedict-eng-spa|") },
+                      "a later History view is kept: \(state.history)")
+    }
+
+    // MARK: Files
+
+    /// A 1.x database the app was killed with, a History row still only in
+    /// its WAL: the move replays the WAL (the file is attached read-write),
+    /// so the row moves too. Then `dict.sqlite`, `-wal` and `-shm` are gone
+    /// and only the user database is left in the folder.
+    func testLegacyFilesDeletedAfterCommit() async throws {
+        let original = tempDir.appendingPathComponent("1x/dict.sqlite")
+        try FileManager.default.createDirectory(at: original.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.copyItem(at: Self.fixtureURL(Self.v140.name), to: original)
+        var writer: DatabaseQueue? = try DatabaseQueue(path: original.path)
+        try await writer?.write { conn in
+            try conn.execute(sql: """
+                INSERT INTO history(word, source, looked_at) VALUES ('walonly', 'wordnet', '2026-06-03 08:00:00')
+                """)
+        }
+        let walSize = (try? FileManager.default.attributesOfItem(atPath: original.path + "-wal")[.size] as? Int) ?? 0
+        XCTAssertGreaterThan(walSize, 0, "precondition: the row is only in the WAL")
+        // Copied while the writer is open, as a killed app leaves them.
+        try FileManager.default.copyItem(atPath: original.path, toPath: legacyURL.path)
+        try FileManager.default.copyItem(atPath: original.path + "-wal", toPath: legacyURL.path + "-wal")
+        writer = nil
+        XCTAssertEqual(legacyFiles(), [legacyURL.path, legacyURL.path + "-wal"])
+
+        try await move()
+        XCTAssertEqual(legacyFiles(), [], "dict.sqlite, -wal and -shm are deleted")
+        let names = Set(try FileManager.default.contentsOfDirectory(atPath: appSupport.path))
+        XCTAssertTrue(names.isSubset(of: Self.userFiles) && names.contains("user.sqlite"), "\(names)")
+        let state = try userState()
+        XCTAssertTrue(state.history.contains("walonly|wordnet|2026-06-03 08:00:00"), "the WAL was replayed")
+        XCTAssertEqual(state.history.count, Self.v140.historyCount + 1)
+    }
+
+    /// An unreadable 1.x file is logged and kept as it is, and every launch
+    /// tries again; the calls waiting for the move go on. Not a database at
+    /// all: kept byte for byte, twice. A database the app cannot open
+    /// (no permission): kept, then moved once it opens.
+    func testUnreadableLegacyDatabaseIsKeptAndRetried() async throws {
+        let garbage = Data(repeating: 0x5A, count: 8192)
+        try garbage.write(to: legacyURL)
+        for attempt in 1...2 {
+            try await move()
+            XCTAssertEqual(try Data(contentsOf: legacyURL), garbage, "attempt \(attempt): kept as it was")
+            XCTAssertEqual(legacyFiles(), [legacyURL.path], "attempt \(attempt): no sidecars")
+            XCTAssertNil(try userState().marker)
+            let history = try await db.fetchHistory()
+            XCTAssertEqual(history, [], "attempt \(attempt): waiting calls go on")
+        }
+
+        try install(Self.v140.name)
+        try FileManager.default.setAttributes([.posixPermissions: 0], ofItemAtPath: legacyURL.path)
+        try await move()
+        XCTAssertTrue(exists(legacyURL.path), "an unopenable file is kept")
+        XCTAssertNil(try userState().marker)
+        // History used in between: a new word, a word the 1.x History has
+        // older, and one it has newer.
+        try await db.addToHistory(word: "cat", source: "wordnet")
+        try await db.addToHistory(word: "house", source: "wordnet")
+        try await db.writeForTesting { conn in
+            try conn.execute(sql: """
+                INSERT INTO history(word, source, looked_at) VALUES ('dog', 'wordnet-spa-eng', '2020-01-01 00:00:00')
+                """)
+        }
+
+        try FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: legacyURL.path)
+        try await move()
+        XCTAssertEqual(legacyFiles(), [], "moved and deleted once it opens")
+        let state = try userState()
+        XCTAssertNotNil(state.marker)
+        XCTAssertEqual(state.imported, Self.expectedImports(Self.v140))
+        XCTAssertEqual(state.history.count, Self.v140.historyCount + 1, "one row per word")
+        XCTAssertTrue(state.history.contains { $0.hasPrefix("cat|wordnet|") })
+        XCTAssertTrue(state.history.contains { $0.hasPrefix("house|wordnet|") }, "the newer row wins: \(state.history)")
+        XCTAssertTrue(state.history.contains("dog|wordnet|2026-06-02 08:00:00"), "the newer 1.x row wins")
+    }
+
+    /// Search answers from the dictionary file while the move runs (held
+    /// inside its transaction by the delay seam), while History waits for the
+    /// move rather than show a half-moved state. When the move commits, the
+    /// current query re-runs and the moved import appears.
+    @MainActor
+    func testSearchDuringMigration() async throws {
+        try install(Self.v140.name)
+        let (move, gate) = try await startHeldMove()
+
+        let historyDuringMove = Task { try await DatabaseService.shared.fetchHistory() }
+        let vm = SearchViewModel(settings: SettingsService(store: InMemoryKeyValueStore()))
+        vm.query = "house"
+        let started = Date()
+        vm.onQueryChanged()
+        let during = try await results(of: vm) { !$0.isEmpty }
+        print("LegacyMigrationTests: Search answered in \(Int(Date().timeIntervalSince(started) * 1000)) ms during the move")
+        XCTAssertTrue(during.contains { EntryKey($0) == EntryKey(source: "wordnet", word: "house") },
+                      "bundled results while the move runs")
+        XCTAssertFalse(during.contains { $0.source == Self.glossary }, "the import is not in yet")
+
+        gate.release.signal()
+        await move.value
+        let after = try await results(of: vm) { $0.contains { $0.source == Self.glossary } }
+        XCTAssertTrue(Self.keys(after).contains(EntryKey(source: Self.glossary, word: "house")),
+                      "the query re-ran when the move committed")
+        let history = try await historyDuringMove.value
+        XCTAssertEqual(history.count, Self.v140.historyCount, "History waited for the move")
+    }
+
+    /// Polls `vm.results` until `done` holds (5 s at most).
+    @MainActor
+    private func results(of vm: SearchViewModel, until done: ([DictionaryEntry]) -> Bool,
+                         file: StaticString = #filePath, line: UInt = #line) async throws -> [DictionaryEntry] {
+        let deadline = Date().addingTimeInterval(5)
+        while !done(vm.results) || vm.isSearching {
+            guard Date() < deadline else {
+                XCTFail("Search results never matched: \(Self.keys(vm.results))", file: file, line: line)
+                break
+            }
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+        return vm.results
+    }
+
+    /// Installed size ≈ app bundle + user data (#129, #139): after the move
+    /// the app folder holds only `user.sqlite` with its `-wal` and `-shm`,
+    /// under 5 MB. The host app's own folder holds no more than that either
+    /// (a 1.x file found there at launch has been moved).
+    func testApplicationSupportHoldsOnlyTheUserDatabase() async throws {
+        try install(Self.v140.name)
+        try await move()
+        let names = try FileManager.default.contentsOfDirectory(atPath: appSupport.path)
+        XCTAssertTrue(Set(names).isSubset(of: Self.userFiles) && names.contains("user.sqlite"), "\(names)")
+        let bytes = try names.reduce(0) { total, name in
+            total + ((try FileManager.default.attributesOfItem(
+                atPath: appSupport.appendingPathComponent(name).path)[.size] as? Int) ?? 0)
+        }
+        XCTAssertLessThan(bytes, 5_000_000)
+
+        let host = DatabaseService.userDatabaseURL().deletingLastPathComponent()
+        let deadline = Date().addingTimeInterval(10)
+        while exists(host.appendingPathComponent("dict.sqlite").path), Date() < deadline {
+            try await Task.sleep(nanoseconds: 100_000_000)
+        }
+        let hostNames = Set(try FileManager.default.contentsOfDirectory(atPath: host.path))
+        XCTAssertTrue(hostNames.isSubset(of: Self.userFiles), "host app folder: \(hostNames.sorted())")
+    }
+
+    // MARK: Edge cases
+
+    /// An import named like a bundled source whose words the bundle has, in
+    /// another case (1.x kept such rows where the import landed before the
+    /// bundled rows, as during the 1.4.0 background unpack): nothing moves
+    /// and the source registers no import, so Dictionary Order counts only
+    /// the bundled rows. A bookmark and a History row on such a word open
+    /// today's bundled entry.
+    func testImportWithOnlyBundledWordsRegistersNothing() async throws {
+        try install(Self.v140.name) { conn in
+            for word in ["CASA", "Perro", "MESA"] {
+                try conn.execute(sql: """
+                    INSERT INTO entries(word, word_normalized, definition, source, created_at)
+                    VALUES (?, ?, '1.x import', 'wordnet-spa-eng', '2026-05-25 10:00:00')
+                    """, arguments: [word, word])
+            }
+            try conn.execute(sql: """
+                INSERT INTO bookmarks(entry_id, created_at)
+                SELECT id, '2026-06-05 10:00:00' FROM entries WHERE word = 'CASA'
+                """)
+            try conn.execute(sql: """
+                INSERT INTO history(word, source, looked_at) VALUES ('Perro', 'wordnet-spa-eng', '2026-06-05 11:00:00')
+                """)
+        }
+        try await move()
+
+        let state = try userState()
+        XCTAssertEqual(state.imported, Self.expectedImports(Self.v140), "no row of the bundled words moved")
+        XCTAssertFalse(state.importedSources.contains { $0.hasPrefix("wordnet-spa-eng|") }, "\(state.importedSources)")
+        let stats = try await db.fetchSourceStats()
+        let metadata = try await db.fetchMetadata()
+        let bundledCount = try XCTUnwrap(metadata.first { $0.source == "wordnet-spa-eng" }?.wordCount)
+        XCTAssertEqual(stats.first { $0.source == "wordnet-spa-eng" }?.count, bundledCount,
+                       "only the bundled rows count")
+
+        let myWords = try await db.fetchMyWords()
+        let casa = try XCTUnwrap(myWords.first, "the bookmark resolves, newest first")
+        XCTAssertEqual(EntryKey(casa), EntryKey(source: "wordnet-spa-eng", word: "casa"))
+        XCTAssertNil(casa.createdAt, "the bookmark opens the bundled row")
+        XCTAssertTrue(state.myWords.contains("wordnet-spa-eng/CASA|2026-06-05 10:00:00"), "\(state.myWords)")
+        let history = try await db.fetchHistory()
+        let perro = try XCTUnwrap(history.first { $0.word == "Perro" })
+        let opened = await HistoryDestination.entry(for: perro)
+        XCTAssertEqual(opened.map { EntryKey($0) }, EntryKey(source: "wordnet-spa-eng", word: "perro"))
+        XCTAssertNil(opened?.createdAt, "the History row opens the bundled row")
+    }
+
+    /// A 1.x row of a bundled source that today's data lacks (a dictionary
+    /// update dropped the headword; none today, measured) moves like a row
+    /// of an import named like that source: the bookmark on it stays a My
+    /// words key that resolves, its History row opens it, Search finds it
+    /// and Dictionary Order counts it with its source.
+    func testBookmarkOfARowTodaysDataLacksKeepsItsEntry() async throws {
+        let dropped = EntryKey(source: "wordnet", word: "qadroppedheadword")
+        let definition = "A headword a later dictionary update dropped."
+        try install(Self.v140.name) { conn in
+            try conn.execute(sql: """
+                INSERT INTO entries(word, word_normalized, definition, phonetic, pos, source, created_at)
+                VALUES (?, ?, ?, '', 'noun', ?, '2026-04-01 00:00:00')
+                """, arguments: [dropped.word, dropped.word, definition, dropped.source])
+            try conn.execute(sql: """
+                INSERT INTO bookmarks(entry_id, created_at)
+                SELECT id, '2026-06-05 10:00:00' FROM entries WHERE word = ?
+                """, arguments: [dropped.word])
+            try conn.execute(sql: """
+                INSERT INTO history(word, source, looked_at) VALUES (?, ?, '2026-06-05 11:00:00')
+                """, arguments: [dropped.word, dropped.source])
+        }
+        let metadata = try await db.fetchMetadata()
+        let wordCount = try XCTUnwrap(metadata.first { $0.source == dropped.source }?.wordCount)
+        try await move()
+
+        let state = try userState()
+        XCTAssertEqual(state.imported, Self.expectedImports(Self.v140) + ["wordnet/\(dropped.word)"])
+        XCTAssertTrue(state.importedSources.contains("wordnet|2026-04-01 00:00:00"), "\(state.importedSources)")
+        let myWords = try await db.fetchMyWords()
+        XCTAssertEqual(myWords.first.map { EntryKey($0) }, dropped, "the bookmark resolves, newest first")
+        XCTAssertEqual(myWords.count, Self.v140.bookmarks.count + 1)
+        let history = try await db.fetchHistory()
+        let row = try XCTUnwrap(history.first { $0.word == dropped.word })
+        let opened = await HistoryDestination.entry(for: row)
+        XCTAssertEqual(opened.map { EntryKey($0) }, dropped)
+        XCTAssertEqual(opened?.definition, definition)
+        let found = try await db.search(query: dropped.word)
+        XCTAssertEqual(Self.keys(found), [dropped])
+        let stats = try await db.fetchSourceStats()
+        XCTAssertEqual(stats.first { $0.source == dropped.source }?.count, wordCount + 1)
+    }
+
+    /// Rows a 1.x database can hold that the fixtures do not: an import row
+    /// with NULL phonetic, part of speech and date, a bookmark whose entry
+    /// is gone, a bookmark and a History row without a date. None of them
+    /// fails the move: NULL text becomes '', a missing date becomes the
+    /// move's time (a History date stays NULL and sorts last), and the
+    /// orphan bookmark is skipped.
+    func testLegacyRowsWithNullsAndAnOrphanBookmarkMove() async throws {
+        try install(Self.v140.name) { conn in
+            try conn.execute(sql: """
+                INSERT INTO entries(word, word_normalized, definition, phonetic, pos, source, created_at)
+                VALUES ('nullish', 'nullish', 'A row with NULL columns.', NULL, NULL, 'null_import', NULL)
+                """)
+            try conn.execute(sql: "INSERT INTO bookmarks(entry_id, created_at) VALUES (999999, '2026-06-05 10:00:00')")
+            try conn.execute(sql: """
+                INSERT INTO bookmarks(entry_id, created_at) SELECT id, NULL FROM entries WHERE word = 'nullish'
+                """)
+            try conn.execute(sql: "INSERT INTO history(word, source, looked_at) VALUES ('undated', 'wordnet', NULL)")
+        }
+        let before = Self.sqliteNow()
+        try await move()
+        let after = Self.sqliteNow()
+
+        let state = try userState()
+        XCTAssertNotNil(state.marker)
+        XCTAssertEqual(legacyFiles(), [])
+        XCTAssertEqual(state.imported, Self.expectedImports(Self.v140) + ["null_import/nullish"])
+        let importedAt = try XCTUnwrap(state.importedSources.first { $0.hasPrefix("null_import|") })
+            .replacingOccurrences(of: "null_import|", with: "")
+        XCTAssertTrue((before...after).contains(importedAt), "dated by the move: \(importedAt)")
+        let entry = try await db.entry(for: EntryKey(source: "null_import", word: "nullish"))
+        XCTAssertEqual(entry?.phonetic, "")
+        XCTAssertEqual(entry?.pos, "")
+
+        XCTAssertEqual(state.myWords.count, Self.v140.bookmarks.count + 1, "the orphan bookmark is skipped")
+        let addedAt = try XCTUnwrap(state.myWords.first { $0.hasPrefix("null_import/nullish|") })
+            .replacingOccurrences(of: "null_import/nullish|", with: "")
+        XCTAssertTrue((before...after).contains(addedAt), "dated by the move: \(addedAt)")
+
+        XCTAssertTrue(state.history.contains("undated|wordnet|NULL"), "\(state.history)")
+        let history = try await db.fetchHistory()
+        XCTAssertEqual(history.count, Self.v140.historyCount + 1)
+        XCTAssertEqual(history.last?.word, "undated")
+        XCTAssertNil(history.last?.lookedAt)
+    }
+
+    /// History word conflicts on a retried move (the user database has
+    /// History from launches whose move failed): the newer `looked_at` wins
+    /// and brings its source; on a tie the row already there stays.
+    func testHistoryConflictsKeepTheNewerRow() async throws {
+        try install(Self.v140.name)
+        // The fixture has dog|wordnet at 08:00, house|freedict-eng-spa at
+        // 09:00 and дом|openrussian at 10:00 on 2026-06-02.
+        try await db.writeForTesting { conn in
+            try conn.execute(sql: """
+                INSERT INTO history(word, source, looked_at) VALUES
+                    ('dog', 'freedict-eng-spa', '2026-06-02 08:00:00'),
+                    ('house', 'wordnet', '2026-06-02 09:00:01'),
+                    ('дом', '', '2026-06-02 09:59:59')
+                """)
+        }
+        try await move()
+
+        let history = try userState().history
+        XCTAssertEqual(history.count, Self.v140.historyCount, "one row per word: \(history)")
+        XCTAssertTrue(history.contains("dog|freedict-eng-spa|2026-06-02 08:00:00"), "a tie keeps the row: \(history)")
+        XCTAssertTrue(history.contains("house|wordnet|2026-06-02 09:00:01"), "a newer row stays: \(history)")
+        XCTAssertTrue(history.contains("дом|openrussian|2026-06-02 10:00:00"),
+                      "the newer 1.x row wins with its source: \(history)")
+    }
+
+    /// User-data writes that come while the move runs (History, My words, an
+    /// import) wait for it and land after it: none is lost or undone by the
+    /// move, the user's later action wins, and nothing is stored twice.
+    func testWritesDuringTheMoveLandAfterIt() async throws {
+        try install(Self.v140.name)
+        let json = tempDir.appendingPathComponent("my_glossary.json")
+        try Data("""
+            [{"word": "zorblat", "definition": "a second zorblat"},
+             {"word": "midmove", "definition": "imported while the move ran"}]
+            """.utf8).write(to: json)
+        let (move, gate) = try await startHeldMove()
+
+        let writes = Task {
+            async let history: Void = DatabaseService.shared.addToHistory(word: "house", source: "wordnet")
+            async let removed: Void = DatabaseService.shared.removeFromMyWords(
+                EntryKey(source: Self.glossary, word: "zorblat"))
+            async let added: Void = DatabaseService.shared.addToMyWords(EntryKey(source: "wordnet", word: "dog"))
+            async let imported = DatabaseService.shared.importJSON(at: json, source: Self.glossary)
+            _ = try await (history, removed, added, imported)
+        }
+        try await Task.sleep(nanoseconds: 300_000_000)
+        let held = try userState()
+        XCTAssertEqual(held.history + held.myWords + held.imported, [], "nothing lands before the move commits")
+
+        gate.release.signal()
+        await move.value
+        try await writes.value
+
+        let state = try userState()
+        XCTAssertNotNil(state.marker)
+        XCTAssertEqual(state.history.count, Self.v140.historyCount)
+        XCTAssertTrue(state.history.contains { $0.hasPrefix("house|wordnet|") },
+                      "the later view wins: \(state.history)")
+        XCTAssertEqual(state.myWords.count, Self.v140.bookmarks.count - 1, "\(state.myWords)")
+        XCTAssertFalse(state.myWords.contains { $0.hasPrefix("\(Self.glossary)/zorblat|") }, "the removal applies")
+        XCTAssertTrue(state.myWords.contains("wordnet/dog|2026-06-01 09:00:00"), "kept once, with its bookmark date")
+        XCTAssertEqual(state.imported, Self.expectedImports(Self.v140) + ["\(Self.glossary)/midmove"],
+                       "the moved row wins over the import's copy")
+        XCTAssertEqual(state.importedSources.first { $0.hasPrefix("\(Self.glossary)|") },
+                       "\(Self.glossary)|2026-05-10 12:00:00", "the import keeps its 1.x date")
+        let zorblat = try await db.search(query: "zorblat")
+        XCTAssertEqual(zorblat.map(\.definition), ["A made-up word of the legacy fixture."])
+    }
+
+    /// No 1.x file (a fresh install, or the move is done): no move starts,
+    /// nothing is posted, and user data works at once.
+    func testNoLegacyDatabaseStartsNoMove() async throws {
+        let posted = expectation(forNotification: LegacyMigration.didCommit, object: nil)
+        posted.isInverted = true
+        let task = await db.startLegacyMigration(legacyURL: legacyURL)
+        XCTAssertNil(task)
+        try await db.addToHistory(word: "dog", source: "wordnet")
+        let history = try await db.fetchHistory()
+        XCTAssertEqual(history.map(\.word), ["dog"])
+        await fulfillment(of: [posted], timeout: 0.5)
+        XCTAssertNil(try userState().marker)
+        XCTAssertEqual(legacyFiles(), [])
+    }
+
+    /// A 1.x database with no user data (no import, History or bookmark;
+    /// here not even the bundled copy) moves nothing, sets the marker,
+    /// posts the commit and is deleted.
+    func testLegacyDatabaseWithoutUserDataIsDeleted() async throws {
+        try install(Self.v140.name) { conn in
+            try conn.execute(sql: "DELETE FROM bookmarks; DELETE FROM history; DELETE FROM entries")
+        }
+        let committed = expectation(forNotification: LegacyMigration.didCommit, object: nil)
+        try await move()
+        await fulfillment(of: [committed], timeout: 5)
+
+        let state = try userState()
+        XCTAssertEqual(state.history + state.myWords + state.imported + state.importedSources, [])
+        XCTAssertNotNil(state.marker)
+        XCTAssertEqual(legacyFiles(), [])
+    }
+
+    /// A zero-byte `dict.sqlite` (1.x killed before it wrote its schema) has
+    /// no 1.x tables: it is kept like an unreadable file, nothing is created
+    /// next to it, and user data works.
+    func testZeroByteLegacyFileIsKept() async throws {
+        XCTAssertTrue(FileManager.default.createFile(atPath: legacyURL.path, contents: Data()))
+        try await move()
+        XCTAssertEqual(legacyFiles(), [legacyURL.path], "kept, with no sidecar")
+        XCTAssertEqual(try Data(contentsOf: legacyURL), Data())
+        XCTAssertNil(try userState().marker)
+        try await db.addToMyWords(EntryKey(source: "wordnet", word: "dog"))
+        let myWords = try await db.fetchMyWords()
+        XCTAssertEqual(Self.keys(myWords), [EntryKey(source: "wordnet", word: "dog")])
+    }
+
+    /// A real 1.x database, local only: never committed. Run with
+    /// `TEST_RUNNER_LIBREDICT_LEGACY_DB=/path/to/dict.sqlite xcodebuild test …`
+    /// (xcodebuild hands `TEST_RUNNER_` variables to the tests without the
+    /// prefix). The file, and its `-wal` if there is one, is copied, never
+    /// changed. Skipped when the variable is absent.
+    func testMigratesLocalLegacyDatabase() async throws {
+        guard let path = ProcessInfo.processInfo.environment["LIBREDICT_LEGACY_DB"], !path.isEmpty else {
+            throw XCTSkip("LIBREDICT_LEGACY_DB is not set")
+        }
+        try FileManager.default.copyItem(atPath: path, toPath: legacyURL.path)
+        if exists(path + "-wal") {
+            try FileManager.default.copyItem(atPath: path + "-wal", toPath: legacyURL.path + "-wal")
+        }
+        let bundledPath = try TestDictionary.bundledURL().path
+        let expected = try await inspectCopy(of: legacyURL).writeWithoutTransaction { conn in
+            try conn.execute(sql: "ATTACH DATABASE ? AS dict", arguments: ["file:\(bundledPath)?mode=ro&immutable=1"])
+            return (history: try Int.fetchOne(conn, sql: "SELECT COUNT(*) FROM history") ?? 0,
+                    bookmarks: Set(try Row.fetchAll(conn, sql: """
+                        SELECT e.source, e.word FROM bookmarks b JOIN entries e ON e.id = b.entry_id
+                        """).map { EntryKey(source: $0["source"], word: $0["word"]) }),
+                    rows: try Int.fetchOne(conn, sql: "SELECT COUNT(*) FROM entries") ?? 0,
+                    imported: try Int.fetchOne(conn, sql: """
+                        SELECT COUNT(*) FROM entries l WHERE NOT EXISTS (
+                            SELECT 1 FROM dict.entries d WHERE d.word = l.word COLLATE NOCASE AND d.source = l.source)
+                        """) ?? 0)
+        }
+
+        let seconds = try await move()
+        print("LegacyMigrationTests: \(path) (\(expected.rows) rows) moved in \(Int(seconds * 1000)) ms")
+        XCTAssertEqual(legacyFiles(), [], "moved and deleted")
+        let state = try userState()
+        XCTAssertEqual(state.history.count, expected.history)
+        XCTAssertEqual(state.imported.count, expected.imported)
+        let myWords = try await db.fetchMyWords()
+        XCTAssertEqual(Set(Self.keys(myWords)), expected.bookmarks, "every bookmark is a My words key that resolves")
+    }
+}

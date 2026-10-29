@@ -2,6 +2,7 @@
 // Debounced search-as-you-type against the SQLite FTS5 index.
 
 import Foundation
+import Combine
 
 @MainActor
 final class SearchViewModel: ObservableObject {
@@ -16,10 +17,20 @@ final class SearchViewModel: ObservableObject {
 
     private let db: DatabaseService
     private let settings: SettingsService
+    private var cancellables: Set<AnyCancellable> = []
 
     init(db: DatabaseService = .shared, settings: SettingsService = .shared) {
         self.db = db
         self.settings = settings
+
+        // Issue #139: Search answers from the dictionary file while a 1.x
+        // database moves in. When the move commits, re-run the current query
+        // once, so the moved imports show without retyping. A no-op on an
+        // empty query.
+        NotificationCenter.default.publisher(for: LegacyMigration.didCommit)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in self?.refreshIfNeeded() }
+            .store(in: &cancellables)
     }
 
     func loadRecent() async {
