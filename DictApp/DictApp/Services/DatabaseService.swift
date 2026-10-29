@@ -1,8 +1,8 @@
 // DatabaseService.swift
-// Manages SQLite connections, schema migration, FTS5 search, and data seeding.
+// The user database with the bundled dictionary file attached (Issue #138):
+// connections, the user schema, FTS5 search, History, My words and imports.
 
 import Foundation
-import Combine
 import GRDB
 
 /// Search constants + the pure result-assembly used by "Preferred dictionary
@@ -94,147 +94,216 @@ enum Search {
     }
 }
 
+
 actor DatabaseService {
     static let shared = DatabaseService()
 
+    /// The user database, with the dictionary file attached as `dict` on
+    /// every connection (Issue #138).
     private var dbPool: DatabasePool?
-
-    /// The background unpack of the bundled seed, while it runs (Issue #111).
-    private var unpackTask: Task<Void, Never>?
-    /// The latest unpack, kept after its single-flight slot is freed so a
-    /// waiter also sees its final `.idle` (PR #116 review). ponytail: a second
-    /// unpack in one process only happens in tests, so no generation counter.
-    private var lastUnpackTask: Task<Void, Never>?
 
     private init() {}
 
-    // MARK: - Setup
+    // MARK: - Setup (Issue #138)
+    //
+    // One pool on the user database (`user.sqlite`). Every connection, the
+    // writer and each reader, attaches the bundled dictionary file as `dict`,
+    // read-only and immutable: writes to `dict.*` fail with SQLITE_READONLY,
+    // and no GRDB connection is ever opened on the bundle (the #111 crash
+    // site). SQL always qualifies `dict.`; no user table shares a name with a
+    // dictionary table.
 
-    /// Opens (or creates) the database at the default app path and applies the schema.
+    /// Opens the user database at its default path with the bundled
+    /// dictionary file attached, and migrates it. Nothing is copied or
+    /// unpacked, so this takes milliseconds.
     func setup() async throws {
-        let url = Self.defaultDatabaseURL()
+        guard let dictionaryURL = Self.bundledDictionaryURL() else { throw DBError.dictionaryMissing }
+        let userURL = Self.userDatabaseURL()
         try FileManager.default.createDirectory(
-            at: url.deletingLastPathComponent(),
+            at: userURL.deletingLastPathComponent(),
             withIntermediateDirectories: true
         )
-        var config = Configuration()
-        config.prepareDatabase { db in
-            try db.execute(sql: "PRAGMA journal_mode = WAL")
-        }
-        let pool = try DatabasePool(path: url.path, configuration: config)
-        self.dbPool = pool
-        try await applySchema(pool)
+        try await setup(userPath: userURL.path, dictionaryURL: dictionaryURL)
     }
 
-    /// Opens a database from an arbitrary path (useful for testing / imports).
-    func setup(path: String) async throws {
+    /// Opens the user database at `userPath` with the dictionary file at
+    /// `dictionaryURL` attached as `dict`, and migrates it. Test seam: unit
+    /// tests pass a temp user database and a `TestDictionary` file.
+    func setup(userPath: String, dictionaryURL: URL) async throws {
+        let path = dictionaryURL.path
+        let uri = "file:" + (path.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? path)
+            + "?mode=ro&immutable=1"
         var config = Configuration()
         // Wait instead of failing with SQLITE_BUSY if another pool on the same
-        // file is mid-write (e.g. the background unpack, PR #116 review).
+        // file is mid-write (a test reopening the shared service).
         config.busyMode = .timeout(5)
         config.prepareDatabase { db in
-            try db.execute(sql: "PRAGMA journal_mode = WAL")
+            try db.execute(sql: "ATTACH DATABASE ? AS dict", arguments: [uri])
         }
-        let pool = try DatabasePool(path: path, configuration: config)
-        self.dbPool = pool
-        try await applySchema(pool)
+        let pool = try DatabasePool(path: userPath, configuration: config)
+        try Self.migrator.migrate(pool)
+        dbPool = pool
     }
 
-    private func applySchema(_ pool: DatabasePool) async throws {
-        let sql: String
-        if let schemaURL = Bundle.main.url(forResource: "Schema", withExtension: "sql"),
-           let contents = try? String(contentsOf: schemaURL, encoding: .utf8) {
-            sql = contents
-        } else {
-            sql = Self.inlineSchema
+    /// The user database schema. Migrations are append-only once merged to
+    /// master; each epic registers its own, named `<epic>-<n>-<what>`.
+    private static var migrator: DatabaseMigrator {
+        var migrator = DatabaseMigrator()
+        migrator.registerMigration("129-1-core") { db in
+            try db.execute(sql: """
+                CREATE TABLE history (
+                    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                    word        TEXT    NOT NULL UNIQUE,
+                    source      TEXT    NOT NULL DEFAULT '',
+                    looked_at   TEXT    DEFAULT (datetime('now'))
+                );
+
+                -- My words (former bookmarks), by stable entry key.
+                CREATE TABLE my_words (
+                    source      TEXT    NOT NULL,
+                    word        TEXT    NOT NULL COLLATE NOCASE,
+                    added_at    TEXT    NOT NULL DEFAULT (datetime('now')),
+                    PRIMARY KEY (source, word)
+                ) WITHOUT ROWID;
+
+                -- Imported dictionaries: the dictionary file's `entries`
+                -- columns plus `created_at`.
+                CREATE TABLE imported_entries (
+                    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                    word            TEXT    NOT NULL,
+                    word_normalized TEXT    NOT NULL DEFAULT '',
+                    definition      TEXT    NOT NULL,
+                    phonetic        TEXT    DEFAULT '',
+                    pos             TEXT    DEFAULT '',
+                    source          TEXT    NOT NULL,
+                    created_at      TEXT    DEFAULT (datetime('now'))
+                );
+                CREATE UNIQUE INDEX imported_entries_word_source
+                    ON imported_entries(word COLLATE NOCASE, source);
+                CREATE INDEX imported_entries_source ON imported_entries(source);
+                -- Imported ids start at 2^40, above every dictionary file id,
+                -- so one Int64 identifies a row across both stores.
+                INSERT INTO main.sqlite_sequence(name, seq) VALUES ('imported_entries', 1099511627775);
+
+                CREATE VIRTUAL TABLE imported_fts USING fts5(
+                    word_normalized, definition,
+                    content='imported_entries', content_rowid='id',
+                    tokenize='unicode61 remove_diacritics 2'
+                );
+                CREATE TRIGGER imported_ai AFTER INSERT ON imported_entries BEGIN
+                    INSERT INTO imported_fts(rowid, word_normalized, definition)
+                        VALUES (new.id, new.word_normalized, new.definition);
+                END;
+                CREATE TRIGGER imported_ad AFTER DELETE ON imported_entries BEGIN
+                    INSERT INTO imported_fts(imported_fts, rowid, word_normalized, definition)
+                        VALUES ('delete', old.id, old.word_normalized, old.definition);
+                END;
+                CREATE TRIGGER imported_au AFTER UPDATE ON imported_entries BEGIN
+                    INSERT INTO imported_fts(imported_fts, rowid, word_normalized, definition)
+                        VALUES ('delete', old.id, old.word_normalized, old.definition);
+                    INSERT INTO imported_fts(rowid, word_normalized, definition)
+                        VALUES (new.id, new.word_normalized, new.definition);
+                END;
+
+                -- One row per imported dictionary. The languages stay NULL
+                -- until #208 fills them.
+                CREATE TABLE imported_sources (
+                    source      TEXT    PRIMARY KEY,
+                    imported_at TEXT    NOT NULL DEFAULT (datetime('now')),
+                    from_lang   TEXT,
+                    to_lang     TEXT
+                );
+
+                CREATE TABLE user_meta (
+                    key         TEXT    PRIMARY KEY,
+                    value       TEXT    NOT NULL
+                );
+                """)
         }
-        try await pool.write { db in
-            try db.execute(sql: sql)
-            // Migrations: add columns that may be missing from older schemas.
-            let columns = try Row.fetchAll(db, sql: "PRAGMA table_info(dict_metadata)")
-            let columnNames = Set(columns.map { $0["name"] as String })
-            if !columnNames.contains("description") {
-                try db.execute(sql: "ALTER TABLE dict_metadata ADD COLUMN description TEXT NOT NULL DEFAULT ''")
-            }
-
-            // Issue #6: history gains `source` (the dictionary of the last-viewed
-            // entry for the word) so the History row can show the per-source
-            // stripe. Pre-existing rows migrate with source='' (neutral stripe
-            // until re-viewed). Same shape as the dict_metadata.description
-            // migration above.
-            let historyColumns = try Row.fetchAll(db, sql: "PRAGMA table_info(history)")
-            let historyColumnNames = Set(historyColumns.map { $0["name"] as String })
-            if !historyColumnNames.contains("source") {
-                try db.execute(sql: "ALTER TABLE history ADD COLUMN source TEXT NOT NULL DEFAULT ''")
-            }
-
-            try Self.migrate(db)
-        }
-    }
-
-    /// Versioned schema migrations, gated on `PRAGMA user_version`.
-    ///
-    /// `CREATE TABLE/VIRTUAL TABLE IF NOT EXISTS` in `Schema.sql` does not
-    /// alter tables that already exist, so installs created on an older
-    /// schema need an explicit migration. This is the project's first true
-    /// `user_version`-gated migration — extend the `if version < N` ladder
-    /// for future schema changes and bump the final `PRAGMA user_version`.
-    private static func migrate(_ db: Database) throws {
-        let version = try Int.fetchOne(db, sql: "PRAGMA user_version") ?? 0
-
-        // v1 — normalized search column (Issue #10). Adds `word_normalized`
-        // and repoints `entries_fts` (+ triggers) at it. On a fresh install
-        // the updated Schema.sql already created the v1 shape, so the guards
-        // below are no-ops and this just stamps user_version = 1.
-        if version < 1 {
-            let entryColumns = try Row.fetchAll(db, sql: "PRAGMA table_info(entries)")
-            let entryColumnNames = Set(entryColumns.map { $0["name"] as String })
-            if !entryColumnNames.contains("word_normalized") {
-                try db.execute(sql: "ALTER TABLE entries ADD COLUMN word_normalized TEXT NOT NULL DEFAULT ''")
-                // No Arabic exists pre-#10, so every existing row's normalized
-                // form is exactly its word.
-                try db.execute(sql: "UPDATE entries SET word_normalized = word")
-            }
-
-            // Rebuild the FTS table + triggers if they still index `word`.
-            let ftsSQL = try String.fetchOne(
-                db,
-                sql: "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'entries_fts'"
-            ) ?? ""
-            if !ftsSQL.contains("word_normalized") {
-                try db.execute(sql: """
-                    DROP TRIGGER IF EXISTS entries_ai;
-                    DROP TRIGGER IF EXISTS entries_ad;
-                    DROP TRIGGER IF EXISTS entries_au;
-                    DROP TABLE IF EXISTS entries_fts;
-                    CREATE VIRTUAL TABLE entries_fts USING fts5(
-                        word_normalized, definition,
-                        content='entries', content_rowid='id',
-                        tokenize='unicode61 remove_diacritics 2'
-                    );
-                    CREATE TRIGGER entries_ai AFTER INSERT ON entries BEGIN
-                        INSERT INTO entries_fts(rowid, word_normalized, definition)
-                            VALUES (new.id, new.word_normalized, new.definition);
-                    END;
-                    CREATE TRIGGER entries_ad AFTER DELETE ON entries BEGIN
-                        INSERT INTO entries_fts(entries_fts, rowid, word_normalized, definition)
-                            VALUES ('delete', old.id, old.word_normalized, old.definition);
-                    END;
-                    CREATE TRIGGER entries_au AFTER UPDATE ON entries BEGIN
-                        INSERT INTO entries_fts(entries_fts, rowid, word_normalized, definition)
-                            VALUES ('delete', old.id, old.word_normalized, old.definition);
-                        INSERT INTO entries_fts(rowid, word_normalized, definition)
-                            VALUES (new.id, new.word_normalized, new.definition);
-                    END;
-                    INSERT INTO entries_fts(entries_fts) VALUES('rebuild');
-                    """)
-            }
-
-            try db.execute(sql: "PRAGMA user_version = 1")
-        }
+        return migrator
     }
 
     // MARK: - Search
+    //
+    // Issue #138: bundled rows come from the dictionary file (`dict.entries`,
+    // `dict.entries_fts`), imported rows from the user database
+    // (`imported_entries`, `imported_fts`). Each store is one branch matching
+    // its own FTS index; one ORDER BY and one LIMIT rank the union with the
+    // 1.4.0 ranking. The imported branch is added only when an enabled source
+    // is imported, so the bundled-only query keeps the 1.4.0 plan.
+
+    /// Where entries live, as one search branch reads them.
+    private enum Store: CaseIterable {
+        case dictionary, imported
+
+        /// The FTS table, its hidden MATCH column, the entries table and the
+        /// `created_at` expression (bundled rows have none).
+        var tables: (fts: String, match: String, entries: String, createdAt: String) {
+            switch self {
+            case .dictionary: return ("dict.entries_fts", "entries_fts", "dict.entries", "NULL")
+            case .imported: return ("imported_fts", "imported_fts", "imported_entries", "e.created_at")
+            }
+        }
+    }
+
+    /// The 1.4.0 ranking: an exact `word_normalized` match on the folded or
+    /// raw key, then a prefix match, then FTS `rank`. Takes
+    /// `relevanceArguments(_:)`.
+    private static let relevanceOrder = """
+        (word_normalized = ? COLLATE NOCASE OR word_normalized = ? COLLATE NOCASE) DESC,
+            (word_normalized LIKE ? COLLATE NOCASE OR word_normalized LIKE ? COLLATE NOCASE) DESC,
+            rank
+        """
+
+    private static func relevanceArguments(_ fts: (match: String, rankKey: String, rawKey: String)) -> StatementArguments {
+        [fts.rankKey, fts.rawKey, fts.rankKey + "%", fts.rawKey + "%"]
+    }
+
+    /// The sources of the imported dictionaries.
+    private static func importedSources(_ db: Database) throws -> Set<String> {
+        Set(try String.fetchAll(db, sql: "SELECT source FROM imported_sources"))
+    }
+
+    /// Rows matching `match`, as `DictionaryEntry`s ranked by `order` and cut
+    /// to `limit`. `sources`: the sources to keep (`nil`: every source).
+    /// `ids`: rows to leave out. `withImports` adds the imported branch. Each
+    /// branch has the entry columns plus `rank`, so `order` names columns of
+    /// the union.
+    private static func rankedEntries(
+        _ db: Database, match: String, sources: [String]?, excluding ids: [Int64] = [],
+        withImports: Bool, order: String, orderArguments: StatementArguments, limit: Int
+    ) throws -> [DictionaryEntry] {
+        var branches: [String] = []
+        var arguments = StatementArguments()
+        for store in withImports ? Store.allCases : [.dictionary] {
+            let t = store.tables
+            var branch = """
+                SELECT e.id, e.word, e.word_normalized, e.definition, e.phonetic, e.pos, e.source,
+                       \(t.createdAt) AS created_at, fts.rank AS rank
+                FROM \(t.fts) fts JOIN \(t.entries) e ON e.id = fts.rowid
+                WHERE \(t.match) MATCH ?
+                """
+            arguments += [match]
+            if let sources {
+                branch += " AND e.source IN (\(sources.map { _ in "?" }.joined(separator: ", ")))"
+                arguments += StatementArguments(sources)
+            }
+            if !ids.isEmpty {
+                branch += " AND e.id NOT IN (\(ids.map { _ in "?" }.joined(separator: ", ")))"
+                arguments += StatementArguments(ids)
+            }
+            branches.append(branch)
+        }
+        arguments += orderArguments
+        arguments += [limit]
+        return try DictionaryEntry.fetchAll(db, sql: """
+            SELECT * FROM (
+            \(branches.joined(separator: "\nUNION ALL\n"))
+            )
+            ORDER BY \(order)
+            LIMIT ?
+            """, arguments: arguments)
+    }
 
     /// Prefix search using FTS5 with relevance ranking:
     ///   Priority 1: exact match (word == query)
@@ -251,33 +320,12 @@ actor DatabaseService {
         // Issue #87: Greek queries also match their folded form.
         let fts = Search.ftsQuery(sanitized: sanitized)
         return try await pool.read { db in
-            var sql = """
-                SELECT e.*
-                FROM entries_fts fts
-                JOIN entries e ON e.id = fts.rowid
-                WHERE entries_fts MATCH ?
-                """
-            var arguments: [DatabaseValueConvertible] = [fts.match]
-
-            if let sources = enabledSources, !sources.isEmpty {
-                let placeholders = sources.map { _ in "?" }.joined(separator: ", ")
-                sql += " AND e.source IN (\(placeholders))"
-                arguments += sources.map { $0 as DatabaseValueConvertible }
-            }
-
-            sql += """
-
-                ORDER BY
-                    (e.word_normalized = ? COLLATE NOCASE OR e.word_normalized = ? COLLATE NOCASE) DESC,
-                    (e.word_normalized LIKE ? COLLATE NOCASE OR e.word_normalized LIKE ? COLLATE NOCASE) DESC,
-                    rank
-                LIMIT ?
-                """
-            arguments += [fts.rankKey, fts.rawKey, fts.rankKey + "%", fts.rawKey + "%", limit]
-
-            var statArgs = StatementArguments()
-            for arg in arguments { statArgs += [arg] }
-            return try DictionaryEntry.fetchAll(db, sql: sql, arguments: statArgs)
+            let imported = try Self.importedSources(db)
+            let withImports = enabledSources.map { !imported.isDisjoint(with: $0) } ?? !imported.isEmpty
+            return try Self.rankedEntries(
+                db, match: fts.match, sources: enabledSources.map { Array($0) }, withImports: withImports,
+                order: Self.relevanceOrder, orderArguments: Self.relevanceArguments(fts), limit: limit
+            )
         }
     }
 
@@ -312,11 +360,9 @@ actor DatabaseService {
             .filter { !$0.isEmpty }
         // Issue #87: Greek queries also match their folded form.
         let fts = Search.ftsQuery(sanitized: sanitized)
-        let match = fts.match
-        let rankKey = fts.rankKey
-        let rawKey = fts.rawKey
 
         return try await pool.read { db in
+            let imported = try Self.importedSources(db)
             var buckets: [String: [DictionaryEntry]] = [:]
             var bucketOrder: [String] = []
             var takenIds: [Int64] = []
@@ -324,20 +370,10 @@ actor DatabaseService {
             for (index, members) in enabledGroups.enumerated() {
                 // Index, not joined IDs: a custom ID may contain any separator.
                 let key = String(index)
-                let placeholders = members.map { _ in "?" }.joined(separator: ", ")
-                var args = StatementArguments()
-                args += [match]
-                for member in members { args += [member] }
-                args += [rankKey, rawKey, rankKey + "%", rawKey + "%", topN]
-                let rows = try DictionaryEntry.fetchAll(db, sql: """
-                    SELECT e.*
-                    FROM entries_fts fts JOIN entries e ON e.id = fts.rowid
-                    WHERE entries_fts MATCH ? AND e.source IN (\(placeholders))
-                    ORDER BY (e.word_normalized = ? COLLATE NOCASE OR e.word_normalized = ? COLLATE NOCASE) DESC,
-                             (e.word_normalized LIKE ? COLLATE NOCASE OR e.word_normalized LIKE ? COLLATE NOCASE) DESC,
-                             rank
-                    LIMIT ?
-                    """, arguments: args)
+                let rows = try Self.rankedEntries(
+                    db, match: fts.match, sources: members, withImports: !imported.isDisjoint(with: members),
+                    order: Self.relevanceOrder, orderArguments: Self.relevanceArguments(fts), limit: topN
+                )
                 buckets[key] = rows
                 bucketOrder.append(key)
                 takenIds += rows.compactMap(\.id)
@@ -347,37 +383,37 @@ actor DatabaseService {
             var tail: [DictionaryEntry] = []
             let remaining = limit - takenIds.count
             if remaining > 0 {
-                let enabledArr = Array(enabledSources)
-                let srcPlaceholders = enabledArr.map { _ in "?" }.joined(separator: ", ")
-                let notIn = takenIds.isEmpty
-                    ? ""
-                    : " AND e.id NOT IN (\(takenIds.map { _ in "?" }.joined(separator: ", ")))"
-                var args = StatementArguments()
-                args += [match]
-                for s in enabledArr { args += [s] }
-                for tid in takenIds { args += [tid] }
-                args += [remaining]
-                tail = try DictionaryEntry.fetchAll(db, sql: """
-                    SELECT e.*
-                    FROM entries_fts fts JOIN entries e ON e.id = fts.rowid
-                    WHERE entries_fts MATCH ? AND e.source IN (\(srcPlaceholders))\(notIn)
-                    ORDER BY rank
-                    LIMIT ?
-                    """, arguments: args)
+                tail = try Self.rankedEntries(
+                    db, match: fts.match, sources: Array(enabledSources), excluding: takenIds,
+                    withImports: !imported.isDisjoint(with: enabledSources),
+                    order: "rank", orderArguments: [], limit: remaining
+                )
             }
 
             return Search.assemble(buckets: buckets, tail: tail, order: bucketOrder)
         }
     }
 
-    /// Exact lookup (case-insensitive).
-    func lookup(word: String) async throws -> DictionaryEntry? {
+    // MARK: - Entries by key (Issue #138)
+
+    /// The entry `key` names: the dictionary file first, then the imported
+    /// dictionaries; `nil` when neither has it. A disabled source resolves
+    /// too: the enabled set only filters Search.
+    func entry(for key: EntryKey) async throws -> DictionaryEntry? {
         guard let pool = dbPool else { throw DBError.notConnected }
-        return try await pool.read { db in
-            try DictionaryEntry
-                .filter(DictionaryEntry.Columns.word.collating(.nocase) == word)
-                .fetchOne(db)
-        }
+        return try await pool.read { db in try Self.entry(for: key, in: db) }
+    }
+
+    private static func entry(for key: EntryKey, in db: Database) throws -> DictionaryEntry? {
+        let arguments: StatementArguments = [key.word, key.source]
+        return try DictionaryEntry.fetchOne(db, sql: """
+                SELECT id, word, definition, phonetic, pos, source, NULL AS created_at
+                FROM dict.entries WHERE word = ? COLLATE NOCASE AND source = ?
+                """, arguments: arguments)
+            ?? DictionaryEntry.fetchOne(db, sql: """
+                SELECT id, word, definition, phonetic, pos, source, created_at
+                FROM imported_entries WHERE word = ? COLLATE NOCASE AND source = ?
+                """, arguments: arguments)
     }
 
     // MARK: - History
@@ -414,88 +450,71 @@ actor DatabaseService {
         }
     }
 
-    func clearAllBookmarks() async throws {
-        guard let pool = dbPool else { throw DBError.notConnected }
-        try await pool.write { db in
-            try db.execute(sql: "DELETE FROM bookmarks")
-        }
-    }
+    // MARK: - My words (Issue #138)
+    //
+    // Until #158 replaces the Bookmarks tab, the Definition star and the tab
+    // read and write My words, by stable entry key.
 
-    /// Deletes every entry whose `source` equals the given value. Used by
-    /// UI tests to scrub previously-imported fixture data before re-running.
-    func clearEntries(fromSource source: String) async throws {
-        guard let pool = dbPool else { throw DBError.notConnected }
-        try await pool.write { db in
-            try db.execute(sql: "DELETE FROM entries WHERE source = ?", arguments: [source])
-        }
-    }
-
-    // MARK: - Bookmarks
-
-    func addBookmark(entryId: Int64) async throws {
+    func addToMyWords(_ key: EntryKey) async throws {
         guard let pool = dbPool else { throw DBError.notConnected }
         try await pool.write { db in
             try db.execute(
-                sql: "INSERT OR IGNORE INTO bookmarks(entry_id) VALUES (?)",
-                arguments: [entryId]
+                sql: "INSERT OR IGNORE INTO my_words(source, word) VALUES (?, ?)",
+                arguments: [key.source, key.word]
             )
         }
     }
 
-    func removeBookmark(entryId: Int64) async throws {
+    func removeFromMyWords(_ key: EntryKey) async throws {
         guard let pool = dbPool else { throw DBError.notConnected }
         try await pool.write { db in
             try db.execute(
-                sql: "DELETE FROM bookmarks WHERE entry_id = ?",
-                arguments: [entryId]
+                sql: "DELETE FROM my_words WHERE source = ? AND word = ?",
+                arguments: [key.source, key.word]
             )
         }
     }
 
-    func isBookmarked(entryId: Int64) async throws -> Bool {
+    func isInMyWords(_ key: EntryKey) async throws -> Bool {
         guard let pool = dbPool else { throw DBError.notConnected }
         return try await pool.read { db in
-            try Bookmark.filter(Column("entry_id") == entryId).fetchOne(db) != nil
+            try Bool.fetchOne(
+                db,
+                sql: "SELECT EXISTS (SELECT 1 FROM my_words WHERE source = ? AND word = ?)",
+                arguments: [key.source, key.word]
+            ) ?? false
         }
     }
 
-    func fetchBookmarkedEntries() async throws -> [BookmarkedEntry] {
+    /// My words whose entry resolves, newest first. A key that no longer
+    /// resolves stays stored and is skipped here.
+    func fetchMyWords() async throws -> [DictionaryEntry] {
         guard let pool = dbPool else { throw DBError.notConnected }
         return try await pool.read { db in
-            let sql = """
-                SELECT e.*, b.id AS b_id, b.entry_id, b.created_at AS b_created_at
-                FROM bookmarks b
-                JOIN entries e ON e.id = b.entry_id
-                ORDER BY b.created_at DESC
-                """
-            let rows = try Row.fetchAll(db, sql: sql)
-            return rows.map { row in
-                let entry = DictionaryEntry(
-                    id: row["id"],
-                    word: row["word"],
-                    definition: row["definition"],
-                    phonetic: row["phonetic"] ?? "",
-                    pos: row["pos"] ?? "",
-                    source: row["source"] ?? "default",
-                    createdAt: row["created_at"]
-                )
-                let bookmark = Bookmark(
-                    id: row["b_id"],
-                    entryId: row["entry_id"],
-                    createdAt: row["b_created_at"]
-                )
-                return BookmarkedEntry(entry: entry, bookmark: bookmark)
-            }
+            try Row.fetchAll(db, sql: "SELECT source, word FROM my_words ORDER BY added_at DESC")
+                .compactMap { row in
+                    try Self.entry(for: EntryKey(source: row["source"], word: row["word"]), in: db)
+                }
+        }
+    }
+
+    func clearMyWords() async throws {
+        guard let pool = dbPool else { throw DBError.notConnected }
+        try await pool.write { db in
+            try db.execute(sql: "DELETE FROM my_words")
         }
     }
 
     // MARK: - Metadata & Statistics
 
-    /// Fetch metadata for all loaded dictionaries.
+    /// Metadata of every bundled dictionary, in dictionary file order.
     func fetchMetadata() async throws -> [DictMetadata] {
         guard let pool = dbPool else { throw DBError.notConnected }
         return try await pool.read { db in
-            try DictMetadata.fetchAll(db)
+            try DictMetadata.fetchAll(db, sql: """
+                SELECT source, display_name, version, license, url, word_count, description
+                FROM dict.dict_metadata ORDER BY rowid
+                """)
         }
     }
 
@@ -503,41 +522,31 @@ actor DatabaseService {
     func fetchMetadata(source: String) async throws -> DictMetadata? {
         guard let pool = dbPool else { throw DBError.notConnected }
         return try await pool.read { db in
-            try DictMetadata.filter(Column("source") == source).fetchOne(db)
+            try DictMetadata.fetchOne(db, sql: """
+                SELECT source, display_name, version, license, url, word_count, description
+                FROM dict.dict_metadata WHERE source = ?
+                """, arguments: [source])
         }
     }
 
-    /// Per-source entry counts, with display name / license / version from
-    /// metadata where available (empty strings for custom imports, which have
-    /// no `dict_metadata` row). License and version feed the #91 detail via
-    /// `DictionaryPair.sources` (Issue #92).
-    ///
-    /// Issue #111: a bundled source that is registered but not unpacked yet
-    /// is listed too, with the bundle's `word_count` (its final count). So the
-    /// first Settings load persists the same default order during the unpack
-    /// as after it, and a toggle mid-unpack never switches a pending source off.
+    /// Per-source entry counts, count-desc, with display name / license /
+    /// version from the metadata (Issue #92, for the #91 detail). Issue #138:
+    /// a bundled source counts its `word_count` plus any rows imported under
+    /// its ID; an imported source counts its rows (indexed) and shows its ID
+    /// with an empty license and version. No scan of the bundled rows.
     func fetchSourceStats() async throws -> [SourceStat] {
         guard let pool = dbPool else { throw DBError.notConnected }
         return try await pool.read { db in
-            // Count first, then join the metadata once per source. Joined
-            // inside the aggregate, the metadata columns were read for every
-            // entry row; with the full Apache 2.0 text of the Greek WordNet
-            // sources (Issue #87, ~9.8 KB on overflow pages) that left the
-            // Dictionary Order screen empty for 25+ s after launch. The counts
-            // are computed once and reused for the metadata-only sources.
             let sql = """
-                WITH c AS MATERIALIZED (SELECT source, COUNT(*) AS cnt FROM entries GROUP BY source)
-                SELECT c.source AS source,
-                       COALESCE(m.display_name, c.source) AS display_name,
-                       COALESCE(m.license, '') AS license,
-                       COALESCE(m.version, '') AS version,
-                       c.cnt AS cnt
-                FROM c
-                LEFT JOIN dict_metadata m ON m.source = c.source
+                WITH i AS MATERIALIZED (SELECT source, COUNT(*) AS cnt FROM imported_entries GROUP BY source)
+                SELECT m.source AS source, m.display_name AS display_name, m.license AS license,
+                       m.version AS version, m.word_count + COALESCE(i.cnt, 0) AS cnt
+                FROM dict.dict_metadata m
+                LEFT JOIN i ON i.source = m.source
                 UNION ALL
-                SELECT m.source, m.display_name, m.license, m.version, m.word_count
-                FROM dict_metadata m
-                WHERE m.source NOT IN (SELECT source FROM c)
+                SELECT i.source, i.source, '', '', i.cnt
+                FROM i
+                WHERE i.source NOT IN (SELECT source FROM dict.dict_metadata)
                 ORDER BY cnt DESC
                 """
             let rows = try Row.fetchAll(db, sql: sql)
@@ -554,45 +563,22 @@ actor DatabaseService {
     }
 
     // MARK: - Import
+    //
+    // Issue #138: imports go into `imported_entries` (the `imported_ai`
+    // trigger indexes them) and `imported_sources`. A row whose key the
+    // dictionary file already has is skipped, as `INSERT OR IGNORE` did in
+    // 1.4.0 for a file named like a bundled source.
 
     /// Bulk-insert entries from a JSON array. Expects `[{word, definition, phonetic?, pos?}]`.
     func importJSON(at url: URL, source: String) async throws -> Int {
         guard let pool = dbPool else { throw DBError.notConnected }
-        return try await Self.importJSON(at: url, source: source, into: pool)
-    }
-
-    /// `importJSON(at:source:)` on an explicit pool, so the `seed.json`
-    /// fallback of the background unpack keeps its own pool (Issue #111).
-    private static func importJSON(at url: URL, source: String, into pool: DatabasePool) async throws -> Int {
         let raw = try JSONDecoder().decode([[String: String]].self, from: Data(contentsOf: url))
-        let count = try await pool.write { db -> Int in
-            var n = 0
-            for item in raw {
-                guard let word = item["word"], let definition = item["definition"] else { continue }
-                // Custom imports are not run through the Arabic normalizer
-                // (single source of truth stays in the Python build), so the
-                // search key is the word verbatim. Consequence: imported
-                // Arabic is searched diacritic-sensitively — a documented
-                // v1.3.0 limitation, not a regression.
-                try db.execute(
-                    sql: """
-                        INSERT OR IGNORE INTO entries(word, word_normalized, definition, phonetic, pos, source)
-                        VALUES (?, ?, ?, ?, ?, ?)
-                        """,
-                    arguments: [
-                        word,
-                        word,
-                        definition,
-                        item["phonetic"] ?? "",
-                        item["pos"] ?? "",
-                        source
-                    ]
-                )
-                n += 1
-            }
-            return n
+        let rows = raw.compactMap { item -> ImportedRow? in
+            guard let word = item["word"], let definition = item["definition"] else { return nil }
+            return ImportedRow(word: word, definition: definition,
+                               phonetic: item["phonetic"] ?? "", pos: item["pos"] ?? "")
         }
-        return count
+        return try await Self.insertImported(rows, source: source, into: pool)
     }
 
     /// Import entries from an external SQLite file that has the same `entries` schema.
@@ -609,334 +595,78 @@ actor DatabaseService {
         let entries: [DictionaryEntry] = try await externalQueue.read { db in
             try DictionaryEntry.fetchAll(db)
         }
-        let count = try await pool.write { db -> Int in
-            var n = 0
-            for var entry in entries {
-                entry.source = source
-                entry.id = nil
-                // word_normalized = word for custom imports (see importJSON).
-                try db.execute(
-                    sql: """
-                        INSERT OR IGNORE INTO entries(word, word_normalized, definition, phonetic, pos, source)
-                        VALUES (?, ?, ?, ?, ?, ?)
-                        """,
-                    arguments: [entry.word, entry.word, entry.definition, entry.phonetic, entry.pos, entry.source]
-                )
-                n += 1
-            }
-            return n
+        let rows = entries.map {
+            ImportedRow(word: $0.word, definition: $0.definition, phonetic: $0.phonetic, pos: $0.pos)
         }
-        return count
+        return try await Self.insertImported(rows, source: source, into: pool)
     }
 
-    // MARK: - Bundled seed (Issue #111)
-    //
-    // Launch only registers the bundled sources (metadata, a few ms) and gets
-    // a plan; the rows are unpacked afterwards in the background, one
-    // transaction per source, each searchable as soon as it commits.
-    // `dict_metadata.built_at` is the per-source completion marker: equal to
-    // the bundle's = complete and current, '' = registered but not unpacked
-    // yet, any other value = unpacked from an older seed, stale (Issue #108).
-    // The seed is only ever ATTACHed to the writer, never opened as a
-    // connection of its own (PM decision 7: the cold-seed GRDB crash was in a
-    // `DatabaseQueue` read of the bundle).
+    private struct ImportedRow: Sendable {
+        let word: String
+        let definition: String
+        let phonetic: String
+        let pos: String
+    }
 
-    /// Pre-UI half of the seed: in one transaction, registers every bundled
-    /// source's metadata, then returns the ordered unpack plan. Reads the two
-    /// `dict_metadata` tables only (no `entries` scan). `bundledSeedURL` is a
-    /// test seam: `nil` means the app bundle's `seed.sqlite`. With no seed
-    /// bundled the plan is empty and the unpack runs the JSON fallback.
-    /// Throws for an unreadable bundle (the launch shows `setupError`).
-    func prepareBundledSeed(bundledSeedURL: URL? = nil, languageCode: String) async throws -> BundledUnpackPlan {
+    /// Inserts `rows` under `source` in one transaction and registers the
+    /// source once it has rows. Returns the number of rows read, as 1.4.0 did.
+    private static func insertImported(_ rows: [ImportedRow], source: String,
+                                       into pool: DatabasePool) async throws -> Int {
+        try await pool.write { db in
+            // Custom imports are not run through the Arabic or Greek
+            // normalizers (single source of truth stays in the Python build),
+            // so the search key is the word verbatim. Consequence: imported
+            // Arabic is searched diacritic-sensitively — a documented v1.3.0
+            // limitation, not a regression.
+            let insert = try db.makeStatement(sql: """
+                INSERT OR IGNORE INTO imported_entries(word, word_normalized, definition, phonetic, pos, source)
+                SELECT ?1, ?1, ?2, ?3, ?4, ?5
+                WHERE NOT EXISTS (SELECT 1 FROM dict.entries WHERE word = ?1 COLLATE NOCASE AND source = ?5)
+                """)
+            for row in rows {
+                try insert.execute(arguments: [row.word, row.definition, row.phonetic, row.pos, source])
+            }
+            try db.execute(
+                sql: """
+                    INSERT OR IGNORE INTO imported_sources(source)
+                    SELECT ?1 WHERE EXISTS (SELECT 1 FROM imported_entries WHERE source = ?1)
+                    """,
+                arguments: [source]
+            )
+            return rows.count
+        }
+    }
+
+    /// Deletes an imported dictionary: its rows and its `imported_sources`
+    /// row. Used by UI tests (`-clearFixtureImports`) to scrub previously
+    /// imported fixture data before re-running.
+    func clearEntries(fromSource source: String) async throws {
         guard let pool = dbPool else { throw DBError.notConnected }
-        guard let seedURL = bundledSeedURL ?? Bundle.main.url(forResource: "seed", withExtension: "sqlite") else {
-            return BundledUnpackPlan(seedURL: nil, bundled: [], appBuiltAt: [:], languageCode: languageCode)
-        }
-        let path = seedURL.path
-        let (bundled, appBuiltAt) = try await pool.writeWithoutTransaction { db in
-            // ATTACH and DETACH stay outside the transaction: DETACH inside one
-            // fails with "database bundled is locked".
-            try db.execute(sql: "ATTACH DATABASE ? AS bundled", arguments: [path])
-            defer { try? db.execute(sql: "DETACH DATABASE bundled") }
-            var registered: ([BundledUnpackPlan.BundledSource], [String: String]) = ([], [:])
-            try db.inTransaction {
-                registered = try Self.registerBundledSources(db)
-                return .commit
-            }
-            return registered
-        }
-        return BundledUnpackPlan(seedURL: seedURL, bundled: bundled, appBuiltAt: appBuiltAt,
-                                 languageCode: languageCode)
-    }
-
-    /// Registration (§3.3), on a writer with the seed attached as `bundled`.
-    /// A source the app lacks gets its bundle row with `built_at = ''`. Rows
-    /// that are current or not unpacked yet get the bundle's descriptive
-    /// columns (display name, version, license, url, word count, description).
-    /// A stale row keeps its old metadata: its unpack copies the new row in
-    /// the same transaction as the new data, so a failed sync leaves the
-    /// install exactly as it was (#108). Returns the bundle's sources in seed
-    /// order and the app's markers as they were before this call.
-    private static func registerBundledSources(
-        _ db: Database
-    ) throws -> ([BundledUnpackPlan.BundledSource], [String: String]) {
-        // The plan is driven by metadata, but a bundle without `entries` is
-        // unreadable: fail before any write. Preparing the statement is enough.
-        _ = try db.makeStatement(sql: "SELECT 1 FROM bundled.entries")
-        let bundleRows = try Row.fetchAll(db, sql: """
-            SELECT source, display_name, version, license, url, word_count, built_at,
-                   COALESCE(description, '') AS description
-            FROM bundled.dict_metadata
-            ORDER BY rowid
-            """)
-        var appBuiltAt: [String: String] = [:]
-        for row in try Row.fetchAll(db, sql: "SELECT source, built_at FROM main.dict_metadata") {
-            if let source: String = row["source"] {
-                appBuiltAt[source] = (row["built_at"] as String?) ?? ""
-            }
-        }
-
-        var bundled: [BundledUnpackPlan.BundledSource] = []
-        for row in bundleRows {
-            guard let source: String = row["source"], !source.isEmpty else { continue }
-            let builtAt = (row["built_at"] as String?) ?? ""
-            let wordCount = (row["word_count"] as Int?) ?? 0
-            bundled.append(.init(source: source, rowCount: wordCount, builtAt: builtAt))
-
-            let details: [(any DatabaseValueConvertible)?] = [
-                (row["display_name"] as String?) ?? source,
-                (row["version"] as String?) ?? "",
-                (row["license"] as String?) ?? "",
-                (row["url"] as String?) ?? "",
-                wordCount,
-                (row["description"] as String?) ?? "",
-            ]
-            switch appBuiltAt[source] {
-            case nil:
-                try db.execute(
-                    sql: """
-                        INSERT INTO main.dict_metadata(display_name, version, license, url, word_count,
-                                                       description, source, built_at)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, '')
-                        """,
-                    arguments: StatementArguments(details + [source]))
-            case let marker? where marker.isEmpty || marker == builtAt:
-                try db.execute(
-                    sql: """
-                        UPDATE main.dict_metadata
-                        SET display_name = ?, version = ?, license = ?, url = ?, word_count = ?, description = ?
-                        WHERE source = ?
-                        """,
-                    arguments: StatementArguments(details + [source]))
-            default:
-                break   // stale: refreshed by its unpack (see above)
-            }
-        }
-        return (bundled, appBuiltAt)
-    }
-
-    /// Starts the background unpack of `plan` (§3.2) and returns at once.
-    /// Single flight: a call while an unpack runs is a no-op (the WindowGroup
-    /// `.task` may run again). The task keeps the pool it started with and
-    /// never re-reads `dbPool`, so a later `setup(path:)` (unit tests) never
-    /// receives its writes. Publishes progress to `DictionaryUnpackStatus`
-    /// after each committed source and `.idle` at the end, also after a failure.
-    func startBundledUnpack(_ plan: BundledUnpackPlan) {
-        guard unpackTask == nil, let pool = dbPool else { return }
-        // Nothing to do: every bundled source is complete and current.
-        guard !plan.isEmpty || plan.seedURL == nil else { return }
-        #if DEBUG
-        // UI-test hook `-unpackSourceDelay <seconds>`: holds the unpack between
-        // sources so mid-unpack states last long enough to assert on.
-        let sourceDelay = UserDefaults.standard.double(forKey: "unpackSourceDelay")
-        #else
-        let sourceDelay = 0.0
-        #endif
-        unpackTask = Task.detached(priority: .utility) {
-            await Self.runUnpack(plan, pool: pool, sourceDelay: sourceDelay) { fraction in
-                await DictionaryUnpackStatus.shared.update(.unpacking(fraction: fraction))
-            }
-            // Free the single-flight slot before announcing `.idle`, so a
-            // caller that waits for `.idle` can start the next unpack.
-            await self.unpackDidFinish()
-            await DictionaryUnpackStatus.shared.update(.idle)
-        }
-        lastUnpackTask = unpackTask
-    }
-
-    private func unpackDidFinish() {
-        unpackTask = nil
-    }
-
-    /// Returns once the background unpack (if any) has finished. Test seam.
-    func waitForBundledUnpack() async {
-        await (unpackTask ?? lastUnpackTask)?.value
-    }
-
-    /// Synchronous facade over the plan and the unpack, for unit tests (§3.6):
-    /// prepares the plan (English order) and unpacks every pending source on
-    /// the current pool before returning. Never publishes to
-    /// `DictionaryUnpackStatus`. A failed source is logged and ends the run
-    /// without throwing (#108: the app must still start, the next launch
-    /// retries); an unreadable bundle throws from the preparation.
-    func seedIfNeeded(bundledSeedURL: URL? = nil) async throws {
-        guard let pool = dbPool else { throw DBError.notConnected }
-        let plan = try await prepareBundledSeed(bundledSeedURL: bundledSeedURL, languageCode: "en")
-        await Self.runUnpack(plan, pool: pool)
-    }
-
-    /// Issue #108: brings existing `sources` up to date with the bundled seed
-    /// at `url`, one source (and one transaction) at a time, through the same
-    /// per-source unit as the unpack. Returns the summed counts. Pass bundled
-    /// source names only, never custom imports.
-    @discardableResult
-    func syncBundledSources(from url: URL, sources: Set<String>) async throws -> (updated: Int, inserted: Int) {
-        guard let pool = dbPool else { throw DBError.notConnected }
-        var total = (updated: 0, inserted: 0)
-        for source in sources.sorted() {
-            let counts = try await Self.unpackSource(source, seedPath: url.path, pool: pool)
-            total.updated += counts.updated
-            total.inserted += counts.inserted
-        }
-        return total
-    }
-
-    #if DEBUG
-    /// Unit-test seam: the source whose unpack throws inside its transaction
-    /// right after the INSERT step, as if the app were killed mid-source.
-    nonisolated(unsafe) static var unpackFailureAfterInsert: String?
-    #endif
-
-    /// Runs `plan` on `pool` until done or until the first failure, one write
-    /// per source; `progress` gets the plan's fraction after each commit. A
-    /// failure is logged and stops the loop: committed sources stay, and the
-    /// next launch's plan retries the rest from their markers (PM decision 4).
-    private static func runUnpack(
-        _ plan: BundledUnpackPlan,
-        pool: DatabasePool,
-        sourceDelay: Double = 0,
-        progress: (@Sendable (Double) async -> Void)? = nil
-    ) async {
-        guard let seedURL = plan.seedURL else {
-            await importJSONFallbackIfNeeded(into: pool)
-            return
-        }
-        for (index, item) in plan.items.enumerated() {
-            do {
-                _ = try await unpackSource(item.source, seedPath: seedURL.path, pool: pool)
-            } catch {
-                print("DatabaseService: unpacking \(item.source) failed, retrying next launch: \(error)")
-                break
-            }
-            await progress?(plan.fraction(afterCompleting: index + 1))
-            if sourceDelay > 0, index < plan.items.count - 1 {
-                try? await Task.sleep(for: .seconds(sourceDelay))
-            }
-        }
-        guard !plan.isEmpty else { return }
-        // Shrink the WAL (about 60 MB after the wordnet transaction). A busy
-        // reader only turns this into a no-op.
-        _ = try? await pool.writeWithoutTransaction { db in try db.checkpoint(.truncate) }
-    }
-
-    /// The per-source unit (§2.1). One write that ATTACHes the seed and, in
-    /// one transaction: updates the source's changed rows in place (#108:
-    /// rows matched on word NOCASE, so ids and the bookmarks on them survive
-    /// and `entries_au` re-indexes just those rows), inserts the rows the app
-    /// lacks (`entries_ai` indexes them), and copies the bundle's metadata
-    /// row, whose `built_at` is the completion marker. It imports a missing
-    /// source, completes a half-imported one and updates a stale one alike.
-    /// An error or a kill rolls the whole source back, marker included.
-    /// Bundle headwords the app lacks are inserted; app rows the bundle lacks
-    /// are kept. Never use DELETE or REPLACE here: both change the id.
-    private static func unpackSource(_ source: String, seedPath: String,
-                                     pool: DatabasePool) async throws -> (updated: Int, inserted: Int) {
-        try await pool.writeWithoutTransaction { db in
-            // ATTACH and DETACH stay outside the transaction: DETACH inside one
-            // fails with "database bundled is locked".
-            try db.execute(sql: "ATTACH DATABASE ? AS bundled", arguments: [seedPath])
-            defer { try? db.execute(sql: "DETACH DATABASE bundled") }
-            var updated = 0
-            var inserted = 0
-            try db.inTransaction {
-                try db.execute(
-                    sql: """
-                        UPDATE main.entries AS e
-                        SET word = x.word, word_normalized = x.word_normalized,
-                            definition = x.definition, phonetic = x.phonetic, pos = x.pos
-                        FROM bundled.entries AS x
-                        WHERE x.source = ?
-                          AND e.source = x.source
-                          AND e.word = x.word COLLATE NOCASE
-                          AND (e.word IS NOT x.word OR e.word_normalized IS NOT x.word_normalized
-                               OR e.definition IS NOT x.definition OR e.phonetic IS NOT x.phonetic
-                               OR e.pos IS NOT x.pos)
-                        """,
-                    arguments: [source]
-                )
-                updated = db.changesCount
-                try db.execute(
-                    sql: """
-                        INSERT OR IGNORE INTO main.entries(word, word_normalized, definition, phonetic, pos, source)
-                        SELECT word, word_normalized, definition, phonetic, pos, source
-                        FROM bundled.entries WHERE source = ? ORDER BY id
-                        """,
-                    arguments: [source]
-                )
-                inserted = db.changesCount
-                #if DEBUG
-                if Self.unpackFailureAfterInsert == source {
-                    throw DatabaseError(resultCode: .SQLITE_ABORT,
-                                        message: "unpackFailureAfterInsert: \(source)")
-                }
-                #endif
-                try db.execute(
-                    sql: """
-                        INSERT INTO main.dict_metadata(source, display_name, version, license, url,
-                                                       word_count, built_at, description)
-                        SELECT source, display_name, version, license, url, word_count, built_at,
-                               COALESCE(description, '')
-                        FROM bundled.dict_metadata WHERE source = ?
-                        ON CONFLICT(source) DO UPDATE SET
-                            display_name = excluded.display_name, version = excluded.version,
-                            license = excluded.license, url = excluded.url,
-                            word_count = excluded.word_count, built_at = excluded.built_at,
-                            description = excluded.description
-                        """,
-                    arguments: [source]
-                )
-                return .commit
-            }
-            return (updated, inserted)
-        }
-    }
-
-    /// No `seed.sqlite` bundled: imports `seed.json`, only into an empty
-    /// database (the pre-#111 fallback, unchanged).
-    private static func importJSONFallbackIfNeeded(into pool: DatabasePool) async {
-        do {
-            let isEmpty = try await pool.read { db in try DictionaryEntry.fetchCount(db) == 0 }
-            if isEmpty, let jsonURL = Bundle.main.url(forResource: "seed", withExtension: "json") {
-                _ = try await importJSON(at: jsonURL, source: "bundled", into: pool)
-            }
-        } catch {
-            print("DatabaseService: seed.json import failed: \(error)")
+        try await pool.write { db in
+            try db.execute(sql: "DELETE FROM imported_entries WHERE source = ?", arguments: [source])
+            try db.execute(sql: "DELETE FROM imported_sources WHERE source = ?", arguments: [source])
         }
     }
 
     // MARK: - Entry count (for testing / UI)
 
+    /// Rows of `source` in both stores.
     func entryCount(source: String) async throws -> Int {
         guard let pool = dbPool else { throw DBError.notConnected }
         return try await pool.read { db in
-            try DictionaryEntry.filter(Column("source") == source).fetchCount(db)
+            try Int.fetchOne(db, sql: """
+                SELECT (SELECT COUNT(*) FROM dict.entries WHERE source = ?)
+                     + (SELECT COUNT(*) FROM imported_entries WHERE source = ?)
+                """, arguments: [source, source]) ?? 0
         }
     }
 
     func entryCount() async throws -> Int {
         guard let pool = dbPool else { throw DBError.notConnected }
         return try await pool.read { db in
-            try DictionaryEntry.fetchCount(db)
+            try Int.fetchOne(db, sql: """
+                SELECT (SELECT COUNT(*) FROM dict.entries) + (SELECT COUNT(*) FROM imported_entries)
+                """) ?? 0
         }
     }
 
@@ -956,186 +686,57 @@ actor DatabaseService {
             .trimmingCharacters(in: .whitespaces)
     }
 
-    static func defaultDatabaseURL() -> URL {
+    /// `Application Support/DictApp/user.sqlite`: everything the user creates.
+    static func userDatabaseURL() -> URL {
+        appSupportDirectory().appendingPathComponent("user.sqlite")
+    }
+
+    /// The 1.x database. Nothing reads it until #139 moves its data.
+    static func legacyDatabaseURL() -> URL {
+        appSupportDirectory().appendingPathComponent("dict.sqlite")
+    }
+
+    private static func appSupportDirectory() -> URL {
         let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-        return appSupport.appendingPathComponent("DictApp/dict.sqlite")
+        return appSupport.appendingPathComponent("DictApp")
+    }
+
+    /// The bundled dictionary file. Still `seed.sqlite` until #140 renames it
+    /// to `dictionaries.sqlite`.
+    static func bundledDictionaryURL() -> URL? {
+        Bundle.main.url(forResource: "seed", withExtension: "sqlite")
     }
 
     #if DEBUG
-    /// UI-test hook `-resetDatabase` (Issue #111): deletes the app database
-    /// before `setup()`, for a deterministic fresh install without
-    /// uninstalling (the simulator keeps its language and keyboard settings).
-    static func removeDefaultDatabaseFiles() {
-        let path = defaultDatabaseURL().path
-        for suffix in ["", "-wal", "-shm"] {
-            try? FileManager.default.removeItem(atPath: path + suffix)
+    /// UI-test hook `-resetDatabase`: deletes the user database and any 1.x
+    /// database, each with its `-wal` and `-shm`, before `setup()`, for a
+    /// deterministic fresh install without uninstalling (the simulator keeps
+    /// its language and keyboard settings).
+    static func removeDatabaseFiles() {
+        for url in [userDatabaseURL(), legacyDatabaseURL()] {
+            for suffix in ["", "-wal", "-shm"] {
+                try? FileManager.default.removeItem(atPath: url.path + suffix)
+            }
         }
+    }
+
+    /// Unit-test seam: runs `body` on the writer, the connection a write to
+    /// `dict.*` would use, so a test can prove the attached dictionary file
+    /// is read-only. The app never calls it.
+    func writeForTesting<T: Sendable>(_ body: @escaping @Sendable (Database) throws -> T) async throws -> T {
+        guard let pool = dbPool else { throw DBError.notConnected }
+        return try await pool.write(body)
     }
     #endif
 
-    // Inline schema used when Schema.sql is unavailable in the bundle.
-    static let inlineSchema = """
-        CREATE TABLE IF NOT EXISTS entries (
-            id              INTEGER PRIMARY KEY AUTOINCREMENT,
-            word            TEXT    NOT NULL,
-            word_normalized TEXT    NOT NULL DEFAULT '',
-            definition      TEXT    NOT NULL,
-            phonetic        TEXT    DEFAULT '',
-            pos             TEXT    DEFAULT '',
-            source          TEXT    DEFAULT 'default',
-            created_at      TEXT    DEFAULT (datetime('now'))
-        );
-        CREATE UNIQUE INDEX IF NOT EXISTS idx_entries_word_source
-            ON entries(word COLLATE NOCASE, source);
-        CREATE VIRTUAL TABLE IF NOT EXISTS entries_fts USING fts5(
-            word_normalized, definition,
-            content='entries', content_rowid='id',
-            tokenize='unicode61 remove_diacritics 2'
-        );
-        CREATE TRIGGER IF NOT EXISTS entries_ai AFTER INSERT ON entries BEGIN
-            INSERT INTO entries_fts(rowid, word_normalized, definition)
-                VALUES (new.id, new.word_normalized, new.definition);
-        END;
-        CREATE TRIGGER IF NOT EXISTS entries_ad AFTER DELETE ON entries BEGIN
-            INSERT INTO entries_fts(entries_fts, rowid, word_normalized, definition)
-                VALUES ('delete', old.id, old.word_normalized, old.definition);
-        END;
-        CREATE TRIGGER IF NOT EXISTS entries_au AFTER UPDATE ON entries BEGIN
-            INSERT INTO entries_fts(entries_fts, rowid, word_normalized, definition)
-                VALUES ('delete', old.id, old.word_normalized, old.definition);
-            INSERT INTO entries_fts(rowid, word_normalized, definition)
-                VALUES (new.id, new.word_normalized, new.definition);
-        END;
-        CREATE TABLE IF NOT EXISTS history (
-            id          INTEGER PRIMARY KEY AUTOINCREMENT,
-            word        TEXT    NOT NULL UNIQUE,
-            source      TEXT    NOT NULL DEFAULT '',
-            looked_at   TEXT    DEFAULT (datetime('now'))
-        );
-        CREATE TABLE IF NOT EXISTS bookmarks (
-            id          INTEGER PRIMARY KEY AUTOINCREMENT,
-            entry_id    INTEGER NOT NULL UNIQUE REFERENCES entries(id) ON DELETE CASCADE,
-            created_at  TEXT    DEFAULT (datetime('now'))
-        );
-        CREATE TABLE IF NOT EXISTS dict_metadata (
-            source       TEXT PRIMARY KEY,
-            display_name TEXT NOT NULL,
-            version      TEXT NOT NULL DEFAULT '',
-            license      TEXT NOT NULL DEFAULT '',
-            url          TEXT NOT NULL DEFAULT '',
-            word_count   INTEGER NOT NULL DEFAULT 0,
-            built_at     TEXT NOT NULL DEFAULT (datetime('now')),
-            description  TEXT NOT NULL DEFAULT ''
-        );
-        """
-
     enum DBError: Error, LocalizedError {
         case notConnected
+        case dictionaryMissing
         var errorDescription: String? {
             switch self {
             case .notConnected: return "Database is not connected. Call setup() first."
+            case .dictionaryMissing: return "The bundled dictionary file is missing."
             }
         }
-    }
-}
-
-// MARK: - Bundled unpack plan and status (Issue #111)
-
-/// What the background unpack has to do (DESIGN_DOC_111 §3.3). Pure, so the
-/// order and the progress rule are unit-testable without a database.
-struct BundledUnpackPlan: Equatable, Sendable {
-    /// One bundled source as the seed's `dict_metadata` lists it.
-    struct BundledSource: Equatable, Sendable {
-        let source: String
-        /// The bundle's `word_count`.
-        let rowCount: Int
-        let builtAt: String
-    }
-
-    /// One source to unpack. `isNew`: never unpacked (no marker yet), else
-    /// stale (unpacked from an older seed, synced in place).
-    struct Item: Equatable, Sendable {
-        let source: String
-        /// The bundle's `word_count`.
-        let rowCount: Int
-        let isNew: Bool
-    }
-
-    /// The seed to unpack from; `nil` when none is bundled (JSON fallback).
-    let seedURL: URL?
-    /// Pending sources in unpack order: new ones first (new content before
-    /// updates of content that is already searchable), each group in
-    /// `DictionaryDefaults.unpackPriority` order.
-    let items: [Item]
-    /// Progress weight of every bundled source, pending or not: the sum of
-    /// their `word_count`s (at least 1 each, so a fixture without counts
-    /// still advances).
-    let allRows: Int
-
-    var isEmpty: Bool { items.isEmpty }
-
-    /// The share already present when the unpack starts (a resumed unpack
-    /// starts where the last one stopped).
-    var initialFraction: Double { fraction(afterCompleting: 0) }
-
-    /// - Parameters:
-    ///   - bundled: the bundle's sources in seed order.
-    ///   - appBuiltAt: the app's `source → built_at` markers before
-    ///     registration. A source is pending when its marker is missing,
-    ///     empty, or differs from the bundle's `built_at`.
-    ///   - languageCode: the UI language, for `unpackPriority`.
-    init(seedURL: URL?, bundled: [BundledSource], appBuiltAt: [String: String], languageCode: String) {
-        self.seedURL = seedURL
-        allRows = bundled.reduce(0) { $0 + Self.weight($1.rowCount) }
-        let priority = DictionaryDefaults.unpackPriority(forLanguageCode: languageCode,
-                                                         sources: bundled.map(\.source))
-        let rank = Dictionary(priority.enumerated().map { ($1, $0) }, uniquingKeysWith: { first, _ in first })
-        items = bundled
-            .compactMap { source -> Item? in
-                let marker = appBuiltAt[source.source] ?? ""
-                guard marker.isEmpty || marker != source.builtAt else { return nil }
-                return Item(source: source.source, rowCount: source.rowCount, isNew: marker.isEmpty)
-            }
-            .sorted { lhs, rhs in
-                if lhs.isNew != rhs.isNew { return lhs.isNew }
-                return rank[lhs.source, default: .max] < rank[rhs.source, default: .max]
-            }
-    }
-
-    /// Share of all bundled rows present once the first `count` items have
-    /// committed: `(allRows − rows still pending) / allRows`. Never decreases.
-    func fraction(afterCompleting count: Int) -> Double {
-        guard allRows > 0 else { return 1 }
-        let pending = items.dropFirst(count).reduce(0) { $0 + Self.weight($1.rowCount) }
-        return Double(allRows - pending) / Double(allRows)
-    }
-
-    private static func weight(_ rowCount: Int) -> Int { max(rowCount, 1) }
-}
-
-/// Observable progress of the background unpack, for the Search screen's
-/// progress bar (Issue #111). A plain value holder: written only by
-/// `DatabaseService` and `DictApp.initializeDatabase`; `SearchViewModel`
-/// maps it for the view.
-@MainActor
-final class DictionaryUnpackStatus: ObservableObject {
-    static let shared = DictionaryUnpackStatus()
-
-    enum Phase: Equatable, Sendable {
-        case idle
-        /// `fraction`: share of all bundled rows present, 0...1.
-        case unpacking(fraction: Double)
-    }
-
-    @Published private(set) var phase: Phase = .idle
-
-    /// Sets the state for `plan` before the first frame (so the bar never
-    /// flashes on a normal launch, and is already up on a fresh one).
-    func begin(_ plan: BundledUnpackPlan) {
-        phase = plan.isEmpty ? .idle : .unpacking(fraction: plan.initialFraction)
-    }
-
-    func update(_ phase: Phase) {
-        self.phase = phase
     }
 }

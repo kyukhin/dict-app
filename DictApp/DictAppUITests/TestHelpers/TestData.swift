@@ -72,11 +72,8 @@ struct TestData {
         static let short: TimeInterval = 2.0
         static let medium: TimeInterval = 5.0
         static let long: TimeInterval = 10.0
-        /// Issue #111: launch to the Search screen, cold or warm (the UI no
-        /// longer waits for the dictionaries; the target is under 5 s).
+        /// Launch to the Search screen, cold or warm (Issue #138: every
+        /// dictionary is searchable at once; the target is under 2 s).
         static let launch: TimeInterval = 30.0
-        /// Issue #111: the background unpack of the bundled dictionaries on a
-        /// fresh install (the former cold-seed budget).
-        static let dictionariesReady: TimeInterval = 120.0
     }
 }

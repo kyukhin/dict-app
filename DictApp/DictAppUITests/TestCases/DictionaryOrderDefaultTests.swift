@@ -30,9 +30,9 @@ final class DictionaryOrderDefaultTests: XCTestCase {
     }
 
     func testFreshRussianInstallListsOpenRussianFirst() throws {
-        // Issue #111: the order is read once every bundled dictionary is in.
+        // The order is read once the Search screen is up.
         XCTAssertTrue(app.waitForDictionariesReady(),
-                      "Search screen with every dictionary unpacked after launch")
+                      "Search screen after launch")
         // Precondition: the UI really is Russian, otherwise the assertion
         // below would be testing the English default by accident.
         let settingsTab = app.tabButton(.settings)

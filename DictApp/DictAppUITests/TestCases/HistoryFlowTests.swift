@@ -364,6 +364,73 @@ final class HistoryFlowTests: XCTestCase {
                       "Greek caption must be a Greek relative day; got '\(greekCaption)'")
     }
 
+    /// #138 (Kirill, 2026-10-27): a History row reopens the dictionary the
+    /// word was read in. "dog" read in En–Es · FD ("perro") reopens from
+    /// History as that entry; 1.4.0 looked the word up again and showed
+    /// WordNet ("a member of the genus Canis").
+    func testHistoryReopensTheDictionaryItWasReadIn() throws {
+        readDogInFreeDict()
+
+        let historyPage = tabBarPage.tapHistoryTab()
+        XCTAssertTrue(historyPage.waitForHistoryToLoad(), "History should load")
+        let row = app.descendants(matching: .any)[AccessibilityIdentifiers.History.historyItem(word: "dog")].firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: TestData.Timeouts.medium), "History must list 'dog'")
+        XCTAssertTrue(app.descendants(matching: .any)[stripeID(TestData.Sources.freedictEngSpa)].firstMatch.exists,
+                      "the row's stripe shows the dictionary it was read in")
+        row.tap()
+
+        assertOpensFreeDictDog(from: "History")
+    }
+
+    /// #138: a Recent word on Search reopens the dictionary it was read in,
+    /// like History. Relaunched on the same data, so the empty Search screen
+    /// lists the Recent words.
+    func testRecentWordReopensTheDictionaryItWasReadIn() throws {
+        readDogInFreeDict()
+        relaunchKeepingData()
+
+        let recent = app.staticTexts["dog"].firstMatch
+        XCTAssertTrue(recent.waitForExistence(timeout: TestData.Timeouts.long), "Search must list the Recent word 'dog'")
+        recent.tap()
+
+        assertOpensFreeDictDog(from: "a Recent word")
+    }
+
+    // MARK: - #138 helpers
+
+    private func stripeID(_ source: String) -> String {
+        AccessibilityIdentifiers.Search.sourceStripe(source: source)
+    }
+
+    /// Searches "dog" and opens it from En–Es · FD, not the WordNet row
+    /// that 1.4.0 reopened from History, then returns to Search.
+    private func readDogInFreeDict() {
+        let searchPage = tabBarPage.tapSearchTab()
+        searchPage.searchFor("dog")
+        XCTAssertTrue(searchPage.waitForResults(), "Search results should appear for 'dog'")
+        let cell = app.cells
+            .containing(.any, identifier: AccessibilityIdentifiers.Search.sourceBadge(source: TestData.Sources.freedictEngSpa))
+            .containing(NSPredicate(format: "label == %@", "dog"))
+            .firstMatch
+        XCTAssertTrue(cell.waitForExistence(timeout: TestData.Timeouts.medium), "'dog' (En–Es · FD) in the results")
+        cell.tap()
+        let definition = DefinitionPage(app: app)
+        XCTAssertTrue(definition.waitForDefinitionToLoad(), "Definition should load")
+        XCTAssertTrue(definition.verifyDefinitionContainsText("perro"), "precondition: the FreeDict entry is open")
+        definition.navigateBack()
+    }
+
+    private func assertOpensFreeDictDog(from origin: String, file: StaticString = #filePath, line: UInt = #line) {
+        let definition = DefinitionPage(app: app)
+        XCTAssertTrue(definition.waitForDefinitionToLoad(), "Definition should load from \(origin)",
+                      file: file, line: line)
+        XCTAssertTrue(definition.verifyDefinitionContainsText("perro"),
+                      "\(origin) must reopen 'dog' from En–Es · FD; got '\(definition.getDefinitionText())'",
+                      file: file, line: line)
+        XCTAssertFalse(definition.verifyDefinitionContainsText("genus Canis"),
+                       "\(origin) must not open WordNet's 'dog'", file: file, line: line)
+    }
+
     // MARK: - #114 helpers
 
     /// Raw `looked_at` text, matched anywhere so a label that merges the word

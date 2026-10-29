@@ -68,9 +68,6 @@ class SettingsViewModel: ObservableObject {
         do {
             // `fetchSourceStats()` is the count-desc base order (§6); on first
             // launch #74 promotes the active UI language's dictionaries to the top.
-            // It lists every bundled source, also one still being unpacked
-            // (Issue #111, with its final count), so the default order is the
-            // same during and after the unpack.
             let stats = try await DatabaseService.shared.fetchSourceStats()
             // Issue #105: this await is the only suspension point. Every
             // `settingsService` read stays below it, so a reorder or toggle made
@@ -131,8 +128,7 @@ class SettingsViewModel: ObservableObject {
 
     /// Flips the enabled state of every source in the pair (Issue #92: one
     /// toggle per language pair) and persists it in one write. The known set
-    /// holds every bundled source even mid-unpack (Issue #111), so a first
-    /// toggle never switches off a dictionary that has not landed yet.
+    /// is every listed source, so a first toggle never switches off another.
     func togglePair(id pairID: String) {
         guard let index = dictionaries.firstIndex(where: { $0.id == pairID }) else { return }
         let knownSources = Set(dictionaries.flatMap(\.pair.sourceIDs))

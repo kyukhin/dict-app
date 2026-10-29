@@ -16,12 +16,12 @@ struct BookmarksView: View {
                     )
                 } else {
                     List {
-                        ForEach(vm.entries) { item in
-                            NavigationLink(value: item.entry) {
+                        ForEach(vm.entries) { entry in
+                            NavigationLink(value: entry) {
                                 VStack(alignment: .leading, spacing: 4) {
-                                    Text(item.entry.word)
+                                    Text(entry.word)
                                         .font(.headline)
-                                    Text(strippedSnippet(item.entry.definition))
+                                    Text(strippedSnippet(entry.definition))
                                         .font(.caption)
                                         .foregroundStyle(.secondary)
                                         .lineLimit(1)
@@ -29,10 +29,10 @@ struct BookmarksView: View {
                             }
                         }
                         .onDelete { offsets in
+                            let removed = offsets.map { vm.entries[$0] }
                             Task {
-                                for idx in offsets {
-                                    let entry = vm.entries[idx]
-                                    await vm.remove(entryId: entry.entry.id ?? 0)
+                                for entry in removed {
+                                    await vm.remove(entry)
                                 }
                             }
                         }

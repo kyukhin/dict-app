@@ -48,8 +48,7 @@ final class DictionaryInfoTests: XCTestCase {
 
         XCUIDevice.shared.orientation = .portrait
         app.launch()
-        // `TabBarPage` waits until every bundled dictionary is unpacked
-        // (Issue #111), so the details show final counts and licenses.
+        // `TabBarPage` waits for the Search screen.
         tabBarPage = TabBarPage(app: app)
     }
 

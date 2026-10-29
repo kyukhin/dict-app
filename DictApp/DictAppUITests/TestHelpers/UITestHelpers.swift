@@ -89,23 +89,17 @@ extension XCUIElement {
 }
 
 extension XCUIApplication {
-    /// Issue #111 readiness signal, the single one for every suite: the Search
-    /// screen is up and the unpack progress bar is not. "Search screen is up"
-    /// is the `search_tab` content id, which does not depend on where
-    /// `.searchable` places its field. The content renders in the same frame
-    /// as the field, and the bar's state is set before the first frame, so
-    /// once the content exists an absent bar means every bundled dictionary is
-    /// searchable (a search before that can fail fast on a "no results"). Call
-    /// right after `launch()`, before navigating: every launch starts on the
-    /// Search tab, where the bar lives. Language-independent (by identifier).
-    /// Returns at once on a warm launch.
+    /// Readiness signal, the single one for every suite: the Search screen is
+    /// up. Since Issue #138 every bundled dictionary is searchable from the
+    /// first frame (the dictionary file is attached, nothing is unpacked).
+    /// "Search screen is up" is the `search_tab` content id, which does not
+    /// depend on where `.searchable` places its field. Call right after
+    /// `launch()`, before navigating: every launch starts on the Search tab.
+    /// Language-independent (by identifier). Returns at once on a warm launch.
     @discardableResult
-    func waitForDictionariesReady(launchTimeout: TimeInterval = TestData.Timeouts.launch,
-                                  unpackTimeout: TimeInterval = TestData.Timeouts.dictionariesReady) -> Bool {
-        let searchScreen = descendants(matching: .any)[AccessibilityIdentifiers.TabBar.searchTab].firstMatch
-        guard searchScreen.waitForExistence(timeout: launchTimeout) else { return false }
-        return descendants(matching: .any)[AccessibilityIdentifiers.Search.dictionaryUnpackProgress]
-            .waitForNonExistence(timeout: unpackTimeout)
+    func waitForDictionariesReady(launchTimeout: TimeInterval = TestData.Timeouts.launch) -> Bool {
+        descendants(matching: .any)[AccessibilityIdentifiers.TabBar.searchTab].firstMatch
+            .waitForExistence(timeout: launchTimeout)
     }
 
     // MARK: - Tabs (Issues #102, #104)

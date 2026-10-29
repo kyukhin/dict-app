@@ -23,22 +23,21 @@ final class DefinitionViewModel: ObservableObject {
     }
 
     func onAppear() async {
-        guard let id = entry.id else { return }
         do {
             try await db.addToHistory(word: entry.word, source: entry.source)
-            isBookmarked = try await db.isBookmarked(entryId: id)
+            isBookmarked = try await db.isInMyWords(EntryKey(entry))
         } catch {
             errorMessage = error.localizedDescription
         }
     }
 
+    /// Issue #138: until #158, the star adds the entry to My words or removes it.
     func toggleBookmark() async {
-        guard let id = entry.id else { return }
         do {
             if isBookmarked {
-                try await db.removeBookmark(entryId: id)
+                try await db.removeFromMyWords(EntryKey(entry))
             } else {
-                try await db.addBookmark(entryId: id)
+                try await db.addToMyWords(EntryKey(entry))
             }
             isBookmarked.toggle()
         } catch {

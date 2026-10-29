@@ -12,8 +12,9 @@ struct SearchView: View {
                 if vm.query.isEmpty {
                     if !vm.recentWords.isEmpty {
                         Section("search.recent.title") {
+                            // Issue #138: a Recent word reopens its stored source, as in History.
                             ForEach(vm.recentWords) { item in
-                                NavigationLink(value: item.word) {
+                                NavigationLink(value: item) {
                                     Label(item.word, systemImage: "clock")
                                         .font(.body)
                                 }
@@ -34,12 +35,6 @@ struct SearchView: View {
                     }
                 }
             }
-            // Issue #111: progress of the background unpack, just above the
-            // tab bar (above the keyboard while typing). At the bottom, its
-            // appearing and disappearing never moves the result rows.
-            .safeAreaInset(edge: .bottom, spacing: 0) {
-                UnpackProgressBar(fraction: vm.unpackFraction)
-            }
             .navigationTitle("search.title")
             .modifier(SearchFieldPlacement(text: $vm.query))
             .toolbar {
@@ -58,8 +53,8 @@ struct SearchView: View {
             .navigationDestination(for: DictionaryEntry.self) { entry in
                 DefinitionView(entry: entry)
             }
-            .navigationDestination(for: String.self) { word in
-                HistoryWordDestination(word: word)
+            .navigationDestination(for: HistoryItem.self) { item in
+                HistoryDestination(item: item)
             }
             .task {
                 await vm.loadRecent()
@@ -102,43 +97,6 @@ private struct SearchFieldPlacement: ViewModifier {
         } else {
             content.searchable(text: $text, prompt: Text("search.prompt"))
         }
-    }
-}
-
-// MARK: - Unpack progress (Issue #111)
-
-/// "Preparing dictionaries… 35%" on the bar material while the bundled
-/// dictionaries are unpacked; nothing when `fraction` is `nil`. The percent
-/// is formatted with the in-app locale from the environment (Arabic digits,
-/// "35 %" in Spanish), so the catalog string carries no number.
-private struct UnpackProgressBar: View {
-    let fraction: Double?
-
-    var body: some View {
-        ZStack {
-            if let fraction {
-                HStack(spacing: 8) {
-                    ProgressView()
-                        .controlSize(.small)
-                    Text("search.unpacking.title")
-                    Text(fraction, format: .percent.precision(.fractionLength(0)))
-                        .monospacedDigit()
-                }
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-                .padding(.vertical, 8)
-                .padding(.horizontal)
-                .frame(maxWidth: .infinity)
-                .background(.bar)
-                .accessibilityElement(children: .ignore)
-                .accessibilityLabel(Text("search.unpacking.title"))
-                .accessibilityValue(Text(fraction, format: .percent.precision(.fractionLength(0))))
-                .accessibilityAddTraits(.updatesFrequently)
-                .accessibilityIdentifier("dictionary_unpack_progress")
-                .transition(.opacity)
-            }
-        }
-        .animation(.easeInOut(duration: 0.25), value: fraction == nil)
     }
 }
 
@@ -193,38 +151,5 @@ private struct EntryRow: View {
             .replacingOccurrences(of: "*", with: "")
             .replacingOccurrences(of: "\n", with: " ")
             .trimmingCharacters(in: .whitespaces)
-    }
-}
-
-// MARK: - History word destination
-
-/// Looks up a word from history and shows its definition.
-private struct HistoryWordDestination: View {
-    let word: String
-    @State private var entry: DictionaryEntry?
-    @State private var loaded = false
-
-    var body: some View {
-        Group {
-            if let entry {
-                DefinitionView(entry: entry)
-            } else if loaded {
-                ContentUnavailableView(
-                    "search.notFound.title",
-                    systemImage: "magnifyingglass",
-                    description: Text("search.notFound.description \(word)")
-                )
-            } else {
-                ProgressView()
-            }
-        }
-        .task {
-            entry = try? await DatabaseService.shared.lookup(word: word)
-            if entry == nil {
-                let results = (try? await DatabaseService.shared.search(query: word, limit: 1)) ?? []
-                entry = results.first
-            }
-            loaded = true
-        }
     }
 }

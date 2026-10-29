@@ -58,10 +58,9 @@ final class ArabicLocalizationTests: XCTestCase {
         // See project memory project_xcuitest_orientation_landscape_swipe.
         XCUIDevice.shared.orientation = .portrait
         app.launch()
-        // Issue #111: once after each launch, so no wait below has to absorb
-        // a cold start (the tab bar shows in seconds; the unpack runs behind it).
+        // Once after each launch, so no wait below has to absorb a cold start.
         XCTAssertTrue(app.waitForDictionariesReady(),
-                      "Search screen with every dictionary unpacked after launch")
+                      "Search screen after launch")
     }
 
     override func tearDownWithError() throws {
