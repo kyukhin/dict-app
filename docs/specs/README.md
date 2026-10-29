@@ -46,3 +46,4 @@ Data, modules, APIs, migrations, constraints. Links to the code.
 | `0000-overview.md`: the app today (data pipeline, database, search, screens, tests) | Approved | — |
 | `0129-dictionary-file.md`: dictionaries as one read-only file, the user database, the 1.x migration, reopening an invalidated file | Approved | #129 |
 | `0136-word-forms.md`: word forms (search by any inflected form, inflection tables) | Approved | #136 |
+| `0146-quick-switch.md`: dictionary chips on Search, one setting with Dictionary Order | Approved | #146 |
