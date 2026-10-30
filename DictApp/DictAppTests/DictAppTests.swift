@@ -9,6 +9,7 @@ import MessageUI
 import Combine
 import CoreText
 import UIKit
+import OSLog
 
 final class DictAppTests: XCTestCase {
 
@@ -218,10 +219,7 @@ final class DictAppTests: XCTestCase {
 
         // And it must actually open and contain entries. Read-only: the
         // bundle never gets a writable connection (#111).
-        var config = Configuration()
-        config.readonly = true
-        let queue = try DatabaseQueue(path: fileURL.path, configuration: config)
-        let count = try queue.read { db in
+        let count = try BundledDictionary(url: fileURL).read { db in
             try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM entries") ?? 0
         }
         XCTAssertGreaterThan(count, 0, "Bundled dictionaries.sqlite must contain entries.")
@@ -1501,12 +1499,11 @@ final class DictAppTests: XCTestCase {
                       "Re-enable must round-trip through UserDefaults")
     }
 
-    /// Opens the bundled `dictionaries.sqlite` read-only via GRDB so the
-    /// FreeDict tests can probe it without touching the per-test database.
-    private static func openBundledSeedReadOnly() throws -> DatabaseQueue {
-        var config = Configuration()
-        config.readonly = true
-        return try DatabaseQueue(path: TestDictionary.bundledURL().path, configuration: config)
+    /// The bundled `dictionaries.sqlite`, read-only, so the seed tests can
+    /// probe it without touching the per-test database. Its reads survive an
+    /// install that invalidates the file mid-run (#213, `BundledDictionary`).
+    private static func openBundledSeedReadOnly() throws -> BundledDictionary {
+        try BundledDictionary()
     }
 
     // MARK: - Issue #42: Spanish WordNet (Spanish–English) bundle
@@ -4697,7 +4694,7 @@ extension DictAppTests {
 
     /// One seed row's definition (NFC, for contains-checks: Greek-source
     /// definitions are stored decomposed).
-    private static func seedDefinition(_ queue: DatabaseQueue, word: String, source: String) throws -> String {
+    private static func seedDefinition(_ queue: BundledDictionary, word: String, source: String) throws -> String {
         let raw = try queue.read { conn in
             try String.fetchOne(conn, sql: "SELECT definition FROM entries WHERE word = ? AND source = ?",
                                 arguments: [word, source])
@@ -4705,7 +4702,7 @@ extension DictAppTests {
         return try XCTUnwrap(raw, "seed row '\(word)' / \(source) missing").precomposedStringWithCanonicalMapping
     }
 
-    private static func seedLicense(_ queue: DatabaseQueue, _ source: String) throws -> String {
+    private static func seedLicense(_ queue: BundledDictionary, _ source: String) throws -> String {
         let raw = try queue.read { conn in
             try String.fetchOne(conn, sql: "SELECT license FROM dict_metadata WHERE source = ?", arguments: [source])
         }
@@ -6598,32 +6595,36 @@ final class DictionaryFileTests: XCTestCase {
     /// count and its languages are the ISO 639-3 codes of its source ID, and
     /// no column stamps the build time.
     func testDictionaryFileFormat() throws {
-        var config = Configuration()
-        config.readonly = true
-        let queue = try DatabaseQueue(path: TestDictionary.bundledURL().path, configuration: config)
-        try queue.read { db in
-            XCTAssertEqual(try Int.fetchOne(db, sql: "PRAGMA user_version"), DictionaryFile.formatVersion,
-                           "the bundled file and DictionaryFile.formatVersion (FORMAT_VERSION in the build) must match")
-            XCTAssertEqual(try String.fetchOne(db, sql: "PRAGMA journal_mode")?.lowercased(), "delete")
-
-            let counts = try Dictionary(uniqueKeysWithValues: Row.fetchAll(db, sql: """
+        // Read first, assert after: an assertion inside the read would hide
+        // an I/O error from `BundledDictionary`'s retry.
+        let file = try BundledDictionary().read { db in
+            (userVersion: try Int.fetchOne(db, sql: "PRAGMA user_version"),
+             journalMode: try String.fetchOne(db, sql: "PRAGMA journal_mode"),
+             counts: try Dictionary(uniqueKeysWithValues: Row.fetchAll(db, sql: """
                 SELECT source, COUNT(*) AS n FROM entries GROUP BY source
-                """).map { ($0["source"] as String, $0["n"] as Int) })
-            let metadata = try Row.fetchAll(db, sql: "SELECT source, word_count, from_lang, to_lang FROM dict_metadata")
-            XCTAssertEqual(Set(metadata.map { $0["source"] as String }), Set(counts.keys),
-                           "dict_metadata lists exactly the entry sources")
-            for row in metadata {
-                let source: String = row["source"]
-                XCTAssertEqual(row["word_count"] as Int, counts[source], "\(source): word_count is its row count")
-                let languages = DictionaryGrouping.parse(sourceID: source).languages
-                XCTAssertEqual(row["from_lang"] as String, languages.first, "\(source): from_lang")
-                XCTAssertEqual(row["to_lang"] as String, languages.last, "\(source): to_lang")
-            }
-
-            XCTAssertFalse(try db.columns(in: "entries").map(\.name).contains("created_at"))
-            XCTAssertFalse(try db.columns(in: "dict_metadata").map(\.name).contains("built_at"))
-            XCTAssertTrue(try db.tableExists("data_source"), "credits table for non-dictionary data sets")
+                """).map { ($0["source"] as String, $0["n"] as Int) }),
+             metadata: try Row.fetchAll(db, sql: "SELECT source, word_count, from_lang, to_lang FROM dict_metadata"),
+             entryColumns: try db.columns(in: "entries").map(\.name),
+             metadataColumns: try db.columns(in: "dict_metadata").map(\.name),
+             hasDataSource: try db.tableExists("data_source"))
         }
+        XCTAssertEqual(file.userVersion, DictionaryFile.formatVersion,
+                       "the bundled file and DictionaryFile.formatVersion (FORMAT_VERSION in the build) must match")
+        XCTAssertEqual(file.journalMode?.lowercased(), "delete")
+
+        XCTAssertEqual(Set(file.metadata.map { $0["source"] as String }), Set(file.counts.keys),
+                       "dict_metadata lists exactly the entry sources")
+        for row in file.metadata {
+            let source: String = row["source"]
+            XCTAssertEqual(row["word_count"] as Int, file.counts[source], "\(source): word_count is its row count")
+            let languages = DictionaryGrouping.parse(sourceID: source).languages
+            XCTAssertEqual(row["from_lang"] as String, languages.first, "\(source): from_lang")
+            XCTAssertEqual(row["to_lang"] as String, languages.last, "\(source): to_lang")
+        }
+
+        XCTAssertFalse(file.entryColumns.contains("created_at"))
+        XCTAssertFalse(file.metadataColumns.contains("built_at"))
+        XCTAssertTrue(file.hasDataSource, "credits table for non-dictionary data sets")
     }
 
     /// The rest of the file's shape (0129, "Dictionary file"): no triggers,
@@ -6633,37 +6634,38 @@ final class DictionaryFileTests: XCTestCase {
     /// `entries` with the tokenizer the imported index shares; and every id
     /// below 2^40, where imported ids start.
     func testDictionaryFileStructure() throws {
-        var config = Configuration()
-        config.readonly = true
-        let queue = try DatabaseQueue(path: TestDictionary.bundledURL().path, configuration: config)
-        try queue.read { db in
-            XCTAssertEqual(try String.fetchAll(db, sql: "SELECT name FROM sqlite_master WHERE type = 'trigger'"), [],
-                           "no triggers: the FTS index is rebuilt once by the build")
-            XCTAssertFalse(try db.tableExists("sqlite_stat1"), "no ANALYZE")
-            XCTAssertFalse(try db.tableExists("history") || db.tableExists("bookmarks"),
-                           "the 1.x seed's empty user tables are gone")
-
-            let uniqueIndexes = try Row.fetchAll(db, sql: "PRAGMA index_list(entries)")
+        // Read first, assert after (see `testDictionaryFileFormat`).
+        let file = try BundledDictionary().read { db in
+            (triggers: try String.fetchAll(db, sql: "SELECT name FROM sqlite_master WHERE type = 'trigger'"),
+             hasStatistics: try db.tableExists("sqlite_stat1"),
+             hasUserTables: try db.tableExists("history") || db.tableExists("bookmarks"),
+             uniqueKeys: try Row.fetchAll(db, sql: "PRAGMA index_list(entries)")
                 .filter { ($0["unique"] as Int) == 1 }
                 .map { $0["name"] as String }
-            let keys = try uniqueIndexes.map { name in
-                try Row.fetchAll(db, sql: "PRAGMA index_xinfo(\(name.quotedDatabaseIdentifier))")
-                    .filter { ($0["key"] as Int) == 1 }
-                    .map { "\($0["name"] as String? ?? "?") \($0["coll"] as String)" }
-            }
-            XCTAssertTrue(keys.contains(["word NOCASE", "source BINARY"]),
-                          "entries is unique on (word COLLATE NOCASE, source): \(keys)")
-
-            let fts = try XCTUnwrap(String.fetchOne(db, sql: "SELECT sql FROM sqlite_master WHERE name = 'entries_fts'"))
-            for clause in ["fts5", "word_normalized, definition", "content='entries'", "content_rowid='id'",
-                           "tokenize='unicode61 remove_diacritics 2'"] {
-                XCTAssertTrue(fts.contains(clause), "entries_fts has \(clause): \(fts)")
-            }
-
-            let maxID = try XCTUnwrap(Int64.fetchOne(db, sql: "SELECT MAX(id) FROM entries"))
-            XCTAssertGreaterThan(maxID, 0)
-            XCTAssertLessThan(maxID, Int64(1) << 40, "bundled ids stay below the first imported id")
+                .map { name in
+                    try Row.fetchAll(db, sql: "PRAGMA index_xinfo(\(name.quotedDatabaseIdentifier))")
+                        .filter { ($0["key"] as Int) == 1 }
+                        .map { "\($0["name"] as String? ?? "?") \($0["coll"] as String)" }
+                },
+             fts: try String.fetchOne(db, sql: "SELECT sql FROM sqlite_master WHERE name = 'entries_fts'"),
+             maxID: try Int64.fetchOne(db, sql: "SELECT MAX(id) FROM entries"))
         }
+        XCTAssertEqual(file.triggers, [], "no triggers: the FTS index is rebuilt once by the build")
+        XCTAssertFalse(file.hasStatistics, "no ANALYZE")
+        XCTAssertFalse(file.hasUserTables, "the 1.x seed's empty user tables are gone")
+
+        XCTAssertTrue(file.uniqueKeys.contains(["word NOCASE", "source BINARY"]),
+                      "entries is unique on (word COLLATE NOCASE, source): \(file.uniqueKeys)")
+
+        let fts = try XCTUnwrap(file.fts)
+        for clause in ["fts5", "word_normalized, definition", "content='entries'", "content_rowid='id'",
+                       "tokenize='unicode61 remove_diacritics 2'"] {
+            XCTAssertTrue(fts.contains(clause), "entries_fts has \(clause): \(fts)")
+        }
+
+        let maxID = try XCTUnwrap(file.maxID)
+        XCTAssertGreaterThan(maxID, 0)
+        XCTAssertLessThan(maxID, Int64(1) << 40, "bundled ids stay below the first imported id")
     }
 
     /// A dictionary file the app cannot read fails setup loudly instead of
@@ -6819,9 +6821,7 @@ enum TestDictionary {
     static func make(rows: [Row], metadata: [Metadata] = [], at url: URL? = nil) throws -> URL {
         let url = url ?? FileManager.default.temporaryDirectory
             .appendingPathComponent("dictionary-\(UUID().uuidString).sqlite")
-        var readonly = Configuration()
-        readonly.readonly = true
-        let schema = try DatabaseQueue(path: bundledURL().path, configuration: readonly).read { db in
+        let schema = try BundledDictionary().read { db in
             try GRDB.Row.fetchAll(db, sql: """
                 SELECT type, name, sql FROM sqlite_master
                 WHERE sql IS NOT NULL AND type IN ('table', 'index') AND name NOT LIKE 'sqlite%'
@@ -6868,6 +6868,48 @@ enum TestDictionary {
             }
         }
         return url
+    }
+}
+
+/// A dictionary file that unit tests read directly, outside
+/// `DatabaseService`: by default the host app's bundled file. Every read
+/// opens a new read-only connection. An install can invalidate the open
+/// bundled file while the tests run (#213, 0000-overview "Known gotchas"),
+/// so a read that fails with SQLITE_IOERR runs once more on a new
+/// connection, as the app's own reads do. A closure that asserts inside the
+/// read hides the error from this retry (`XCTAssert` catches it): read
+/// first, assert after.
+struct BundledDictionary {
+    let url: URL
+
+    init() throws {
+        url = try TestDictionary.bundledURL()
+    }
+
+    init(url: URL) {
+        self.url = url
+    }
+
+    func read<T>(_ value: (Database) throws -> T) throws -> T {
+        do {
+            return try open().read(value)
+        } catch let error as DatabaseError where error.resultCode == .SQLITE_IOERR {
+            return try open().read(value)
+        }
+    }
+
+    func read<T>(_ value: @Sendable @escaping (Database) throws -> T) async throws -> T {
+        do {
+            return try await open().read(value)
+        } catch let error as DatabaseError where error.resultCode == .SQLITE_IOERR {
+            return try await open().read(value)
+        }
+    }
+
+    private func open() throws -> DatabaseQueue {
+        var config = Configuration()
+        config.readonly = true
+        return try DatabaseQueue(path: url.path, configuration: config)
     }
 }
 
@@ -8761,5 +8803,517 @@ final class WordFormsLookupTests: XCTestCase {
             XCTAssertEqual(try lemmas(of: "σας", pos: "pron", in: db), ["σας"], "σας → τα is gone")
             XCTAssertEqual(try lemmas(of: "μας", pos: "pron", in: db), ["μας"])
         }
+    }
+}
+
+// MARK: - Issue #213: reopen the dictionary file after the system invalidates it
+
+/// The system invalidates the open dictionary file, as the removal of the old
+/// bundle's link after an install over the app does, and the service
+/// recovers by reopening it (0129, "Invalidated dictionary file"). Each test
+/// follows the spec's reproduction:
+/// 1. `dictionary.sqlite` holds 2,000 rows in two sources, and a hard link
+///    `staging.sqlite` stands for the old bundle's link in containermanagerd's
+///    `Dead` folder;
+/// 2. the service attaches `dictionary.sqlite`, and `fetchMetadata()` opens
+///    a reader, so the writer and the readers cache only the schema and
+///    `dict_metadata`;
+/// 3. a control connection of the test's own attaches the file with the
+///    app's URI;
+/// 4. one link is removed (iOS SQLite logs "vnode unlinked while in use");
+/// 5. every 100 ms, for up to 10 s, the control connection reads
+///    `dict.entries`, until the read fails with SQLITE_IOERR. It keeps no
+///    page cache for `dict` (`cache_size = 0`), so every read goes to the
+///    file: on iOS 17.5 `sqlite3_db_release_memory` leaves the pages of the
+///    immutable file cached. If the read never fails, this OS does not
+///    invalidate the file and the test skips;
+/// 6. the service's connections now hold invalid descriptors.
+final class DictionaryReopenTests: XCTestCase {
+    private static let sources = ["alpha", "beta"]
+    /// The My words row added before step 4.
+    private static let myWord = EntryKey(source: "alpha", word: "house7")
+
+    private var tempDir: URL!
+    private var db: DatabaseService { .shared }
+    private var dictionaryURL: URL { tempDir.appendingPathComponent("dictionary.sqlite") }
+    private var stagingURL: URL { tempDir.appendingPathComponent("staging.sqlite") }
+    private var userPath: String { tempDir.appendingPathComponent("user.sqlite").path }
+    /// Step 3: an in-memory connection with the file attached as `dict` and
+    /// no page cache for it.
+    private var control: DatabaseQueue?
+
+    override func setUp() async throws {
+        try await super.setUp()
+        await DictAppTests.waitForHostAppLaunch()
+        tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        // Step 1.
+        let rows = Self.sources.flatMap { source in
+            (0..<1000).map { i in
+                TestDictionary.Row(word: "house\(i)", definition: "house number \(i) of \(source), a dwelling",
+                                   pos: "noun", source: source)
+            }
+        }
+        try TestDictionary.make(rows: rows, at: dictionaryURL)
+        try FileManager.default.linkItem(at: dictionaryURL, to: stagingURL)
+    }
+
+    override func tearDown() async throws {
+        control = nil
+        try? FileManager.default.removeItem(at: tempDir)
+        try await super.tearDown()
+    }
+
+    // MARK: Helpers
+
+    /// What the reads under test return.
+    private struct Reads {
+        var search: [DictionaryEntry]
+        var preferred: [DictionaryEntry]
+        var entry: DictionaryEntry?
+        var myWords: [DictionaryEntry]
+        var stats: [SourceStat]
+        var metadata: [DictMetadata]
+    }
+
+    /// Search first: it is the call that meets the invalid file.
+    private func reads() async throws -> Reads {
+        Reads(
+            search: try await db.search(query: "house"),
+            preferred: try await db.searchPreferred(query: "dwelling", groups: [["beta"], ["alpha"]],
+                                                    enabledSources: Set(Self.sources)),
+            entry: try await db.entry(for: EntryKey(source: "beta", word: "house999")),
+            myWords: try await db.fetchMyWords(),
+            stats: try await db.fetchSourceStats(),
+            metadata: try await db.fetchMetadata())
+    }
+
+    /// Adds the My words row and returns the reads under test, on a pool of
+    /// their own: step 2 opens a new one, which has cached nothing else.
+    private func readsBeforeInvalidation() async throws -> Reads {
+        try await db.setup(userPath: userPath, dictionaryURL: dictionaryURL)
+        try await db.addToMyWords(Self.myWord)
+        let reads = try await reads()
+        XCTAssertFalse(reads.search.isEmpty)
+        XCTAssertFalse(reads.preferred.isEmpty)
+        XCTAssertNotNil(reads.entry)
+        XCTAssertEqual(reads.myWords.map { EntryKey($0) }, [Self.myWord])
+        XCTAssertEqual(reads.stats.map(\.count), [1000, 1000])
+        XCTAssertEqual(reads.metadata.map(\.source), Self.sources)
+        return reads
+    }
+
+    /// Steps 2 to 6, removing `link` in step 4. Step 2 runs
+    /// `concurrentReads` `fetchMetadata()` calls at once: more than one
+    /// leaves the pool with several readers.
+    private func openAndInvalidate(removing link: URL, concurrentReads: Int = 1) async throws {
+        try await db.setup(userPath: userPath, dictionaryURL: dictionaryURL)
+        try await withThrowingTaskGroup(of: Void.self) { group in
+            for _ in 0..<concurrentReads {
+                group.addTask { _ = try await DatabaseService.shared.fetchMetadata() }
+            }
+            try await group.waitForAll()
+        }
+        try await invalidate(removing: link)
+    }
+
+    /// Steps 3 to 5 alone, on a new control connection. A test calls it
+    /// again to invalidate the connections a reopen opened.
+    private func invalidate(removing link: URL) async throws {
+        let control = try DatabaseQueue()
+        let uri = DatabaseService.dictionaryURI(dictionaryURL)
+        try control.inDatabase { db in
+            try db.execute(sql: "ATTACH DATABASE ? AS dict", arguments: [uri])
+            try db.execute(sql: "PRAGMA dict.cache_size = 0")
+        }
+        self.control = control
+        XCTAssertNil(controlReadError(), "the control connection reads the file before step 4")
+
+        try FileManager.default.removeItem(at: link)
+        let deadline = Date().addingTimeInterval(10)
+        while controlReadError()?.resultCode != .SQLITE_IOERR {
+            if Date() > deadline {
+                throw XCTSkip("The file stayed readable 10 s after \(link.lastPathComponent) was removed: "
+                              + "this OS does not invalidate it. Note the OS in 0129 History.")
+            }
+            try await Task.sleep(nanoseconds: 100_000_000)
+        }
+    }
+
+    /// Reads every `dict.entries` row from the file on the control
+    /// connection: `nil`, or the SQLite error.
+    private func controlReadError() -> DatabaseError? {
+        guard let control else { return nil }
+        do {
+            _ = try control.inDatabase { db in
+                try Int.fetchOne(db, sql: "SELECT SUM(LENGTH(definition)) FROM dict.entries")
+            }
+            return nil
+        } catch {
+            return error as? DatabaseError
+        }
+    }
+
+    // MARK: Tests
+
+    /// #213: after the file is invalidated, the next search returns results
+    /// without a restart, and every read returns what it returned before
+    /// step 4. Exactly one reopen did it: the control connection, which is
+    /// not reopened, still fails.
+    func testReadsRecoverAfterTheFileIsInvalidated() async throws {
+        let expected = try await readsBeforeInvalidation()
+        try await openAndInvalidate(removing: stagingURL)
+        let reopens = await db.dictionaryReopenCount
+
+        let recovered = try await reads()
+        XCTAssertEqual(recovered.search, expected.search, "search")
+        XCTAssertEqual(recovered.preferred, expected.preferred, "searchPreferred")
+        XCTAssertEqual(recovered.entry, expected.entry, "entry(for:)")
+        XCTAssertEqual(recovered.myWords, expected.myWords, "fetchMyWords")
+        XCTAssertEqual(recovered.stats, expected.stats, "fetchSourceStats")
+        XCTAssertEqual(recovered.metadata, expected.metadata, "fetchMetadata")
+        let after = await db.dictionaryReopenCount
+        XCTAssertEqual(after - reopens, 1, "one reopen")
+        XCTAssertEqual(controlReadError()?.resultCode, .SQLITE_IOERR,
+                       "the file itself is still invalid for the old descriptors: the reopen recovered")
+    }
+
+    /// #213: an import of one word the file has and one it lacks stores only
+    /// the second: its key check fails on the writer, which reads
+    /// `dict.entries` again after the re-attach.
+    func testImportRecoversAfterTheFileIsInvalidated() async throws {
+        try await openAndInvalidate(removing: stagingURL)
+        let reopens = await db.dictionaryReopenCount
+        let file = tempDir.appendingPathComponent("alpha.json")
+        try JSONSerialization.data(withJSONObject: [
+            ["word": "house5", "definition": "already in the dictionary file"],
+            ["word": "gazebo", "definition": "a garden house"],
+        ]).write(to: file)
+
+        let imported = try await db.importJSON(at: file, source: "alpha")
+        XCTAssertEqual(imported, 2, "both rows were read")
+        let afterImport = await db.dictionaryReopenCount
+        XCTAssertEqual(afterImport - reopens, 1, "the key check failed on the writer and reopened the file")
+
+        let gazebo = try await db.entry(for: EntryKey(source: "alpha", word: "gazebo"))
+        XCTAssertGreaterThanOrEqual(try XCTUnwrap(gazebo?.id), Int64(1) << 40, "gazebo is an imported row")
+        let house5 = try await db.entry(for: EntryKey(source: "alpha", word: "house5"))
+        XCTAssertEqual(house5?.definition, "house number 5 of alpha, a dwelling", "house5 stays the file's row")
+        let count = try await db.entryCount(source: "alpha")
+        XCTAssertEqual(count, 1001, "only gazebo was stored")
+        let after = await db.dictionaryReopenCount
+        XCTAssertEqual(after - reopens, 1, "no further reopen")
+    }
+
+    /// #213: 8 searches at once on several invalid readers all return
+    /// results, with one reopen.
+    func testConcurrentFailuresReopenOnce() async throws {
+        try await openAndInvalidate(removing: stagingURL, concurrentReads: 16)
+        let reopens = await db.dictionaryReopenCount
+
+        let results = try await withThrowingTaskGroup(of: [DictionaryEntry].self) { group in
+            for i in 0..<8 {
+                group.addTask { try await DatabaseService.shared.search(query: "house\(i)") }
+            }
+            var all: [[DictionaryEntry]] = []
+            for try await rows in group { all.append(rows) }
+            return all
+        }
+        XCTAssertEqual(results.count, 8)
+        XCTAssertTrue(results.allSatisfy { !$0.isEmpty }, "every search returns results")
+        let after = await db.dictionaryReopenCount
+        XCTAssertEqual(after - reopens, 1, "one reopen for all failures")
+    }
+
+    /// #213: one retry only. Step 4 removes `dictionary.sqlite` itself, so
+    /// the re-attach finds no file: Search throws after one reopen, and
+    /// History, which does not read `dict`, still writes.
+    func testASecondFailureSurfaces() async throws {
+        try await openAndInvalidate(removing: dictionaryURL)
+        let reopens = await db.dictionaryReopenCount
+
+        do {
+            let rows = try await db.search(query: "house")
+            XCTFail("search must fail without the file, got \(rows.count) rows")
+        } catch {
+            XCTAssertEqual((error as? DatabaseError)?.resultCode, .SQLITE_CANTOPEN,
+                           "the retry's new reader finds no file: \(error)")
+        }
+        let after = await db.dictionaryReopenCount
+        XCTAssertEqual(after - reopens, 1, "one reopen, no loop")
+
+        try await db.addToHistory(word: "house3", source: "alpha")
+        var config = Configuration()
+        config.readonly = true
+        let words = try await DatabaseQueue(path: userPath, configuration: config).read { db in
+            try String.fetchAll(db, sql: "SELECT word FROM history")
+        }
+        XCTAssertEqual(words, ["house3"], "History writes without the dictionary file")
+    }
+
+    /// #213: the reopen is not one-shot ("the next failing call would recover
+    /// it the same way"). A second link removed under the connections that
+    /// the first reopen opened invalidates them too; the next failing call
+    /// reopens once more, and the writer, attached again, reads the file for
+    /// an import's key check.
+    func testASecondInvalidationRecoversAgain() async throws {
+        let expected = try await readsBeforeInvalidation()
+        try await openAndInvalidate(removing: stagingURL)
+        let reopens = await db.dictionaryReopenCount
+
+        // First recovery: a lookup that reads a few `entries` pages only.
+        let entry = try await db.entry(for: EntryKey(source: "beta", word: "house999"))
+        XCTAssertEqual(entry, expected.entry, "entry(for:) after the first invalidation")
+        let afterFirst = await db.dictionaryReopenCount
+        XCTAssertEqual(afterFirst - reopens, 1, "the first invalidation reopened the file")
+        // The writer has run its re-attach before the second link goes.
+        try await db.writeForTesting { _ in }
+
+        let secondLink = tempDir.appendingPathComponent("staging-2.sqlite")
+        try FileManager.default.linkItem(at: dictionaryURL, to: secondLink)
+        try await invalidate(removing: secondLink)
+
+        let search = try await db.search(query: "house")
+        XCTAssertEqual(search, expected.search, "search after the second invalidation")
+        let afterSecond = await db.dictionaryReopenCount
+        XCTAssertEqual(afterSecond - reopens, 2, "the second invalidation reopened the file once more")
+
+        let file = tempDir.appendingPathComponent("alpha.json")
+        try JSONSerialization.data(withJSONObject: [
+            ["word": "house5", "definition": "already in the dictionary file"],
+            ["word": "gazebo", "definition": "a garden house"],
+        ]).write(to: file)
+        let imported = try await db.importJSON(at: file, source: "alpha")
+        XCTAssertEqual(imported, 2, "both rows were read")
+        let count = try await db.entryCount(source: "alpha")
+        XCTAssertEqual(count, 1001, "the writer read the file again: only gazebo was stored")
+        let afterImport = await db.dictionaryReopenCount
+        XCTAssertEqual(afterImport - reopens, 2, "the import needed no reopen of its own")
+    }
+
+    /// #213: if the re-attach fails (the file itself is gone, which an
+    /// installed app never sees), the writer stays without `dict` until a
+    /// restart. Every import then fails with "no such table" and is not
+    /// retried, so it causes no further reopen; My words and History writes,
+    /// which do not read the file, still work.
+    func testImportsFailWithoutRetryAfterAFailedReattach() async throws {
+        try await openAndInvalidate(removing: dictionaryURL)
+        let reopens = await db.dictionaryReopenCount
+        let file = tempDir.appendingPathComponent("alpha.json")
+        try JSONSerialization.data(withJSONObject: [["word": "gazebo", "definition": "a garden house"]])
+            .write(to: file)
+
+        for attempt in 1...2 {
+            do {
+                let rows = try await db.importJSON(at: file, source: "alpha")
+                XCTFail("import \(attempt) must fail without the dictionary file, read \(rows) rows")
+            } catch let error as DatabaseError {
+                XCTAssertEqual(error.resultCode, .SQLITE_ERROR, "import \(attempt): \(error)")
+                XCTAssertTrue(error.message?.contains("no such table: dict.entries") == true,
+                              "import \(attempt): \(error)")
+            }
+            let after = await db.dictionaryReopenCount
+            XCTAssertEqual(after - reopens, 1,
+                           "import \(attempt): only the first one's I/O error reopened; a missing table is not retried")
+        }
+
+        try await db.addToMyWords(Self.myWord)
+        try await db.addToHistory(word: "house7", source: "alpha")
+        // Read back on a connection of the test's own: every new reader of
+        // the service attaches the file and fails.
+        var config = Configuration()
+        config.readonly = true
+        let stored = try await DatabaseQueue(path: userPath, configuration: config).read { db in
+            (myWords: try Row.fetchAll(db, sql: "SELECT source, word FROM my_words")
+                .map { EntryKey(source: $0["source"], word: $0["word"]) },
+             history: try String.fetchAll(db, sql: "SELECT word FROM history"),
+             imported: try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM imported_entries") ?? -1,
+             sources: try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM imported_sources") ?? -1)
+        }
+        XCTAssertEqual(stored.myWords, [Self.myWord], "My words writes without the dictionary file")
+        XCTAssertEqual(stored.history, ["house7"], "History writes without the dictionary file")
+        XCTAssertEqual(stored.imported, 0, "the failed imports stored no row")
+        XCTAssertEqual(stored.sources, 0, "and registered no source")
+    }
+
+    /// Counts calls of an SQL function on the writer.
+    private final class CallCounter: @unchecked Sendable {
+        private let lock = NSLock()
+        private var value = 0
+        var count: Int { lock.withLock { value } }
+        func increment() { lock.withLock { value += 1 } }
+    }
+
+    /// #213: only reads and the import retry (Kirill, 2026-10-30).
+    /// - With the file invalidated, History and My words writes that fail
+    ///   with SQLITE_IOERR throw, run once and reopen nothing: they touch
+    ///   only `user.sqlite`. The invalidated file never makes them fail, so
+    ///   the error is raised inside SQLite on the writer: a TEMP trigger
+    ///   calls a function that throws it.
+    /// - An import whose `COMMIT` fails with SQLITE_IOERR throws, runs once,
+    ///   reopens nothing and stores nothing: whether a failed `COMMIT` took
+    ///   effect is unknown. The failure is real: the user database's WAL is
+    ///   invalidated the way the file is, by removing a hard link of it
+    ///   while the writer holds it open, then emptied by a checkpoint, so
+    ///   `COMMIT` is the only statement that touches it.
+    func testUserDataWritesAreNotRetried() async throws {
+        try await openAndInvalidate(removing: stagingURL)
+        try await db.addToMyWords(Self.myWord)
+        let reopens = await db.dictionaryReopenCount
+        let ioErrors = CallCounter(), importedRows = CallCounter()
+        try await db.writeForTesting { db in
+            db.add(function: DatabaseFunction("test_io_error", argumentCount: 0) { _ in
+                ioErrors.increment()
+                throw DatabaseError(resultCode: .SQLITE_IOERR_WRITE, message: "injected I/O error")
+            })
+            db.add(function: DatabaseFunction("test_imported_row", argumentCount: 0) { _ in
+                importedRows.increment()
+                return nil
+            })
+            try db.execute(sql: """
+                CREATE TEMP TRIGGER test_history_io BEFORE INSERT ON history BEGIN SELECT test_io_error(); END;
+                CREATE TEMP TRIGGER test_my_words_add_io BEFORE INSERT ON my_words BEGIN SELECT test_io_error(); END;
+                CREATE TEMP TRIGGER test_my_words_remove_io BEFORE DELETE ON my_words BEGIN SELECT test_io_error(); END;
+                CREATE TEMP TRIGGER test_imported_row AFTER INSERT ON imported_entries BEGIN SELECT test_imported_row(); END;
+                """)
+        }
+
+        let writes: [(name: String, run: () async throws -> Void)] = [
+            ("addToHistory", { try await DatabaseService.shared.addToHistory(word: "house3", source: "alpha") }),
+            ("addToMyWords", { try await DatabaseService.shared.addToMyWords(EntryKey(source: "beta", word: "house3")) }),
+            ("removeFromMyWords", { try await DatabaseService.shared.removeFromMyWords(Self.myWord) }),
+        ]
+        for (index, write) in writes.enumerated() {
+            do {
+                try await write.run()
+                XCTFail("\(write.name) must throw the I/O error")
+            } catch let error as DatabaseError {
+                XCTAssertEqual(error.extendedResultCode, .SQLITE_IOERR_WRITE, "\(write.name): \(error)")
+            }
+            XCTAssertEqual(ioErrors.count, index + 1, "\(write.name) ran once")
+            let after = await db.dictionaryReopenCount
+            XCTAssertEqual(after - reopens, 0, "\(write.name) reopened nothing")
+        }
+
+        // Reads still retry: a search reopens the file, and the writer
+        // attaches it again for the import's key check.
+        let rows = try await db.search(query: "house")
+        XCTAssertFalse(rows.isEmpty, "the search recovered")
+        let afterSearch = await db.dictionaryReopenCount
+        XCTAssertEqual(afterSearch - reopens, 1, "the search reopened the file")
+
+        // Invalidate the WAL. A read-only control connection without a page
+        // cache reads the My words page from the WAL until that fails.
+        var readOnly = Configuration()
+        readOnly.readonly = true
+        let walControl = try DatabaseQueue(path: userPath, configuration: readOnly)
+        try walControl.inDatabase { try $0.execute(sql: "PRAGMA cache_size = 0") }
+        func walIsReadable() -> Bool {
+            (try? walControl.inDatabase { try Int.fetchOne($0, sql: "SELECT COUNT(*) FROM my_words") }) != nil
+        }
+        XCTAssertTrue(walIsReadable(), "the control connection reads the WAL before the link goes")
+        let walLink = tempDir.appendingPathComponent("user-wal-link.sqlite")
+        try FileManager.default.linkItem(at: URL(fileURLWithPath: userPath + "-wal"), to: walLink)
+        try FileManager.default.removeItem(at: walLink)
+        let deadline = Date().addingTimeInterval(10)
+        while walIsReadable() {
+            if Date() > deadline {
+                throw XCTSkip("The WAL stayed readable 10 s after its link was removed: this OS does not invalidate it.")
+            }
+            try await Task.sleep(nanoseconds: 100_000_000)
+        }
+        // Empty the WAL through a new connection, so the writer reads every
+        // page from the main file and only `COMMIT` writes the WAL.
+        let checkpoint = try DatabaseQueue(path: userPath).inDatabase { db in
+            try XCTUnwrap(Row.fetchOne(db, sql: "PRAGMA wal_checkpoint(TRUNCATE)"))
+        }
+        XCTAssertEqual(checkpoint[0] as Int, 0, "the checkpoint was not blocked: \(checkpoint)")
+
+        let file = tempDir.appendingPathComponent("alpha.json")
+        try JSONSerialization.data(withJSONObject: [
+            ["word": "house5", "definition": "already in the dictionary file"],
+            ["word": "gazebo", "definition": "a garden house"],
+        ]).write(to: file)
+        do {
+            let read = try await db.importJSON(at: file, source: "alpha")
+            XCTFail("the import must throw its failed COMMIT, read \(read) rows")
+        } catch let error as DatabaseError {
+            XCTAssertEqual(error.resultCode, .SQLITE_IOERR, "\(error)")
+            XCTAssertEqual(error.sql, "COMMIT TRANSACTION", "GRDB reports the statement that failed: \(error)")
+        }
+        XCTAssertEqual(importedRows.count, 1, "the import ran once: it inserted gazebo once, then COMMIT failed")
+        let afterImport = await db.dictionaryReopenCount
+        XCTAssertEqual(afterImport - afterSearch, 0, "a failed COMMIT reopens nothing")
+        // A new connection opens the WAL anew.
+        let stored = try await DatabaseQueue(path: userPath, configuration: readOnly).read { db in
+            try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM imported_entries") ?? -1
+        }
+        XCTAssertEqual(stored, 0, "the failed COMMIT stored nothing")
+    }
+
+    /// #213: each reopen writes one `os.Logger` line (subsystem
+    /// `com.kyukhin.DictApp`, category `database`) with SQLite's extended
+    /// result code, an I/O error, and the time the reopen took. Never the SQL
+    /// or its arguments, which hold the user's query.
+    func testAReopenLogsOneLineWithoutTheQuery() async throws {
+        try await openAndInvalidate(removing: stagingURL)
+        // A marker in the same category goes first: the lines after it are
+        // this test's. Log timestamps and `Date()` can differ by tens of
+        // milliseconds, so a time filter would not be exact.
+        let marker = "DictionaryReopenTests marker \(UUID().uuidString)"
+        Logger(subsystem: "com.kyukhin.DictApp", category: "database").notice("\(marker, privacy: .public)")
+
+        let query = "house42"
+        let rows = try await db.search(query: query)
+        XCTAssertFalse(rows.isEmpty, "the search recovered")
+        // The line is written on the writer once the re-attach ends.
+        try await db.writeForTesting { _ in }
+
+        // One scan from a minute back: the store is slow to read (up to 8 s
+        // on the iOS 17.5 simulator).
+        let store = try OSLogStore(scope: .currentProcessIdentifier)
+        let predicate = NSPredicate(format: "subsystem == %@ AND category == %@", "com.kyukhin.DictApp", "database")
+        let messages = try store.getEntries(at: store.position(date: Date().addingTimeInterval(-60)), matching: predicate)
+            .compactMap { ($0 as? OSLogEntryLog)?.composedMessage }
+        let sawMarker = messages.contains(marker)
+        let lines = Array(messages.drop { $0 != marker }.dropFirst())
+        XCTAssertTrue(sawMarker, "the store holds the marker: \(lines)")
+        XCTAssertEqual(lines.count, 1, "one line per reopen: \(lines)")
+        let line = try XCTUnwrap(lines.first)
+        let pattern = try NSRegularExpression(pattern: "^Reopened the dictionary file after SQLite error ([0-9]+) in ([0-9]+) ms$")
+        let match = try XCTUnwrap(pattern.firstMatch(in: line, range: NSRange(line.startIndex..., in: line)),
+                                  "the line has the result code and the duration only: \(line)")
+        let code = try XCTUnwrap(Range(match.range(at: 1), in: line).flatMap { Int32(line[$0]) })
+        XCTAssertEqual(ResultCode(rawValue: code).primaryResultCode, .SQLITE_IOERR,
+                       "the extended code of an I/O error: \(code)")
+        XCTAssertFalse(line.contains(query), "never the user's query")
+    }
+
+    /// The unit tests' own reader of a dictionary file, `BundledDictionary`,
+    /// survives the same invalidation: a read that fails with SQLITE_IOERR
+    /// runs once more on a new connection. Here the link goes while the first
+    /// connection has the file open, as an install can do under the seed
+    /// tests.
+    func testBundledDictionaryReaderRetriesOnANewConnection() throws {
+        var attempts = 0
+        let count = try BundledDictionary(url: dictionaryURL).read { db -> Int? in
+            attempts += 1
+            if attempts == 1 {
+                try db.execute(sql: "PRAGMA cache_size = 0")
+                _ = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM dict_metadata")
+                try FileManager.default.removeItem(at: stagingURL)
+                let deadline = Date().addingTimeInterval(10)
+                while Date() < deadline {
+                    // Throws SQLITE_IOERR once the file is invalidated.
+                    _ = try Int.fetchOne(db, sql: "SELECT SUM(LENGTH(definition)) FROM entries")
+                    Thread.sleep(forTimeInterval: 0.1)
+                }
+                throw XCTSkip("The file stayed readable 10 s after staging.sqlite was removed: "
+                              + "this OS does not invalidate it. Note the OS in 0129 History.")
+            }
+            return try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM entries")
+        }
+        XCTAssertEqual(attempts, 2, "the read failed once and ran again on a new connection")
+        XCTAssertEqual(count, 2000, "the new connection reads every row")
     }
 }

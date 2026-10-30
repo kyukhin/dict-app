@@ -1,10 +1,12 @@
 // DatabaseService.swift
 // The user database with the bundled dictionary file attached (Issue #138):
 // connections, the user schema, FTS5 search, History, My words and imports.
-// Also the move of a 1.x database into the user database (Issue #139).
+// Also the move of a 1.x database into the user database (Issue #139), and
+// the reopen of the dictionary file after the system invalidates it (#213).
 
 import Foundation
 import GRDB
+import os
 
 /// Search constants + the pure result-assembly used by "Preferred dictionary
 /// first" (Issue #6). Kept out of the `actor` so `assemble` is testable without
@@ -107,6 +109,15 @@ actor DatabaseService {
     /// that touches user data awaits it first; Search does not.
     private var legacyMove: Task<Void, Never>?
 
+    /// The `ATTACH` URI of the dictionary file, as `setup` built it. A
+    /// reopen attaches it again on the writer (Issue #213).
+    private var dictionaryURI = ""
+
+    /// Bumped by every reopen of the dictionary file, never reset (Issue
+    /// #213). A call that fails with an I/O error reopens only if no reopen
+    /// happened since it started.
+    private var reopenGeneration = 0
+
     private init() {}
 
     // MARK: - Setup (Issue #138)
@@ -135,21 +146,122 @@ actor DatabaseService {
     /// `dictionaryURL` attached as `dict`, and migrates it. Test seam: unit
     /// tests pass a temp user database and a `TestDictionary` file.
     func setup(userPath: String, dictionaryURL: URL) async throws {
-        let path = dictionaryURL.path
-        let uri = "file:" + (path.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? path)
-            + "?mode=ro&immutable=1"
+        let uri = Self.dictionaryURI(dictionaryURL)
         var config = Configuration()
         // Wait instead of failing with SQLITE_BUSY if another pool on the same
         // file is mid-write (a test reopening the shared service).
         config.busyMode = .timeout(5)
-        config.prepareDatabase { db in
-            try db.execute(sql: "ATTACH DATABASE ? AS dict", arguments: [uri])
-        }
+        config.prepareDatabase { db in try Self.attachDictionary(db, uri: uri) }
         let pool = try DatabasePool(path: userPath, configuration: config)
         try Self.migrator.migrate(pool)
         dbPool = pool
+        dictionaryURI = uri
         // A move belongs to the pool it writes; a new pool starts without one.
         legacyMove = nil
+    }
+
+    /// The read-only, immutable `ATTACH` URI of the dictionary file at
+    /// `url`, its path percent-encoded.
+    static func dictionaryURI(_ url: URL) -> String {
+        let path = url.path
+        return "file:" + (path.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? path)
+            + "?mode=ro&immutable=1"
+    }
+
+    /// Attaches the dictionary file as `dict`: on every new connection, and
+    /// on the writer again after a reopen (Issue #213).
+    private static func attachDictionary(_ db: Database, uri: String) throws {
+        try db.execute(sql: "ATTACH DATABASE ? AS dict", arguments: [uri])
+    }
+
+    // MARK: - Invalidated dictionary file (Issue #213)
+    //
+    // After an install over the app, the old bundle's hard link of the
+    // dictionary file can go while the app has the file open. iOS SQLite then
+    // invalidates the open descriptors, and every `dict.*` read that misses a
+    // connection's page cache fails with a disk I/O error, while a new
+    // connection reads the file. Every public read runs through `read` below,
+    // and the import's write, the one write that reads `dict`, through
+    // `dictionaryWrite`: on SQLITE_IOERR they reopen the file and run the call
+    // once more. A second failure throws as before. History and My words
+    // writes touch only `user.sqlite`, so they call `pool.write` directly and
+    // throw as before. Not wrapped either: `setup`, the 1.x move and
+    // `writeForTesting`. The file is never copied.
+
+    private static let logger = Logger(subsystem: "com.kyukhin.DictApp", category: "database")
+
+    #if DEBUG
+    /// Unit-test seam: how many times the dictionary file was reopened. It
+    /// only grows.
+    var dictionaryReopenCount: Int { reopenGeneration }
+    #endif
+
+    /// Whether `error` may come from the invalidated dictionary file, so the
+    /// call is reopened and run once more: SQLITE_IOERR from any statement but
+    /// `COMMIT`. A failed `COMMIT`, which GRDB reports with the `sql` "COMMIT
+    /// TRANSACTION", wrote only `user.sqlite` and may have taken effect, so it
+    /// is never retried.
+    private static func isDictionaryIOError(_ error: DatabaseError) -> Bool {
+        error.resultCode == .SQLITE_IOERR && !(error.sql?.uppercased().hasPrefix("COMMIT") ?? false)
+    }
+
+    /// `pool.read`, run once more after a reopen if it fails with SQLITE_IOERR.
+    private func read<T>(_ pool: DatabasePool, _ value: @escaping @Sendable (Database) throws -> T) async throws -> T {
+        let generation = reopenGeneration
+        do {
+            return try await pool.read(value)
+        } catch let error as DatabaseError where Self.isDictionaryIOError(error) {
+            reopenDictionary(pool, after: error, generation: generation)
+            return try await pool.read(value)
+        }
+    }
+
+    /// `pool.write` for the import, the one write that reads `dict` (its key
+    /// check): run once more after a reopen if a statement fails with
+    /// SQLITE_IOERR. The failed transaction has rolled back. A failed
+    /// `COMMIT` throws.
+    private func dictionaryWrite<T>(_ pool: DatabasePool,
+                                    _ updates: @escaping @Sendable (Database) throws -> T) async throws -> T {
+        let generation = reopenGeneration
+        do {
+            return try await pool.write(updates)
+        } catch let error as DatabaseError where Self.isDictionaryIOError(error) {
+            reopenDictionary(pool, after: error, generation: generation)
+            return try await pool.write(updates)
+        }
+    }
+
+    /// Opens new connections to the dictionary file, unless a call that
+    /// failed too already did since `generation`:
+    /// 1. readers: idle ones close now, busy ones when their read ends; each
+    ///    new reader attaches the file in `prepareDatabase`;
+    /// 2. the writer: `DETACH` and `ATTACH` again, queued on the writer
+    ///    between two writes, never inside a transaction.
+    /// It never suspends, so no other call runs between the generation bump
+    /// and both steps: a call that sees the new generation reads from new
+    /// readers, and an import it retries runs after the re-attach. If the
+    /// re-attach fails, the writer stays without `dict` until a restart.
+    private func reopenDictionary(_ pool: DatabasePool, after error: DatabaseError, generation: Int) {
+        guard generation == reopenGeneration else { return }
+        reopenGeneration += 1
+        let started = Date()
+        let code = error.extendedResultCode.rawValue
+        let uri = dictionaryURI
+        pool.invalidateReadOnlyConnections()
+        pool.asyncWriteWithoutTransaction { db in
+            do {
+                try db.execute(sql: "DETACH DATABASE dict")
+                try Self.attachDictionary(db, uri: uri)
+                let ms = Int(Date().timeIntervalSince(started) * 1000)
+                Self.logger.notice("Reopened the dictionary file after SQLite error \(code) in \(ms) ms")
+            } catch {
+                // The result code only: never the SQL or its arguments.
+                let failure = (error as? DatabaseError)?.extendedResultCode.rawValue ?? -1
+                let ms = Int(Date().timeIntervalSince(started) * 1000)
+                Self.logger.error(
+                    "Reopening the dictionary file after SQLite error \(code) failed in \(ms) ms with SQLite error \(failure)")
+            }
+        }
     }
 
     // MARK: - 1.x migration (Issue #139)
@@ -354,7 +466,7 @@ actor DatabaseService {
         guard !sanitized.isEmpty else { return [] }
         // Issue #87: Greek queries also match their folded form.
         let fts = Search.ftsQuery(sanitized: sanitized)
-        return try await pool.read { db in
+        return try await read(pool) { db in
             let imported = try Self.importedSources(db)
             let withImports = enabledSources.map { !imported.isDisjoint(with: $0) } ?? !imported.isEmpty
             return try Self.rankedEntries(
@@ -396,7 +508,7 @@ actor DatabaseService {
         // Issue #87: Greek queries also match their folded form.
         let fts = Search.ftsQuery(sanitized: sanitized)
 
-        return try await pool.read { db in
+        return try await read(pool) { db in
             let imported = try Self.importedSources(db)
             var buckets: [String: [DictionaryEntry]] = [:]
             var bucketOrder: [String] = []
@@ -436,7 +548,7 @@ actor DatabaseService {
     /// too: the enabled set only filters Search.
     func entry(for key: EntryKey) async throws -> DictionaryEntry? {
         let pool = try await userPool()
-        return try await pool.read { db in try Self.entry(for: key, in: db) }
+        return try await read(pool) { db in try Self.entry(for: key, in: db) }
     }
 
     private static func entry(for key: EntryKey, in db: Database) throws -> DictionaryEntry? {
@@ -470,7 +582,7 @@ actor DatabaseService {
 
     func fetchHistory(limit: Int = 100) async throws -> [HistoryItem] {
         let pool = try await userPool()
-        return try await pool.read { db in
+        return try await read(pool) { db in
             try HistoryItem
                 .order(Column("looked_at").desc)
                 .limit(limit)
@@ -512,7 +624,7 @@ actor DatabaseService {
 
     func isInMyWords(_ key: EntryKey) async throws -> Bool {
         let pool = try await userPool()
-        return try await pool.read { db in
+        return try await read(pool) { db in
             try Bool.fetchOne(
                 db,
                 sql: "SELECT EXISTS (SELECT 1 FROM my_words WHERE source = ? AND word = ?)",
@@ -525,7 +637,7 @@ actor DatabaseService {
     /// resolves stays stored and is skipped here.
     func fetchMyWords() async throws -> [DictionaryEntry] {
         let pool = try await userPool()
-        return try await pool.read { db in
+        return try await read(pool) { db in
             try Row.fetchAll(db, sql: "SELECT source, word FROM my_words ORDER BY added_at DESC")
                 .compactMap { row in
                     try Self.entry(for: EntryKey(source: row["source"], word: row["word"]), in: db)
@@ -545,7 +657,7 @@ actor DatabaseService {
     /// Metadata of every bundled dictionary, in dictionary file order.
     func fetchMetadata() async throws -> [DictMetadata] {
         guard let pool = dbPool else { throw DBError.notConnected }
-        return try await pool.read { db in
+        return try await read(pool) { db in
             try DictMetadata.fetchAll(db, sql: """
                 SELECT source, display_name, version, license, url, word_count, description
                 FROM dict.dict_metadata ORDER BY rowid
@@ -556,7 +668,7 @@ actor DatabaseService {
     /// Fetch metadata for a single dictionary source.
     func fetchMetadata(source: String) async throws -> DictMetadata? {
         guard let pool = dbPool else { throw DBError.notConnected }
-        return try await pool.read { db in
+        return try await read(pool) { db in
             try DictMetadata.fetchOne(db, sql: """
                 SELECT source, display_name, version, license, url, word_count, description
                 FROM dict.dict_metadata WHERE source = ?
@@ -571,7 +683,7 @@ actor DatabaseService {
     /// with an empty license and version. No scan of the bundled rows.
     func fetchSourceStats() async throws -> [SourceStat] {
         let pool = try await userPool()
-        return try await pool.read { db in
+        return try await read(pool) { db in
             let sql = """
                 WITH i AS MATERIALIZED (SELECT source, COUNT(*) AS cnt FROM imported_entries GROUP BY source)
                 SELECT m.source AS source, m.display_name AS display_name, m.license AS license,
@@ -613,7 +725,7 @@ actor DatabaseService {
             return ImportedRow(word: word, definition: definition,
                                phonetic: item["phonetic"] ?? "", pos: item["pos"] ?? "")
         }
-        return try await Self.insertImported(rows, source: source, into: pool)
+        return try await insertImported(rows, source: source, into: pool)
     }
 
     /// Import entries from an external SQLite file that has the same `entries` schema.
@@ -633,7 +745,7 @@ actor DatabaseService {
         let rows = entries.map {
             ImportedRow(word: $0.word, definition: $0.definition, phonetic: $0.phonetic, pos: $0.pos)
         }
-        return try await Self.insertImported(rows, source: source, into: pool)
+        return try await insertImported(rows, source: source, into: pool)
     }
 
     private struct ImportedRow: Sendable {
@@ -645,9 +757,9 @@ actor DatabaseService {
 
     /// Inserts `rows` under `source` in one transaction and registers the
     /// source once it has rows. Returns the number of rows read, as 1.4.0 did.
-    private static func insertImported(_ rows: [ImportedRow], source: String,
-                                       into pool: DatabasePool) async throws -> Int {
-        try await pool.write { db in
+    private func insertImported(_ rows: [ImportedRow], source: String,
+                                into pool: DatabasePool) async throws -> Int {
+        try await dictionaryWrite(pool) { db in
             // Custom imports are not run through the Arabic or Greek
             // normalizers (single source of truth stays in the Python build),
             // so the search key is the word verbatim. Consequence: imported
@@ -688,7 +800,7 @@ actor DatabaseService {
     /// Rows of `source` in both stores.
     func entryCount(source: String) async throws -> Int {
         let pool = try await userPool()
-        return try await pool.read { db in
+        return try await read(pool) { db in
             try Int.fetchOne(db, sql: """
                 SELECT (SELECT COUNT(*) FROM dict.entries WHERE source = ?)
                      + (SELECT COUNT(*) FROM imported_entries WHERE source = ?)
@@ -698,7 +810,7 @@ actor DatabaseService {
 
     func entryCount() async throws -> Int {
         let pool = try await userPool()
-        return try await pool.read { db in
+        return try await read(pool) { db in
             try Int.fetchOne(db, sql: """
                 SELECT (SELECT COUNT(*) FROM dict.entries) + (SELECT COUNT(*) FROM imported_entries)
                 """) ?? 0
@@ -707,7 +819,7 @@ actor DatabaseService {
 
     func historyCount() async throws -> Int {
         let pool = try await userPool()
-        return try await pool.read { db in
+        return try await read(pool) { db in
             try HistoryItem.fetchCount(db)
         }
     }

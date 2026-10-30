@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - [#138] History and Recent words reopen a word in the dictionary it was read in.
 - [#202] The speaker button reads each word in its own language (Russian, Spanish, Arabic, Greek or English) and is hidden when the device has no voice for that language.
+- [#213] Search, imports and My words keep working when the system invalidates the open dictionary file.
 
 ### Tests / CI
 - [#203] Release builds ignore the UI-test launch arguments, and unused version code and stale developer docs are removed.

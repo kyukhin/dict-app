@@ -118,6 +118,7 @@ Pair keys are runtime-only and also serve as accessibility ids: `eng`, `eng-rus`
 The full design is [0129-dictionary-file.md](0129-dictionary-file.md).
 
 - `DatabaseService` keeps one GRDB `DatabasePool` (WAL) on `Application Support/DictApp/user.sqlite`. `Configuration.prepareDatabase` attaches the bundled `dictionaries.sqlite` to every connection as `dict`, with `file:<path>?mode=ro&immutable=1`. SQL always qualifies `dict.`; a write to it fails with `SQLITE_READONLY`. No GRDB connection is opened on the bundle (the #111 crash rule).
+- If the system invalidates the open dictionary file (after an install over the app, the old bundle's hard link goes while the app runs), `dict.*` reads fail with `SQLITE_IOERR`. Every `DatabaseService` read, and the import's write, then reopens the file, with new readers and `dict` attached again on the writer, and runs once more; concurrent failures reopen once, and a second failure throws as before. History and My words writes and a failed `COMMIT` are never retried (#213, see [0129-dictionary-file.md](0129-dictionary-file.md), "Invalidated dictionary file").
 - A GRDB `DatabaseMigrator` creates the user schema. Migrations are append-only, named `<epic>-<n>-<what>`. `129-1-core`:
 
 | Table | Columns and rules |
@@ -210,7 +211,7 @@ These tests prove today's behaviour. A feature spec maps its acceptance criteria
 |---|---|---|
 | Search, ranking, filters | `DictAppTests`, `SearchAssembleTests`, `SearchProbeTests` (1.4.0 probe, #138), `DictionaryFileTests` (the file's format, #140), `WordFormsLookupTests` (the Greek forms tables, #141) | `SearchFlowTests`, `DictionaryFilterTests`, `SearchHighlightTests`, `FreshInstallTests` (every source on the first launch, #140) |
 | Greek and Arabic search | `GreekFoldAndBadgeTests`, `DictAppTests` (#10, #87) | `GreekDictionaryTests`, `ArabicLocalizationTests` |
-| History, My words (bookmarks), user database, 1.x upgrade | `DictAppTests`, `HistoryTimestampTests`, `UserDatabaseTests` (#138), `LegacyMigrationTests` (#139) | `HistoryFlowTests`, `BookmarkFlowTests` |
+| History, My words (bookmarks), user database, 1.x upgrade | `DictAppTests`, `HistoryTimestampTests`, `UserDatabaseTests` (#138), `LegacyMigrationTests` (#139), `DictionaryReopenTests` (#213) | `HistoryFlowTests`, `BookmarkFlowTests` |
 | Preferences, pairs, order | `SettingsServiceTests`, `DictionaryGroupingTests`, `DictionaryDefaultsTests`, `SettingsViewModelPairTests` | `DictionaryPairGroupingTests`, `DictionaryOrderDefaultTests`, `DictionaryOrderReorderTests`, `DictionaryOrderRefreshTests` |
 | Dictionary info, import | `DictionaryInfoDetailTests`, `SettingsViewModelPairTests` (#105), `DictAppTests` | `DictionaryInfoTests`, `ImportDictionaryTests` |
 | Localization | `DictAppTests` (#88), `ArabicBidiOrderTests` | `SpanishLocalizationTests`, `ArabicLocalizationTests`, `GreekLocalizationTests` |
@@ -220,9 +221,11 @@ These tests prove today's behaviour. A feature spec maps its acceptance criteria
 
 ### Unit tests
 
-There are 255 tests in 18 classes, all in [DictAppTests.swift](../../DictApp/DictAppTests/DictAppTests.swift), target `DictAppTests`. The real app hosts the tests. A class that swaps the shared database first calls `DictAppTests.waitForHostAppLaunch()`, then `setup(userPath:dictionaryURL:)` on a temp user database. Test seams:
+There are 264 tests in 19 classes, all in [DictAppTests.swift](../../DictApp/DictAppTests/DictAppTests.swift), target `DictAppTests`. The real app hosts the tests. A class that swaps the shared database first calls `DictAppTests.waitForHostAppLaunch()`, then `setup(userPath:dictionaryURL:)` on a temp user database. Test seams:
 - `TestDictionary.make(rows:)`: a dictionary file with the bundled file's schema and only the given rows; `TestDictionaryFixture` writes a new one and reopens the service as a test adds rows (#138);
+- `BundledDictionary`: how a test reads the bundled file directly, outside `DatabaseService`. Each read opens a new read-only connection and runs once more after an I/O error, as the app does (#213);
 - the 1.x fixtures `legacy-1.2.0.sqlite`, `legacy-1.3.0.sqlite` and `legacy-1.4.0.sqlite` from `Scripts/make_legacy_fixtures.py`, read from the source tree through `#filePath` like `search-probe-1.4.0.json`, and the DEBUG seams `LegacyMigration.failBeforeCommit`, `failBeforeDelete` and `beforeCopy` (#139);
+- `DatabaseService.dictionaryReopenCount` (DEBUG), which counts reopens of the dictionary file, and `DatabaseService.dictionaryURI(_:)`, the app's `ATTACH` URI (#213);
 - `InMemoryKeyValueStore`;
 - `FakeIdleTimer`.
 
@@ -257,6 +260,7 @@ The unit tests do not run in parallel (see [DictApp.xctestplan](../../DictApp/Di
 ### Known gotchas
 
 - A dictionary file that was never pulled from LFS makes every UI test time out.
+- An install can invalidate the bundled file while the app runs (#213). The app recovers. A unit test that reads the bundled file itself goes through `BundledDictionary`, which retries the same way; an assertion inside its read closure would catch the error first, so read, then assert.
 - With the simulator setting "Connect Hardware Keyboard" on, typed text never reaches the field. Turn it off with `defaults write com.apple.iphonesimulator ConnectHardwareKeyboard -bool false`.
 - `HistoryFlowTests` can fail when it runs after other suites on a warm simulator. It passes when run alone.
 - A SwiftUI `List` materialises only the visible rows, so `cells.count` under-reports. Scroll first, then assert.
@@ -266,7 +270,7 @@ The unit tests do not run in parallel (see [DictApp.xctestplan](../../DictApp/Di
 
 The specs of these epics will replace parts of this overview:
 
-- #129 Dictionaries as one read-only file ([0129-dictionary-file.md](0129-dictionary-file.md)): #138 attaches the bundled file and moves user data to the user database, #139 moves a 1.x database into it (Database, Launch, Imported dictionaries above), and #140 builds `dictionaries.sqlite` from pinned inputs (Bundled data). Still to come: #213 reopens the dictionary file when the system invalidates it.
+- #129 Dictionaries as one read-only file ([0129-dictionary-file.md](0129-dictionary-file.md)): #138 attaches the bundled file and moves user data to the user database, #139 moves a 1.x database into it (Database, Launch, Imported dictionaries above), #140 builds `dictionaries.sqlite` from pinned inputs (Bundled data), and #213 reopens the dictionary file when the system invalidates it (Database).
 - #131 Learning with spaced repetition: a Learn tab replaces Bookmarks, giving the tabs Search · Learn · History · Settings. Bookmarks migrate into a "My words" list, and the Definition bookmark becomes "Learn".
 - #136 Word forms: search by any inflected form (Greek from Wiktionary, English through WordNet morphy) and inflection tables on Definition. Affects Search, Definition and the dictionary build.
 - #146 Quick dictionary chips on Search, in Dictionary Order sequence. Affects Search and Preferences.
@@ -288,3 +292,4 @@ The specs of these epics will replace parts of this overview:
 - 2026-10-29: #139: the first launch after a 1.x upgrade moves History, bookmarks (as My words) and imports into the user database, then deletes the old database. Updated Rules, Code map, Database, Launch, Upcoming changes and the unit-test section.
 - 2026-10-29: #140: the seed is now `dictionaries.sqlite`, built by `build_dictionaries.py` from pinned inputs with build checks and `--verify`; `Schema.sql` and the legacy scripts are gone. Same rows as the 1.4.0 seed. Updated Code map, Bundled data, Database, the test sections and Upcoming changes.
 - 2026-10-30: #141: the dictionary file gains the Greek word-form tables and their `data_source` row (`user_version` 2, 150.1 MB), built by the first static step, `build_forms.py`. Updated Bundled data, Database and the unit-test section.
+- 2026-10-30: #213: when the system invalidates the open dictionary file, the app reopens it and runs the failed read or import once more. Updated Database, the test sections and Upcoming changes.
