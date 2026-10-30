@@ -1,0 +1,5 @@
+# Reviewed false hits of the stoplist in build_forms.py (#141): a stoplisted
+# form that really is a form of this lemma. One entry per line:
+# form<TAB>lemma<TAB>pos (Wiktextract POS). Every use is listed in
+# Scripts/reports/forms-qa.md.
+παρά	παράς	noun	# genitive singular and vocative of παράς (money), and its form-of page

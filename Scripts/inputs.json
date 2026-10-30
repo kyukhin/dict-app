@@ -1,4 +1,13 @@
 {
+  "Scripts/data/kaikki-el-20261001.jsonl.gz": {
+    "sha256": "9713b588476bcf2eced6dea1aa46ea686163403c347bb71d8c33367ece214dd5",
+    "dump_url": "https://kaikki.org/dictionary/raw-wiktextract-data.jsonl.gz",
+    "dump_date": "2026-10-01",
+    "dump_bytes": 3082185963,
+    "dump_sha256": "784574cc577d333bbf9e659be38efa27e75e9bfc0a2a8c7ab2371bb5fec29b2d",
+    "dump_lines": 11121531,
+    "lines": 85425
+  },
   "freedict/freedict-ell-eng-2025.11.23.src.tar.xz": {
     "url": "https://download.freedict.org/dictionaries/ell-eng/2025.11.23/freedict-ell-eng-2025.11.23.src.tar.xz",
     "sha256": "3a102b1a72b5b7773dcd3669bc14c3e5d0df04616b525dca96c82d0d79ab17ef"
@@ -10,6 +19,10 @@
   "freedict/freedict-eng-spa-2025.11.23.src.tar.xz": {
     "url": "https://download.freedict.org/dictionaries/eng-spa/2025.11.23/freedict-eng-spa-2025.11.23.src.tar.xz",
     "sha256": "dd724fb48c5701395c15d7d648a9e6f6b75d6ff4269e465dce6d3a292700198d"
+  },
+  "frequencywords/el_50k.txt": {
+    "url": "https://raw.githubusercontent.com/hermitdave/FrequencyWords/072bbed282316a23651aa7068c7173aa7898cf80/content/2018/el/el_50k.txt",
+    "sha256": "7ec8f6de52c38f36a04add5d1613b116aed576e10c5e3b40d0001e8572de978c"
   },
   "nltk_data/corpora/omw-1.4.zip": {
     "url": "https://raw.githubusercontent.com/nltk/nltk_data/e2e07981c2f09b1c0a847164fa7e4a4fc0297a20/packages/corpora/omw-1.4.zip",

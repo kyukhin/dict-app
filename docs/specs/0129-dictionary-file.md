@@ -1,7 +1,7 @@
 # Dictionaries as one read-only file
 
 > Spec written by Claude (AI) for LibreDict.
-> Status: Approved by Kirill on 2026-10-28 · Epic: #129 · Tickets: #112, #138, #139, #140 · Updated: 2026-10-29
+> Status: Approved by Kirill on 2026-10-28 · Epic: #129 · Tickets: #112, #138, #139, #140 · Updated: 2026-10-30
 
 This spec is the #112 design. It replaces the Bundled data, Database, Launch and Imported dictionaries sections of [0000-overview.md](0000-overview.md) once implemented. Order: #138, then #139 and #140.
 
@@ -88,7 +88,7 @@ A History row and a Recent word on Search resolve like this:
 | `dict_metadata` | One row per dictionary source: `display_name`, `version`, `license`, `url`, `word_count` (equal to the row count, checked), `description`, `from_lang` and `to_lang` (ISO 639-3, such as `ell` and `eng`; #208). No `built_at`. Dictionaries only: every row is a Dictionary Order source |
 | `data_source` | One row per non-dictionary data set (Wiktionary forms, Tatoeba, word lists): `id`, `kind`, `display_name`, `version`, `license`, `url`. Empty in E1. Credits will read it |
 
-- `PRAGMA user_version` is the format version (1). The app constant `DictionaryFile.formatVersion` must match, and a unit test checks it. The app and the file always ship together, so there is no runtime negotiation.
+- `PRAGMA user_version` is the format version (1 in #140, 2 since #141 added the word-form tables). The app constant `DictionaryFile.formatVersion` must match, and a unit test checks it. The app and the file always ship together, so there is no runtime negotiation.
 - No `ANALYZE`: the query plans must stay those measured below.
 - Measured on today's data: 126.0 MB, against 134.9 MB for the seed. Dropping `created_at`, `built_at` and the empty `history` and `bookmarks` tables saves 8.8 MB. It returns the same results as the seed on the probe set. Compressed (IPA) size is ~45 MB either way.
 
@@ -97,7 +97,7 @@ A History row and a Recent word on Search resolve like this:
 1. Write `Scripts/build_<area>.py` with a `SCHEMA` (DDL) and `build(conn, cache_dir)`, and add it to `STEPS` in `build_dictionaries.py`. Steps run after the dictionaries and may read `entries`.
 2. Use plain tables and indexes. The app reads them as `dict.<table>`. Tables may join by their own ids inside the file. Anything the user database stores is a text key: an `EntryKey`, a lemma, a list id string.
 3. Credits: one `data_source` row per external data set. Never a `dict_metadata` row, which would show up as a dictionary in Dictionary Order.
-4. Determinism: insert in a sorted order, write no timestamps, pin every input in `Scripts/inputs.json` (an immutable URL and its sha256), and verify inputs before use.
+4. Determinism: insert in a sorted order, write no timestamps, pin every input in `Scripts/inputs.json` (an immutable URL and its sha256, or a file committed in Git LFS when the source keeps no old versions), and verify inputs before use.
 5. A changed table shape bumps `user_version` and `DictionaryFile.formatVersion` in the same PR.
 6. Each epic states its size budget. The build prints the size of every table (`dbstat`) and the total.
 7. One rebuilt file per data PR, after rebasing. LFS already holds ~470 MB of seed versions, and each rebuild adds ~130 MB.
@@ -286,3 +286,4 @@ None.
 - 2026-10-29 (QA): #140 tests. `DictionaryFileTests` gets `testDictionaryFileStructure` (no triggers or `ANALYZE`, the unique key index, the `entries_fts` definition, ids below 2^40), `testSetupFailsWithoutAReadableDictionaryFile` (a missing file fails setup with `SQLITE_CANTOPEN` and nothing is created at its path; a Git LFS pointer fails with `SQLITE_NOTADB`) and `testDictionaryFileIsNeverCopied` (checked to fail with a copy of the file planted in Application Support; a 1.x `dict.sqlite` is left to #139). The UI suite `FreshInstallTests` launches with `-resetDatabase` and `-resetData`, then `dog`, `дом`, `casa`, `كتاب` and `γραφω` find rows from all nine sources; the result sort mode survives `-resetData`, so the test scrolls to a row rather than relying on its place.
 - 2026-10-29 (QA): #140 results. A fresh venv from `Scripts/requirements.txt` and an empty cache downloaded 65.2 MB (the 9 pinned files) and built the file in 30 s (`--verify` with the inputs cached: 20 s), byte-identical to the committed file (sha256 `14dcb331…61c6ff5`); Python 3.13.9 gives the same file. A tampered cache file is downloaded again, and a wrong pin or an unpinned input fails the build. Fresh install on the iPhone 15 Pro simulator, iOS 17.5 (uninstall, install, first launch, timed from process start): Search on screen at 0.27 s, median of 3 (0.51 s on the first install), `isReady` at 0.23 s, no progress bar; `FreshInstallTests` sees each query's results 1.3 to 1.7 s after typing (XCUITest polling included) on all four simulators. Installed: app bundle 136,240 KB (Debug build; `dictionaries.sqlite` 126,050,304 bytes, no `seed.sqlite` or `Schema.sql`) plus a 164 KB data container, against 1.4.0's bundle with the 134.9 MB seed plus the ~138 MB unpacked copy. Regression on the four simulators: 230 unit tests, 94 UI tests on iPhone and 96 on iPad, plus the template and launch tests, all green. Device measurements are still to do.
 - 2026-10-29: The invalidated-file risk found in #139 QA becomes #213 (Kirill): the app reopens the dictionary file once after a disk I/O error. The design comes into this spec before the code.
+- 2026-10-30: #141 registers the first static step, `build_forms.py`, and bumps `user_version` and `DictionaryFile.formatVersion` to 2. An `inputs.json` entry may pin a committed file instead of a URL (keyed by its repository path, no `url`), for a source that keeps no old versions online; `inputs.committed()` checks its sha256 and never downloads. Details in [0136-word-forms.md](0136-word-forms.md).

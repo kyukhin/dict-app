@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- [#141] The dictionary file now carries Greek word forms and inflection tables from a pinned Wiktionary snapshot, checked by a QA report on every build.
+
 ### Changed
 - [#138] Every dictionary is searchable right after install, with no "Preparing dictionaries" bar: the app reads the bundled dictionaries in place and keeps your history, saved words and imports in a small database of their own.
 - [#139] Upgrading from 1.x keeps your bookmarks (now My words), history and imported dictionaries, and frees about 138 MB.

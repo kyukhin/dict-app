@@ -119,7 +119,7 @@ enum DictionaryFile {
     /// The file's `PRAGMA user_version`. The app and the file ship together,
     /// so nothing checks it at runtime; a unit test checks the bundled file.
     /// A changed table shape bumps it and `FORMAT_VERSION` in the build script.
-    static let formatVersion = 1
+    static let formatVersion = 2
 }
 
 // MARK: - DictMetadata

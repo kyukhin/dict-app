@@ -8439,3 +8439,327 @@ final class LegacyMigrationTests: XCTestCase {
         XCTAssertEqual(Set(Self.keys(myWords)), expected.bookmarks, "every bookmark is a My words key that resolves")
     }
 }
+
+// MARK: - Issue #141: Greek word forms in the dictionary file
+
+/// The forms tables `Scripts/build_forms.py` writes into the bundled
+/// `dictionaries.sqlite` (0136-word-forms.md, "Data" and "Pipeline: Greek
+/// forms"). They read the real file, as the app attaches it.
+final class WordFormsLookupTests: XCTestCase {
+
+    private func readDictionaryFile<T>(_ body: (Database) throws -> T) throws -> T {
+        var config = Configuration()
+        config.readonly = true
+        return try DatabaseQueue(path: TestDictionary.bundledURL().path, configuration: config).read(body)
+    }
+
+    /// The lemmas a query maps to, looked up as Search will: the folded query
+    /// as the `form_lookup` primary-key prefix.
+    private func lemmas(of query: String, pos: String? = nil, in db: Database) throws -> [String] {
+        try String.fetchAll(db, sql: """
+            SELECT l.word FROM form_lookup AS f JOIN lemma AS l ON l.id = f.lemma_id
+            WHERE f.form_norm = ? AND (? IS NULL OR l.pos = ?)
+            ORDER BY l.word
+            """, arguments: [Search.foldGreek(query), pos, pos])
+    }
+
+    /// #141: the source and license of the forms are a `dict.data_source`
+    /// row (Credits reads it), never a `dict_metadata` row, which would add a
+    /// dictionary to Dictionary Order.
+    func testWiktionaryDataSourceRow() throws {
+        try readDictionaryFile { db in
+            let rows = try Row.fetchAll(db, sql: "SELECT * FROM data_source WHERE kind = 'word_forms'")
+            XCTAssertEqual(rows.count, 1, "one word-forms data source")
+            let row = try XCTUnwrap(rows.first)
+            XCTAssertEqual(row["id"] as String, "wiktionary-ell-forms")
+            XCTAssertEqual(row["display_name"] as String, "Wiktionary (Greek word forms)")
+            XCTAssertEqual(row["license"] as String, "CC BY-SA 4.0")
+            XCTAssertEqual(row["url"] as String, "https://kaikki.org/dictionary/")
+            let version: String = row["version"]
+            XCTAssertNotNil(version.range(of: #"^enwiktionary \d{4}-\d{2}-\d{2}$"#, options: .regularExpression),
+                            "the snapshot date: \(version)")
+            XCTAssertEqual(try Int.fetchOne(db, sql: """
+                SELECT COUNT(*) FROM dict_metadata
+                WHERE source LIKE '%wiktionary%' OR display_name LIKE '%Wiktionary%'
+                """), 0, "the forms are no dictionary")
+        }
+    }
+
+    /// #141, #136: closed-class words are no forms of any verb (the article ο
+    /// sat in καλύπτω's table), and the stoplist that drops them leaves real
+    /// forms alone: κάνεις → κάνω (κανείς folds the same), the 2-letter δω →
+    /// βλέπω, έγραψα → γράφω.
+    func testStoplistFormsMapToNoVerb() throws {
+        let closedClass = ["ο", "η", "το", "οι", "τα", "του", "της", "των", "τον", "την", "τους", "τις",
+                           "αν", "όταν", "είτε", "και", "ή", "ότι", "να", "θα", "ας", "δεν", "μην",
+                           "σε", "στο", "στη", "με", "για", "από", "μου", "σου", "μας", "σας"]
+        try readDictionaryFile { db in
+            for word in closedClass {
+                XCTAssertEqual(try lemmas(of: word, pos: "verb", in: db), [], "\(word) is no form of a verb")
+            }
+            XCTAssertTrue(try lemmas(of: "κάνεις", pos: "verb", in: db).contains("κάνω"))
+            XCTAssertTrue(try lemmas(of: "δω", pos: "verb", in: db).contains("βλέπω"))
+            XCTAssertTrue(try lemmas(of: "έγραψα", pos: "verb", in: db).contains("γράφω"))
+        }
+    }
+
+    /// #141, spec step 5 for every open class: a closed-class word is no cell
+    /// of a verb, noun, adjective or adverb table unless it is that lemma's
+    /// own headword or `Scripts/data/forms-allowlist.tsv` re-admits it (παρά
+    /// in the table of παράς). Compared as the build does: lowercase, never
+    /// folded. The list is `STOPLIST` in `Scripts/build_forms.py`.
+    func testStoplistedWordsAreNoCellOfAnOpenClassTable() throws {
+        let stoplist = Set("""
+            ο η το οι τα του της των τον την τη τους τις ένας μία μια ένα ενός μιας έναν
+            και κι αν όταν είτε ή ότι πως που αλλά μα ενώ ούτε ουδέ όμως γιατί επειδή αφού ώστε μήπως
+            να θα ας δεν δε μην μη
+            σε στο στη στην στον στα στους στις στου στης με για από προς χωρίς κατά μετά παρά ως ώς
+            μου σου μας σας εγώ εσύ εμείς εσείς
+            """.split(whereSeparator: \.isWhitespace).map(String.init))
+        try readDictionaryFile { db in
+            var hits = Set<String>()
+            var cells = 0
+            let rows = try Row.fetchCursor(db, sql: """
+                SELECT p.form, l.word, l.pos FROM paradigm AS p JOIN lemma AS l ON l.id = p.lemma_id
+                WHERE l.pos IN ('verb', 'noun', 'adj', 'adv')
+                """)
+            while let row = try rows.next() {
+                cells += 1
+                let form = (row["form"] as String).lowercased(), word: String = row["word"]
+                if stoplist.contains(form) && form != word.lowercased() {
+                    hits.insert("\(row["form"] as String) in \(word) (\(row["pos"] as String))")
+                }
+            }
+            XCTAssertGreaterThan(cells, 300_000, "the open-class tables were read")
+            XCTAssertEqual(hits, ["παρά in παράς (noun)"], "only the allowlisted stoplist hit stays")
+        }
+    }
+
+    /// #141 "Data": the four forms tables with the spec's keys. Search looks a
+    /// form up by the `form_lookup` primary-key prefix, a lemma's text key
+    /// `(lang, word, pos)` is unique, and `paradigm` keeps the table order
+    /// 1…n. Every row points at a lemma and a tag set. Counts are lower bounds
+    /// ("all Greek lemmas, ~26k"), so a reviewed snapshot refresh keeps this
+    /// test as it is.
+    func testFormsTablesFollowTheSpec() throws {
+        try readDictionaryFile { db in
+            func primaryKey(_ table: String) throws -> [String] {
+                try Row.fetchAll(db, sql: "PRAGMA table_info(\(table.quotedDatabaseIdentifier))")
+                    .filter { ($0["pk"] as Int) > 0 }
+                    .sorted { ($0["pk"] as Int) < ($1["pk"] as Int) }
+                    .map { $0["name"] as String }
+            }
+            func indexedColumns(_ table: String, unique: Bool) throws -> [[String]] {
+                try Row.fetchAll(db, sql: "PRAGMA index_list(\(table.quotedDatabaseIdentifier))")
+                    .filter { ($0["unique"] as Int) == (unique ? 1 : 0) }
+                    .map { index in
+                        try Row.fetchAll(db, sql: "PRAGMA index_info(\((index["name"] as String).quotedDatabaseIdentifier))")
+                            .map { $0["name"] as String }
+                    }
+            }
+            XCTAssertEqual(try primaryKey("form_lookup"), ["form_norm", "lemma_id"])
+            XCTAssertEqual(try primaryKey("paradigm"), ["lemma_id", "ord"])
+            XCTAssertEqual(try primaryKey("lemma"), ["id"])
+            XCTAssertEqual(try primaryKey("tagset"), ["id"])
+            for table in ["form_lookup", "paradigm"] {
+                let sql = try XCTUnwrap(String.fetchOne(db, sql: "SELECT sql FROM sqlite_master WHERE name = ?",
+                                                        arguments: [table]))
+                XCTAssertTrue(sql.contains("WITHOUT ROWID"), "\(table) is WITHOUT ROWID: \(sql)")
+            }
+            XCTAssertTrue(try indexedColumns("lemma", unique: true).contains(["lang", "word", "pos"]), "the text key is unique")
+            XCTAssertTrue(try indexedColumns("lemma", unique: false).contains(["word_normalized"]), "the table lookup by folded word")
+            XCTAssertTrue(try indexedColumns("tagset", unique: true).contains(["tags"]))
+
+            func count(_ sql: String) throws -> Int { try Int.fetchOne(db, sql: sql) ?? -1 }
+            XCTAssertGreaterThan(try count("SELECT COUNT(*) FROM lemma"), 25_000, "all Greek lemmas")
+            XCTAssertGreaterThan(try count("SELECT COUNT(*) FROM paradigm"), 300_000)
+            XCTAssertGreaterThan(try count("SELECT COUNT(*) FROM form_lookup"), 200_000)
+            XCTAssertGreaterThan(try count("SELECT COUNT(*) FROM tagset"), 100)
+            XCTAssertEqual(try String.fetchAll(db, sql: "SELECT DISTINCT lang FROM lemma"), ["ell"])
+            XCTAssertEqual(try count("""
+                SELECT COUNT(*) FROM (SELECT MAX(ord) AS last, COUNT(*) AS n FROM paradigm GROUP BY lemma_id)
+                WHERE last != n
+                """), 0, "each table's ord runs 1…n")
+            XCTAssertEqual(try count("""
+                SELECT (SELECT COUNT(*) FROM paradigm WHERE lemma_id NOT IN (SELECT id FROM lemma)
+                                                         OR tagset_id NOT IN (SELECT id FROM tagset))
+                     + (SELECT COUNT(*) FROM form_lookup WHERE lemma_id NOT IN (SELECT id FROM lemma)
+                                                            OR tagset_id NOT IN (SELECT id FROM tagset))
+                """), 0, "every row points at a lemma and a tag set")
+        }
+    }
+
+    /// #141, #87: Python's `normalize_greek` wrote `word_normalized` and
+    /// `form_norm`, and Search folds the query with `Search.foldGreek`. They
+    /// must agree byte for byte, as SQLite compares them, or a stored form is
+    /// never found. Over the whole file: every lemma's `word_normalized` is its
+    /// folded word, and every head form and table cell has the lookup row of
+    /// its folded form for its lemma (spec step 6).
+    func testLookupKeysAreTheAppsFolding() throws {
+        struct Key: Hashable { let form: [UInt8]; let lemma: Int64 }
+        try readDictionaryFile { db in
+            var keys = Set<Key>()
+            let lookups = try Row.fetchCursor(db, sql: "SELECT form_norm, lemma_id FROM form_lookup")
+            while let row = try lookups.next() {
+                keys.insert(Key(form: Array((row["form_norm"] as String).utf8), lemma: row["lemma_id"]))
+            }
+            var mismatches: [String] = []
+            var lemmas = 0, cells = 0
+            let lemmaRows = try Row.fetchCursor(db, sql: "SELECT id, word, word_normalized FROM lemma")
+            while let row = try lemmaRows.next() {
+                lemmas += 1
+                let word: String = row["word"], folded = Search.foldGreek(word)
+                if !folded.utf8.elementsEqual((row["word_normalized"] as String).utf8) {
+                    mismatches.append("lemma \(word): word_normalized '\(row["word_normalized"] as String)', Swift '\(folded)'")
+                }
+                if !keys.contains(Key(form: Array(folded.utf8), lemma: row["id"])) {
+                    mismatches.append("no head-form lookup row for \(word)")
+                }
+            }
+            let cellRows = try Row.fetchCursor(db, sql: "SELECT lemma_id, form FROM paradigm")
+            while let row = try cellRows.next() {
+                cells += 1
+                let form: String = row["form"]
+                if !keys.contains(Key(form: Array(Search.foldGreek(form).utf8), lemma: row["lemma_id"])) {
+                    mismatches.append("no lookup row for the cell \(form) of lemma \(row["lemma_id"] as Int64)")
+                }
+            }
+            XCTAssertGreaterThan(lemmas, 25_000)
+            XCTAssertGreaterThan(cells, 300_000)
+            XCTAssertTrue(mismatches.isEmpty, "\(mismatches.count) mismatches, e.g. \(mismatches.prefix(5))")
+        }
+    }
+
+    /// #141 junk filter on the shipped file (spec step 2): every lemma word,
+    /// table cell and lookup key is one Greek word, i.e. Greek letters with
+    /// their combining marks and nothing else: no empty string, space,
+    /// hyphen, apostrophe, digit, Latin letter (`Αναξιμένoυς` with a Latin o)
+    /// or placeholder (`-`, `‑η`, `➤`). No cell is tagged `error-*` or
+    /// single-word `future`. No cell carries two accents (`γόνιμός`) or a
+    /// final sigma inside the word (`άφυλλοςος`), Wiktionary template errors.
+    func testFormsAreOneGreekWord() throws {
+        let letters: Set<Unicode.GeneralCategory> = [.uppercaseLetter, .lowercaseLetter, .titlecaseLetter,
+                                                     .modifierLetter, .otherLetter]
+        func isOneGreekWord(_ s: String) -> Bool {
+            guard let first = s.unicodeScalars.first, first.properties.generalCategory != .nonspacingMark else { return false }
+            return s.unicodeScalars.allSatisfy { scalar in
+                scalar.properties.generalCategory == .nonspacingMark
+                    || (Search.isGreek(scalar) && letters.contains(scalar.properties.generalCategory))
+            }
+        }
+        for junk in ["", "-", "‑η", "➤", "Αναξιμένoυς", "θα γράψω", "γράφ'", "λύσω²", "\u{0301}α"] {
+            XCTAssertFalse(isOneGreekWord(junk), "the check rejects '\(junk)'")
+        }
+        for word in ["δω", "ΐ", "Ἀθῆναι", "γράφω"] {
+            XCTAssertTrue(isOneGreekWord(word), "the check accepts \(word)")
+        }
+        // Acute (tonos), grave and circumflex count as accents; breathings and the diaeresis do not.
+        func isMisspelt(_ s: String) -> Bool {
+            let accents = s.decomposedStringWithCanonicalMapping.unicodeScalars
+                .filter { [0x0301, 0x0300, 0x0342].contains($0.value) }.count
+            return accents > 1 || s.dropLast().contains("ς")
+        }
+        for junk in ["γόνιμός", "εκστρατεύόμαστε", "άφυλλοςος"] {
+            XCTAssertTrue(isMisspelt(junk), "the check rejects '\(junk)'")
+        }
+        for word in ["δω", "ΐ", "Ἀθῆναι", "γράφω", "λόγος"] {
+            XCTAssertFalse(isMisspelt(word), "the check accepts \(word)")
+        }
+
+        try readDictionaryFile { db in
+            var junk: [String] = []
+            var misspelt: [String] = []
+            for (table, column) in [("lemma", "word"), ("paradigm", "form"), ("form_lookup", "form_norm")] {
+                var values = 0
+                let cursor = try String.fetchCursor(db, sql: "SELECT \(column) FROM \(table)")
+                while let value = try cursor.next() {
+                    values += 1
+                    if !isOneGreekWord(value) { junk.append("\(table).\(column) '\(value)'") }
+                    if table == "paradigm" && isMisspelt(value) { misspelt.append(value) }
+                }
+                XCTAssertGreaterThan(values, 25_000, "\(table) was read")
+            }
+            XCTAssertTrue(junk.isEmpty, "\(junk.count) values are not one Greek word, e.g. \(junk.prefix(10))")
+            XCTAssertTrue(misspelt.isEmpty, "\(misspelt.count) cells are misspelt, e.g. \(misspelt.prefix(10))")
+            XCTAssertEqual(try Int.fetchOne(db, sql: """
+                SELECT COUNT(*) FROM paradigm AS p JOIN tagset AS t ON t.id = p.tagset_id
+                WHERE ' ' || t.tags || ' ' LIKE '% future %' OR ' ' || t.tags LIKE '% error-%'
+                """), 0, "no cell tagged error-* or single-word future")
+        }
+    }
+
+    /// #141 links and guards on the real snapshot, with the tag set Search
+    /// captions (the first cell in table order, else the first link): table
+    /// cells (έγραψα and ΈΓΡΑΨΑ → γράφω, aorist 1sg; σπιτιού → σπίτι,
+    /// genitive singular), `form_of` (ξέρεις → ξέρω), `alt_of` without a cell
+    /// (δω → εδώ, alternative), a cell that is also an `alt_of` page (πάω →
+    /// πηγαίνω). The pronoun template guard: the pronouns τα, εγώ and εσύ keep
+    /// no table, so σας and μας are forms of no other pronoun. The template
+    /// error rules: a note no longer drops a cell (κάνω (κάμνω →) is κάνω's
+    /// present 1sg); suppletive forms keep their lemma (πήγα → πάω, whose
+    /// link takes perfective from its gloss "simple past"); a table declined
+    /// from another word is dropped (κρεατομηχανή held μηχανή's forms), as
+    /// are bare endings (ει was a form of σαλπάρω). Also: " - " variants are
+    /// split (θυμάμαι - θυμούμαι), a nested note is stripped (σκέφτομαι), a
+    /// suppletive table stays (βλέπω: είδα, δω), αισώπειος's bare endings are
+    /// gone and the link γάτος → γάτα, tagged `error-lua-exec`, gives no row.
+    func testLinksAndPronounGuardOnTheSnapshot() throws {
+        try readDictionaryFile { db in
+            func tags(_ form: String, of lemma: String) throws -> String? {
+                try String.fetchOne(db, sql: """
+                    SELECT t.tags FROM form_lookup AS f JOIN lemma AS l ON l.id = f.lemma_id
+                    JOIN tagset AS t ON t.id = f.tagset_id WHERE f.form_norm = ? AND l.word = ?
+                    """, arguments: [Search.foldGreek(form), lemma])
+            }
+            let aorist1sg = "active first-person indicative past perfective singular"
+            XCTAssertEqual(try tags("έγραψα", of: "γράφω"), aorist1sg)
+            XCTAssertEqual(try tags("ΈΓΡΑΨΑ", of: "γράφω"), aorist1sg, "case and accents fold")
+            XCTAssertEqual(try tags("σπιτιού", of: "σπίτι"), "genitive singular")
+            XCTAssertEqual(try tags("ξέρεις", of: "ξέρω"), "active imperfective indicative present second-person singular")
+            XCTAssertEqual(try tags("δω", of: "εδώ"), "alternative")
+            XCTAssertEqual(try tags("πάω", of: "πηγαίνω"), "active first-person imperfective indicative present singular")
+            XCTAssertNil(try tags("έγραψα", of: "γραφή"), "no link to a lemma it is no form of")
+
+            XCTAssertEqual(try tags("κάνω", of: "κάνω"), "active first-person imperfective indicative present singular",
+                           "κάνω (κάμνω →) is κάνω's present 1sg")
+            XCTAssertEqual(try tags("πήγα", of: "πάω"), "first-person past perfective singular")
+            XCTAssertEqual(try tags("πήγα", of: "πηγαίνω"), aorist1sg)
+            XCTAssertEqual(try Int.fetchOne(db, sql: """
+                SELECT COUNT(*) FROM paradigm AS p JOIN lemma AS l ON l.id = p.lemma_id WHERE l.word = 'κρεατομηχανή'
+                """), 0, "κρεατομηχανή keeps no table of μηχανή's forms")
+            XCTAssertEqual(try lemmas(of: "μηχανή", pos: "noun", in: db), ["μηχανή"])
+            XCTAssertFalse(try lemmas(of: "ει", in: db).contains("σαλπάρω"), "the bare ending ει is gone")
+
+            // QA, round 2: the other template-error rules on the shipped file.
+            func cellTags(_ form: String, of verb: String) throws -> [String] {
+                try String.fetchAll(db, sql: """
+                    SELECT t.tags FROM paradigm AS p JOIN lemma AS l ON l.id = p.lemma_id
+                    JOIN tagset AS t ON t.id = p.tagset_id WHERE p.form = ? AND l.word = ? AND l.pos = 'verb'
+                    """, arguments: [form, verb])
+            }
+            let passivePresent1sg = "first-person imperfective indicative passive present singular"
+            XCTAssertEqual(try cellTags("θυμάμαι", of: "θυμάμαι"), [passivePresent1sg], "θυμάμαι - θυμούμαι is split")
+            XCTAssertEqual(try cellTags("θυμούμαι", of: "θυμάμαι"), [passivePresent1sg], "both variants are cells")
+            XCTAssertEqual(try tags("σκέφτομαι", of: "σκέφτομαι"), passivePresent1sg,
+                           "a nested note is stripped: σκέφτομαι (→ σκέπτομαι (sképtomai))")
+            XCTAssertEqual(try cellTags("είδα", of: "βλέπω"), [aorist1sg], "a suppletive table holds its headword, so it stays")
+            XCTAssertEqual(try cellTags("δω", of: "βλέπω"), ["active dependent first-person indicative perfective singular"])
+            XCTAssertEqual(try Int.fetchOne(db, sql: """
+                SELECT COUNT(*) FROM paradigm AS p JOIN lemma AS l ON l.id = p.lemma_id WHERE l.word = 'αισώπειος'
+                """), 0, "αισώπειος held only bare endings (ος, α, ου)")
+            XCTAssertFalse(try lemmas(of: "ου", in: db).contains("αισώπειος"))
+            XCTAssertFalse(try lemmas(of: "γάτος", in: db).contains("γάτα"), "the link γάτος → γάτα is tagged error-lua-exec")
+
+            for pronoun in ["τα", "εγώ", "εσύ"] {
+                XCTAssertEqual(try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM lemma WHERE word = ? AND pos = 'pron'",
+                                               arguments: [pronoun]), 1, "\(pronoun) is a pronoun lemma")
+                XCTAssertEqual(try Int.fetchOne(db, sql: """
+                    SELECT COUNT(*) FROM paradigm AS p JOIN lemma AS l ON l.id = p.lemma_id
+                    WHERE l.word = ? AND l.pos = 'pron'
+                    """, arguments: [pronoun]), 0, "\(pronoun): the shared personal-pronoun template is dropped")
+            }
+            XCTAssertEqual(try lemmas(of: "σας", pos: "pron", in: db), ["σας"], "σας → τα is gone")
+            XCTAssertEqual(try lemmas(of: "μας", pos: "pron", in: db), ["μας"])
+        }
+    }
+}
