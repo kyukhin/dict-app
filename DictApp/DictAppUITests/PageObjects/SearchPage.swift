@@ -172,6 +172,12 @@ class SearchPage: BasePage {
         return searchField.waitForExistence(timeout: TestData.Timeouts.medium)
     }
 
+    /// Whether the search field holds the keyboard focus (Issue #145: a chip
+    /// tap keeps it).
+    func searchFieldHasFocus() -> Bool {
+        searchField.exists && (searchField.value(forKey: "hasKeyboardFocus") as? Bool ?? false)
+    }
+
     func verifySearchFieldContains(_ text: String) -> Bool {
         let value = searchField.value as? String ?? ""
         if text.isEmpty {
@@ -252,7 +258,12 @@ class SearchPage: BasePage {
         //       longer misclassified, so we keep waiting for the real cells.
         _ = searchField.waitForExistence(timeout: TestData.Timeouts.short)
 
-        let noResults = app.descendants(matching: .any)["search_no_results"]
+        // Issue #145: "Choose a dictionary" is a list cell too, and also means
+        // "no results"; treat either marker the same way.
+        let noResults = app.descendants(matching: .any).matching(NSPredicate(
+            format: "identifier IN %@",
+            [AccessibilityIdentifiers.Search.noResults, AccessibilityIdentifiers.Search.noDictionariesHint]
+        )).firstMatch
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
             if !noResults.exists && resultsList.cells.count > 0 {
@@ -284,5 +295,157 @@ class SearchPage: BasePage {
 
     func verifyContentUnavailableShown() -> Bool {
         return app.descendants(matching: .any)["search_no_results"].exists
+    }
+
+    /// No result row on screen: no source badge, which only result rows carry.
+    func verifyNoResultCells() -> Bool {
+        app.descendants(matching: .any)
+            .matching(NSPredicate(format: "identifier BEGINSWITH %@", "source_badge_"))
+            .count == 0
+    }
+
+    // MARK: - Dictionary chips (Issue #145)
+    //
+    // Chips are found by id with any element type: a pair chip is a SwiftUI
+    // `Toggle` (value 1 or 0, like the Settings switches), "All" a `Button`
+    // with the selected trait. The row scrolls sideways; it is scrolled by
+    // geometry, never through `isHittable`. Pair keys are `TestData.Pairs`.
+
+    /// The row: a container named "Dictionaries".
+    var chipsRow: XCUIElement {
+        app.descendants(matching: .any).matching(identifier: AccessibilityIdentifiers.Search.chipsRow).firstMatch
+    }
+
+    var allChip: XCUIElement {
+        app.descendants(matching: .any).matching(identifier: AccessibilityIdentifiers.Search.allChip).firstMatch
+    }
+
+    func chip(_ pair: String) -> XCUIElement {
+        app.descendants(matching: .any).matching(identifier: AccessibilityIdentifiers.Search.chip(pair: pair)).firstMatch
+    }
+
+    /// Waits until the row has loaded (it shows once the pair list is in).
+    @discardableResult
+    func waitForChips(timeout: TimeInterval = TestData.Timeouts.long) -> Bool {
+        allChip.waitForExistence(timeout: timeout)
+    }
+
+    /// The horizontal scroll view that holds the chips: the row's full
+    /// width. The "Dictionaries" container (`chipsRow`) is the chips inside
+    /// it, as wide as their content. On iOS 26 this scroll view's frame
+    /// reaches up under the navigation bar, so only its width is meaningful.
+    var chipsScrollView: XCUIElement {
+        app.scrollViews.containing(.any, identifier: AccessibilityIdentifiers.Search.allChip).firstMatch
+    }
+
+    /// Drags the row sideways until `element`'s centre is inside the window.
+    /// Works left to right and right to left: the direction comes from where
+    /// the chip lies, not from the language. Each drag runs along the chips,
+    /// moves 70% of the width and holds before lifting, so there is no
+    /// momentum and a chip's centre cannot be skipped. It never swipes at the
+    /// row's centre, which lies off screen at large text sizes.
+    @discardableResult
+    func revealChip(_ element: XCUIElement, maxSwipes: Int = 10) -> Bool {
+        guard waitForChips(), element.waitForExistence(timeout: TestData.Timeouts.medium) else { return false }
+        let window = app.windows.firstMatch.frame
+        func revealed() -> Bool {
+            let frame = element.frame
+            guard frame.width > 1, frame.height > 1 else { return false }
+            return window.contains(CGPoint(x: frame.midX, y: frame.midY))
+        }
+        let origin = app.coordinate(withNormalizedOffset: .zero)
+        for _ in 0..<maxSwipes {
+            if revealed() { return true }
+            let y = element.frame.midY
+            let right = origin.withOffset(CGVector(dx: window.minX + window.width * 0.85, dy: y))
+            let left = origin.withOffset(CGVector(dx: window.minX + window.width * 0.15, dy: y))
+            let (from, to) = element.frame.midX > window.midX ? (right, left) : (left, right)
+            from.press(forDuration: 0.05, thenDragTo: to, withVelocity: .slow, thenHoldForDuration: 0.3)
+        }
+        return revealed()
+    }
+
+    /// The chip's on state from its switch value (1 or 0); `nil` if it is
+    /// missing or carries no switch value.
+    func isChipOn(_ pair: String) -> Bool? {
+        let element = chip(pair)
+        guard element.exists else { return nil }
+        return Self.switchValue(element.value)
+    }
+
+    func isAllSelected() -> Bool {
+        allChip.exists && allChip.isSelected
+    }
+
+    /// Taps a pair chip and checks that it flipped.
+    func tapChip(_ pair: String, file: StaticString = #filePath, line: UInt = #line) {
+        let element = chip(pair)
+        XCTAssertTrue(revealChip(element), "chip '\(pair)' must be reachable in the row", file: file, line: line)
+        let before = isChipOn(pair)
+        element.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        XCTAssertTrue(waitForCondition(timeout: TestData.Timeouts.short) { self.isChipOn(pair) != before },
+                      "chip '\(pair)' did not change state after a tap (was \(String(describing: before)))",
+                      file: file, line: line)
+    }
+
+    /// Taps "All" and checks that it ends up selected.
+    func tapAllChip(file: StaticString = #filePath, line: UInt = #line) {
+        let element = allChip
+        XCTAssertTrue(revealChip(element), "'All' must be reachable in the row", file: file, line: line)
+        element.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        XCTAssertTrue(waitForCondition(timeout: TestData.Timeouts.short) { self.isAllSelected() },
+                      "'All' must be selected after a tap", file: file, line: line)
+    }
+
+    /// Long press on a pair chip, then "Only this" in its menu: by id, with
+    /// the English label as a fallback.
+    func onlyThis(_ pair: String, file: StaticString = #filePath, line: UInt = #line) {
+        let element = chip(pair)
+        XCTAssertTrue(revealChip(element), "chip '\(pair)' must be reachable in the row", file: file, line: line)
+        element.press(forDuration: 1.0)
+        let byID = app.descendants(matching: .any)
+            .matching(identifier: AccessibilityIdentifiers.Search.onlyThisMenuItem).firstMatch
+        let byLabel = app.buttons["Only this"].firstMatch
+        var item = byID
+        if !byID.waitForExistence(timeout: TestData.Timeouts.medium) {
+            item = byLabel
+        }
+        XCTAssertTrue(item.waitForExistence(timeout: TestData.Timeouts.short),
+                      "the long-press menu of '\(pair)' must offer 'Only this'", file: file, line: line)
+        item.tap()
+        XCTAssertTrue(waitForCondition(timeout: TestData.Timeouts.medium) { !item.exists && self.isChipOn(pair) == true },
+                      "after 'Only this' the menu closes and '\(pair)' is on", file: file, line: line)
+    }
+
+    /// Pair keys in reading order: left to right by `frame.minX`, or right
+    /// to left by descending `frame.maxX` when "All" sits at the right edge
+    /// (Arabic). Pairs without a chip are left out.
+    func chipOrder(of pairs: [String]) -> [String] {
+        let present = pairs.map { ($0, chip($0)) }.filter { $0.1.exists }
+        let all = allChip
+        let rightToLeft = all.exists && present.contains { all.frame.midX > $0.1.frame.midX }
+        return present
+            .sorted { rightToLeft ? $0.1.frame.maxX > $1.1.frame.maxX : $0.1.frame.minX < $1.1.frame.minX }
+            .map(\.0)
+    }
+
+    /// Waits for "Choose a dictionary", shown instead of results when every
+    /// chip is off and the field holds a query.
+    func waitForNoDictionariesHint(timeout: TimeInterval = TestData.Timeouts.medium) -> Bool {
+        app.descendants(matching: .any)[AccessibilityIdentifiers.Search.noDictionariesHint]
+            .waitForExistence(timeout: timeout)
+    }
+
+    /// A switch's XCUITest value as a Bool: "1"/"0" (also true/false, on/off).
+    static func switchValue(_ value: Any?) -> Bool? {
+        if let string = value as? String {
+            switch string.lowercased() {
+            case "1", "true", "on": return true
+            case "0", "false", "off": return false
+            default: return nil
+            }
+        }
+        if let number = value as? NSNumber { return number.boolValue }
+        return nil
     }
 }

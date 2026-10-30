@@ -12,6 +12,16 @@ final class SearchViewModel: ObservableObject {
     @Published var isSearching: Bool = false
     @Published var errorMessage: String?
 
+    /// The dictionary chips under the search field (Issue #145): the same
+    /// pair list and setting as Settings → Dictionary Order.
+    let selection: DictionarySelection
+
+    /// With a query and every pair off, Search shows "Choose a dictionary"
+    /// instead of results (Issue #145). An empty field keeps Recent words.
+    var showsNoDictionariesHint: Bool {
+        !query.trimmingCharacters(in: .whitespaces).isEmpty && selection.noneEnabled
+    }
+
     private var searchTask: Task<Void, Never>?
     private let debounceInterval: Duration = .milliseconds(150)
 
@@ -19,9 +29,25 @@ final class SearchViewModel: ObservableObject {
     private let settings: SettingsService
     private var cancellables: Set<AnyCancellable> = []
 
-    init(db: DatabaseService = .shared, settings: SettingsService = .shared) {
+    /// What a chip change is compared on: the pairs' order, states, sources
+    /// and entry counts. A struct because tuples are not `Equatable`. An
+    /// import named like a bundled source (#105) keeps the pair's source IDs,
+    /// since the dictionary file has every bundled ID; only the count shows it.
+    private struct PairState: Equatable {
+        let id: String
+        let isEnabled: Bool
+        let sourceIDs: [String]
+        let count: Int
+    }
+
+    /// A `nil` selection is `.shared` for the app's settings, or a new one
+    /// over a test's own settings (`DictionarySelection.owning`).
+    init(db: DatabaseService = .shared,
+         settings: SettingsService = .shared,
+         selection: DictionarySelection? = nil) {
         self.db = db
         self.settings = settings
+        self.selection = selection ?? .owning(settings, db: db)
 
         // Issue #139: Search answers from the dictionary file while a 1.x
         // database moves in. When the move commits, re-run the current query
@@ -30,6 +56,22 @@ final class SearchViewModel: ObservableObject {
         NotificationCenter.default.publisher(for: LegacyMigration.didCommit)
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in self?.refreshIfNeeded() }
+            .store(in: &cancellables)
+
+        // Issue #145: a chip (or a Settings switch, a reorder, an import that
+        // reloads the list) re-runs the current query at once. The selection writes the store before it
+        // publishes, so `onQueryChanged` reads the new setting; the debounce
+        // folds quick taps into one query. A title-only change (language
+        // switch) re-runs nothing.
+        self.selection.$pairs
+            .map { $0.map { PairState(id: $0.id, isEnabled: $0.isEnabled, sourceIDs: $0.pair.sourceIDs, count: $0.count) } }
+            .removeDuplicates()
+            .dropFirst()
+            .sink { [weak self] _ in self?.refreshIfNeeded() }
+            .store(in: &cancellables)
+        // The hint reads the selection, so re-render with it.
+        self.selection.objectWillChange
+            .sink { [weak self] _ in self?.objectWillChange.send() }
             .store(in: &cancellables)
     }
 
@@ -89,8 +131,9 @@ final class SearchViewModel: ObservableObject {
 
     /// Re-runs the current query (Issue #6 §3d) so returning to Search after a
     /// sort-mode / dictionary-order change in Settings reflects it without
-    /// retyping. No-ops on an empty query, so it does NOT fire (or double-fire)
-    /// on initial view load — the field starts empty.
+    /// retyping, and at once after a chip change (Issue #145). No-ops on an
+    /// empty query, so it does NOT fire (or double-fire) on initial view
+    /// load — the field starts empty.
     func refreshIfNeeded() {
         guard !query.trimmingCharacters(in: .whitespaces).isEmpty else { return }
         onQueryChanged()

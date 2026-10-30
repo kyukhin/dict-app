@@ -39,6 +39,23 @@ struct AccessibilityIdentifiers {
         static func sourceBadge(source: String) -> String {
             return "source_badge_\(source)"
         }
+        /// "No results for …" (`ContentUnavailableView.search`).
+        static let noResults = "search_no_results"
+
+        // Issue #145 — the dictionary chips under the search field.
+        /// The row, a container named "Dictionaries".
+        static let chipsRow = "dictionary_chips"
+        /// The "All" chip. Pair keys use `custom:` for imports, so an import
+        /// named `all` never collides with it.
+        static let allChip = "dictionary_chip_all"
+        /// A pair chip, by pair key (`TestData.Pairs`), e.g. `dictionary_chip_eng-spa`.
+        static func chip(pair: String) -> String {
+            return "dictionary_chip_\(pair)"
+        }
+        /// "Only this" in a chip's long-press menu.
+        static let onlyThisMenuItem = "dictionary_chip_only_this"
+        /// "Choose a dictionary", shown instead of results when every chip is off.
+        static let noDictionariesHint = "search_no_dictionaries"
     }
 
     // MARK: - Definition View

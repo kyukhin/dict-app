@@ -15,6 +15,9 @@ final class ManageDictionariesViewModel: ObservableObject {
 
     private let settingsService: SettingsService
     private let localization: LocalizationManager
+    /// The pair list to reload after an import (Issue #145), so the new
+    /// dictionary gets its Search chip and Dictionary order row at once.
+    private let selection: DictionarySelection?
 
     /// `LocalizationManager.shared` is `@MainActor`-isolated, so passing it
     /// as a default-value expression would be evaluated in the caller's
@@ -22,10 +25,16 @@ final class ManageDictionariesViewModel: ObservableObject {
     /// Accept `nil` and resolve `.shared` inside the `@MainActor`-isolated
     /// body instead. `SettingsService` is not actor-isolated, so `.shared`
     /// is a plain default.
+    ///
+    /// A `nil` selection is `.shared` for the app's settings. A unit test
+    /// that brings its own settings and no selection reloads nothing, as
+    /// before #145; tests of the reload pass their selection.
     init(settingsService: SettingsService = .shared,
-         localization: LocalizationManager? = nil) {
+         localization: LocalizationManager? = nil,
+         selection: DictionarySelection? = nil) {
         self.settingsService = settingsService
         self.localization = localization ?? .shared
+        self.selection = selection ?? (settingsService === SettingsService.shared ? .shared : nil)
     }
 
     /// Handles the result of `.fileImporter`. Dispatches to JSON or SQLite
@@ -73,6 +82,9 @@ final class ManageDictionariesViewModel: ObservableObject {
             // searchable before the Dictionary order screen reloads.
             settingsService.enableImportedSource(source)
             settingsService.appendImportedSourceToOrder(source)
+            // Issue #145: these two wrote the keys outside the selection, so
+            // reload it: the import's chip appears at the end, switched on.
+            await selection?.load()
             // String Catalog handles plural variants for the current locale.
             // Issue #88: resolve against the in-app language's lproj, because
             // `String(localized:locale:)` alone reads the device-language table.

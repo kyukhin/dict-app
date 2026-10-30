@@ -9317,3 +9317,551 @@ final class DictionaryReopenTests: XCTestCase {
         XCTAssertEqual(count, 2000, "the new connection reads every row")
     }
 }
+
+// MARK: - Issue #145: quick dictionary switching (0146-quick-switch.md)
+
+/// The nine bundled sources on a test dictionary file. Each has one row that
+/// "apple" finds (headword or definition) plus distinct filler rows, so the
+/// `en` default order is fixed: eng, eng-rus, eng-spa, arb-eng, ell-eng.
+private enum QuickSwitchFixture {
+    static let pairIDs = ["eng", "eng-rus", "eng-spa", "arb-eng", "ell-eng"]
+    static let sources = DictAppTests.allBundledSourceIDs
+    static let greekSources = Set(DictAppTests.greekSourceIDs)
+
+    static var rows: [TestDictionary.Row] {
+        let apples: [TestDictionary.Row] = [
+            .init(word: "apple", definition: "a round fruit", source: "wordnet"),
+            .init(word: "яблоко", definition: "apple", source: "openrussian"),
+            .init(word: "apple", definition: "manzana", source: "freedict-eng-spa"),
+            .init(word: "manzana", definition: "apple", source: "wordnet-spa-eng"),
+            .init(word: "تفاحة", definition: "apple", source: "wordnet-arb-eng"),
+            .init(word: "μήλο", definition: "apple", source: "freedict-ell-eng"),
+            .init(word: "μηλιά", definition: "apple tree", source: "wordnet-ell-eng"),
+            .init(word: "apple", definition: "μήλο", source: "freedict-eng-ell"),
+            .init(word: "apple", definition: "μήλο, φρούτο", source: "wordnet-eng-ell"),
+        ]
+        return apples + sources.enumerated().flatMap { index, source in
+            TestDictionary.rows(source: source, count: 20 - index)
+        }
+    }
+
+    /// A fresh user database in `directory` with the fixture attached.
+    static func open(in directory: URL) async throws -> TestDictionaryFixture {
+        await DictAppTests.waitForHostAppLaunch()
+        let dictionary = TestDictionaryFixture(directory: directory)
+        try await dictionary.add(rows)
+        return dictionary
+    }
+
+    /// A selection over its own in-memory store, with the UI language pinned.
+    @MainActor
+    static func makeSelection(languageCode: String = "en", storedOrder: [String]? = nil,
+                              storedEnabled: Set<String>? = nil)
+        -> (selection: DictionarySelection, settings: SettingsService, store: InMemoryKeyValueStore,
+            localization: LocalizationManager) {
+        let store = InMemoryKeyValueStore()
+        let settings = SettingsService(store: store)
+        settings.selectedUILanguageCode = languageCode
+        settings.dictionaryOrder = storedOrder
+        settings.enabledSources = storedEnabled
+        let localization = LocalizationManager(settingsService: settings, bundle: .main)
+        return (DictionarySelection(settings: settings, localization: localization), settings, store, localization)
+    }
+
+    static func writes(_ store: InMemoryKeyValueStore, of key: String, since start: Int) -> Int {
+        store.writeLog.dropFirst(start).filter { $0 == key }.count
+    }
+}
+
+/// `DictionarySelection`: the pair list shared by the Search chips and the
+/// Dictionary Order screen, one write per change, store before publish.
+final class DictionarySelectionTests: XCTestCase {
+    private var tempDir: URL!
+    private var dictionary: TestDictionaryFixture!
+    private var cancellables: Set<AnyCancellable> = []
+
+    override func setUp() async throws {
+        try await super.setUp()
+        tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        dictionary = try await QuickSwitchFixture.open(in: tempDir)
+    }
+
+    override func tearDown() async throws {
+        cancellables.removeAll()
+        try? FileManager.default.removeItem(at: tempDir)
+        try await super.tearDown()
+    }
+
+    /// A stored order gives the pair order; with none, the `en` default is
+    /// derived and stored once. `loadIfNeeded` loads only the first time.
+    @MainActor
+    func testPairsFollowStoredOrder() async throws {
+        let stored = DictAppTests.greekSourceIDs + ["wordnet-arb-eng", "freedict-eng-spa", "wordnet-spa-eng",
+                                                    "openrussian", "wordnet"]
+        let (selection, settings, store, _) = QuickSwitchFixture.makeSelection(storedOrder: stored)
+        XCTAssertFalse(selection.isLoaded)
+        XCTAssertFalse(selection.noneEnabled, "no pairs yet: not 'none enabled'")
+        let start = store.writeLog.count
+
+        await selection.loadIfNeeded()
+
+        XCTAssertTrue(selection.isLoaded)
+        XCTAssertEqual(selection.pairs.map(\.id), ["ell-eng", "arb-eng", "eng-spa", "eng-rus", "eng"])
+        XCTAssertEqual(selection.pairs.map(\.displayName),
+                       ["Greek – English", "Arabic – English", "Spanish – English", "Russian – English", "English"],
+                       "chip labels are the Dictionary Order titles")
+        XCTAssertTrue(selection.allEnabled)
+        XCTAssertEqual(settings.dictionaryOrder, stored, "an already grouped order is kept")
+        XCTAssertEqual(store.writeLog.count, start, "a load of a valid stored state writes nothing")
+
+        // Loads once: a later change to the store is not picked up by
+        // `loadIfNeeded`, only by `load`.
+        settings.dictionaryOrder = QuickSwitchFixture.sources
+        await selection.loadIfNeeded()
+        XCTAssertEqual(selection.pairs.first?.id, "ell-eng")
+        await selection.load()
+        XCTAssertEqual(selection.pairs.map(\.id), QuickSwitchFixture.pairIDs)
+
+        // No stored order: the #74 `en` default, stored on the first load.
+        let (fresh, freshSettings, _, _) = QuickSwitchFixture.makeSelection()
+        await fresh.load()
+        XCTAssertEqual(fresh.pairs.map(\.id), QuickSwitchFixture.pairIDs)
+        XCTAssertEqual(freshSettings.dictionaryOrder.map(DictionaryGrouping.sourceGroups(order:))?.count, 5)
+        XCTAssertNil(freshSettings.enabledSources, "a load never materialises 'everything on'")
+    }
+
+    /// `move` reorders the pairs and stores the flattened order in one write,
+    /// before it publishes. A no-op move writes and publishes nothing.
+    @MainActor
+    func testMoveReordersPairsAndStoredOrder() async throws {
+        let (selection, settings, store, _) = QuickSwitchFixture.makeSelection()
+        await selection.load()
+        XCTAssertEqual(selection.pairs.map(\.id), QuickSwitchFixture.pairIDs, "precondition")
+        var storedAtPublish: [[String]?] = []
+        selection.$pairs.dropFirst()
+            .sink { _ in storedAtPublish.append(settings.dictionaryOrder) }
+            .store(in: &cancellables)
+        let start = store.writeLog.count
+
+        selection.move(from: IndexSet(integer: 4), to: 0)   // Greek to the top
+
+        XCTAssertEqual(selection.pairs.map(\.id), ["ell-eng", "eng", "eng-rus", "eng-spa", "arb-eng"])
+        let expectedOrder = selection.pairs.flatMap(\.pair.sourceIDs)
+        XCTAssertEqual(settings.dictionaryOrder, expectedOrder)
+        XCTAssertEqual(Array(expectedOrder.prefix(4)).sorted(), DictAppTests.greekSourceIDs.sorted(),
+                       "the four Greek sources move as one slot")
+        XCTAssertEqual(Array(store.writeLog.dropFirst(start)), ["dictionary_order"], "one write")
+        XCTAssertEqual(storedAtPublish, [expectedOrder], "the store holds the new order when pairs publish")
+
+        selection.move(from: IndexSet(integer: 2), to: 2)
+        XCTAssertEqual(Array(store.writeLog.dropFirst(start)), ["dictionary_order"], "a no-op move writes nothing")
+        XCTAssertEqual(storedAtPublish.count, 1, "and publishes nothing")
+
+        // A reload reads the moved order back.
+        await selection.load()
+        XCTAssertEqual(selection.pairs.map(\.id), ["ell-eng", "eng", "eng-rus", "eng-spa", "arb-eng"])
+    }
+
+    /// One setting: a Settings switch changes the chips' list, a chip
+    /// changes the Settings list, one store write each.
+    @MainActor
+    func testSettingsAndSearchShareOneState() async throws {
+        let (selection, settings, store, localization) = QuickSwitchFixture.makeSelection()
+        let vm = SettingsViewModel(settingsService: settings, localization: localization, selection: selection)
+        await vm.loadDictionaries()
+        XCTAssertEqual(vm.dictionaries.map(\.id), QuickSwitchFixture.pairIDs)
+        var enabledAtPublish: [Set<String>?] = []
+        selection.$pairs.dropFirst()
+            .sink { _ in enabledAtPublish.append(settings.enabledSources) }
+            .store(in: &cancellables)
+        var start = store.writeLog.count
+
+        // Settings switch → chips.
+        vm.togglePair(id: "eng-rus")
+        XCTAssertEqual(selection.pairs.first { $0.id == "eng-rus" }?.isEnabled, false)
+        XCTAssertFalse(selection.allEnabled)
+        XCTAssertEqual(QuickSwitchFixture.writes(store, of: "enabled_sources", since: start), 1)
+        XCTAssertEqual(store.writeLog.count, start + 1)
+        XCTAssertEqual(enabledAtPublish.last??.contains("openrussian"), false,
+                       "the store is written before the chips publish")
+
+        // Chip → Settings switch.
+        start = store.writeLog.count
+        selection.setEnabled(false, pair: "eng-spa")
+        XCTAssertEqual(vm.dictionaries.map(\.isEnabled), [true, false, false, true, true])
+        XCTAssertFalse(vm.binding(for: "eng-spa").wrappedValue)
+        XCTAssertEqual(Array(store.writeLog.dropFirst(start)), ["enabled_sources"], "one write for both sources")
+        XCTAssertFalse(settings.isEnabled(source: "freedict-eng-spa"))
+        XCTAssertFalse(settings.isEnabled(source: "wordnet-spa-eng"))
+
+        // Setting a chip to its current state, or an unknown pair, writes nothing.
+        start = store.writeLog.count
+        selection.setEnabled(false, pair: "eng-spa")
+        selection.setEnabled(true, pair: "custom:ghost")
+        XCTAssertEqual(store.writeLog.count, start)
+
+        // A reorder in Settings reorders the chips.
+        vm.movePair(from: IndexSet(integer: 0), to: vm.dictionaries.count)
+        XCTAssertEqual(selection.pairs.map(\.id), ["eng-rus", "eng-spa", "arb-eng", "ell-eng", "eng"])
+        XCTAssertEqual(vm.orderedDictionaries.map(\.id), selection.pairs.map(\.id))
+    }
+
+    /// "Only this" stores exactly the pair's sources (Greek: all four), in
+    /// one write, and writes nothing when that is already the stored set.
+    @MainActor
+    func testEnableOnlyKeepsExactlyThePair() async throws {
+        let (selection, settings, store, _) = QuickSwitchFixture.makeSelection()
+        await selection.load()
+        var publishes = 0
+        selection.$pairs.dropFirst().sink { _ in publishes += 1 }.store(in: &cancellables)
+        let start = store.writeLog.count
+
+        selection.enableOnly(pair: "ell-eng")
+
+        XCTAssertEqual(settings.enabledSources, QuickSwitchFixture.greekSources)
+        XCTAssertEqual(selection.pairs.filter(\.isEnabled).map(\.id), ["ell-eng"])
+        XCTAssertFalse(selection.allEnabled)
+        XCTAssertFalse(selection.noneEnabled)
+        XCTAssertEqual(Array(store.writeLog.dropFirst(start)), ["enabled_sources"])
+        XCTAssertEqual(publishes, 1)
+
+        selection.enableOnly(pair: "ell-eng")
+        selection.enableOnly(pair: "custom:ghost")
+        XCTAssertEqual(Array(store.writeLog.dropFirst(start)), ["enabled_sources"], "no write when nothing changes")
+        XCTAssertEqual(publishes, 1, "and no publish")
+
+        // The last chip off: none enabled, an explicit empty set.
+        selection.setEnabled(false, pair: "ell-eng")
+        XCTAssertTrue(selection.noneEnabled)
+        XCTAssertEqual(settings.enabledSources, [])
+
+        // From a stored set that is not exactly the pair (another pair on too).
+        selection.setEnabled(true, pair: "eng")
+        selection.setEnabled(true, pair: "eng-rus")
+        selection.enableOnly(pair: "eng-rus")
+        XCTAssertEqual(settings.enabledSources, ["openrussian"])
+        XCTAssertEqual(selection.pairs.filter(\.isEnabled).map(\.id), ["eng-rus"])
+    }
+
+    /// "All" removes `enabled_sources`, as on a fresh install: every pair on,
+    /// one write, no write when already absent. An explicit set that holds
+    /// every source (what the Settings switches leave) is removed too.
+    @MainActor
+    func testEnableAllRemovesStoredSet() async throws {
+        let (selection, settings, store, _) = QuickSwitchFixture.makeSelection(
+            storedEnabled: ["wordnet", "openrussian"])
+        await selection.load()
+        XCTAssertEqual(selection.pairs.filter(\.isEnabled).map(\.id), ["eng", "eng-rus"], "precondition")
+        var start = store.writeLog.count
+
+        selection.enableAll()
+
+        XCTAssertNil(settings.enabledSources)
+        XCTAssertFalse(store.keys.contains("enabled_sources"), "the key is absent, not an explicit set")
+        XCTAssertTrue(selection.allEnabled)
+        XCTAssertEqual(Array(store.writeLog.dropFirst(start)), ["enabled_sources"])
+
+        start = store.writeLog.count
+        selection.enableAll()
+        XCTAssertEqual(store.writeLog.count, start, "no write when the key is already absent")
+
+        // Pair by pair back to everything on: an explicit full set.
+        selection.setEnabled(false, pair: "arb-eng")
+        selection.setEnabled(true, pair: "arb-eng")
+        XCTAssertEqual(settings.enabledSources, Set(QuickSwitchFixture.sources))
+        XCTAssertTrue(selection.allEnabled)
+        var publishes = 0
+        selection.$pairs.dropFirst().sink { _ in publishes += 1 }.store(in: &cancellables)
+        start = store.writeLog.count
+
+        selection.enableAll()
+        XCTAssertNil(settings.enabledSources, "stored as 'everything on'")
+        XCTAssertEqual(Array(store.writeLog.dropFirst(start)), ["enabled_sources"])
+        XCTAssertEqual(publishes, 0, "nothing changes on screen")
+    }
+
+    /// An import reloads the selection: its chip is appended, switched on,
+    /// with no manual reload; a pair that was off stays off.
+    @MainActor
+    func testImportReloadAppendsPairOn() async throws {
+        let allButRussian = Set(QuickSwitchFixture.sources).subtracting(["openrussian"])
+        let (selection, settings, _, localization) = QuickSwitchFixture.makeSelection(storedEnabled: allButRussian)
+        await selection.load()
+        XCTAssertEqual(selection.pairs.map(\.id), QuickSwitchFixture.pairIDs, "precondition")
+        let url = try XCTUnwrap(Bundle.main.url(forResource: "test_import_fixture", withExtension: "json"))
+        let manage = ManageDictionariesViewModel(settingsService: settings, localization: localization,
+                                                 selection: selection)
+
+        await manage.performImport(url: url)
+
+        XCTAssertEqual(manage.importResult, "Imported 10 entries from test_import_fixture")
+        XCTAssertEqual(selection.pairs.map(\.id), QuickSwitchFixture.pairIDs + ["custom:test_import_fixture"],
+                       "the import's chip is last")
+        XCTAssertEqual(selection.pairs.last?.isEnabled, true)
+        XCTAssertEqual(selection.pairs.last?.displayName, "test_import_fixture", "an import shows its source name")
+        XCTAssertEqual(selection.pairs.first { $0.id == "eng-rus" }?.isEnabled, false)
+        XCTAssertEqual(settings.dictionaryOrder?.last, "test_import_fixture")
+
+        // The chip switches the import off like any other pair.
+        selection.setEnabled(false, pair: "custom:test_import_fixture")
+        XCTAssertFalse(settings.isEnabled(source: "test_import_fixture"))
+        await selection.load()
+        XCTAssertEqual(selection.pairs.last?.id, "custom:test_import_fixture", "an import that is off keeps its chip")
+        XCTAssertEqual(selection.pairs.last?.isEnabled, false)
+    }
+
+    /// A language change re-titles the pairs; ids, order and states stay.
+    @MainActor
+    func testTitlesFollowLanguageChange() async throws {
+        let (selection, _, store, localization) = QuickSwitchFixture.makeSelection()
+        await selection.load()
+        selection.setEnabled(false, pair: "eng-rus")
+        XCTAssertEqual(selection.pairs.first?.displayName, "English")
+        let start = store.writeLog.count
+
+        let russian = try XCTUnwrap(localization.supportedLanguages.first { $0.code == "ru" })
+        localization.setLanguage(russian)
+
+        XCTAssertEqual(selection.pairs.map(\.displayName),
+                       ["Английский", "Русский – Английский", "Испанский – Английский",
+                        "Арабский – Английский", "Греческий – Английский"])
+        XCTAssertEqual(selection.pairs.map(\.id), QuickSwitchFixture.pairIDs)
+        XCTAssertEqual(selection.pairs.map(\.isEnabled), [true, false, true, true, true])
+        XCTAssertEqual(store.writeLog.dropFirst(start).filter { $0 != "ui_language" }, [],
+                       "re-titling writes no dictionary key")
+
+        let arabic = try XCTUnwrap(localization.supportedLanguages.first { $0.code == "ar" })
+        localization.setLanguage(arabic)
+        XCTAssertEqual(selection.pairs.first?.displayName, "الإنجليزية")
+        XCTAssertEqual(selection.pairs.last?.displayName.unicodeScalars.first, "\u{200F}",
+                       "Arabic pair titles read right to left (#119)")
+    }
+
+    /// The app wiring: Search and Settings use one shared selection, and a
+    /// test's own store never reaches it.
+    @MainActor
+    func testAppViewModelsShareOneSelection() {
+        XCTAssertTrue(DictionarySelection.owning(.shared) === DictionarySelection.shared,
+                      "the app's settings own the shared selection")
+        XCTAssertTrue(SearchViewModel().selection === DictionarySelection.shared,
+                      "Search renders the selection Settings forwards to")
+
+        let ownStore = SettingsService(store: InMemoryKeyValueStore())
+        let own = DictionarySelection.owning(ownStore)
+        XCTAssertFalse(own === DictionarySelection.shared, "a test's own store gets its own selection")
+        XCTAssertFalse(SearchViewModel(settings: ownStore).selection === DictionarySelection.shared)
+        XCTAssertFalse(own.isLoaded)
+        XCTAssertEqual(own.pairs, [])
+        XCTAssertFalse(own.noneEnabled, "no pairs: not 'none enabled', so no hint before the first load")
+    }
+}
+
+/// The Search side: chip changes re-run the current query, the hint, and
+/// preferred mode following the chips.
+final class QuickSwitchSearchTests: XCTestCase {
+    private var tempDir: URL!
+    private var dictionary: TestDictionaryFixture!
+
+    override func setUp() async throws {
+        try await super.setUp()
+        tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        dictionary = try await QuickSwitchFixture.open(in: tempDir)
+    }
+
+    override func tearDown() async throws {
+        try? FileManager.default.removeItem(at: tempDir)
+        try await super.tearDown()
+    }
+
+    /// Waits until the debounced query has finished.
+    @MainActor
+    private func waitUntilIdle(_ vm: SearchViewModel, file: StaticString = #filePath, line: UInt = #line) async throws {
+        let deadline = Date().addingTimeInterval(5)
+        while vm.isSearching, Date() < deadline {
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+        XCTAssertFalse(vm.isSearching, "the search did not finish", file: file, line: line)
+        XCTAssertNil(vm.errorMessage, file: file, line: line)
+    }
+
+    @MainActor
+    private func search(_ vm: SearchViewModel, for query: String) async throws {
+        vm.query = query
+        vm.onQueryChanged()
+        try await waitUntilIdle(vm)
+    }
+
+    private func sources(_ results: [DictionaryEntry]) -> Set<String> {
+        Set(results.map(\.source))
+    }
+
+    /// A chip change re-runs the same query at once: new results, no keystroke.
+    @MainActor
+    func testChipChangeReRunsQuery() async throws {
+        let (selection, settings, _, _) = QuickSwitchFixture.makeSelection()
+        await selection.load()
+        let vm = SearchViewModel(settings: settings, selection: selection)
+        try await search(vm, for: "apple")
+        XCTAssertEqual(sources(vm.results), Set(QuickSwitchFixture.sources), "precondition: every source")
+
+        selection.setEnabled(false, pair: "eng-rus")
+        XCTAssertTrue(vm.isSearching, "the change starts a search at once")
+        try await waitUntilIdle(vm)
+        XCTAssertEqual(vm.query, "apple", "the query stays")
+        XCTAssertFalse(sources(vm.results).contains("openrussian"))
+        XCTAssertEqual(sources(vm.results).count, 8)
+
+        // Quick taps fold into one query; the last state wins.
+        selection.setEnabled(true, pair: "eng-rus")
+        selection.enableOnly(pair: "eng-spa")
+        try await waitUntilIdle(vm)
+        XCTAssertEqual(sources(vm.results), ["freedict-eng-spa", "wordnet-spa-eng"])
+
+        selection.enableAll()
+        try await waitUntilIdle(vm)
+        XCTAssertEqual(sources(vm.results), Set(QuickSwitchFixture.sources))
+
+        // A reorder re-runs too (preferred mode reads the order).
+        selection.move(from: IndexSet(integer: 0), to: 2)
+        XCTAssertTrue(vm.isSearching)
+        try await waitUntilIdle(vm)
+    }
+
+    /// With an empty field a chip change runs nothing; a title-only change
+    /// (language switch) runs nothing either.
+    @MainActor
+    func testNoRunOnEmptyField() async throws {
+        let (selection, settings, _, localization) = QuickSwitchFixture.makeSelection()
+        await selection.load()
+        let vm = SearchViewModel(settings: settings, selection: selection)
+
+        selection.setEnabled(false, pair: "eng-rus")
+        selection.enableOnly(pair: "eng")
+        selection.enableAll()
+        XCTAssertFalse(vm.isSearching)
+        XCTAssertEqual(vm.results, [])
+
+        try await search(vm, for: "apple")
+        let spanish = try XCTUnwrap(localization.supportedLanguages.first { $0.code == "es" })
+        localization.setLanguage(spanish)
+        XCTAssertEqual(selection.pairs.first?.displayName, "Inglés", "precondition: the titles changed")
+        XCTAssertFalse(vm.isSearching, "a title-only change re-runs nothing")
+    }
+
+    /// Every pair off: the hint shows only while the field holds a query.
+    @MainActor
+    func testAllOffShowsHintOnlyWithQuery() async throws {
+        let (selection, settings, _, _) = QuickSwitchFixture.makeSelection()
+        let vm = SearchViewModel(settings: settings, selection: selection)
+        vm.query = "apple"
+        XCTAssertFalse(vm.showsNoDictionariesHint, "not before the list has loaded")
+        await selection.load()
+        XCTAssertFalse(vm.showsNoDictionariesHint)
+
+        selection.enableOnly(pair: "eng")
+        selection.setEnabled(false, pair: "eng")
+        XCTAssertTrue(selection.noneEnabled)
+        XCTAssertTrue(vm.showsNoDictionariesHint)
+        try await waitUntilIdle(vm)
+        XCTAssertEqual(vm.results, [], "and no results")
+
+        vm.query = ""
+        XCTAssertFalse(vm.showsNoDictionariesHint, "an empty field keeps Recent words")
+        vm.query = "   "
+        XCTAssertFalse(vm.showsNoDictionariesHint)
+
+        vm.query = "apple"
+        selection.enableAll()
+        XCTAssertFalse(vm.showsNoDictionariesHint)
+        try await waitUntilIdle(vm)
+        XCTAssertFalse(vm.results.isEmpty, "results return")
+    }
+
+    /// An import named like an enabled bundled source joins its pair (#105)
+    /// and adds no chip; the current query still runs again and finds it.
+    @MainActor
+    func testImportJoiningAnEnabledPairReRunsQuery() async throws {
+        let (selection, settings, _, localization) = QuickSwitchFixture.makeSelection()
+        await selection.load()
+        let vm = SearchViewModel(settings: settings, selection: selection)
+        try await search(vm, for: "qjoinword")
+        XCTAssertEqual(vm.results, [], "precondition: not imported yet")
+
+        let file = tempDir.appendingPathComponent("wordnet-spa-eng.json")
+        try Data(#"[{"word": "qjoinword", "definition": "a word the import adds"}]"#.utf8).write(to: file)
+        let manage = ManageDictionariesViewModel(settingsService: settings, localization: localization,
+                                                 selection: selection)
+        await manage.performImport(url: file)
+
+        XCTAssertEqual(selection.pairs.map(\.id), QuickSwitchFixture.pairIDs, "the import joins eng-spa, no new chip")
+        try await waitUntilIdle(vm)
+        XCTAssertEqual(vm.query, "qjoinword", "no keystroke")
+        XCTAssertEqual(vm.results.map { EntryKey($0) }, [EntryKey(source: "wordnet-spa-eng", word: "qjoinword")],
+                       "the query ran again and finds the imported row")
+    }
+
+    /// Preferred mode: the chips decide which pairs get a bucket, Dictionary
+    /// Order decides the bucket order.
+    @MainActor
+    func testPreferredModeFollowsChips() async throws {
+        let order = DictAppTests.greekSourceIDs + ["openrussian", "wordnet", "freedict-eng-spa",
+                                                   "wordnet-spa-eng", "wordnet-arb-eng"]
+        let (selection, settings, _, _) = QuickSwitchFixture.makeSelection(storedOrder: order)
+        settings.resultSortMode = .preferredDictionary
+        await selection.load()
+        let vm = SearchViewModel(settings: settings, selection: selection)
+
+        selection.enableOnly(pair: "ell-eng")
+        try await search(vm, for: "apple")
+        XCTAssertFalse(vm.results.isEmpty)
+        XCTAssertTrue(sources(vm.results).isSubset(of: QuickSwitchFixture.greekSources),
+                      "only Greek sources; got \(sources(vm.results))")
+
+        selection.setEnabled(true, pair: "eng-rus")
+        try await waitUntilIdle(vm)
+        let resultSources = vm.results.map(\.source)
+        XCTAssertEqual(Set(resultSources), QuickSwitchFixture.greekSources.union(["openrussian"]))
+        let firstRussian = try XCTUnwrap(resultSources.firstIndex(of: "openrussian"))
+        XCTAssertTrue(resultSources[..<firstRussian].allSatisfy(QuickSwitchFixture.greekSources.contains),
+                      "the Greek bucket comes first, as in Dictionary Order; got \(resultSources)")
+
+        // "All" removes the stored set; preferred mode then uses every ordered source.
+        selection.enableAll()
+        try await waitUntilIdle(vm)
+        XCTAssertNil(settings.enabledSources)
+        XCTAssertEqual(sources(vm.results), Set(QuickSwitchFixture.sources))
+        XCTAssertTrue(QuickSwitchFixture.greekSources.contains(try XCTUnwrap(vm.results.first?.source)))
+    }
+
+    /// The chips filter Search only (0129): with every pair off, Recent words
+    /// and History still list a word read in Russian, no hint shows with an
+    /// empty field, and the stored source still opens.
+    @MainActor
+    func testRecentWordsAndHistoryIgnoreTheChips() async throws {
+        try await DatabaseService.shared.addToHistory(word: "яблоко", source: "openrussian")
+        let (selection, settings, _, _) = QuickSwitchFixture.makeSelection()
+        await selection.load()
+        let vm = SearchViewModel(settings: settings, selection: selection)
+        selection.enableOnly(pair: "eng")
+        selection.setEnabled(false, pair: "eng")
+        XCTAssertTrue(selection.noneEnabled, "precondition: every chip off")
+        XCTAssertEqual(settings.enabledSources, [])
+
+        await vm.loadRecent()
+
+        XCTAssertEqual(vm.recentWords.map(\.word), ["яблоко"], "Recent words are not filtered")
+        XCTAssertEqual(vm.recentWords.first?.source, "openrussian")
+        XCTAssertFalse(vm.showsNoDictionariesHint, "an empty field keeps Recent words and shows no hint")
+        let history = try await DatabaseService.shared.fetchHistory()
+        XCTAssertEqual(history.map(\.word), ["яблоко"], "History is not filtered")
+        let entry = try await DatabaseService.shared.entry(for: EntryKey(source: "openrussian", word: "яблоко"))
+        XCTAssertEqual(entry?.definition, "apple", "a Recent word opens its stored source while that source is off")
+
+        // The same word typed as a query finds nothing and shows the hint.
+        try await search(vm, for: "яблоко")
+        XCTAssertEqual(vm.results, [])
+        XCTAssertTrue(vm.showsNoDictionariesHint)
+    }
+}

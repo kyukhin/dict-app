@@ -77,6 +77,9 @@ final class DictionaryFilterTests: XCTestCase {
         app = XCUIApplication()
         app.launchArguments.append("-disableReviewPrompt")
         app.launchArguments.append("-resetData")
+        // Issue #145: the chip tests query the whole tree often; on iOS 17.5
+        // that hit the os_log quarantine crash of `DictionaryInfoTests` (#125).
+        app.launchEnvironment["OS_ACTIVITY_MODE"] = "disable"
 
         // iOS 26 surfaces an "Enable Dictation?" springboard alert the first
         // time the user activates `.searchable()`. XCUI's default handler
@@ -338,6 +341,296 @@ final class DictionaryFilterTests: XCTestCase {
             searchPage.waitForResults(),
             "After re-enabling the '\(spanishPair)' pair, '\(spanishHeadwordTerm)' must return results again"
         )
+    }
+
+    // MARK: - Dictionary chips on Search (Issue #145)
+    //
+    // The chips and the Settings switches drive one setting. "яблоко" is
+    // found only while the Russian pair is on (see `russianOnlyTerm`).
+
+    /// #146: "English off", "everything" and "only English" in one or two
+    /// taps; the results follow each step without retyping.
+    func testThreeCasesInOneOrTwoTaps() throws {
+        let search = tabBarPage.tapSearchTab()
+        XCTAssertTrue(search.waitForChips(), "the chips row must show on Search")
+        search.searchFor(russianOnlyTerm)
+        XCTAssertTrue(search.waitForResults(), "baseline: '\(russianOnlyTerm)' with every dictionary on")
+
+        // English off: one tap.
+        search.tapChip(englishPair)
+        XCTAssertEqual(search.isChipOn(englishPair), false)
+        for pair in TestData.Pairs.all where pair != englishPair {
+            XCTAssertEqual(search.isChipOn(pair), true, "'\(pair)' stays on")
+        }
+        XCTAssertFalse(search.isAllSelected(), "'All' is not selected while English is off")
+        XCTAssertTrue(search.waitForResults(), "Russian is on: '\(russianOnlyTerm)' still has results")
+
+        // Everything: one tap.
+        search.tapAllChip()
+        for pair in TestData.Pairs.all {
+            XCTAssertEqual(search.isChipOn(pair), true, "'\(pair)' is on after 'All'")
+        }
+        XCTAssertTrue(search.isAllSelected())
+        XCTAssertTrue(search.waitForResults())
+
+        // Only English: long press, "Only this".
+        search.onlyThis(englishPair)
+        for pair in TestData.Pairs.all {
+            XCTAssertEqual(search.isChipOn(pair), pair == englishPair, "'\(pair)' after 'Only this' on English")
+        }
+        XCTAssertFalse(search.isAllSelected())
+        XCTAssertTrue(search.waitForNoResults(), "Russian is off: '\(russianOnlyTerm)' has no results")
+        XCTAssertTrue(search.verifySearchFieldContains(russianOnlyTerm), "the query stays")
+
+        // The Settings switches show the same state.
+        search.clearOverlaysBeforeTabSwitch()
+        let settings = tabBarPage.tapSettingsTab()
+        for pair in TestData.Pairs.all {
+            XCTAssertTrue(settings.waitForToggle(pair: pair), "Settings switch '\(pair)' must be reachable")
+            XCTAssertEqual(settings.isDictionaryEnabled(pair: pair), pair == englishPair, "Settings switch '\(pair)'")
+        }
+    }
+
+    /// #146, #145: a chip changes the Settings switch and a Settings switch
+    /// changes the chip.
+    func testChipAndSettingsSwitchShowTheSameState() throws {
+        var search = tabBarPage.tapSearchTab()
+        XCTAssertTrue(search.waitForChips())
+        search.tapChip(russianPair)
+
+        let settings = tabBarPage.tapSettingsTab()
+        XCTAssertTrue(settings.waitForToggle(pair: russianPair))
+        XCTAssertEqual(settings.isDictionaryEnabled(pair: russianPair), false,
+                       "the Russian chip turned the Settings switch off")
+        XCTAssertEqual(settings.isDictionaryEnabled(pair: spanishPair), true, "precondition")
+        settings.tapToggle(pair: spanishPair)
+
+        search = tabBarPage.tapSearchTab()
+        XCTAssertTrue(search.waitForChips())
+        XCTAssertEqual(search.isChipOn(spanishPair), false, "the Settings switch turned the Spanish chip off")
+        XCTAssertEqual(search.isChipOn(russianPair), false)
+        XCTAssertEqual(search.isChipOn(englishPair), true)
+        XCTAssertFalse(search.isAllSelected())
+    }
+
+    /// #146, #145: the chips follow Dictionary Order; after a reorder in
+    /// Settings they show the new order.
+    func testChipsFollowDictionaryOrder() throws {
+        var search = tabBarPage.tapSearchTab()
+        XCTAssertTrue(search.waitForChips())
+        let chipsBefore = search.chipOrder(of: TestData.Pairs.all)
+        XCTAssertEqual(chipsBefore.count, TestData.Pairs.all.count, "one chip per bundled pair")
+
+        let settings = tabBarPage.tapSettingsTab()
+        XCTAssertTrue(settings.openDictionaryOrder(), "Dictionary order must open")
+        XCTAssertTrue(settings.waitForToggle(pair: englishPair))
+        let rowsBefore = settings.currentOrder(of: TestData.Pairs.all)
+        XCTAssertEqual(chipsBefore, rowsBefore, "the chips follow the Dictionary Order sequence")
+
+        let rowsAfter = settings.reorderFirstToLast(pairs: TestData.Pairs.all)
+        XCTAssertNotEqual(rowsAfter, rowsBefore, "precondition: the drag reordered the list")
+
+        search = tabBarPage.tapSearchTab()
+        XCTAssertTrue(search.waitForChips())
+        XCTAssertEqual(search.chipOrder(of: TestData.Pairs.all), rowsAfter, "the chips show the new order")
+    }
+
+    /// #145: a tap toggles the pair and the results refresh at once, without
+    /// retyping; the query stays in the field.
+    func testChipTapRefreshesResultsAtOnce() throws {
+        let search = tabBarPage.tapSearchTab()
+        XCTAssertTrue(search.waitForChips())
+        search.searchFor(russianOnlyTerm)
+        XCTAssertTrue(search.waitForResults(), "baseline: '\(russianOnlyTerm)' has results")
+        XCTAssertTrue(search.searchFieldHasFocus(), "precondition: the field has the focus after typing")
+        let keyboardUp = app.keyboards.firstMatch.exists
+
+        search.tapChip(russianPair)
+        XCTAssertTrue(search.waitForNoResults(), "Russian off: 'no results' without retyping")
+        XCTAssertTrue(search.verifySearchFieldContains(russianOnlyTerm), "the field still holds the query")
+        XCTAssertTrue(search.searchFieldHasFocus(), "the field keeps the focus after a chip tap")
+        XCTAssertEqual(app.keyboards.firstMatch.exists, keyboardUp, "the keyboard stays as it was")
+
+        search.tapChip(russianPair)
+        XCTAssertTrue(search.waitForResults(timeout: TestData.Timeouts.long), "Russian on again: results return")
+        XCTAssertTrue(search.verifySearchFieldContains(russianOnlyTerm))
+    }
+
+    /// #145: with every pair off, "Choose a dictionary" replaces the results;
+    /// "All" brings them back.
+    func testAllOffShowsHint() throws {
+        let search = tabBarPage.tapSearchTab()
+        XCTAssertTrue(search.waitForChips())
+        search.searchFor(russianOnlyTerm)
+        XCTAssertTrue(search.waitForResults())
+
+        search.onlyThis(englishPair)
+        search.tapChip(englishPair)
+        for pair in TestData.Pairs.all {
+            XCTAssertEqual(search.isChipOn(pair), false, "'\(pair)' is off")
+        }
+        XCTAssertTrue(search.waitForNoDictionariesHint(), "'Choose a dictionary' with every chip off")
+        XCTAssertFalse(search.verifyContentUnavailableShown(), "the hint, not 'no results'")
+        XCTAssertTrue(search.verifyNoResultCells(), "and no result row")
+
+        search.tapAllChip()
+        XCTAssertTrue(search.waitForResults(timeout: TestData.Timeouts.long), "results return after 'All'")
+        XCTAssertFalse(app.descendants(matching: .any)[AccessibilityIdentifiers.Search.noDictionariesHint].exists)
+    }
+
+    /// #145, VoiceOver: a pair chip is a switch labelled with its Dictionary
+    /// Order title whose value flips between 1 and 0; "All" reads "All
+    /// dictionaries" and is selected only while every chip is on.
+    func testChipAccessibility() throws {
+        let search = tabBarPage.tapSearchTab()
+        XCTAssertTrue(search.waitForChips())
+        XCTAssertEqual(search.chipsRow.label, "Dictionaries", "the row is a container named 'Dictionaries'")
+        XCTAssertEqual(search.chip(englishPair).label, "English", "the label is the Dictionary Order title")
+        XCTAssertEqual(search.chip(russianPair).label, "Russian – English")
+        XCTAssertEqual(search.allChip.label, "All dictionaries")
+        XCTAssertEqual(search.chip(englishPair).elementType, .switch, "a pair chip reads as a switch")
+        XCTAssertEqual(search.allChip.elementType, .button, "'All' is a button")
+        XCTAssertEqual(search.isChipOn(englishPair), true, "value 1 while on")
+        XCTAssertTrue(search.isAllSelected(), "'All' is selected while every chip is on")
+
+        search.tapChip(englishPair)
+        XCTAssertEqual(search.isChipOn(englishPair), false, "value 0 while off")
+        XCTAssertFalse(search.isAllSelected(), "'All' is not selected while a chip is off")
+
+        search.tapChip(englishPair)
+        XCTAssertEqual(search.isChipOn(englishPair), true)
+        XCTAssertTrue(search.isAllSelected())
+    }
+
+    /// #145, Dynamic Type: at the largest accessibility size the labels still
+    /// fit on one line; the last chip is reached by scrolling the row and
+    /// toggles.
+    func testChipsAtAccessibilityTextSize() throws {
+        app.terminate()
+        app.launchArguments += ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"]
+        app.launch()
+        tabBarPage = TabBarPage(app: app)
+
+        let search = SearchPage(app: app)
+        XCTAssertTrue(search.waitForChips())
+        let order = search.chipOrder(of: TestData.Pairs.all)
+        XCTAssertEqual(order.count, TestData.Pairs.all.count, "every chip exists")
+        let last = try XCTUnwrap(order.last)
+        let chip = search.chip(last)
+        XCTAssertTrue(search.revealChip(chip), "the last chip is reached by scrolling the row")
+        XCTAssertGreaterThan(chip.frame.height, 44, "the row grows taller with the text size")
+
+        search.tapChip(last)
+        XCTAssertEqual(search.isChipOn(last), false)
+        search.tapChip(last)
+        XCTAssertEqual(search.isChipOn(last), true)
+    }
+
+    /// #145 (Kirill, 2026-10-30): the row stays pinned under the search
+    /// field: with an empty field, with the keyboard up, and while the
+    /// results scroll under it.
+    func testChipsStayPinnedUnderTheField() throws {
+        let search = tabBarPage.tapSearchTab()
+        XCTAssertTrue(search.waitForChips())
+        let row = search.chipsRow
+        let field = app.searchFields.firstMatch
+        XCTAssertTrue(field.waitForExistence(timeout: TestData.Timeouts.medium))
+        // The "Dictionaries" container covers the chips only. On iOS 26 a
+        // container around the scroll view started at the top of the screen,
+        // over the title and the search field (#145, Kirill 2026-10-31).
+        XCTAssertGreaterThanOrEqual(row.frame.minY, field.frame.maxY - 1,
+                                    "empty field: the row's frame starts below the search field")
+
+        search.searchFor("apple")
+        XCTAssertTrue(search.waitForResults(timeout: TestData.Timeouts.long), "results for 'apple'")
+        XCTAssertTrue(row.exists, "keyboard up: the row stays")
+        XCTAssertGreaterThanOrEqual(row.frame.minY, field.frame.maxY - 1, "keyboard up: the row is under the field")
+
+        search.dismissKeyboard()
+        XCTAssertGreaterThanOrEqual(app.cells.element(boundBy: 0).frame.minY, row.frame.maxY - 1,
+                                    "before scrolling, the first result starts under the row")
+        // Pinned to the field, not to the screen: a large title (iPadOS 26)
+        // collapses as the results scroll and takes the field and the row up.
+        let gapToField = row.frame.minY - field.frame.maxY
+        let swipeTarget = app.cells.element(boundBy: 4)
+        XCTAssertTrue(swipeTarget.waitForExistence(timeout: TestData.Timeouts.medium))
+        swipeTarget.swipeUp()
+
+        XCTAssertLessThan(app.cells.element(boundBy: 0).frame.minY, row.frame.maxY - 10,
+                          "precondition: the results scrolled under the row")
+        XCTAssertTrue(row.exists, "the row stays while the results scroll")
+        XCTAssertEqual(row.frame.minY - field.frame.maxY, gapToField, accuracy: 1,
+                       "the row stays right under the field while the results scroll")
+        XCTAssertGreaterThan(row.frame.minY, app.windows.firstMatch.frame.minY, "the row stays on screen")
+        XCTAssertTrue(search.revealChip(search.chip(englishPair)), "the chips stay reachable")
+    }
+
+    /// #145: the chips are the stored setting, so their state survives a
+    /// relaunch: a pair turned off stays off, and "All" stays all.
+    func testChipStateSurvivesRelaunch() throws {
+        var search = tabBarPage.tapSearchTab()
+        XCTAssertTrue(search.waitForChips())
+        search.tapChip(russianPair)
+
+        relaunchKeepingData()
+        search = SearchPage(app: app)
+        XCTAssertTrue(search.waitForChips())
+        XCTAssertEqual(search.isChipOn(russianPair), false, "Russian stays off after a relaunch")
+        for pair in TestData.Pairs.all where pair != russianPair {
+            XCTAssertEqual(search.isChipOn(pair), true, "'\(pair)' stays on after a relaunch")
+        }
+        XCTAssertFalse(search.isAllSelected())
+
+        search.tapAllChip()
+        relaunchKeepingData()
+        search = SearchPage(app: app)
+        XCTAssertTrue(search.waitForChips())
+        XCTAssertTrue(search.isAllSelected(), "'All' stays selected after a relaunch")
+        for pair in TestData.Pairs.all {
+            XCTAssertEqual(search.isChipOn(pair), true, "'\(pair)' is on after 'All' and a relaunch")
+        }
+    }
+
+    /// #145, 0129: the chips filter Search only. With every chip off, an
+    /// empty field still lists a Recent word read in Russian, shows no hint,
+    /// and the word still opens its Russian entry.
+    func testRecentWordsIgnoreTheChips() throws {
+        var search = tabBarPage.tapSearchTab()
+        search.searchFor(russianOnlyTerm)
+        XCTAssertTrue(search.waitForResults(), "'\(russianOnlyTerm)' has results")
+        let read = search.tapSearchResult(at: 0)
+        XCTAssertTrue(read.waitForDefinitionToLoad(), "Definition should load for '\(russianOnlyTerm)'")
+        read.navigateBack()
+        // A fresh launch shows the Recent words on the empty Search screen.
+        relaunchKeepingData()
+
+        search = SearchPage(app: app)
+        XCTAssertTrue(search.waitForChips())
+        let recent = app.staticTexts[russianOnlyTerm].firstMatch
+        XCTAssertTrue(recent.waitForExistence(timeout: TestData.Timeouts.long),
+                      "precondition: Search lists the Recent word '\(russianOnlyTerm)'")
+        search.onlyThis(englishPair)
+        search.tapChip(englishPair)
+        for pair in TestData.Pairs.all {
+            XCTAssertEqual(search.isChipOn(pair), false, "'\(pair)' is off")
+        }
+        XCTAssertTrue(recent.exists, "Recent words stay with every chip off")
+        XCTAssertFalse(app.descendants(matching: .any)[AccessibilityIdentifiers.Search.noDictionariesHint].exists,
+                       "no hint with an empty field")
+
+        recent.tap()
+        let opened = DefinitionPage(app: app)
+        XCTAssertTrue(opened.waitForDefinitionToLoad(), "the Recent word opens while Russian is off")
+        XCTAssertTrue(opened.verifyDefinitionContainsText("apple"),
+                      "it opens the Russian entry; got '\(opened.getDefinitionText())'")
+    }
+
+    /// Terminates and relaunches on the same data (no `-resetData`).
+    private func relaunchKeepingData() {
+        app.terminate()
+        app.launchArguments.removeAll { $0 == "-resetData" }
+        app.launch()
+        tabBarPage = TabBarPage(app: app)
     }
 
     /// Re-enabling a previously disabled dictionary must restore its results.

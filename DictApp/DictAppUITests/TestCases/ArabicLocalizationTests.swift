@@ -364,6 +364,37 @@ final class ArabicLocalizationTests: XCTestCase {
         XCTAssertEqual(Self.visible(engSpaLabel), "\(english) ← \(spanish)", "freedict-eng-spa: English to Spanish")
     }
 
+    /// Issue #145: the Search chips mirror. "All" sits right of the first
+    /// pair chip, and each chip reads its Arabic Dictionary Order title.
+    func testChipsReadRightToLeft() throws {
+        let search = SearchPage(app: app)
+        XCTAssertTrue(search.waitForChips(), "the chips row must show on Search")
+        let order = search.chipOrder(of: TestData.Pairs.all)
+        XCTAssertEqual(order.count, TestData.Pairs.all.count, "one chip per bundled pair")
+        XCTAssertEqual(order.first, TestData.Pairs.arabic, "the Arabic pair leads by the #74 default")
+        let firstPair = search.chip(try XCTUnwrap(order.first))
+        XCTAssertGreaterThanOrEqual(search.allChip.frame.minX, firstPair.frame.maxX - 1,
+                                    "'All' is right of the first pair chip")
+        let window = app.windows.firstMatch.frame
+        XCTAssertGreaterThan(search.allChip.frame.maxX, window.maxX - 40,
+                             "the row starts at the right edge: 'All' is the rightmost chip on screen")
+        XCTAssertEqual(search.allChip.label, "كل القواميس")
+        var chipLabels: [String: String] = [:]
+        for pair in TestData.Pairs.all {
+            chipLabels[pair] = search.chip(pair).label
+        }
+        attachScreenshot("Search chips (ar)")
+
+        tapTab(ArabicTab.settings)
+        let settings = SettingsPage(app: app)
+        XCTAssertTrue(settings.openDictionaryOrder(), "Dictionary order must be reachable from Settings")
+        for pair in TestData.Pairs.all {
+            let row = app.staticTexts[AccessibilityIdentifiers.Settings.dictionaryOrderRow(pair: pair)]
+            XCTAssertTrue(app.scrollToElement(row), "order row '\(pair)' must be reachable")
+            XCTAssertEqual(chipLabels[pair], row.label, "chip '\(pair)' reads its Dictionary Order title")
+        }
+    }
+
     /// The pushed detail's navigation bar (its `identifier` is the title)
     /// starts with U+200F and reads "<name> – الإنجليزية" in logical order.
     private func assertDetailTitle(leadingWith name: String, english: String,
