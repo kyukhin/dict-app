@@ -12,13 +12,15 @@ import XCTest
 /// SwiftUI exposes on the TabView children regardless of the rendered
 /// chrome.
 ///
-/// This file keeps only the two cases that have value beyond re-running an
+/// This file keeps only the cases that have value beyond re-running an
 /// iPhone suite on a different device:
 ///
 ///   1) Launch regression for Issue #4 (`TARGETED_DEVICE_FAMILY = 1` once
 ///      produced a blank "Designed for iPhone" letterbox screen on iPad).
 ///   2) Orientation handling — the one piece of iPad-only behavior the
 ///      otherwise-shared UI must survive.
+///   3) The Search dictionary chips (#145) in both orientations and under
+///      the iPadOS 26 search drawer.
 ///
 /// All tests skip cleanly on non-iPad destinations.
 final class iPadSpecificTests: XCTestCase {
@@ -159,6 +161,40 @@ final class iPadSpecificTests: XCTestCase {
                 app.staticTexts["Dictionary"].waitForExistence(timeout: TestData.Timeouts.medium),
                 "SearchView title must render after rotating to \(orientation.rawValue)"
             )
+        }
+    }
+
+    /// Issue #145: with a query the chips row sits above the first result in
+    /// both orientations, and on iPadOS 26 the tab strip still shows (#120).
+    func testChipsOnIPad() throws {
+        XCTAssertTrue(app.waitForDictionariesReady(), "Search screen after launch")
+        let search = SearchPage(app: app)
+        XCUIDevice.shared.orientation = .portrait
+        XCTAssertTrue(search.waitForChips(), "the chips row must show on Search")
+        search.searchFor("apple")
+
+        for orientation in [UIDeviceOrientation.portrait, .landscapeLeft] {
+            XCUIDevice.shared.orientation = orientation
+            XCTAssertTrue(search.waitForResults(timeout: TestData.Timeouts.long),
+                          "results for 'apple' in \(orientation.rawValue)")
+            let firstResult = app.descendants(matching: .any)
+                .matching(NSPredicate(format: "identifier BEGINSWITH %@", "source_badge_")).firstMatch
+            XCTAssertTrue(firstResult.waitForExistence(timeout: TestData.Timeouts.medium))
+            let row = search.chipsRow
+            XCTAssertTrue(row.exists, "the row stays while the field holds a query")
+            XCTAssertLessThanOrEqual(row.frame.maxY, firstResult.frame.minY + 1,
+                                     "the row is above the first result in \(orientation.rawValue)")
+            XCTAssertEqual(search.chipsScrollView.frame.width, app.windows.firstMatch.frame.width, accuracy: 1,
+                           "the row spans the full width in \(orientation.rawValue)")
+            let field = app.searchFields.firstMatch
+            XCTAssertTrue(field.exists, "the search field shows with a query")
+            XCTAssertGreaterThanOrEqual(row.frame.minY, field.frame.maxY - 1,
+                                        "the row is under the search field in \(orientation.rawValue)")
+            if app.usesFloatingTabStrip {
+                let tab = app.tabButton(.search)
+                XCTAssertTrue(tab.exists, "the iPadOS 26 tab strip still shows with a query")
+                XCTAssertLessThan(tab.frame.maxY, row.frame.minY + 1, "the tab strip is above the row")
+            }
         }
     }
 }

@@ -1,7 +1,7 @@
 # LibreDict overview
 
 > Spec written by Claude (AI) for LibreDict.
-> Status: Approved by Kirill on 2026-10-27 · Epic: — · Tickets: — · Updated: 2026-10-30
+> Status: Approved by Kirill on 2026-10-27 · Epic: — · Tickets: — · Updated: 2026-10-31
 
 This spec describes the app as shipped in 1.4.0 (tag `v1.4.0`, master `f0f806e`), plus the v2.0.0 changes merged since (see History). Read it before any design, development, testing or review task, then read the spec of your epic. It describes the code as it is now. The last sections list what v2.0.0 will change. Paths are relative to the repo root. Links work from this folder.
 
@@ -26,7 +26,7 @@ LibreDict is a free offline dictionary for iPhone and iPad. It has no account, n
 
 | Screen | What the user sees | View · logic |
 |---|---|---|
-| Search | A search-as-you-type field (150 ms debounce) and up to 50 results. Each result shows the headword, a source badge (`Es–En · WN`), the phonetic, the part of speech, a 2-line snippet and a colour stripe per source. With an empty field it shows the 10 most recent History words. There is a "no results" view | [SearchView](../../DictApp/DictApp/Views/SearchView.swift) · `SearchViewModel` |
+| Search | A search-as-you-type field (150 ms debounce) and up to 50 results. Each result shows the headword, a source badge (`Es–En · WN`), the phonetic, the part of speech, a 2-line snippet and a colour stripe per source. With an empty field it shows the 10 most recent History words. There is a "no results" view. Under the field a row of dictionary chips ("All", then one per Dictionary Order pair) switches pairs on and off: the same setting as Dictionary Order. With a query and every pair off, "Choose a dictionary" replaces the results (#145, [0146](0146-quick-switch.md)) | [SearchView](../../DictApp/DictApp/Views/SearchView.swift) · `SearchViewModel` |
 | Reading Mode | An open-book toggle on Search and Definition that keeps the screen awake through `UIApplication.shared.isIdleTimerDisabled`. It lasts for the session only and is not persisted. It turns off when the app goes to `.background`, but not on `.inactive` (#5, #127) | `ReadingModeToolbarButton` in DefinitionView.swift · `ReadingModeService` in ReviewRequestService.swift |
 | Definition | The headword, phonetic, part of speech and the definition as Markdown (inline syntax only, selectable). A speaker button next to the headword reads it aloud (TTS), and is hidden when the device has no voice for the headword's language (#202). Toolbar: Reading Mode, bookmark (adds the entry to My words or removes it, #138). Opening the screen records History and counts towards the review prompt | [DefinitionView](../../DictApp/DictApp/Views/DefinitionView.swift) · `DefinitionViewModel` |
 | History | Up to 100 words, newest first, each with its source stripe and a local-time caption ("Today, 8:41 PM", #114). A Clear button removes all of them | [HistoryView](../../DictApp/DictApp/Views/HistoryView.swift) · `HistoryViewModel`, `HistoryTimestamp` |
@@ -34,7 +34,7 @@ LibreDict is a free offline dictionary for iPhone and iPad. It has no account, n
 | Settings | Sections in this order: Language, Result sorting, Dictionaries, Learning Mode ("Coming Soon" stub), Support, About (name, tagline, description), Version with a license note | [SettingsView](../../DictApp/DictApp/Views/SettingsView.swift) · `SettingsViewModel` |
 | Language | A pushed list of the 5 languages with the localised name, the native name and a checkmark. Picking a language rebuilds the whole UI at once | `UILanguagePickerView` in SettingsView.swift · `LocalizationManager` |
 | Result sorting | A picker with two modes: Relevance (the default) and Preferred dictionary first (#6) | SettingsView · `SettingsService` |
-| Dictionary Order | One row per language pair, e.g. "Spanish – English". Each row has a drag grip, the summed entry count, an (i) button and one toggle. Disabled pairs stay in the list, greyed out and still draggable. The list reloads every time the screen appears (#92, #105) | [DictionaryOrderView](../../DictApp/DictApp/Views/DictionaryOrderView.swift) · `SettingsViewModel` |
+| Dictionary Order | One row per language pair, e.g. "Spanish – English". Each row has a drag grip, the summed entry count, an (i) button and one toggle. Disabled pairs stay in the list, greyed out and still draggable. The list reloads every time the screen appears (#92, #105). It is the list the Search chips show (`DictionarySelection`, #145) | [DictionaryOrderView](../../DictApp/DictApp/Views/DictionaryOrderView.swift) · `SettingsViewModel` |
 | Dictionary info (i) | One section per source of the pair: provider, direction, source ID, version, entry count and the full license (#91) | [DictionaryDetailView](../../DictApp/DictApp/Views/DictionaryDetailView.swift), a pure renderer |
 | Manage Dictionaries | Imports a `.json`, `.sqlite` or `.db` file through the system file picker, then shows a message with the entry count. Also shows a reference of the supported formats | [ManageDictionariesView](../../DictApp/DictApp/Views/ManageDictionariesView.swift) · `ManageDictionariesViewModel` |
 | Support | Report a bug: the mail sheet, then a `mailto:` link, then a "copy address" alert as the last fallback. Write a review: an App Store deep link (#81). Credits: the data sources and a "Full license information coming soon." placeholder | `SupportViewModel`, `SupportService`, `MailComposeView`, `CreditsView` |
@@ -82,7 +82,7 @@ The app code is in `DictApp/DictApp/`. These are Xcode groups, not a synchronize
 | [DictApp.swift](../../DictApp/DictApp/DictApp.swift) | `@main`. Runs the launch sequence (below) and sets the root environment (`\.locale`, `\.layoutDirection`, `.id(language)`) and the scene-phase hooks (review timer, Reading Mode) |
 | `Models/` | [Models.swift](../../DictApp/DictApp/Models/Models.swift): the GRDB records `DictionaryEntry`, `HistoryItem` and `DictMetadata`, the stable entry key `EntryKey`, `DictionaryFile` (bundle name, format version), plus `SourceStat`, `DictionaryPair`, `DictionaryItem` and `ResultSortMode`. Also `AppVersion`, `AppConstants` and `UILanguage` |
 | `Services/` | [DatabaseService](../../DictApp/DictApp/Services/DatabaseService.swift) (an `actor`; the same file holds `Search`, the user database migrator and `LegacyMigration`, the 1.x move), [SettingsService](../../DictApp/DictApp/Services/SettingsService.swift) (also `KeyValueStore`, `DictionaryDefaults` and `DictionaryGrouping`), `LocalizationManager`, `ReviewRequestService` (also `ReadingModeService`), `SupportService`, `SpeechService` |
-| `ViewModels/` | One `@MainActor ObservableObject` per screen |
+| `ViewModels/` | One `@MainActor ObservableObject` per screen. `SettingsViewModel.swift` also holds `DictionarySelection`, the pair list Search and Settings share (#145) |
 | `Views/` | SwiftUI views. `SourceStripeRow` is shared by Search and History |
 | `Resources/` | `dictionaries.sqlite` (the dictionary file), `Localizable.xcstrings`, `SupportedLocales.json` and the import test fixtures |
 | `DictApp/Assets.xcassets` | Stripe colours `Sources/<source id>`, with the fallback `Sources/default` |
@@ -153,7 +153,7 @@ There is no unpack, sync or progress state, and the dictionary data is stored on
 - A JSON file `[{word, definition, phonetic?, pos?}]` goes through `importJSON`.
 - A SQLite or DB file with an `entries` table goes through `importSQLite`, which opens it read-only.
 
-Both write `imported_entries` in one transaction with `INSERT OR IGNORE` and `word_normalized = word`, so imports get no Arabic or Greek normalisation. A row whose key the dictionary file already has is skipped, and the source gets an `imported_sources` row once it has rows (#138). After a successful import the source is enabled and appended to a stored order (#105). A file named like a bundled bilingual ID joins that pair. Imports have no metadata row, and there is no UI to delete them.
+Both write `imported_entries` in one transaction with `INSERT OR IGNORE` and `word_normalized = word`, so imports get no Arabic or Greek normalisation. A row whose key the dictionary file already has is skipped, and the source gets an `imported_sources` row once it has rows (#138). After a successful import the source is enabled and appended to a stored order (#105), and the pair list reloads, so the import gets its chip and its Dictionary Order row at once (#145). A file named like a bundled bilingual ID joins that pair. Imports have no metadata row, and there is no UI to delete them.
 
 ### Search
 
@@ -169,7 +169,7 @@ Both write `imported_entries` in one transaction with `INSERT OR IGNORE` and `wo
   Results are capped at 50. Each query reads `dict.entries_fts` joined with `dict.entries`, plus a `UNION ALL` branch over `imported_fts` and `imported_entries` when an enabled source is imported; one ORDER BY and one LIMIT rank the union (#138).
 - **Enabled sources**: `SettingsService.enabledSources` becomes `source IN (...)`. `nil` means no filter.
 - **Preferred dictionary first** (#6, #92): one query per pair group in Dictionary Order (`DictionaryGrouping.sourceGroups`), taking the top 4 of each (`Search.preferredDictionaryTopN`). A relevance tail over all enabled sources follows, minus the rows already taken. The pure `Search.assemble` combines them.
-- **Re-runs**: Search `onAppear` re-runs the query to pick up Settings changes.
+- **Re-runs**: Search `onAppear` re-runs the query to pick up Settings changes. A change of the pair list (a chip, a Settings switch, a reorder) re-runs it at once (#145).
 
 ### Preferences
 
@@ -178,8 +178,8 @@ Both write `imported_entries` in one transaction with `INSERT OR IGNORE` and `wo
 | Key | Meaning |
 |---|---|
 | `ui_language` | The in-app language code. Absent means the device language |
-| `enabled_sources` | A JSON array of source IDs. Absent means all are enabled |
-| `dictionary_order` | A JSON array of source IDs. It stays absent until Settings first loads the list, then defaults to entry count descending with the UI language's dictionaries first (#74) |
+| `enabled_sources` | A JSON array of source IDs. Absent means all are enabled. "All" on Search removes it (#145) |
+| `dictionary_order` | A JSON array of source IDs. It stays absent until the pair list first loads (Search, at launch, since #145), then defaults to entry count descending with the UI language's dictionaries first (#74) |
 | `result_sort_mode` | `relevance` (default) or `preferredDictionary` |
 | `review_*` | The review-prompt counters, owned by `ReviewRequestService` |
 
@@ -187,11 +187,11 @@ Pair invariants (#92):
 - all sources of a pair share one enabled state (enabled if any member is);
 - the sources of a pair stay next to each other in the order.
 
-They are enforced at launch and on every Dictionary Order load, with writes only on change. Reading Mode is not persisted.
+They are enforced at launch and on every Dictionary Order load, with writes only on change. Every write from the Search chips and the Dictionary Order screen goes through `DictionarySelection`, which writes the store, then publishes the list both screens render (#145). Reading Mode is not persisted.
 
 ### Localization
 
-- [Localizable.xcstrings](../../DictApp/DictApp/Resources/Localizable.xcstrings) has 90 keys, all translated into en, ru, es, ar and el. `knownRegions` is en, Base, ru, es, ar, el. [SupportedLocales.json](../../DictApp/DictApp/Resources/SupportedLocales.json) lists the picker languages: code, catalog key and native name.
+- [Localizable.xcstrings](../../DictApp/DictApp/Resources/Localizable.xcstrings) has 96 keys, all translated into en, ru, es, ar and el. `knownRegions` is en, Base, ru, es, ar, el. [SupportedLocales.json](../../DictApp/DictApp/Resources/SupportedLocales.json) lists the picker languages: code, catalog key and native name.
 - `LocalizationManager` picks the language in this order: the stored `ui_language`, the device's preferred languages, then en. A switch sets `\.locale`, `\.layoutDirection` (RTL for ar) and `.id(code)` at the app root, which rebuilds the view tree.
 - A string built outside `Text` must resolve against the in-app language's `.lproj` (`LocalizationManager.localizedBundle`, `SettingsViewModel.localizedString`). `String(localized:locale:)` alone reads the device-language table.
 - Composed Arabic strings start with U+200F so they read right to left (#119). Brand names, "LibreDict", `display_name` and the badge text are not translated. The implementing agent writes the translations for all five languages.
@@ -209,10 +209,10 @@ These tests prove today's behaviour. A feature spec maps its acceptance criteria
 
 | Area | Unit tests (classes) | UI suites |
 |---|---|---|
-| Search, ranking, filters | `DictAppTests`, `SearchAssembleTests`, `SearchProbeTests` (1.4.0 probe, #138), `DictionaryFileTests` (the file's format, #140), `WordFormsLookupTests` (the Greek forms tables, #141) | `SearchFlowTests`, `DictionaryFilterTests`, `SearchHighlightTests`, `FreshInstallTests` (every source on the first launch, #140) |
+| Search, ranking, filters | `DictAppTests`, `SearchAssembleTests`, `SearchProbeTests` (1.4.0 probe, #138), `DictionaryFileTests` (the file's format, #140), `WordFormsLookupTests` (the Greek forms tables, #141), `QuickSwitchSearchTests` (chips, #145) | `SearchFlowTests`, `DictionaryFilterTests` (also the chips, #145), `SearchHighlightTests`, `FreshInstallTests` (every source on the first launch, #140) |
 | Greek and Arabic search | `GreekFoldAndBadgeTests`, `DictAppTests` (#10, #87) | `GreekDictionaryTests`, `ArabicLocalizationTests` |
 | History, My words (bookmarks), user database, 1.x upgrade | `DictAppTests`, `HistoryTimestampTests`, `UserDatabaseTests` (#138), `LegacyMigrationTests` (#139), `DictionaryReopenTests` (#213) | `HistoryFlowTests`, `BookmarkFlowTests` |
-| Preferences, pairs, order | `SettingsServiceTests`, `DictionaryGroupingTests`, `DictionaryDefaultsTests`, `SettingsViewModelPairTests` | `DictionaryPairGroupingTests`, `DictionaryOrderDefaultTests`, `DictionaryOrderReorderTests`, `DictionaryOrderRefreshTests` |
+| Preferences, pairs, order | `SettingsServiceTests`, `DictionaryGroupingTests`, `DictionaryDefaultsTests`, `SettingsViewModelPairTests`, `DictionarySelectionTests` (#145) | `DictionaryPairGroupingTests`, `DictionaryOrderDefaultTests`, `DictionaryOrderReorderTests`, `DictionaryOrderRefreshTests` |
 | Dictionary info, import | `DictionaryInfoDetailTests`, `SettingsViewModelPairTests` (#105), `DictAppTests` | `DictionaryInfoTests`, `ImportDictionaryTests` |
 | Localization | `DictAppTests` (#88), `ArabicBidiOrderTests` | `SpanishLocalizationTests`, `ArabicLocalizationTests`, `GreekLocalizationTests` |
 | Reading Mode, review, version | `ReadingModeServiceTests`, `ReviewRequestServiceTests`, `DictAppTests` | `ReadingModeTests`, `VersionDisplayTests`, `ReportBugFlowTests` |
@@ -221,7 +221,7 @@ These tests prove today's behaviour. A feature spec maps its acceptance criteria
 
 ### Unit tests
 
-There are 264 tests in 19 classes, all in [DictAppTests.swift](../../DictApp/DictAppTests/DictAppTests.swift), target `DictAppTests`. The real app hosts the tests. A class that swaps the shared database first calls `DictAppTests.waitForHostAppLaunch()`, then `setup(userPath:dictionaryURL:)` on a temp user database. Test seams:
+There are 278 tests in 21 classes, all in [DictAppTests.swift](../../DictApp/DictAppTests/DictAppTests.swift), target `DictAppTests`. The real app hosts the tests. A class that swaps the shared database first calls `DictAppTests.waitForHostAppLaunch()`, then `setup(userPath:dictionaryURL:)` on a temp user database. Test seams:
 - `TestDictionary.make(rows:)`: a dictionary file with the bundled file's schema and only the given rows; `TestDictionaryFixture` writes a new one and reopens the service as a test adds rows (#138);
 - `BundledDictionary`: how a test reads the bundled file directly, outside `DatabaseService`. Each read opens a new read-only connection and runs once more after an I/O error, as the app does (#213);
 - the 1.x fixtures `legacy-1.2.0.sqlite`, `legacy-1.3.0.sqlite` and `legacy-1.4.0.sqlite` from `Scripts/make_legacy_fixtures.py`, read from the source tree through `#filePath` like `search-probe-1.4.0.json`, and the DEBUG seams `LegacyMigration.failBeforeCommit`, `failBeforeDelete` and `beforeCopy` (#139);
@@ -233,7 +233,7 @@ The unit tests do not run in parallel (see [DictApp.xctestplan](../../DictApp/Di
 
 ### UI tests
 
-- There are 21 suites with 94 tests in `DictAppUITests/TestCases/`, plus the 2 Xcode template launch tests. They use the page objects in `PageObjects/`, the ids in [AccessibilityIdentifiers.swift](../../DictApp/DictAppUITests/TestHelpers/AccessibilityIdentifiers.swift), the data in `TestData.swift` and the helpers in [UITestHelpers.swift](../../DictApp/DictAppUITests/TestHelpers/UITestHelpers.swift).
+- There are 21 suites with 109 tests in `DictAppUITests/TestCases/`, plus the 2 Xcode template launch tests. They use the page objects in `PageObjects/`, the ids in [AccessibilityIdentifiers.swift](../../DictApp/DictAppUITests/TestHelpers/AccessibilityIdentifiers.swift), the data in `TestData.swift` and the helpers in [UITestHelpers.swift](../../DictApp/DictAppUITests/TestHelpers/UITestHelpers.swift).
 - Launch arguments:
 
   | Argument | Effect |
@@ -245,7 +245,7 @@ The unit tests do not run in parallel (see [DictApp.xctestplan](../../DictApp/Di
   | `-importFixtureViaCallback:json` or `:sqlite` | Skips the file picker and imports the bundled fixture (DEBUG only) |
   | `-AppleLanguages` / `-AppleLocale` | Set the language in the language suites |
 
-  Five log-heavy suites set `OS_ACTIVITY_MODE=disable` so XCTest logging cannot crash the app on iOS 17.5 (#125): DictionaryInfo, DictionaryPairGrouping, DictionaryOrderRefresh and the two Greek suites.
+  Six log-heavy suites set `OS_ACTIVITY_MODE=disable` so XCTest logging cannot crash the app on iOS 17.5 (#125): DictionaryInfo, DictionaryPairGrouping, DictionaryOrderRefresh, the two Greek suites and DictionaryFilter (its chip tests, #145).
 - Every suite creates `TabBarPage` right after launch. Its initialiser waits in `waitForDictionariesReady()` until the Search screen is up (30 s); every dictionary is searchable from the first frame (#138). `FreshInstallTests` times the launch itself instead (2 s, #140).
 - Switch tabs only through `TabBarPage.tap(_:)` / `XCUIApplication.tabButton(_:)`. With a `UITabBar` (iPhone, iPad 17.x) the button is found by index. On the iPadOS 26 strip it is found by the SF Symbol identifier: `magnifyingglass`, `clock`, `bookmark` or `gearshape`. The helper dismisses the keyboard first, checks that the tab got selected and pops a pushed Definition (#76, #102, #104).
 - `scrollToElement` decides reachability by geometry and never reads `isHittable`, which can throw on slow simulators.
@@ -265,6 +265,7 @@ The unit tests do not run in parallel (see [DictApp.xctestplan](../../DictApp/Di
 - `HistoryFlowTests` can fail when it runs after other suites on a warm simulator. It passes when run alone.
 - A SwiftUI `List` materialises only the visible rows, so `cells.count` under-reports. Scroll first, then assert.
 - The back button carries the previous screen's title, not "Back". Tap the leading navigation-bar button by index.
+- On iOS 26 a horizontal `ScrollView` right under the navigation bar reports a frame that starts at the top of the screen (it extends into the top safe area), and an accessibility container around it takes that frame. Put the container inside the scroll view, as the Search chips do (#145).
 
 ## Upcoming changes (v2.0.0, due 2026-11-27)
 
@@ -273,7 +274,6 @@ The specs of these epics will replace parts of this overview:
 - #129 Dictionaries as one read-only file ([0129-dictionary-file.md](0129-dictionary-file.md)): #138 attaches the bundled file and moves user data to the user database, #139 moves a 1.x database into it (Database, Launch, Imported dictionaries above), #140 builds `dictionaries.sqlite` from pinned inputs (Bundled data), and #213 reopens the dictionary file when the system invalidates it (Database).
 - #131 Learning with spaced repetition: a Learn tab replaces Bookmarks, giving the tabs Search · Learn · History · Settings. Bookmarks migrate into a "My words" list, and the Definition bookmark becomes "Learn".
 - #136 Word forms: search by any inflected form (Greek from Wiktionary, English through WordNet morphy) and inflection tables on Definition. Affects Search, Definition and the dictionary build.
-- #146 Quick dictionary chips on Search, in Dictionary Order sequence. Affects Search and Preferences.
 - #130 Word lists by level and list import · #166 Learning statistics · #132 Greek conjugation drill · #133 Grammar reference · #134 Example sentences.
 - Elsewhere: #196 archive guard (v1.4.1); #73 iCloud preference sync (v2.1.0).
 
@@ -293,3 +293,4 @@ The specs of these epics will replace parts of this overview:
 - 2026-10-29: #140: the seed is now `dictionaries.sqlite`, built by `build_dictionaries.py` from pinned inputs with build checks and `--verify`; `Schema.sql` and the legacy scripts are gone. Same rows as the 1.4.0 seed. Updated Code map, Bundled data, Database, the test sections and Upcoming changes.
 - 2026-10-30: #141: the dictionary file gains the Greek word-form tables and their `data_source` row (`user_version` 2, 150.1 MB), built by the first static step, `build_forms.py`. Updated Bundled data, Database and the unit-test section.
 - 2026-10-30: #213: when the system invalidates the open dictionary file, the app reopens it and runs the failed read or import once more. Updated Database, the test sections and Upcoming changes.
+- 2026-10-30: #145: a row of dictionary chips on Search, in the Dictionary Order sequence, drives the same setting as Dictionary Order through `DictionarySelection`; a chip change re-runs the query at once, and with every pair off a query shows "Choose a dictionary". Updated Screens, Code map, Imported dictionaries, Search, Preferences, Localization, the test sections and Upcoming changes.

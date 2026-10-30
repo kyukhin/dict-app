@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - [#141] The dictionary file now carries Greek word forms and inflection tables from a pinned Wiktionary snapshot, checked by a QA report on every build.
+- [#145] Dictionary chips under the Search field switch dictionaries on and off in one tap, in the Dictionary Order sequence; a long press offers "Only this" and "All" turns every one back on. The chips and the Settings switches are one setting, and results refresh at once.
 
 ### Changed
 - [#138] Every dictionary is searchable right after install, with no "Preparing dictionaries" bar: the app reads the bundled dictionaries in place and keeps your history, saved words and imports in a small database of their own.

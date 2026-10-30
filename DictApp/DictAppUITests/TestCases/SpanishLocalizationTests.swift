@@ -136,6 +136,27 @@ final class SpanishLocalizationTests: XCTestCase {
         )
     }
 
+    /// Issue #145: after an in-app switch to Spanish the Search chips read
+    /// the Spanish Dictionary Order titles at once, with no relaunch.
+    func testChipsAreLocalizedInSpanish() throws {
+        let english = SearchPage(app: app)
+        XCTAssertTrue(english.waitForChips(), "the chips row must show on Search")
+        XCTAssertEqual(english.chip(TestData.Pairs.spanish).label, "Spanish – English", "precondition")
+
+        XCTAssertTrue(selectLanguage(code: "es"), "Must be able to switch to Spanish via the picker")
+        let searchTab = app.tabButton(.search)
+        XCTAssertTrue(searchTab.waitForExistence(timeout: tabBarTimeout))
+        searchTab.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+
+        let search = SearchPage(app: app)
+        XCTAssertTrue(search.waitForChips(), "the chips row must show after the language switch")
+        XCTAssertEqual(search.allChip.label, "Todos los diccionarios")
+        XCTAssertEqual(search.chipsRow.label, "Diccionarios")
+        XCTAssertEqual(search.chip(TestData.Pairs.spanish).label, "Español – Inglés")
+        XCTAssertEqual(search.chip(TestData.Pairs.english).label, "Inglés")
+        XCTAssertEqual(search.chip(TestData.Pairs.russian).label, "Ruso – Inglés")
+    }
+
     // MARK: - Navigation helpers (language-independent)
 
     /// 60s — absorbs the one-time seed import on a fresh-install / cold launch.

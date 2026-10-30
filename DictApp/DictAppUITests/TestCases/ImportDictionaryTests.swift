@@ -150,6 +150,38 @@ final class ImportDictionaryTests: XCTestCase {
         )
     }
 
+    /// Issue #145: an imported dictionary gets its own chip on Search, at the
+    /// end and switched on, right after the import; switching it off hides
+    /// its words.
+    func testImportedDictionaryGetsAChip() throws {
+        app.terminate()
+        app.launchArguments.append("-clearFixtureImports")
+        app.launchArguments.append("-importFixtureViaCallback:json")
+        app.launch()
+        tabBarPage = TabBarPage(app: app)
+        let fixture = TestData.Pairs.importFixture
+
+        var search = tabBarPage.tapSearchTab()
+        XCTAssertTrue(search.waitForChips(), "the chips row must show on Search")
+        XCTAssertFalse(search.chip(fixture).exists, "precondition: no chip before the import")
+
+        let manage = tabBarPage.tapSettingsTab().tapManageDictionariesLink()
+        manage.tapImportButton()
+        let message = manage.waitForImportSuccessMessage(timeout: 20.0)
+        XCTAssertTrue(message?.contains("Imported") ?? false, "the import must succeed, got: \(message ?? "nil")")
+
+        search = tabBarPage.tapSearchTab()
+        XCTAssertTrue(search.chip(fixture).waitForExistence(timeout: TestData.Timeouts.medium),
+                      "the import gets a chip without a relaunch")
+        XCTAssertEqual(search.chipOrder(of: TestData.Pairs.all + [fixture]).last, fixture, "the chip is last")
+        XCTAssertEqual(search.isChipOn(fixture), true, "and switched on")
+
+        search.searchFor("qaflux")
+        XCTAssertTrue(search.waitForResults(timeout: TestData.Timeouts.long), "'qaflux' is found")
+        search.tapChip(fixture)
+        XCTAssertTrue(search.waitForNoResults(), "chip off: 'qaflux' has no results")
+    }
+
     // MARK: - Shared flow
 
     /// Both end-to-end tests follow the same shape; only the fixture

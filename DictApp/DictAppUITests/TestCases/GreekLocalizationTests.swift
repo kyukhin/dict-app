@@ -374,6 +374,35 @@ final class GreekLocalizationTests: XCTestCase {
         try assertNoEnglishLeak(on: "Bookmarks", skippingCellContent: true)
     }
 
+    /// Issue #145: the Search chips in Greek. "All" reads "Όλα τα λεξικά",
+    /// the Greek pair comes first (the #88 default), and with every chip off
+    /// a query shows the Greek hint.
+    func testChipsAreLocalizedInGreek() throws {
+        let search = SearchPage(app: app)
+        XCTAssertTrue(search.waitForChips(), "the chips row must show on Search")
+        XCTAssertEqual(search.allChip.label, "Όλα τα λεξικά")
+        XCTAssertEqual(search.chipsRow.label, "Λεξικά", "the row is a container named 'Λεξικά'")
+        XCTAssertEqual(search.chipOrder(of: TestData.Pairs.all).first, TestData.Pairs.greek,
+                       "a fresh Greek install lists the Greek pair first")
+        XCTAssertEqual(search.chip(TestData.Pairs.greek).label, "Ελληνικά – Αγγλικά")
+        XCTAssertEqual(search.chip(TestData.Pairs.english).label, "Αγγλικά")
+
+        let field = app.searchFields.firstMatch
+        XCTAssertTrue(field.waitForExistence(timeout: TestData.Timeouts.long))
+        field.tap()
+        dismissSiriPrivacyNoticeIfPresent()
+        app.searchFields.firstMatch.typeText("σκύλος")
+        for pair in TestData.Pairs.all {
+            search.tapChip(pair)
+        }
+        XCTAssertTrue(search.waitForNoDictionariesHint(), "every chip off: the hint shows")
+        XCTAssertTrue(waitForText("Επιλέξτε λεξικό"), "hint title in Greek")
+        XCTAssertTrue(waitForText("Ενεργοποιήστε τουλάχιστον ένα λεξικό παραπάνω."), "hint description in Greek")
+        dismissKeyboardIfPresent()
+        attachScreenshot("09-search-chips-all-off")
+        try assertNoEnglishLeak(on: "Search, every chip off")
+    }
+
     // MARK: - Launch
 
     /// The one launch wait. While the loading screen shows (a few ms) it must

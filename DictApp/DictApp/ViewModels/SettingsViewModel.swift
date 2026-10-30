@@ -1,16 +1,224 @@
 // SettingsViewModel.swift
-// ViewModel for Settings view with UI language and dictionary management
+// ViewModel for Settings view with UI language and dictionary management.
+// Also holds `DictionarySelection`, the pair list shared with Search (#145).
 
 import Foundation
 import Combine
 import SwiftUI
 
+// MARK: - Dictionary selection (Issue #145)
+
+/// The one in-memory owner of the Dictionary Order list: every language pair
+/// in the Dictionary Order sequence, with its enabled state. The Search chips
+/// and the Dictionary Order screen both render `pairs` and change it only
+/// through these methods, so they always show the same state and order, in
+/// every iPad window.
+///
+/// The setting itself stays in `SettingsService` (`enabled_sources`,
+/// `dictionary_order`). Each method writes the store first, then publishes
+/// `pairs`: `@Published` emits before the property changes, so a subscriber
+/// that reads the store (the Search re-run) already sees the new value. Code
+/// that writes the two keys anywhere else (the import flow) calls `load()`
+/// afterwards. The shared instance outlives the root `.id(language)` rebuild
+/// and re-titles its pairs on a language change.
+@MainActor
+final class DictionarySelection: ObservableObject {
+    static let shared = DictionarySelection()
+
+    /// The pairs in the Dictionary Order sequence. Published only on change.
+    @Published private(set) var pairs: [DictionaryItem] = []
+    /// True once a load has published the list.
+    @Published private(set) var isLoaded = false
+
+    /// Every pair is on.
+    var allEnabled: Bool { pairs.allSatisfy(\.isEnabled) }
+    /// There is at least one pair and none is on.
+    var noneEnabled: Bool { !pairs.isEmpty && !pairs.contains(where: \.isEnabled) }
+
+    private let settings: SettingsService
+    private let localization: LocalizationManager
+    private let db: DatabaseService
+    private var cancellables: Set<AnyCancellable> = []
+
+    /// `LocalizationManager.shared` is `@MainActor`-isolated, so it is
+    /// resolved inside the body (same pattern as `SettingsViewModel`).
+    init(settings: SettingsService = .shared,
+         localization: LocalizationManager? = nil,
+         db: DatabaseService = .shared) {
+        self.settings = settings
+        let resolvedLocalization = localization ?? .shared
+        self.localization = resolvedLocalization
+        self.db = db
+
+        // `$currentLanguage` emits before `currentLocale` changes, so build
+        // the locale from the new language, the way `setLanguage` does.
+        resolvedLocalization.$currentLanguage
+            .dropFirst()
+            .sink { [weak self] language in self?.retitle(locale: Locale(identifier: language.code)) }
+            .store(in: &cancellables)
+    }
+
+    /// The selection that owns `settings`: `.shared` for the app's settings.
+    /// A unit test that brings its own `SettingsService` gets a new selection
+    /// over it, so its view models never write the app's store.
+    static func owning(_ settings: SettingsService,
+                       localization: LocalizationManager? = nil,
+                       db: DatabaseService = .shared) -> DictionarySelection {
+        settings === SettingsService.shared
+            ? .shared
+            : DictionarySelection(settings: settings, localization: localization, db: db)
+    }
+
+    /// Loads once; later calls do nothing. Search calls it when it appears.
+    func loadIfNeeded() async {
+        guard !isLoaded else { return }
+        await load()
+    }
+
+    /// Loads the pair list. Search loads it once; the Dictionary order screen
+    /// reloads it each time it appears (Issue #105), and the import flow after
+    /// an import, so imports and removals show without a relaunch. An
+    /// unchanged reload writes nothing and publishes nothing.
+    func load() async {
+        do {
+            // `fetchSourceStats()` is the count-desc base order (§6); on first
+            // launch #74 promotes the active UI language's dictionaries to the top.
+            let stats = try await db.fetchSourceStats()
+            // Issue #105: this await is the only suspension point. Every
+            // `settings` read stays below it, so a reorder or toggle made
+            // while the fetch was in flight is picked up here, never reverted.
+            let existing = stats.map(\.source)
+
+            // Issue #92 §2b: re-establish the pair invariants (enabled-if-any,
+            // contiguous members) on the stored prefs — covers callers that
+            // bypass the App's launch-time pass, imports, and later iCloud merges.
+            settings.normalizeDictionaryPreferences(knownSources: existing)
+
+            // Reconcile the persisted order with live sources: keep stored order
+            // for sources that still exist, append new/imported ones at the end
+            // (in fetchSourceStats order), then re-persist so imports stick and a
+            // first-launch default materializes. (§6 — lazy, persisted on first read.)
+            let storedOrder = settings.dictionaryOrder
+            var sourceOrder: [String]
+            if let stored = storedOrder {
+                sourceOrder = stored.filter { existing.contains($0) }
+                    + existing.filter { !stored.contains($0) }
+            } else {
+                // First launch (Issue #74): no stored order → derive the default
+                // from the UI language. Never reached once an order is persisted.
+                sourceOrder = DictionaryDefaults.defaultOrder(
+                    for: localization.currentLanguage, sources: existing
+                )
+            }
+            // I2: pair members contiguous at the earliest member's position.
+            // Canonical member order inside a pair = relative order here.
+            sourceOrder = DictionaryGrouping.groupedOrder(sourceOrder)
+            // Write only on change: this runs on every order-screen open (#105)
+            // and must not churn the store (#73 iCloud seam).
+            if sourceOrder != storedOrder {
+                settings.dictionaryOrder = sourceOrder
+            }
+
+            let locale = localization.currentLocale
+            let items = DictionaryGrouping.pairs(from: stats, order: sourceOrder).map { pair in
+                DictionaryItem(
+                    pair: pair,
+                    displayName: SettingsViewModel.displayName(for: pair, locale: locale),
+                    // "Any" on read: a pair with a live enabled member never
+                    // renders OFF, even before normalisation ran.
+                    isEnabled: pair.sourceIDs.contains(where: settings.isEnabled(source:))
+                )
+            }
+            // Publish only on change, so an unchanged reload leaves the List
+            // (and any drag in progress) untouched.
+            publish(items)
+            if !isLoaded { isLoaded = true }
+        } catch is CancellationError {
+            // The caller's `.task` was cancelled; keep the current list.
+        } catch {
+            print("DictionarySelection: failed to load dictionaries: \(error)")
+        }
+    }
+
+    /// Turns every source of the pair on or off in one write (Issue #92: the
+    /// sources of a pair share one state). The known set is every listed
+    /// source, so the first change never switches off another pair. No write
+    /// when the pair is already in that state or unknown.
+    func setEnabled(_ enabled: Bool, pair pairID: String) {
+        guard let index = pairs.firstIndex(where: { $0.id == pairID }),
+              pairs[index].isEnabled != enabled else { return }
+        let knownSources = Set(pairs.flatMap(\.pair.sourceIDs))
+        settings.setEnabled(enabled, forSources: pairs[index].pair.sourceIDs, knownSources: knownSources)
+        var items = pairs
+        items[index].isEnabled = enabled
+        publish(items)
+    }
+
+    /// "Only this": the stored set becomes exactly the pair's sources. One
+    /// write, none when that is already the stored set.
+    func enableOnly(pair pairID: String) {
+        guard let target = pairs.first(where: { $0.id == pairID }) else { return }
+        let only = Set(target.pair.sourceIDs)
+        if settings.enabledSources != only {
+            settings.enabledSources = only
+        }
+        publish(pairs.map { item in
+            var item = item
+            item.isEnabled = item.id == pairID
+            return item
+        })
+    }
+
+    /// "All": stores "everything on" the way a fresh install does, by removing
+    /// `enabled_sources`, so a dictionary that arrives later is on too. Also
+    /// clears an explicit set that already holds every source. No write when
+    /// the key is already absent.
+    func enableAll() {
+        if settings.enabledSources != nil {
+            settings.enabledSources = nil
+        }
+        publish(pairs.map { item in
+            var item = item
+            item.isEnabled = true
+            return item
+        })
+    }
+
+    /// Reorders pairs (drag-to-reorder) and persists the flattened source
+    /// order (§6). Members stay contiguous by construction (I2).
+    func move(from offsets: IndexSet, to destination: Int) {
+        var items = pairs
+        items.move(fromOffsets: offsets, toOffset: destination)
+        guard items != pairs else { return }
+        settings.dictionaryOrder = items.flatMap(\.pair.sourceIDs)
+        pairs = items
+    }
+
+    /// Rebuilds every title for `locale` after an in-app language change.
+    private func retitle(locale: Locale) {
+        publish(pairs.map { item in
+            DictionaryItem(pair: item.pair,
+                           displayName: SettingsViewModel.displayName(for: item.pair, locale: locale),
+                           isEnabled: item.isEnabled)
+        })
+    }
+
+    private func publish(_ items: [DictionaryItem]) {
+        if items != pairs {
+            pairs = items
+        }
+    }
+}
+
+// MARK: - Settings
+
 @MainActor
 class SettingsViewModel: ObservableObject {
     /// Dictionary list with enabled/disabled state, in the user's configured
-    /// order (Issue #6). `orderedDictionaries` is the same list, exposed under
-    /// the name the `DictionaryOrderView` reads.
-    @Published var dictionaries: [DictionaryItem] = []
+    /// order (Issue #6). Since #145 it re-publishes `DictionarySelection.pairs`,
+    /// the list the Search chips share. `orderedDictionaries` is the same
+    /// list, exposed under the name the `DictionaryOrderView` reads.
+    @Published private(set) var dictionaries: [DictionaryItem] = []
 
     var orderedDictionaries: [DictionaryItem] { dictionaries }
 
@@ -33,24 +241,33 @@ class SettingsViewModel: ObservableObject {
 
     private let settingsService: SettingsService
     private let localization: LocalizationManager
+    /// The pair list shared with the Search chips (Issue #145).
+    private let selection: DictionarySelection
     private var cancellables: Set<AnyCancellable> = []
 
     /// `LocalizationManager.shared` is `@MainActor`-isolated, so passing it
     /// as a default-value expression would be evaluated in the caller's
     /// context — Swift 6 can't prove every caller is on the main actor.
     /// Accept `nil` and resolve `.shared` inside the `@MainActor`-isolated
-    /// body instead.
+    /// body instead. A `nil` selection is `.shared` for the app's settings,
+    /// or a new one over a test's own settings (`DictionarySelection.owning`).
     init(settingsService: SettingsService = .shared,
-         localization: LocalizationManager? = nil) {
+         localization: LocalizationManager? = nil,
+         selection: DictionarySelection? = nil) {
         self.settingsService = settingsService
         let resolvedLocalization = localization ?? .shared
         self.localization = resolvedLocalization
+        let resolvedSelection = selection ?? .owning(settingsService, localization: resolvedLocalization)
+        self.selection = resolvedSelection
 
         // Re-publish manager changes through this view-model so the picker
         // updates immediately when the language is changed elsewhere.
         resolvedLocalization.objectWillChange
             .sink { [weak self] _ in self?.objectWillChange.send() }
             .store(in: &cancellables)
+        // The pair list, which the Search chips also change (#145). Emits
+        // only when the selection publishes, i.e. only on change.
+        resolvedSelection.$pairs.assign(to: &$dictionaries)
 
         resultSortMode = settingsService.resultSortMode
         Task { await loadDictionaries() }
@@ -60,83 +277,18 @@ class SettingsViewModel: ObservableObject {
         localization.setLanguage(language)
     }
 
-    /// Loads the pair list. Runs once from `init` and again each time the
-    /// Dictionary order screen appears (Issue #105), so imports and removals
-    /// show without a relaunch. An unchanged reload writes nothing and
-    /// publishes nothing.
+    /// Loads the pair list (`DictionarySelection.load()`). Runs once from
+    /// `init` and again each time the Dictionary order screen appears
+    /// (Issue #105), so imports and removals show without a relaunch.
     func loadDictionaries() async {
-        do {
-            // `fetchSourceStats()` is the count-desc base order (§6); on first
-            // launch #74 promotes the active UI language's dictionaries to the top.
-            let stats = try await DatabaseService.shared.fetchSourceStats()
-            // Issue #105: this await is the only suspension point. Every
-            // `settingsService` read stays below it, so a reorder or toggle made
-            // while the fetch was in flight is picked up here, never reverted.
-            let existing = stats.map(\.source)
-
-            // Issue #92 §2b: re-establish the pair invariants (enabled-if-any,
-            // contiguous members) on the stored prefs — covers callers that
-            // bypass the App's launch-time pass, imports, and later iCloud merges.
-            settingsService.normalizeDictionaryPreferences(knownSources: existing)
-
-            // Reconcile the persisted order with live sources: keep stored order
-            // for sources that still exist, append new/imported ones at the end
-            // (in fetchSourceStats order), then re-persist so imports stick and a
-            // first-launch default materializes. (§6 — lazy, persisted on first read.)
-            let storedOrder = settingsService.dictionaryOrder
-            var sourceOrder: [String]
-            if let stored = storedOrder {
-                sourceOrder = stored.filter { existing.contains($0) }
-                    + existing.filter { !stored.contains($0) }
-            } else {
-                // First launch (Issue #74): no stored order → derive the default
-                // from the UI language. Never reached once an order is persisted.
-                sourceOrder = DictionaryDefaults.defaultOrder(
-                    for: localization.currentLanguage, sources: existing
-                )
-            }
-            // I2: pair members contiguous at the earliest member's position.
-            // Canonical member order inside a pair = relative order here.
-            sourceOrder = DictionaryGrouping.groupedOrder(sourceOrder)
-            // Write only on change: this runs on every order-screen open (#105)
-            // and must not churn the store (#73 iCloud seam).
-            if sourceOrder != storedOrder {
-                settingsService.dictionaryOrder = sourceOrder
-            }
-
-            let locale = localization.currentLocale
-            let items = DictionaryGrouping.pairs(from: stats, order: sourceOrder).map { pair in
-                DictionaryItem(
-                    pair: pair,
-                    displayName: Self.displayName(for: pair, locale: locale),
-                    // "Any" on read: a pair with a live enabled member never
-                    // renders OFF, even before normalisation ran.
-                    isEnabled: pair.sourceIDs.contains(where: settingsService.isEnabled(source:))
-                )
-            }
-            // Publish only on change, so an unchanged reload leaves the List
-            // (and any drag in progress) untouched.
-            if items != dictionaries {
-                dictionaries = items
-            }
-        } catch is CancellationError {
-            // The order screen's `.task` was cancelled; keep the current list.
-        } catch {
-            print("SettingsViewModel: failed to load dictionaries: \(error)")
-        }
+        await selection.load()
     }
 
     /// Flips the enabled state of every source in the pair (Issue #92: one
-    /// toggle per language pair) and persists it in one write. The known set
-    /// is every listed source, so a first toggle never switches off another.
+    /// toggle per language pair) and persists it in one write.
     func togglePair(id pairID: String) {
-        guard let index = dictionaries.firstIndex(where: { $0.id == pairID }) else { return }
-        let knownSources = Set(dictionaries.flatMap(\.pair.sourceIDs))
-        let newEnabled = !dictionaries[index].isEnabled
-        settingsService.setEnabled(
-            newEnabled, forSources: dictionaries[index].pair.sourceIDs, knownSources: knownSources
-        )
-        dictionaries[index].isEnabled = newEnabled
+        guard let item = dictionaries.first(where: { $0.id == pairID }) else { return }
+        selection.setEnabled(!item.isEnabled, pair: pairID)
     }
 
     /// Two-way binding for a pair's enabled state, for the `DictionaryOrderView`
@@ -155,11 +307,9 @@ class SettingsViewModel: ObservableObject {
         )
     }
 
-    /// Reorders pairs (drag-to-reorder) and persists the flattened source
-    /// order (§6). Members stay contiguous by construction (I2).
+    /// Reorders pairs (drag-to-reorder); see `DictionarySelection.move`.
     func movePair(from offsets: IndexSet, to destination: Int) {
-        dictionaries.move(fromOffsets: offsets, toOffset: destination)
-        settingsService.dictionaryOrder = dictionaries.flatMap(\.pair.sourceIDs)
+        selection.move(from: offsets, to: destination)
     }
 
     // MARK: - Row naming (Issue #92)

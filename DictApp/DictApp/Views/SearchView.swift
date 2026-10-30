@@ -21,6 +21,14 @@ struct SearchView: View {
                             }
                         }
                     }
+                } else if vm.showsNoDictionariesHint {
+                    // Issue #145: every chip is off, so nothing is searched.
+                    ContentUnavailableView {
+                        Label("search.noDictionaries.title", systemImage: "books.vertical")
+                    } description: {
+                        Text("search.noDictionaries.description")
+                    }
+                    .accessibilityIdentifier("search_no_dictionaries")
                 } else if vm.results.isEmpty && !vm.isSearching {
                     ContentUnavailableView.search(text: vm.query)
                         .accessibilityIdentifier("search_no_results")
@@ -34,6 +42,11 @@ struct SearchView: View {
                         .listRowInsets(EdgeInsets())   // stripe reaches the leading edge (#6 §4c)
                     }
                 }
+            }
+            // Issue #145: the chips stay pinned under the search field while
+            // the results scroll, with the keyboard up and with an empty field.
+            .safeAreaInset(edge: .top, spacing: 0) {
+                DictionaryChipsRow(selection: vm.selection)
             }
             .navigationTitle("search.title")
             .modifier(SearchFieldPlacement(text: $vm.query))
@@ -57,6 +70,7 @@ struct SearchView: View {
                 HistoryDestination(item: item)
             }
             .task {
+                await vm.selection.loadIfNeeded()
                 await vm.loadRecent()
             }
             .onAppear {
@@ -97,6 +111,123 @@ private struct SearchFieldPlacement: ViewModifier {
         } else {
             content.searchable(text: $text, prompt: Text("search.prompt"))
         }
+    }
+}
+
+// MARK: - Dictionary chips (Issue #145)
+
+/// "All", then one chip per Dictionary Order pair, in that order. The chips
+/// are the Settings switches: they render `DictionarySelection.pairs` and
+/// change it only through its methods. One line that scrolls sideways; an
+/// `HStack`, not a lazy stack, so every chip exists for VoiceOver and
+/// XCUITest. Hidden until the pair list has loaded.
+private struct DictionaryChipsRow: View {
+    @ObservedObject var selection: DictionarySelection
+    @Environment(\.locale) private var locale
+
+    var body: some View {
+        if selection.isLoaded {
+            VStack(spacing: 0) {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        allChip
+                        ForEach(selection.pairs) { item in
+                            pairChip(item)
+                        }
+                    }
+                    .padding(.horizontal)
+                    .padding(.vertical, 8)
+                    // The container is the chips, inside the scroll view: on
+                    // iOS 26 the scroll view's own frame reaches up under the
+                    // navigation bar, and a container around it takes that
+                    // frame, covering the title and the search field.
+                    .accessibilityElement(children: .contain)
+                    .accessibilityLabel(Text("search.chips.label"))
+                    .accessibilityIdentifier("dictionary_chips")
+                }
+                Divider()
+            }
+            // Only behind the row: by default a style background extends into
+            // the safe area, up over the navigation bar, and on iOS 26 it
+            // covers the large title and the iPad tab strip.
+            .background(.bar, ignoresSafeAreaEdges: [])
+        }
+    }
+
+    /// Filled when every pair is on; a tap turns every pair on.
+    private var allChip: some View {
+        Button {
+            selection.enableAll()
+        } label: {
+            Text("search.chips.all")
+                .modifier(ChipShape(isOn: selection.allEnabled))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(Text("search.chips.all.a11y"))
+        .accessibilityAddTraits(selection.allEnabled ? .isSelected : [])
+        .accessibilityIdentifier("dictionary_chip_all")
+    }
+
+    /// A switch that reads "English, on". Long press (secondary click on
+    /// iPad) and the VoiceOver Actions rotor offer "Only this".
+    private func pairChip(_ item: DictionaryItem) -> some View {
+        let onlyThis = SettingsViewModel.localizedString("search.chips.onlyThis", locale: locale)
+        return Toggle(item.displayName, isOn: Binding(
+            get: { item.isEnabled },
+            set: { selection.setEnabled($0, pair: item.id) }
+        ))
+        .toggleStyle(ChipToggleStyle())
+        .contentShape(.contextMenuPreview, Capsule())
+        .contextMenu {
+            Button {
+                selection.enableOnly(pair: item.id)
+            } label: {
+                Text(verbatim: onlyThis)
+            }
+            .accessibilityIdentifier("dictionary_chip_only_this")
+        }
+        .accessibilityAction(named: Text(verbatim: onlyThis)) {
+            selection.enableOnly(pair: item.id)
+        }
+        .accessibilityIdentifier("dictionary_chip_\(item.id)")
+    }
+}
+
+/// A capsule filled with the tint when on, outlined when off. The `Toggle`
+/// keeps its switch semantics; the style only draws it.
+private struct ChipToggleStyle: ToggleStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        Button {
+            configuration.isOn.toggle()
+        } label: {
+            configuration.label
+                .modifier(ChipShape(isOn: configuration.isOn))
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+/// The chip look shared by "All" and the pair chips. Labels never wrap or
+/// truncate; with large Dynamic Type the row grows taller.
+private struct ChipShape: ViewModifier {
+    let isOn: Bool
+
+    func body(content: Content) -> some View {
+        content
+            .font(.subheadline.weight(.medium))
+            .lineLimit(1)
+            .fixedSize()
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .foregroundStyle(isOn ? AnyShapeStyle(.white) : AnyShapeStyle(.primary))
+            .background {
+                Capsule().fill(isOn ? AnyShapeStyle(.tint) : AnyShapeStyle(.clear))
+            }
+            .overlay {
+                Capsule().strokeBorder(isOn ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary), lineWidth: 1)
+            }
+            .contentShape(Capsule())
+            .hoverEffect()
     }
 }
 
