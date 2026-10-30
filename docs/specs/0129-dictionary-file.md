@@ -1,9 +1,9 @@
 # Dictionaries as one read-only file
 
 > Spec written by Claude (AI) for LibreDict.
-> Status: Approved by Kirill on 2026-10-28 · Epic: #129 · Tickets: #112, #138, #139, #140 · Updated: 2026-10-30
+> Status: Approved by Kirill on 2026-10-30 (first approved on 2026-10-28) · Epic: #129 · Tickets: #112, #138, #139, #140, #213 · Updated: 2026-10-30
 
-This spec is the #112 design. It replaces the Bundled data, Database, Launch and Imported dictionaries sections of [0000-overview.md](0000-overview.md) once implemented. Order: #138, then #139 and #140.
+This spec is the #112 design. It replaces the Bundled data, Database, Launch and Imported dictionaries sections of [0000-overview.md](0000-overview.md) once implemented. Order: #138, then #139 and #140, then #213.
 
 ## Why
 
@@ -26,6 +26,7 @@ Goal: the app reads its dictionaries straight from one read-only file in the bun
 | Dictionary Order counts | `COUNT(*)` over all rows | Same numbers, read from metadata |
 | Import | Rows join the shared `entries` table | Same UI and formats. A file named like a bundled source adds only the words that source lacks, as in 1.4.0 |
 | Search results | — | Identical to 1.4.0 for bundled rows and for exact and prefix matches. An imported row found only through its definition text can rank differently (Decisions) |
+| The system invalidates the open dictionary file (seen after an Xcode install; unknown on a device) | Not affected: Search reads its unpacked copy | The next read that fails reopens the file and runs once more. Search, imports and My words keep working without a restart (#213) |
 
 ### Decisions
 
@@ -38,6 +39,11 @@ Goal: the app reads its dictionaries straight from one read-only file in the bun
 - 2026-10-28 (Kirill): a History row whose entry is gone shows "not found". There is no lookup in other sources.
 - 2026-10-28 (Kirill): where built-in word lists live is decided in E3's spec (#130), not here.
 - 2026-10-19 (#111 PM decision 7): the bundled file is never opened through a writable GRDB connection.
+- 2026-10-29 (Kirill, #213): when the system invalidates the dictionary file, the app reopens it after a disk I/O error and retries the failed call once. A second failure surfaces as today. The file is never copied.
+- 2026-10-30 (Kirill, #213): if a recycled reader or the re-attached writer still fails in the unit test, the developer may switch the reopen to a new pool with a History line and the PR flagged "spec changed", without another review.
+- 2026-10-30 (Kirill, #213): the 1.x move does not retry; a failed move runs again at the next launch. Revisit if the device check shows invalidation on a device.
+- 2026-10-30 (Kirill, #213): the retry stays even if the device check shows no invalidation.
+- 2026-10-30 (Kirill, #213, after CodeRabbit review): only reads and the import retry. History and My words writes and a failed `COMMIT` are not retried, so no write can run twice.
 
 ### History rows (#138)
 
@@ -78,6 +84,42 @@ A History row and a Recent word on Search resolve like this:
 - Most likely mechanism, from the GRDB 6.29.3 source in use and consistent with the stack: `await queue.read` runs `asyncRead`. It calls `beginReadOnly()` (`PRAGMA query_only = 1`) and, in a `defer`, always calls `endReadOnly()`. If `beginReadOnly()` throws under load, the `defer` still decrements `readOnlyDepth` below zero, and `assert(readOnlyDepth >= 0)` traps in Debug builds.
 - 2.0 has no GRDB connection on the bundle at all: the file is attached. Pool readers are `readonly = true` (GRDB sets this), so `beginReadOnly()` and `endReadOnly()` return at once. The pool's writer is used only through `write`.
 - Rule: no code opens a `DatabaseQueue` or `DatabasePool` without `readonly = true`, except the user database pool. `importSQLite` already reads its file read-only (#111). The 1.x database is attached to the writer, never opened on its own.
+
+### Invalidated dictionary file (#213)
+
+**Cause.**
+- An Xcode install hard-links the app bundle from a staging folder and removes the staging link a few seconds later. If the app has `dictionaries.sqlite` open by then, iOS SQLite logs "BUG IN CLIENT … vnode unlinked while in use" and invalidates the descriptors open on the file.
+- From then on every `dict.*` read that misses the connection's page cache fails with `disk I/O error` until the app restarts, so Search, imports and My words come back empty. A connection opened after the removal reads the file (#139 QA probe, iOS 17.5).
+- `simctl install` does not hard-link. Whether an App Store or TestFlight install or update does the same on a device is unknown (device check in the Test plan).
+- GRDB closes idle readers whenever the app goes to the background or gets a memory warning. On a device that would end the failure for reads at the next trip to the background, but not for the writer.
+
+**Detection.** A `DatabaseError` whose primary result code is `SQLITE_IOERR` (any extended code), thrown by a read or write that `DatabaseService` runs on its pool. The error does not say which file failed: an I/O error on `user.sqlite` costs one useless reopen and then surfaces as today. No other code reopens: a missing or broken file already fails `setup()` (#140).
+
+**Reopen: same pool, new connections to the file.** `reopenDictionary()` on the actor:
+1. `invalidateReadOnlyConnections()` (GRDB): idle readers close at once, busy ones when their read ends. The next read gets a new reader, whose `prepareDatabase` attaches `dict` with a new descriptor.
+2. On the writer, through `writeWithoutTransaction`: `DETACH DATABASE dict`, then the `ATTACH` of `prepareDatabase`. One function builds that statement for both, from the URI that `setup` stores. The writer queue runs it between two writes, never inside a transaction.
+3. One `os.Logger` line (subsystem `com.kyukhin.DictApp`, category `database`): the extended result code and how long the reopen took. Never the SQL or its arguments, which hold the user's query. It shows next to SQLite's own message in the simulator log and in Console.app on a device.
+
+Nothing else changes: no copy of the file (Connection layout), no new pool, and `user.sqlite`, the migrator and the 1.x move are untouched. The #213 PR adds this to the overview's Database section.
+
+Why not a new pool, which the probe showed recovers: a second pool on `user.sqlite` means two writer queues for a while. Writes from before and after the swap could commit out of order, and a running 1.x move would keep writing through the old pool. Recycling connections keeps one writer queue and one reader model (Connection layout) and uses GRDB's own API. If the unit tests show that a recycled connection still fails, the reopen opens a new pool instead, with a History line and no further review (Kirill, 2026-10-30).
+
+**Retry: once per call, for reads and the import.** Every read of the public `DatabaseService` methods goes through a private helper for `pool.read`, and the import's write through one for `pool.write`. The other writes (History, My words) touch only `user.sqlite`: an I/O error there does not come from the dictionary file, so they are not retried and throw as today. A failed `COMMIT` is never retried, because its outcome is unknown. Each helper:
+- reads the reopen generation, an `Int` on the actor, before it runs its body;
+- on `SQLITE_IOERR`, reopens if the generation is unchanged, or skips the reopen if another call already did it, then runs its body once more. The reopen bumps the generation, runs step 1 and queues step 2 before its first suspension point (GRDB queues an async write on the writer before it suspends), so a concurrent failure finds new readers, and a write it retries runs after the re-attach;
+- throws a second failure of any kind as today: Search shows its error, the My words tab its error, import its failure message.
+
+So concurrent failures cause one reopen, and no call loops. If the file were invalidated again later, the next failing call would recover it the same way; an install removes its staging link once. Not wrapped: `setup()` and its migrator, `LegacyMigration.run` (below) and the DEBUG `writeForTesting`.
+
+**In-flight work during a reopen.**
+- A read already running keeps its old reader until it ends. If it fails, its generation is stale, so it retries on a new reader without a second reopen.
+- User-database writes keep their order on the one writer. A write in progress finishes first. Only an import reads `dict` on the writer (its key check). If that read fails, GRDB rolls the import's whole transaction back and the import runs again after the re-attach.
+- `user.sqlite`, its WAL and the user's data are never touched by the invalidation or the reopen.
+- The 1.x move uses the pool directly and is not retried. If its read of `dict.entries` fails, its transaction rolls back and the 1.x file stays for the next launch, like any failed move (Crash safety). It runs in the first second after launch; the Xcode staging link goes seconds later. Kirill, 2026-10-30: the move gets no retry unless the device check shows invalidation on a device.
+- `importSQLite`'s read-only queue on the user's file gets no retry: that file is not the dictionary file.
+- If the re-attach itself fails (the file is gone, which an installed app never sees), the writer stays without `dict` until a restart. An import then fails with "no such table" and is not retried; History and My words writes still work.
+
+**DEBUG seam.** The generation doubles as `DatabaseService.dictionaryReopenCount`. It only grows, and tests compare it before and after a call.
 
 ### Dictionary file: `dictionaries.sqlite`
 
@@ -239,9 +281,17 @@ There is no unpack, no plan and no progress state.
 
 ## Test plan
 
-Unit tests run in `DictAppTests`; new classes are `DictionaryFileTests`, `UserDatabaseTests`, `LegacyMigrationTests` and `SearchProbeTests`. "QA" rows are measurements on the iPhone 15 Pro simulator (iOS 17.5, median of 3) and on a device, recorded in this spec's History.
+Unit tests run in `DictAppTests`; new classes are `DictionaryFileTests`, `UserDatabaseTests`, `LegacyMigrationTests`, `SearchProbeTests` and `DictionaryReopenTests` (#213). "QA" rows are measurements on the iPhone 15 Pro simulator (iOS 17.5, median of 3) and on a device, recorded in this spec's History.
 
 The probe set is ~25 queries across en, ru, es, ar and el (`house`, `a`, `the`, `ice cream`, `дом`, `casa`, `comer`, `كتاب`, `ماء`, `γράφω`, `γραφω`, `νερο`, …), in relevance mode plus 3 in preferred mode. The golden file `search-probe-1.4.0.json` holds the top 50 `(source, word)` per query. `Scripts/make_search_probe.py` generates it with the 1.4.0 SQL on a 1.4.0 database built from the `v1.4.0` seed, the way an English-UI install unpacks it. Measured: 25 of 25 lists identical without imports; 24 of 25 with the JSON fixture imported (the exception is the imported-row ranking in Decisions). Any later PR that changes `entries` regenerates the golden file, and the change is reviewed.
+
+**Invalidating the file in a unit test (#213).** `DictionaryReopenTests` does what an Xcode install does, as the #139 QA probe did:
+1. `TestDictionary.make(rows:)` writes `dictionary.sqlite` with 2,000 rows in two sources. `FileManager.linkItem` adds a hard link, `staging.sqlite`, as the installed bundle has during an Xcode install.
+2. `setup(userPath:dictionaryURL:)` attaches `dictionary.sqlite`, and one `fetchMetadata()` opens a reader. The writer and that reader now hold the file, with only its schema and `dict_metadata` pages cached.
+3. The test opens a control connection: an in-memory `DatabaseQueue` that attaches the file with the app's URI.
+4. Remove `staging.sqlite`. iOS SQLite logs "vnode unlinked while in use".
+5. Every 100 ms, for up to 10 s, the control connection drops its page cache (`sqlite3_db_release_memory`) and reads `dict.entries`, until the read fails with `SQLITE_IOERR`. If it never fails, this OS does not invalidate the file: the test skips with that message, and QA notes the OS in History.
+6. The service's connections now hold invalid descriptors, and the calls under test read pages they have not cached.
 
 | Acceptance criterion | Test |
 |---|---|
@@ -261,10 +311,11 @@ The probe set is ~25 queries across en, ru, es, ar and el (`house`, `a`, `the`, 
 | #112: launch, search speed and installed size measured on the simulator and a device | QA rows above, written into History when #138 and #140 merge. The Mac numbers in this spec model the same SQL |
 | #112: no app code merged from the spike | This spec is the spike's output |
 | #111 crash rule (no writable GRDB connection on the bundle) | QA: 30 consecutive cold launches on the iPad simulator with no crash report. Review: the rule in "The #111 cold-start crash" |
-
-## Open questions
-
-None.
+| #213: after the file is invalidated, the next search returns results without an app restart | Unit `DictionaryReopenTests.testReadsRecoverAfterTheFileIsInvalidated`: after step 6, `search`, `searchPreferred`, `entry(for:)`, `fetchMyWords` (one row added before step 4), `fetchSourceStats` and `fetchMetadata` return what they returned before step 4. `dictionaryReopenCount` grew by exactly 1, and the control connection still fails, so the reopen did the recovery, not the file. `testImportRecoversAfterTheFileIsInvalidated`: an import of one word the file has and one it lacks stores only the second (the writer reads `dict.entries` again). `testConcurrentFailuresReopenOnce`: 8 searches at once all return results, with one reopen |
+| #213: one retry only; a second failure surfaces as today | Unit `testASecondFailureSurfaces`: step 4 removes `dictionary.sqlite` itself instead, so the re-attach finds no file. `search` throws, `dictionaryReopenCount` grew by 1, and `addToHistory` still writes |
+| #213: History and My words writes and a failed `COMMIT` are not retried | Unit `testUserDataWritesAreNotRetried`: with the file invalidated, a History write and a My words change run once and cause no reopen; the retry rule rejects an `SQLITE_IOERR` raised by `COMMIT` |
+| #213: no more first-test failures on iPads in the UI suites | UI: the four-simulator regression per the overview recipe. Each suite runs in its own `xcodebuild` run with the app uninstalled before it, so its first test runs right after an `xcodebuild` install. On both iPads every suite passes its first test, and the 7 suites that failed it in #139 QA (BookmarkFlow, DictionaryInfo, DictionaryOrderRefresh, GreekDictionary, HistoryFlow, SearchFlow, SearchHighlight) pass 3 runs of 3. The simulator log (`log stream`, process `DictApp`) shows "vnode unlinked while in use" followed by the reopen line in at least one suite without `OS_ACTIVITY_MODE=disable`, so the fix was exercised |
+| #213: the TestFlight check is recorded in History | QA device check, on the first 2.0 TestFlight build after #213 merges. The same build takes #140's device size measurement. The device is connected to the Mac, with Console.app streaming process `DictApp`. (a) Update: install the build over LibreDict 1.4.0 from the App Store, holding some History and bookmarks. (b) Fresh install: delete the app, then install the build. Each time open the app at once, stay in the foreground (the background recycles readers), and search a different probe-set word every 2 s or so for about 20 s, so reads miss the page cache. Record in History: whether SQLite's "vnode unlinked while in use" and the reopen line appeared, whether every search returned results, whether History and My words came through the update, and Settings → General → iPhone Storage → LibreDict, App Size and Documents & Data, after each install (#140) |
 
 ## History
 
@@ -287,3 +338,7 @@ None.
 - 2026-10-29 (QA): #140 results. A fresh venv from `Scripts/requirements.txt` and an empty cache downloaded 65.2 MB (the 9 pinned files) and built the file in 30 s (`--verify` with the inputs cached: 20 s), byte-identical to the committed file (sha256 `14dcb331…61c6ff5`); Python 3.13.9 gives the same file. A tampered cache file is downloaded again, and a wrong pin or an unpinned input fails the build. Fresh install on the iPhone 15 Pro simulator, iOS 17.5 (uninstall, install, first launch, timed from process start): Search on screen at 0.27 s, median of 3 (0.51 s on the first install), `isReady` at 0.23 s, no progress bar; `FreshInstallTests` sees each query's results 1.3 to 1.7 s after typing (XCUITest polling included) on all four simulators. Installed: app bundle 136,240 KB (Debug build; `dictionaries.sqlite` 126,050,304 bytes, no `seed.sqlite` or `Schema.sql`) plus a 164 KB data container, against 1.4.0's bundle with the 134.9 MB seed plus the ~138 MB unpacked copy. Regression on the four simulators: 230 unit tests, 94 UI tests on iPhone and 96 on iPad, plus the template and launch tests, all green. Device measurements are still to do.
 - 2026-10-29: The invalidated-file risk found in #139 QA becomes #213 (Kirill): the app reopens the dictionary file once after a disk I/O error. The design comes into this spec before the code.
 - 2026-10-30: #141 registers the first static step, `build_forms.py`, and bumps `user_version` and `DictionaryFile.formatVersion` to 2. An `inputs.json` entry may pin a committed file instead of a URL (keyed by its repository path, no `url`), for a source that keeps no old versions online; `inputs.committed()` checks its sha256 and never downloads. Details in [0136-word-forms.md](0136-word-forms.md).
+- 2026-10-30: #213 design. On `SQLITE_IOERR` the app recycles the pool's connections to the dictionary file (readers through GRDB's `invalidateReadOnlyConnections`, `dict` re-attached on the writer) and runs the failed call once more; concurrent failures reopen once. Added a Behaviour row, a Decision, the Design section "Invalidated dictionary file", the unit-test reproduction, four test plan rows (including the TestFlight device check, which also takes #140's size measurement) and three open questions. Spec changed: connection handling is architecture, so the spec is back to Draft, and no #213 code starts before Kirill approves it.
+- 2026-10-30: Kirill answered the three #213 questions (new pool allowed without review, no retry for the 1.x move, the retry stays); they moved to Decisions.
+- 2026-10-30: Kirill approved the #213 change; the spec is Approved again.
+- 2026-10-30: CodeRabbit review: a write retried after an I/O error could run twice if the error came at `COMMIT`. Kirill narrowed the retry to reads and the import; a failed `COMMIT` is never retried.
