@@ -67,7 +67,7 @@ python3 -m venv .venv
 .venv/bin/python Scripts/build_dictionaries.py --verify   # rebuild and compare with the committed file
 ```
 
-`build_dictionaries.py` calls the per-source builders in `Scripts/` (`build_freedict_eng_spa.py`, `build_spanish_wordnet.py`, `build_arabic_wordnet.py`, `build_greek.py`). Every input is pinned in `Scripts/inputs.json` (an immutable URL and its sha256) and checked before use, so the same inputs and SQLite version give a byte-identical file. Downloads are cached in `Scripts/.cache/` (`--cache-dir` to change it).
+`build_dictionaries.py` calls the per-source builders in `Scripts/` (`build_freedict_eng_spa.py`, `build_spanish_wordnet.py`, `build_arabic_wordnet.py`, `build_greek.py`), then the static data steps: `build_forms.py` adds the Greek word forms from a Wiktionary subset kept in `Scripts/data/` (Git LFS) and writes its QA report to `Scripts/reports/forms-qa.md`. Every input is pinned in `Scripts/inputs.json` (an immutable URL or a committed file, and its sha256) and checked before use, so the same inputs and SQLite version give a byte-identical file. Downloads are cached in `Scripts/.cache/` (`--cache-dir` to change it).
 
 ## Project Structure
 

@@ -38,6 +38,10 @@ __pycache__/
 # from upstream on demand; never committed.
 Scripts/.cache/
 
+# Partial outputs: a failed dictionary build leaves dictionaries.sqlite.part
+# beside the file (#141), an interrupted --refresh its subset's .part.
+*.part
+
 # --- IDE / Editor ---
 .idea/
 .vscode/

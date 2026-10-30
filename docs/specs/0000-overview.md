@@ -1,7 +1,7 @@
 # LibreDict overview
 
 > Spec written by Claude (AI) for LibreDict.
-> Status: Approved by Kirill on 2026-10-27 · Epic: — · Tickets: — · Updated: 2026-10-29
+> Status: Approved by Kirill on 2026-10-27 · Epic: — · Tickets: — · Updated: 2026-10-30
 
 This spec describes the app as shipped in 1.4.0 (tag `v1.4.0`, master `f0f806e`), plus the v2.0.0 changes merged since (see History). Read it before any design, development, testing or review task, then read the spec of your epic. It describes the code as it is now. The last sections list what v2.0.0 will change. Paths are relative to the repo root. Links work from this folder.
 
@@ -91,9 +91,9 @@ Layering: views hold no SQL and no business rules. Pure logic lives in caseless 
 
 ### Bundled data: `dictionaries.sqlite`
 
-- The dictionary file is [`DictApp/DictApp/Resources/dictionaries.sqlite`](../../DictApp/DictApp/Resources), 126,050,304 bytes (~120 MiB), stored in Git LFS (`*.sqlite` in `.gitattributes`). Without `git lfs pull` it is a pointer file and the app fails at launch. Its format and build rules are in [0129-dictionary-file.md](0129-dictionary-file.md) (#140).
-- Tables: `entries` (no `created_at`), `entries_fts` (FTS5 with external content, no triggers), `dict_metadata` (one row per dictionary, with `from_lang` and `to_lang` in ISO 639-3, no `built_at`) and `data_source` (credits for non-dictionary data, empty so far). `PRAGMA user_version` is the format version, 1, and must equal `DictionaryFile.formatVersion`. Rollback-journal mode, no `ANALYZE`.
-- [`Scripts/build_dictionaries.py`](../../Scripts/build_dictionaries.py) builds it and needs `pip install -r Scripts/requirements.txt` (NLTK 3.9.4, defusedxml). Every input is pinned in [`Scripts/inputs.json`](../../Scripts/inputs.json) (an immutable URL and its sha256) and verified before use by `Scripts/inputs.py`; downloads are cached in `Scripts/.cache/` (`--cache-dir`). The script writes the schema, runs each builder, runs the static data steps (`STEPS`, none yet), rebuilds FTS, runs the checks that fail the build, then `VACUUM`. It prints the rows each builder dropped as repeated headwords and the size of every table (`dbstat`). `--verify` rebuilds into a temp file and compares its sha256 with the committed file: the same inputs and SQLite version give a byte-identical file.
+- The dictionary file is [`DictApp/DictApp/Resources/dictionaries.sqlite`](../../DictApp/DictApp/Resources), 150,102,016 bytes (~143 MiB), stored in Git LFS (`*.sqlite` in `.gitattributes`). Without `git lfs pull` it is a pointer file and the app fails at launch. Its format and build rules are in [0129-dictionary-file.md](0129-dictionary-file.md) (#140).
+- Tables: `entries` (no `created_at`), `entries_fts` (FTS5 with external content, no triggers), `dict_metadata` (one row per dictionary, with `from_lang` and `to_lang` in ISO 639-3, no `built_at`) `data_source` (credits for non-dictionary data: one row, the Wiktionary word forms), and the Greek word-form tables `lemma`, `tagset`, `paradigm` and `form_lookup` (24 MB, #141, see [0136-word-forms.md](0136-word-forms.md)). `PRAGMA user_version` is the format version, 2, and must equal `DictionaryFile.formatVersion`. Rollback-journal mode, no `ANALYZE`.
+- [`Scripts/build_dictionaries.py`](../../Scripts/build_dictionaries.py) builds it and needs `pip install -r Scripts/requirements.txt` (NLTK 3.9.4, defusedxml). Every input is pinned in [`Scripts/inputs.json`](../../Scripts/inputs.json) (an immutable URL or a file committed in Git LFS, and its sha256) and verified before use by `Scripts/inputs.py`; downloads are cached in `Scripts/.cache/` (`--cache-dir`). The script writes the schema, runs each builder, runs the static data steps (`STEPS`: `build_forms.py`, the Greek word forms from a Wiktionary subset pinned in `Scripts/data/`, with its QA gates and the report `Scripts/reports/forms-qa.md`), rebuilds FTS, runs the checks that fail the build, then `VACUUM`. It prints the rows each builder dropped as repeated headwords and the size of every table (`dbstat`). `--verify` rebuilds into a temp file and compares its sha256 with the committed file: the same inputs and SQLite version give a byte-identical file.
 - WordNet and OpenRussian are built inside the script. The other builders are `build_freedict_eng_spa.py` (FreeDict TEI for any pair), `build_spanish_wordnet.py`, `build_arabic_wordnet.py` (with `arabic_normalize.py`) and [`build_greek.py`](../../Scripts/build_greek.py) (the four Greek sources, `normalize_greek`, `decompose_greek`; run alone it performs a folding self-check).
 - Source IDs follow two patterns. Monolingual and legacy sources use the bare provider name (`wordnet`, `openrussian`). All others use `provider-src-tgt` with ISO 639-3 codes.
 - Every row has a `word_normalized` search key. It equals `word` for the en, ru and es sources and is harakat-stripped for Arabic. For the four Greek sources it is Greek-folded, and their definitions store Greek in NFD, so FTS indexes it accent-free.
@@ -129,7 +129,7 @@ The full design is [0129-dictionary-file.md](0129-dictionary-file.md).
 | `imported_sources` | One row per imported dictionary: `source`, `imported_at`, `from_lang` and `to_lang` (NULL until #208) |
 | `user_meta` | `key`, `value` (#139's migration marker) |
 
-- The dictionary file holds `entries` (unique on `(word COLLATE NOCASE, source)`), `entries_fts`, `dict_metadata` and `data_source`, as `build_dictionaries.py` writes them (Bundled data).
+- The dictionary file holds `entries` (unique on `(word COLLATE NOCASE, source)`), `entries_fts`, `dict_metadata`, `data_source` and the word-form tables, as `build_dictionaries.py` writes them (Bundled data). The app does not read the word-form tables yet (#142–#144).
 - User data points at entries by `EntryKey` `(source, word)`. `entry(for:)` tries `dict.entries`, then `imported_entries`.
 - A 1.x `Application Support/DictApp/dict.sqlite` is moved into the user database at launch, then deleted (#139, see Launch). `user_meta.legacy_migration` records the commit.
 
@@ -208,7 +208,7 @@ These tests prove today's behaviour. A feature spec maps its acceptance criteria
 
 | Area | Unit tests (classes) | UI suites |
 |---|---|---|
-| Search, ranking, filters | `DictAppTests`, `SearchAssembleTests`, `SearchProbeTests` (1.4.0 probe, #138), `DictionaryFileTests` (the file's format, #140) | `SearchFlowTests`, `DictionaryFilterTests`, `SearchHighlightTests`, `FreshInstallTests` (every source on the first launch, #140) |
+| Search, ranking, filters | `DictAppTests`, `SearchAssembleTests`, `SearchProbeTests` (1.4.0 probe, #138), `DictionaryFileTests` (the file's format, #140), `WordFormsLookupTests` (the Greek forms tables, #141) | `SearchFlowTests`, `DictionaryFilterTests`, `SearchHighlightTests`, `FreshInstallTests` (every source on the first launch, #140) |
 | Greek and Arabic search | `GreekFoldAndBadgeTests`, `DictAppTests` (#10, #87) | `GreekDictionaryTests`, `ArabicLocalizationTests` |
 | History, My words (bookmarks), user database, 1.x upgrade | `DictAppTests`, `HistoryTimestampTests`, `UserDatabaseTests` (#138), `LegacyMigrationTests` (#139) | `HistoryFlowTests`, `BookmarkFlowTests` |
 | Preferences, pairs, order | `SettingsServiceTests`, `DictionaryGroupingTests`, `DictionaryDefaultsTests`, `SettingsViewModelPairTests` | `DictionaryPairGroupingTests`, `DictionaryOrderDefaultTests`, `DictionaryOrderReorderTests`, `DictionaryOrderRefreshTests` |
@@ -220,7 +220,7 @@ These tests prove today's behaviour. A feature spec maps its acceptance criteria
 
 ### Unit tests
 
-There are 248 tests in 17 classes, all in [DictAppTests.swift](../../DictApp/DictAppTests/DictAppTests.swift), target `DictAppTests`. The real app hosts the tests. A class that swaps the shared database first calls `DictAppTests.waitForHostAppLaunch()`, then `setup(userPath:dictionaryURL:)` on a temp user database. Test seams:
+There are 255 tests in 18 classes, all in [DictAppTests.swift](../../DictApp/DictAppTests/DictAppTests.swift), target `DictAppTests`. The real app hosts the tests. A class that swaps the shared database first calls `DictAppTests.waitForHostAppLaunch()`, then `setup(userPath:dictionaryURL:)` on a temp user database. Test seams:
 - `TestDictionary.make(rows:)`: a dictionary file with the bundled file's schema and only the given rows; `TestDictionaryFixture` writes a new one and reopens the service as a test adds rows (#138);
 - the 1.x fixtures `legacy-1.2.0.sqlite`, `legacy-1.3.0.sqlite` and `legacy-1.4.0.sqlite` from `Scripts/make_legacy_fixtures.py`, read from the source tree through `#filePath` like `search-probe-1.4.0.json`, and the DEBUG seams `LegacyMigration.failBeforeCommit`, `failBeforeDelete` and `beforeCopy` (#139);
 - `InMemoryKeyValueStore`;
@@ -287,3 +287,4 @@ The specs of these epics will replace parts of this overview:
 - 2026-10-29: #138: the app attaches the bundled seed read-only as `dict` and keeps user data in `user.sqlite`. The unpack, its progress bar and the 1.x schema code are gone. History and Recent words reopen the stored source; the bookmark star and tab use My words. Updated Screens, Rules, Code map, Bundled data, Database, Launch, Imported dictionaries, Search, Localization and the test sections.
 - 2026-10-29: #139: the first launch after a 1.x upgrade moves History, bookmarks (as My words) and imports into the user database, then deletes the old database. Updated Rules, Code map, Database, Launch, Upcoming changes and the unit-test section.
 - 2026-10-29: #140: the seed is now `dictionaries.sqlite`, built by `build_dictionaries.py` from pinned inputs with build checks and `--verify`; `Schema.sql` and the legacy scripts are gone. Same rows as the 1.4.0 seed. Updated Code map, Bundled data, Database, the test sections and Upcoming changes.
+- 2026-10-30: #141: the dictionary file gains the Greek word-form tables and their `data_source` row (`user_version` 2, 150.1 MB), built by the first static step, `build_forms.py`. Updated Bundled data, Database and the unit-test section.

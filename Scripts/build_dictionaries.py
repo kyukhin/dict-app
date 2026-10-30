@@ -64,13 +64,15 @@ DEFAULT_OUTPUT = REPO / "DictApp/DictApp/Resources/dictionaries.sqlite"
 
 # `PRAGMA user_version`. The app's `DictionaryFile.formatVersion` must match
 # (a unit test checks it). A changed table shape bumps both in the same PR.
-FORMAT_VERSION = 1
+FORMAT_VERSION = 2
 
 # Static data steps (spec, "Adding static data"): module names in Scripts/,
 # run in this order after the dictionaries. Each module has `SCHEMA` (DDL,
 # applied after the core schema) and `build(conn, cache_dir)`, which fills
 # its own tables, may read `entries` and pins its inputs in inputs.json.
-STEPS: list[str] = []
+STEPS: list[str] = [
+    "build_forms",   # Greek word forms from Wiktionary (#141, 0136-word-forms.md)
+]
 
 
 # ---------------------------------------------------------------------------

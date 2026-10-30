@@ -1,1 +1,2 @@
 *.sqlite filter=lfs diff=lfs merge=lfs -text
+Scripts/data/*.jsonl.gz filter=lfs diff=lfs merge=lfs -text

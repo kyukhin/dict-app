@@ -11,6 +11,11 @@ differs from its pin.
 Adding an input: download it, put `"<dir>/<file>": {"url": …, "sha256": …}`
 into `inputs.json` and read it through `fetch("<dir>/<file>", cache_dir)`.
 Extra keys in an entry are allowed and ignored here.
+
+An entry without `url` is a file committed to the repository (Git LFS),
+keyed by its path from the repository root, for a source that keeps no
+old versions online (the Greek forms subset, #141). `committed(key)`
+verifies it the same way and never downloads.
 """
 
 from __future__ import annotations
@@ -30,9 +35,16 @@ DEFAULT_CACHE_DIR = SCRIPTS_DIR / ".cache"
 NLTK_CORPORA = ("nltk_data/corpora/wordnet.zip", "nltk_data/corpora/omw-1.4.zip")
 
 
-def _pins() -> dict:
+def pins() -> dict:
     with open(INPUTS_JSON, encoding="utf-8") as f:
         return json.load(f)
+
+
+def write_pins(entries: dict) -> None:
+    """Rewrite inputs.json with its keys sorted (`build_forms.py --refresh`)."""
+    with open(INPUTS_JSON, "w", encoding="utf-8") as f:
+        json.dump(dict(sorted(entries.items())), f, indent=2, ensure_ascii=False)
+        f.write("\n")
 
 
 def sha256(path: Path) -> str:
@@ -48,10 +60,10 @@ def fetch(key: str, cache_dir: Path) -> Path:
 
     Downloads it when it is missing or its sha256 differs from the pin, and
     fails the build when the downloaded file does not match either."""
-    pins = _pins()
-    if key not in pins:
-        raise RuntimeError(f"{key} is not pinned in {INPUTS_JSON.name}")
-    url, expected = pins[key]["url"], pins[key]["sha256"]
+    pins_ = pins()
+    if key not in pins_ or "url" not in pins_[key]:
+        raise RuntimeError(f"{key} is not pinned to a URL in {INPUTS_JSON.name}")
+    url, expected = pins_[key]["url"], pins_[key]["sha256"]
     path = Path(cache_dir) / key
     if path.is_file() and sha256(path) == expected:
         return path
@@ -67,6 +79,22 @@ def fetch(key: str, cache_dir: Path) -> Path:
         raise RuntimeError(f"{key}: downloaded sha256 {actual} does not match "
                            f"{INPUTS_JSON.name} ({expected}), from {url}")
     os.replace(partial, path)
+    return path
+
+
+def committed(key: str) -> Path:
+    """Return the committed input `key` (a path from the repository root)
+    after checking its sha256 against the pin; fail the build otherwise."""
+    entry = pins().get(key)
+    if entry is None or "url" in entry:
+        raise RuntimeError(f"{key} is not pinned as a committed file in {INPUTS_JSON.name}")
+    path = SCRIPTS_DIR.parent / key
+    if not path.is_file():
+        raise RuntimeError(f"{key} is missing (git lfs pull?)")
+    actual = sha256(path)
+    if actual != entry["sha256"]:
+        raise RuntimeError(f"{key}: sha256 {actual} does not match {INPUTS_JSON.name} "
+                           f"({entry['sha256']}); a Git LFS pointer? git lfs pull")
     return path
 
 
