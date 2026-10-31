@@ -771,6 +771,1086 @@
         }
       }
     },
+    "forms.caption %@ %@": {
+      "comment": "Search: caption under a row found as an inflected form of its headword, e.g. \"aorist 1sg of γράφω\". %1$@: the form's labels (tense, person, case…), %2$@: the lemma, a Greek word. ar: leading U+200F (RLM) makes the line right-to-left; Foundation isolates each argument, so without it the line lays out left-to-right (#119). Every RTL language needs it.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ of %2$@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ от %2$@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ de %2$@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "\u200F%1$@ من %2$@"
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ του %2$@"
+          }
+        }
+      }
+    },
+    "forms.tense.present": {
+      "comment": "Greek grammar label, lowercase (search caption, #142): the present tense.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "present"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "настоящее"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "presente"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "المضارع"
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ενεστώτας"
+          }
+        }
+      }
+    },
+    "forms.tense.imperfect": {
+      "comment": "Greek grammar label, lowercase (search caption, #142): the imperfect (past continuous) tense.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "imperfect"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "имперфект"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "imperfecto"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الماضي المستمر"
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "παρατατικός"
+          }
+        }
+      }
+    },
+    "forms.tense.aorist": {
+      "comment": "Greek grammar label, lowercase (search caption, #142): the aorist (simple past) tense.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "aorist"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "аорист"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "aoristo"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الماضي البسيط"
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "αόριστος"
+          }
+        }
+      }
+    },
+    "forms.tense.dependent": {
+      "comment": "Greek grammar label, lowercase (search caption, #142): the dependent (perfective non-past) form, used after να and θα.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "dependent"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "зависимая форма"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "dependiente"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الصيغة التابعة"
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "εξαρτημένος"
+          }
+        }
+      }
+    },
+    "forms.mood.imperative": {
+      "comment": "Greek grammar label, lowercase (search caption, #142): the imperative mood.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "imperative"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "повелительное"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "imperativo"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الأمر"
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "προστακτική"
+          }
+        }
+      }
+    },
+    "forms.aspect.continuous": {
+      "comment": "Greek grammar label, lowercase (search caption, #142): continuous (imperfective) aspect, e.g. \"imperative continuous\".",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "continuous"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "длительное"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "continuo"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "المستمر"
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "εξακολουθητική"
+          }
+        }
+      }
+    },
+    "forms.aspect.simple": {
+      "comment": "Greek grammar label, lowercase (search caption, #142): simple (perfective) aspect, e.g. \"imperative simple\".",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "simple"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "простое"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "puntual"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "البسيط"
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "στιγμιαία"
+          }
+        }
+      }
+    },
+    "forms.voice.passive": {
+      "comment": "Greek grammar label, lowercase (search caption, #142): the passive voice.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "passive"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "страдательный залог"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "pasivo"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "المبني للمجهول"
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "παθητική φωνή"
+          }
+        }
+      }
+    },
+    "forms.nonfinite.participle": {
+      "comment": "Greek grammar label, lowercase (search caption, #142): a participle.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "participle"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "причастие"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "participio"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الصفة الفعلية"
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "μετοχή"
+          }
+        }
+      }
+    },
+    "forms.nonfinite.infinitive": {
+      "comment": "Greek grammar label, lowercase (search caption, #142): the aorist infinitive (γράψει), the only infinitive of Modern Greek.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "aorist infinitive"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "инфинитив аориста"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "infinitivo aoristo"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مصدر الماضي البسيط"
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "απαρέμφατο"
+          }
+        }
+      }
+    },
+    "forms.case.nominative": {
+      "comment": "Greek grammar label, lowercase (search caption, #142): the nominative case.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "nominative"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "именительный"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "nominativo"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "المرفوع"
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ονομαστική"
+          }
+        }
+      }
+    },
+    "forms.case.genitive": {
+      "comment": "Greek grammar label, lowercase (search caption, #142): the genitive case.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "genitive"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "родительный"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "genitivo"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "المجرور"
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "γενική"
+          }
+        }
+      }
+    },
+    "forms.case.accusative": {
+      "comment": "Greek grammar label, lowercase (search caption, #142): the accusative case.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "accusative"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "винительный"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "acusativo"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "المنصوب"
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "αιτιατική"
+          }
+        }
+      }
+    },
+    "forms.case.vocative": {
+      "comment": "Greek grammar label, lowercase (search caption, #142): the vocative case.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vocative"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "звательный"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vocativo"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "المنادى"
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "κλητική"
+          }
+        }
+      }
+    },
+    "forms.number.singular": {
+      "comment": "Greek grammar label, lowercase (search caption, #142): singular number.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "singular"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ед. ч."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sing."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "المفرد"
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ενικός"
+          }
+        }
+      }
+    },
+    "forms.number.plural": {
+      "comment": "Greek grammar label, lowercase (search caption, #142): plural number.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "plural"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "мн. ч."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "pl."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الجمع"
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "πληθυντικός"
+          }
+        }
+      }
+    },
+    "forms.gender.masculine": {
+      "comment": "Greek grammar label, lowercase (search caption, #142): masculine gender.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "masculine"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "м. р."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "masculino"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "المذكر"
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "αρσενικό"
+          }
+        }
+      }
+    },
+    "forms.gender.feminine": {
+      "comment": "Greek grammar label, lowercase (search caption, #142): feminine gender.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "feminine"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ж. р."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "femenino"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "المؤنث"
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "θηλυκό"
+          }
+        }
+      }
+    },
+    "forms.gender.neuter": {
+      "comment": "Greek grammar label, lowercase (search caption, #142): neuter gender.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "neuter"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ср. р."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "neutro"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "المحايد"
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ουδέτερο"
+          }
+        }
+      }
+    },
+    "forms.degree.comparative": {
+      "comment": "Greek grammar label, lowercase (search caption, #142): the comparative degree of an adjective.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "comparative"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "сравнительная степень"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "comparativo"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "صيغة المقارنة"
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "συγκριτικός"
+          }
+        }
+      }
+    },
+    "forms.degree.superlative": {
+      "comment": "Greek grammar label, lowercase (search caption, #142): the superlative degree of an adjective.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "superlative"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "превосходная степень"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "superlativo"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "صيغة التفضيل العليا"
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "υπερθετικός"
+          }
+        }
+      }
+    },
+    "forms.person.1sg": {
+      "comment": "Greek grammar label, abbreviated (search caption, #142): first person singular.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1sg"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 л. ед. ч."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1.ª sing."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "المتكلم المفرد"
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "α΄ ενικ."
+          }
+        }
+      }
+    },
+    "forms.person.2sg": {
+      "comment": "Greek grammar label, abbreviated (search caption, #142): second person singular.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "2sg"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "2 л. ед. ч."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "2.ª sing."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "المخاطب المفرد"
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "β΄ ενικ."
+          }
+        }
+      }
+    },
+    "forms.person.3sg": {
+      "comment": "Greek grammar label, abbreviated (search caption, #142): third person singular.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "3sg"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "3 л. ед. ч."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "3.ª sing."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الغائب المفرد"
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "γ΄ ενικ."
+          }
+        }
+      }
+    },
+    "forms.person.1pl": {
+      "comment": "Greek grammar label, abbreviated (search caption, #142): first person plural.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1pl"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 л. мн. ч."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1.ª pl."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "المتكلمون"
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "α΄ πληθ."
+          }
+        }
+      }
+    },
+    "forms.person.2pl": {
+      "comment": "Greek grammar label, abbreviated (search caption, #142): second person plural.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "2pl"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "2 л. мн. ч."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "2.ª pl."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "المخاطبون"
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "β΄ πληθ."
+          }
+        }
+      }
+    },
+    "forms.person.3pl": {
+      "comment": "Greek grammar label, abbreviated (search caption, #142): third person plural.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "3pl"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "3 л. мн. ч."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "3.ª pl."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الغائبون"
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "γ΄ πληθ."
+          }
+        }
+      }
+    },
+    "forms.alternative": {
+      "comment": "Search caption (#142): the row's headword is another spelling of the query, as in \"alternative form of αγαπάω\".",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "alternative form"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "вариант"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "variante"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "صيغة بديلة"
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "εναλλακτική μορφή"
+          }
+        }
+      }
+    },
+    "forms.form": {
+      "comment": "Search caption (#142): an inflected form whose grammar is not labelled, as in \"form of γράφω\".",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "form"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "форма"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "forma"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "صيغة"
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "τύπος"
+          }
+        }
+      }
+    },
     "dictionary.entries.count %lld": {
       "extractionState": "manual",
       "localizations": {

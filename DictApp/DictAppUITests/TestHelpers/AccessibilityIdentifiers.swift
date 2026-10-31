@@ -56,6 +56,11 @@ struct AccessibilityIdentifiers {
         static let onlyThisMenuItem = "dictionary_chip_only_this"
         /// "Choose a dictionary", shown instead of results when every chip is off.
         static let noDictionariesHint = "search_no_dictionaries"
+
+        /// Issue #142 — the caption under a row the query found as an
+        /// inflected form of its headword ("aorist 1sg of γράφω"). Its
+        /// `label` is the VoiceOver text ("aorist, εγώ of γράφω").
+        static let formCaption = "form_caption"
     }
 
     // MARK: - Definition View

@@ -4176,7 +4176,7 @@ extension SettingsViewModelPairTests {
         }
         XCTAssertFalse(search.isSearching, "search for '\(query)' did not finish", file: file, line: line)
         XCTAssertNil(search.errorMessage, file: file, line: line)
-        return search.results
+        return search.results.map(\.entry)
     }
 
     /// PM decision 2, non-nil case, JSON and SQLite: stored set = bundled
@@ -8161,14 +8161,14 @@ final class LegacyMigrationTests: XCTestCase {
     private func results(of vm: SearchViewModel, until done: ([DictionaryEntry]) -> Bool,
                          file: StaticString = #filePath, line: UInt = #line) async throws -> [DictionaryEntry] {
         let deadline = Date().addingTimeInterval(5)
-        while !done(vm.results) || vm.isSearching {
+        while !done(vm.results.map(\.entry)) || vm.isSearching {
             guard Date() < deadline else {
-                XCTFail("Search results never matched: \(Self.keys(vm.results))", file: file, line: line)
+                XCTFail("Search results never matched: \(Self.keys(vm.results.map(\.entry)))", file: file, line: line)
                 break
             }
             try await Task.sleep(nanoseconds: 20_000_000)
         }
-        return vm.results
+        return vm.results.map(\.entry)
     }
 
     /// Installed size ≈ app bundle + user data (#129, #139): after the move
@@ -8802,6 +8802,798 @@ final class WordFormsLookupTests: XCTestCase {
             }
             XCTAssertEqual(try lemmas(of: "σας", pos: "pron", in: db), ["σας"], "σας → τα is gone")
             XCTAssertEqual(try lemmas(of: "μας", pos: "pron", in: db), ["μας"])
+        }
+    }
+}
+
+// MARK: - Issue #142: search by inflected Greek form (0136-word-forms.md)
+
+/// The merge of lemma rows into a ranked bucket and the form step's gate
+/// (0136, "Search path"): pure, no database.
+extension SearchAssembleTests {
+    private func ranked(_ id: Int64, exact: Bool = false) -> Search.RankedEntry {
+        Search.RankedEntry(entry: entry(id, "A"), isExact: exact)
+    }
+
+    private func lemmaRow(_ id: Int64, lemma: String = "γράφω") -> SearchResult {
+        SearchResult(entry: entry(id, "A"), formMatch: FormMatch(lemma: lemma, analysis: .greek(tags: ["present"])))
+    }
+
+    /// Exact rows, then the lemma rows with their match, then the prefix and
+    /// FTS rows.
+    func testLemmaRowsFollowExactRowsAndPrecedeTheRest() {
+        let out = Search.mergeLemmaBucket(ranked: [ranked(1, exact: true), ranked(2, exact: true), ranked(3), ranked(4)],
+                                          lemmaRows: [lemmaRow(10), lemmaRow(11)], limit: 50)
+        XCTAssertEqual(out.map(\.id), [1, 2, 10, 11, 3, 4])
+        XCTAssertEqual(out.map { $0.formMatch != nil }, [false, false, true, true, false, false])
+
+        let noExact = Search.mergeLemmaBucket(ranked: [ranked(3), ranked(4)], lemmaRows: [lemmaRow(10)], limit: 50)
+        XCTAssertEqual(noExact.map(\.id), [10, 3, 4], "without exact rows the lemma rows lead")
+    }
+
+    /// A lemma row that is an exact row stays one, without a match; a lemma
+    /// row further down moves up with its match; no row repeats.
+    func testLemmaRowsAreNeverRepeated() {
+        let out = Search.mergeLemmaBucket(ranked: [ranked(1, exact: true), ranked(2), ranked(3)],
+                                          lemmaRows: [lemmaRow(1), lemmaRow(3), lemmaRow(3)], limit: 50)
+        XCTAssertEqual(out.map(\.id), [1, 3, 2])
+        XCTAssertNil(out[0].formMatch, "the exact row keeps its place and gets no caption")
+        XCTAssertNotNil(out[1].formMatch, "the lemma row moved up with its caption")
+    }
+
+    /// The merge is cut to the bucket's limit after the lemma rows join, so
+    /// they push base rows out.
+    func testMergeCutsToTheLimit() {
+        let rows = [ranked(1, exact: true), ranked(2), ranked(3)]
+        let lemmas = [lemmaRow(10), lemmaRow(11)]
+        XCTAssertEqual(Search.mergeLemmaBucket(ranked: rows, lemmaRows: lemmas, limit: 3).map(\.id), [1, 10, 11])
+        XCTAssertEqual(Search.mergeLemmaBucket(ranked: rows, lemmaRows: lemmas, limit: 2).map(\.id), [1, 10])
+        XCTAssertEqual(Search.mergeLemmaBucket(ranked: rows, lemmaRows: lemmas, limit: 0), [])
+    }
+
+    /// No candidates: the rows, their order and the cut are today's, also for
+    /// a rank-ordered list whose exact rows are not in front (the
+    /// preferred-mode tail).
+    func testNoLemmaRowsKeepsTheRankedRows() {
+        let rows = [ranked(5), ranked(1, exact: true), ranked(2), ranked(3, exact: true)]
+        let out = Search.mergeLemmaBucket(ranked: rows, lemmaRows: [], limit: 50)
+        XCTAssertEqual(out.map(\.id), [5, 1, 2, 3])
+        XCTAssertTrue(out.allSatisfy { $0.formMatch == nil })
+        XCTAssertEqual(Search.mergeLemmaBucket(ranked: rows, lemmaRows: [], limit: 2).map(\.id), [5, 1])
+    }
+
+    /// In a rank-ordered tail the lemma rows go after its leading exact rows
+    /// (none here) and no other row moves.
+    func testLemmaRowsJoinARankOrderedTailWithoutReorderingIt() {
+        let out = Search.mergeLemmaBucket(ranked: [ranked(5), ranked(1, exact: true), ranked(2)],
+                                          lemmaRows: [lemmaRow(10)], limit: 50)
+        XCTAssertEqual(out.map(\.id), [10, 5, 1, 2])
+    }
+
+    /// `assemble` takes search results as it takes entries, and keeps the matches.
+    func testAssembleKeepsFormMatches() {
+        let out = Search.assemble(buckets: ["0": [lemmaRow(1), SearchResult(entry: entry(2, "A"))]],
+                                  tail: [lemmaRow(1), SearchResult(entry: entry(3, "B"))], order: ["0"])
+        XCTAssertEqual(out.map(\.id), [1, 2, 3])
+        XCTAssertEqual(out[0].formMatch?.lemma, "γράφω")
+    }
+
+    /// Up to 5 lemmas: every row of the first five stays, a sixth lemma's go.
+    func testCapLemmasKeepsFiveLemmas() {
+        let rows = [lemmaRow(1, lemma: "a"), lemmaRow(2, lemma: "a"), lemmaRow(3, lemma: "b"), lemmaRow(4, lemma: "c"),
+                    lemmaRow(5, lemma: "d"), lemmaRow(6, lemma: "e"), lemmaRow(7, lemma: "f"), lemmaRow(8, lemma: "b")]
+        XCTAssertEqual(Search.capLemmas(rows).map(\.id), [1, 2, 3, 4, 5, 6, 8])
+        XCTAssertEqual(Search.maximumFormLemmas, 5)
+        XCTAssertEqual(Search.maximumLemmaRows, 10)
+    }
+
+    /// The form step: one Greek word of 2+ letters, with or without accents,
+    /// in any case, precomposed or not. Several words, other or mixed
+    /// scripts, digits and one letter get none (#143 adds a–z).
+    func testFormStepNeedsOneGreekWordOfTwoLetters() {
+        XCTAssertEqual(Search.formStep(for: "έγραψα"), .greek(key: "εγραψα"))
+        XCTAssertEqual(Search.formStep(for: "εγραψα"), .greek(key: "εγραψα"))
+        XCTAssertEqual(Search.formStep(for: "ΈΓΡΑΨΑ"), .greek(key: "εγραψα"))
+        XCTAssertEqual(Search.formStep(for: "γρα\u{0301}φω"), .greek(key: "γραφω"), "decomposed accent")
+        XCTAssertEqual(Search.formStep(for: "κάνεις"), .greek(key: "κανεισ"), "final sigma folds")
+        XCTAssertEqual(Search.formStep(for: "δω"), .greek(key: "δω"), "two letters are enough")
+        for query in ["", "ά", "έγραψα σήμερα", "έγραψα1", "abγρ", "went", "дом", "ماء"] {
+            XCTAssertNil(Search.formStep(for: query), "'\(query)' gets no form step")
+        }
+    }
+}
+
+/// `FormCaption`: the caption of a lemma row, pure (0136, "Caption").
+final class FormCaptionTests: XCTestCase {
+    private let ltrCodes = ["en", "ru", "es", "el"]
+    private let bidiControls: [Unicode.Scalar] = ["\u{200F}", "\u{2066}", "\u{2067}", "\u{2068}", "\u{2069}"]
+
+    private func tags(_ s: String) -> Set<String> {
+        Set(s.split(separator: " ").map(String.init))
+    }
+
+    private func greek(_ lemma: String, _ tagString: String) -> FormMatch {
+        FormMatch(lemma: lemma, analysis: .greek(tags: tags(tagString)))
+    }
+
+    /// The bundled file's caption tag sets of έγραψα, ήταν, έχεις, πήγα,
+    /// σπιτιού and της.
+    private let aorist1sg = "active first-person indicative past perfective singular"
+    private let imperfect3sg = "active imperfect imperfective indicative informal singular third-person"
+    private let present2sg = "active imperfective indicative present second-person singular"
+
+    /// The spec table's rows.
+    func testSpecTableLabels() {
+        XCTAssertEqual(FormCaption.labels(forGreekTags: tags(aorist1sg)), [.aorist, .firstSingular])
+        XCTAssertEqual(FormCaption.labels(forGreekTags: tags(imperfect3sg)), [.imperfect, .thirdSingular])
+        XCTAssertEqual(FormCaption.labels(forGreekTags: tags(present2sg)), [.present, .secondSingular])
+        XCTAssertEqual(FormCaption.labels(forGreekTags: tags("first-person past perfective singular")),
+                       [.aorist, .firstSingular], "πήγα → πάω has no indicative tag")
+        XCTAssertEqual(FormCaption.labels(forGreekTags: tags("genitive singular")), [.genitive, .singular])
+        XCTAssertEqual(FormCaption.labels(forGreekTags: tags("definite feminine genitive singular")),
+                       [.genitive, .singular, .feminine])
+    }
+
+    func testEnglishCaptions() {
+        let en = Locale(identifier: "en")
+        XCTAssertEqual(FormCaption.text(for: greek("γράφω", aorist1sg), locale: en), "aorist 1sg of γράφω")
+        XCTAssertEqual(FormCaption.text(for: greek("είμαι", imperfect3sg), locale: en), "imperfect 3sg of είμαι")
+        XCTAssertEqual(FormCaption.text(for: greek("έχω", present2sg), locale: en), "present 2sg of έχω")
+        XCTAssertEqual(FormCaption.text(for: greek("σπίτι", "genitive singular"), locale: en), "genitive singular of σπίτι")
+        XCTAssertEqual(FormCaption.text(for: greek("ο", "definite feminine genitive singular"), locale: en),
+                       "genitive singular feminine of ο")
+    }
+
+    func testCaptionsInRussianSpanishAndGreek() {
+        let match = greek("γράφω", aorist1sg)
+        XCTAssertEqual(FormCaption.text(for: match, locale: Locale(identifier: "ru")), "аорист 1 л. ед. ч. от γράφω")
+        XCTAssertEqual(FormCaption.text(for: match, locale: Locale(identifier: "es")), "aoristo 1.ª sing. de γράφω")
+        XCTAssertEqual(FormCaption.text(for: match, locale: Locale(identifier: "el")), "αόριστος α\u{0384} ενικ. του γράφω")
+        XCTAssertEqual(FormCaption.text(for: greek("σπίτι", "genitive singular"), locale: Locale(identifier: "ru")),
+                       "родительный ед. ч. от σπίτι")
+    }
+
+    /// Arabic: the caption starts with U+200F and the lemma is isolated
+    /// (FSI … PDI), as in #119; the LTR languages get no bidi control.
+    func testArabicCaptionReadsRightToLeft() {
+        let caption = FormCaption.text(for: greek("γράφω", aorist1sg), locale: Locale(identifier: "ar"))
+        XCTAssertEqual(caption.unicodeScalars.first, "\u{200F}", caption)
+        XCTAssertTrue(caption.contains("\u{2068}γράφω\u{2069}"), "the Greek lemma is isolated: \(caption.unicodeScalars.map(\.value))")
+        let visible = String(caption.unicodeScalars.filter { !bidiControls.contains($0) })
+        XCTAssertEqual(visible, "الماضي البسيط المتكلم المفرد من γράφω")
+        let spoken = FormCaption.accessibilityText(for: greek("γράφω", aorist1sg), locale: Locale(identifier: "ar"))
+        XCTAssertEqual(spoken.unicodeScalars.first, "\u{200F}", spoken)
+
+        for code in ltrCodes {
+            let locale = Locale(identifier: code)
+            for output in [FormCaption.text(for: greek("γράφω", aorist1sg), locale: locale),
+                           FormCaption.accessibilityText(for: greek("γράφω", aorist1sg), locale: locale)] {
+                XCTAssertFalse(output.unicodeScalars.contains { bidiControls.contains($0) },
+                               "\(code): '\(output)' must carry no bidi control")
+            }
+        }
+    }
+
+    /// Passive, dependent, imperative, participle and infinitive forms.
+    func testVerbLabels() {
+        let en = Locale(identifier: "en")
+        XCTAssertEqual(FormCaption.labels(forGreekTags: tags("first-person indicative passive past perfective singular")),
+                       [.aorist, .passive, .firstSingular])
+        XCTAssertEqual(FormCaption.text(for: greek("γράφω", "first-person indicative passive past perfective singular"),
+                                        locale: en), "aorist passive 1sg of γράφω")
+        XCTAssertEqual(FormCaption.labels(forGreekTags: tags("dependent first-person indicative passive perfective singular")),
+                       [.dependent, .passive, .firstSingular])
+        XCTAssertEqual(FormCaption.labels(forGreekTags: tags("active imperative imperfective second-person singular")),
+                       [.imperative, .continuous, .secondSingular])
+        XCTAssertEqual(FormCaption.labels(forGreekTags: tags("active imperative perfective plural second-person")),
+                       [.imperative, .simple, .secondPlural])
+        XCTAssertEqual(FormCaption.text(for: greek("γράφω", "active imperative perfective plural second-person"),
+                                        locale: en), "imperative simple 2pl of γράφω")
+        XCTAssertEqual(FormCaption.labels(forGreekTags: tags("active first-person imperfect imperfective indicative plural")),
+                       [.imperfect, .firstPlural])
+        XCTAssertEqual(FormCaption.labels(forGreekTags: tags("active participle present")), [.participle])
+        XCTAssertEqual(FormCaption.labels(forGreekTags: tags("participle passive past")), [.participle])
+        XCTAssertEqual(FormCaption.text(for: greek("γράφω", "active infinitive-aorist"), locale: en),
+                       "aorist infinitive of γράφω")
+    }
+
+    /// Nominals: degree, case, number, then gender when tagged.
+    func testNominalLabels() {
+        XCTAssertEqual(FormCaption.labels(forGreekTags: tags("masculine nominative plural")),
+                       [.nominative, .plural, .masculine])
+        XCTAssertEqual(FormCaption.labels(forGreekTags: tags("accusative comparative masculine plural superlative")),
+                       [.comparative, .accusative, .plural, .masculine])
+        XCTAssertEqual(FormCaption.labels(forGreekTags: tags("feminine nominative singular superlative")),
+                       [.superlative, .nominative, .singular, .feminine])
+        XCTAssertEqual(FormCaption.labels(forGreekTags: tags("singular vocative")), [.vocative, .singular])
+        XCTAssertEqual(FormCaption.labels(forGreekTags: tags("absolute superlative")), [.superlative])
+    }
+
+    /// `alternative` → "alternative form"; nothing recognised → "form".
+    func testAlternativeAndUnknownTags() {
+        let en = Locale(identifier: "en")
+        XCTAssertEqual(FormCaption.text(for: greek("αγαπάω", "alternative"), locale: en), "alternative form of αγαπάω")
+        XCTAssertEqual(FormCaption.labels(forGreekTags: tags("alternative masculine")), [.alternative])
+        XCTAssertEqual(FormCaption.text(for: greek("γράφω", ""), locale: en), "form of γράφω")
+        XCTAssertEqual(FormCaption.labels(forGreekTags: tags("Katharevousa dative singular")), [.form])
+        XCTAssertEqual(FormCaption.labels(forGreekTags: tags("indeclinable")), [.form])
+    }
+
+    /// VoiceOver reads the person as the Greek pronoun of the tables.
+    func testVoiceOverReadsThePersonAsTheGreekPronoun() {
+        let en = Locale(identifier: "en")
+        XCTAssertEqual(FormCaption.accessibilityText(for: greek("γράφω", aorist1sg), locale: en), "aorist, εγώ of γράφω")
+        XCTAssertEqual(FormCaption.accessibilityText(for: greek("είμαι", imperfect3sg), locale: en),
+                       "imperfect, αυτός of είμαι")
+        XCTAssertEqual(FormCaption.accessibilityText(for: greek("σπίτι", "genitive singular"), locale: en),
+                       "genitive, singular of σπίτι")
+        let persons: [(FormCaption.Label, String)] = [(.firstSingular, "εγώ"), (.secondSingular, "εσύ"),
+                                                      (.thirdSingular, "αυτός"), (.firstPlural, "εμείς"),
+                                                      (.secondPlural, "εσείς"), (.thirdPlural, "αυτοί")]
+        for (label, pronoun) in persons {
+            XCTAssertEqual(label.pronoun, pronoun)
+        }
+        XCTAssertNil(FormCaption.Label.aorist.pronoun)
+    }
+
+    /// Every label and the caption format resolve in every UI language.
+    func testEveryLabelResolvesInEveryUILanguage() throws {
+        let codes = try DictAppTests.shippedUILanguages().map(\.code)
+        XCTAssertEqual(Set(codes), ["en", "ru", "es", "ar", "el"])
+        for code in codes {
+            let path = try XCTUnwrap(Bundle.main.path(forResource: code, ofType: "lproj"), code)
+            let bundle = try XCTUnwrap(Bundle(path: path))
+            for key in FormCaption.Label.allCases.map(\.rawValue) + ["forms.caption %@ %@"] {
+                let value = bundle.localizedString(forKey: key, value: "\u{0}MISSING", table: nil)
+                XCTAssertNotEqual(value, "\u{0}MISSING", "'\(key)' missing in \(code).lproj")
+                XCTAssertFalse(value.isEmpty, "'\(key)' is empty in \(code).lproj")
+            }
+        }
+    }
+}
+
+/// Search with the form step on the real bundled dictionary file (0136,
+/// "Search by any form" and the #142 test plan rows).
+final class WordFormsSearchTests: XCTestCase {
+    private var tempDir: URL!
+    private var db: DatabaseService { .shared }
+    private static let greekHeadwordSources: Set<String> = ["freedict-ell-eng", "wordnet-ell-eng"]
+
+    override func setUp() async throws {
+        try await super.setUp()
+        await DictAppTests.waitForHostAppLaunch()
+        tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        try await db.setup(userPath: tempDir.appendingPathComponent("user.sqlite").path,
+                           dictionaryURL: try TestDictionary.bundledURL())
+    }
+
+    override func tearDown() async throws {
+        DatabaseService.lemmaStepEnabled = true
+        try? FileManager.default.removeItem(at: tempDir)
+        try await super.tearDown()
+    }
+
+    /// The rows the form step added, as (source, word, lemma).
+    private func lemmaRows(_ results: [SearchResult]) -> [SearchResult] {
+        results.filter { $0.formMatch != nil }
+    }
+
+    /// Checks that the lemma rows of `query` are `lemma`'s headwords in both
+    /// Greek → English dictionaries with `labels`, right after the exact
+    /// rows and before every other row.
+    private func assertLemmaRows(_ query: String, lemma: String, labels: [FormCaption.Label],
+                                 file: StaticString = #filePath, line: UInt = #line) async throws {
+        let results = try await db.searchResults(query: query)
+        let key = Search.foldGreek(query)
+        let first = try XCTUnwrap(results.firstIndex { $0.formMatch != nil }, "'\(query)' adds no lemma row",
+                                  file: file, line: line)
+        XCTAssertTrue(results[..<first].allSatisfy { Search.foldGreek($0.entry.word) == key },
+                      "'\(query)': only exact rows precede the lemma rows: \(results[..<first].map(\.entry.word))",
+                      file: file, line: line)
+        let added = lemmaRows(results)
+        XCTAssertEqual(results[first..<(first + added.count)].map(\.id), added.map(\.id),
+                       "'\(query)': the lemma rows are one block", file: file, line: line)
+        let ofLemma = added.filter { $0.formMatch?.lemma == lemma }
+        XCTAssertEqual(Set(ofLemma.map(\.entry.source)), Self.greekHeadwordSources,
+                       "'\(query)' shows \(lemma) from both Greek → English dictionaries", file: file, line: line)
+        for row in ofLemma {
+            XCTAssertEqual(Search.foldGreek(row.entry.word), Search.foldGreek(lemma), file: file, line: line)
+            XCTAssertEqual(FormCaption.labels(for: try XCTUnwrap(row.formMatch)), labels, "'\(query)'",
+                           file: file, line: line)
+        }
+    }
+
+    /// #142: έγραψα → γράφω, ήταν → είμαι, έχεις → έχω, also without
+    /// accents and in capitals; the lemma rows come right after the exact
+    /// rows, with the caption tags.
+    func testInflectedGreekFindsLemma() async throws {
+        for query in ["έγραψα", "εγραψα", "ΈΓΡΑΨΑ"] {
+            try await assertLemmaRows(query, lemma: "γράφω", labels: [.aorist, .firstSingular])
+        }
+        try await assertLemmaRows("ήταν", lemma: "είμαι", labels: [.imperfect, .thirdSingular])
+        try await assertLemmaRows("ηταν", lemma: "είμαι", labels: [.imperfect, .thirdSingular])
+        try await assertLemmaRows("έχεις", lemma: "έχω", labels: [.present, .secondSingular])
+        try await assertLemmaRows("σπιτιού", lemma: "σπίτι", labels: [.genitive, .singular])
+
+        // της: the exact row τής (FreeDict) first, then the article ο.
+        let tis = try await db.searchResults(query: "της")
+        XCTAssertEqual(tis.first?.entry.word, "τής")
+        XCTAssertNil(tis.first?.formMatch)
+        let article = lemmaRows(tis).filter { $0.formMatch?.lemma == "ο" }
+        XCTAssertFalse(article.isEmpty, "της shows ο")
+        XCTAssertEqual(article.first.map { FormCaption.text(for: $0.formMatch!, locale: Locale(identifier: "en")) },
+                       "genitive singular feminine of ο")
+    }
+
+    /// #142, #136: frequent subtitle words that are no headword but a form of
+    /// one (OpenSubtitles 2018 top 5,000, `forms-qa.md`) find their lemma.
+    func testFindabilitySpotList() async throws {
+        let spots: [(form: String, lemma: String)] = [
+            ("ήταν", "είμαι"), ("είσαι", "είμαι"), ("έχει", "έχω"), ("ξέρεις", "ξέρω"), ("έχεις", "έχω"),
+            ("κάνεις", "κάνω"), ("όλα", "όλος"), ("μπορεί", "μπορώ"), ("κάνει", "κάνω"), ("έλα", "έρχομαι"),
+            ("υπάρχει", "υπάρχω"), ("μπορείς", "μπορώ"), ("πάμε", "πάω"), ("έχουμε", "έχω"), ("είμαστε", "είμαι"),
+            ("πω", "λέω"), ("είπε", "λέω"), ("όλοι", "όλος"), ("είχε", "έχω"), ("την", "ο"),
+        ]
+        for spot in spots {
+            let results = try await db.searchResults(query: spot.form)
+            XCTAssertTrue(lemmaRows(results).contains { $0.formMatch?.lemma == spot.lemma },
+                          "\(spot.form) finds \(spot.lemma); lemma rows: \(lemmaRows(results).compactMap(\.formMatch?.lemma))")
+        }
+    }
+
+    /// #142: lemma rows come only from enabled dictionaries, so they follow
+    /// the chips, and a base form adds none.
+    func testLemmaRowsFollowEnabledDictionaries() async throws {
+        let wordNetOnly = try await db.searchResults(query: "έγραψα", enabledSources: ["wordnet-ell-eng"])
+        XCTAssertEqual(lemmaRows(wordNetOnly).map(\.entry.source), ["wordnet-ell-eng"])
+        let englishOnly = try await db.searchResults(query: "έγραψα", enabledSources: ["wordnet"])
+        XCTAssertEqual(lemmaRows(englishOnly), [], "no Greek dictionary, no lemma row")
+        for query in ["γράφω", "γραφω", "σπίτι", "είμαι"] {
+            let results = try await db.searchResults(query: query)
+            XCTAssertEqual(lemmaRows(results), [], "the base form \(query) adds no lemma row")
+        }
+    }
+
+    /// Preferred mode on the real file: the Greek bucket starts with γράφω,
+    /// captioned, and no row repeats in the tail.
+    func testPreferredModePutsLemmaRowsInTheirPairBucket() async throws {
+        let groups = DictionaryGrouping.sourceGroups(order: ["wordnet"] + DictAppTests.greekSourceIDs)
+        let results = try await db.searchPreferredResults(query: "έγραψα", groups: groups,
+                                                          enabledSources: Set(groups.joined()))
+        XCTAssertEqual(Set(results.compactMap(\.id)).count, results.count, "no row repeats")
+        let greekBucket = results.prefix { DictAppTests.greekSourceIDs.contains($0.entry.source) }
+        XCTAssertGreaterThanOrEqual(greekBucket.count, 2, "\(results.map(\.entry.word))")
+        XCTAssertEqual(greekBucket.prefix(2).map(\.formMatch?.lemma), ["γράφω", "γράφω"],
+                       "no exact row, so the lemma rows lead the Greek bucket")
+        XCTAssertLessThanOrEqual(greekBucket.count, Search.preferredDictionaryTopN, "top N after the merge")
+    }
+
+    /// #142, #143: base forms, and every probe query of #129, give the same
+    /// results with the form step on and off. #143 adds go, mouse, good, run.
+    func testBaseFormResultsUnchanged() async throws {
+        let queries = ["house", "a", "the", "ice cream", "dog", "water", "run", "entry", "light", "дом", "вод",
+                       "говорить", "casa", "comer", "agua", "perro", "كتاب", "ماء", "بيت", "γράφω", "γραφω", "νερο",
+                       "σκυλος", "σπίτι", "είμαι", "νερό", "ποτέ", "πότε"]
+        var withStep: [String: [SearchResult]] = [:]
+        for query in queries {
+            withStep[query] = try await db.searchResults(query: query)
+        }
+        DatabaseService.lemmaStepEnabled = false
+        for query in queries {
+            let without = try await db.searchResults(query: query)
+            XCTAssertEqual(withStep[query], without, "'\(query)' changed with the form step")
+        }
+    }
+}
+
+/// #142 on made-up rows: the preferred-mode merge per bucket, the tail and an
+/// import outside every pair group (0136, "Search path", step 4).
+extension WordFormsSearchTests {
+    /// A dictionary file with `rows` and one Greek lemma, γράφω, of which
+    /// έγραψα is the aorist 1sg and γράφω the present 1sg; the service
+    /// attaches it.
+    private func openFormsFixture(_ rows: [TestDictionary.Row]) async throws {
+        let url = try TestDictionary.make(rows: rows, at: tempDir.appendingPathComponent("forms.sqlite"))
+        try await DatabaseQueue(path: url.path).write { db in
+            try db.execute(sql: """
+                INSERT INTO lemma(id, lang, word, word_normalized, pos) VALUES (1, 'ell', 'γράφω', 'γραφω', 'verb');
+                INSERT INTO tagset(id, tags) VALUES
+                    (1, 'active first-person indicative past perfective singular'),
+                    (2, 'active first-person imperfective indicative present singular');
+                INSERT INTO form_lookup(form_norm, lemma_id, tagset_id) VALUES ('εγραψα', 1, 1), ('γραφω', 1, 2);
+                """)
+        }
+        try await db.setup(userPath: tempDir.appendingPathComponent("forms-user.sqlite").path, dictionaryURL: url)
+    }
+
+    func testPreferredModeMergesLemmaRowsPerBucketBeforeTheTail() async throws {
+        let fd = "freedict-ell-eng", wn = "wordnet-ell-eng", custom = "custom_greek"
+        try await openFormsFixture([
+            TestDictionary.Row(word: "έγραψα", normalized: "εγραψα", definition: "I wrote", source: fd),
+            TestDictionary.Row(word: "γράφω", normalized: "γραφω", definition: "to write", source: fd),
+            TestDictionary.Row(word: "έγραψαν", normalized: "εγραψαν", definition: "they wrote", source: fd),
+            TestDictionary.Row(word: "έγραψας", normalized: "εγραψασ", definition: "you wrote", source: fd),
+            TestDictionary.Row(word: "γράφω", normalized: "γραφω", definition: "write", source: wn),
+            TestDictionary.Row(word: "έγραψαν", normalized: "εγραψαν", definition: "wrote (they)", source: wn),
+        ])
+        let json = tempDir.appendingPathComponent("custom.json")
+        try Data(#"[{"word": "γράφω", "definition": "to write, imported"}]"#.utf8).write(to: json)
+        _ = try await db.importJSON(at: json, source: custom)
+        let enabled: Set<String> = [fd, wn, custom]
+        func key(_ row: SearchResult) -> String { "\(row.entry.source)/\(row.entry.word)\(row.formMatch == nil ? "" : "*")" }
+
+        // Relevance: the exact row, the three γράφω rows, then the prefix rows.
+        let relevance = try await db.searchResults(query: "έγραψα", enabledSources: enabled)
+        XCTAssertEqual(relevance.first.map(key), "\(fd)/έγραψα")
+        XCTAssertEqual(Set(relevance.dropFirst().prefix(3).map(key)), ["\(fd)/γράφω*", "\(wn)/γράφω*", "\(custom)/γράφω*"])
+        XCTAssertEqual(Set(relevance.dropFirst(4).map(key)), ["\(fd)/έγραψαν", "\(fd)/έγραψας", "\(wn)/έγραψαν"])
+
+        // Preferred, top 2: each bucket merges its lemma rows and then takes
+        // its top 2; the tail excludes them and carries the import's lemma row.
+        let preferred = try await db.searchPreferredResults(query: "έγραψα", groups: [[fd], [wn]],
+                                                            enabledSources: enabled, topN: 2)
+        XCTAssertEqual(Array(preferred.prefix(4).map(key)),
+                       ["\(fd)/έγραψα", "\(fd)/γράφω*", "\(wn)/γράφω*", "\(wn)/έγραψαν"])
+        XCTAssertEqual(preferred.dropFirst(4).first.map(key), "\(custom)/γράφω*",
+                       "a lemma row outside every group leads the tail")
+        XCTAssertEqual(Set(preferred.dropFirst(5).map(key)), ["\(fd)/έγραψαν", "\(fd)/έγραψας"],
+                       "the FreeDict rows the merge pushed out of the bucket are in the tail")
+        XCTAssertEqual(Set(preferred.compactMap(\.id)).count, preferred.count, "no row repeats")
+
+        // The lemma itself adds nothing.
+        let base = try await db.searchResults(query: "γράφω", enabledSources: enabled)
+        XCTAssertTrue(base.allSatisfy { $0.formMatch == nil }, "\(base.map(key))")
+    }
+}
+
+/// QA, #142: the form step's edge cases on the real file (0136, "Search by
+/// any form"): lemmas that fold alike, queries the step skips, a form that is
+/// also a headword, the chips in preferred mode (#145) and an import.
+extension WordFormsSearchTests {
+    private func caption(_ row: SearchResult, _ code: String = "en") -> String? {
+        row.formMatch.map { FormCaption.text(for: $0, locale: Locale(identifier: code)) }
+    }
+
+    /// "source/word: caption" of each lemma row.
+    private func captioned(_ results: [SearchResult]) -> [String] {
+        lemmaRows(results).map { "\($0.entry.source)/\($0.entry.word): \(caption($0) ?? "")" }
+    }
+
+    /// Every lemma word `form_lookup` holds for the folded `query`.
+    private func lemmaWords(of query: String) async throws -> Set<String> {
+        let key = Search.foldGreek(query)
+        return Set(try await BundledDictionary().read { db in
+            try String.fetchAll(db, sql: """
+                SELECT l.word FROM form_lookup AS f JOIN lemma AS l ON l.id = f.lemma_id WHERE f.form_norm = ?
+                """, arguments: [key])
+        })
+    }
+
+    @MainActor
+    private func waitUntilIdle(_ vm: SearchViewModel, file: StaticString = #filePath, line: UInt = #line) async throws {
+        let deadline = Date().addingTimeInterval(5)
+        while vm.isSearching, Date() < deadline {
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+        XCTAssertFalse(vm.isSearching, "the search did not finish", file: file, line: line)
+        XCTAssertNil(vm.errorMessage, file: file, line: line)
+    }
+
+    /// Lemmas that fold alike but are spelt apart share a search key: γέρου
+    /// is a form of γέρος (old man) and γερός (sturdy), δουλειές of δουλειά
+    /// (work) and δουλεία (slavery), παιδιά of παιδί (child) and παΐδι
+    /// (chop). Each row is captioned with the lemma it spells, never with its
+    /// accent twin, and a word of two parts of speech shows once (κύριος).
+    func testFoldAlikeLemmasCaptionTheirOwnRows() async throws {
+        let geros = try await db.searchResults(query: "γέρου")
+        let douleies = try await db.searchResults(query: "δουλειές")
+        let paidia = try await db.searchResults(query: "παιδιά")
+        let kyrie = try await db.searchResults(query: "κύριε")
+        XCTAssertEqual(Set(captioned(geros)), [
+            "freedict-ell-eng/γέρος: genitive singular of γέρος",
+            "wordnet-ell-eng/γέρος: genitive singular of γέρος",
+            "wordnet-ell-eng/γερός: genitive singular masculine of γερός",
+        ])
+        XCTAssertEqual(Set(captioned(douleies)), [
+            "freedict-ell-eng/δουλειά: nominative plural of δουλειά",
+            "wordnet-ell-eng/δουλειά: nominative plural of δουλειά",
+            "freedict-ell-eng/δουλεία: nominative plural of δουλεία",
+            "wordnet-ell-eng/δουλεία: nominative plural of δουλεία",
+        ])
+        XCTAssertEqual(Set(captioned(paidia)), [
+            "freedict-ell-eng/παιδί: nominative plural of παιδί",
+            "wordnet-ell-eng/παιδί: nominative plural of παιδί",
+        ])
+        XCTAssertEqual(Set(captioned(kyrie)), [
+            "freedict-ell-eng/Κύριος: vocative singular of Κύριος",
+            "freedict-ell-eng/κύριος: vocative singular of κύριος",
+            "wordnet-ell-eng/κύριος: vocative singular of κύριος",
+        ])
+
+        // Frequent subtitle forms with accent twins: a row whose headword is
+        // one of the query's lemmas names that lemma.
+        for query in ["γέρου", "δουλειές", "παιδιά", "καλό", "νόμο", "κύριε", "θεού", "πολιτική", "μόνο",
+                      "στοιχεία", "ουρανό", "έρωτα"] {
+            let words = try await lemmaWords(of: query)
+            let rows = lemmaRows(try await db.searchResults(query: query))
+            XCTAssertFalse(rows.isEmpty, "'\(query)' adds lemma rows")
+            for row in rows where words.contains(row.entry.word) {
+                XCTAssertEqual(row.formMatch?.lemma, row.entry.word, "'\(query)': \(row.entry.source)/\(row.entry.word)")
+            }
+        }
+    }
+
+    /// The step adds rows and moves none: without the lemma rows, the
+    /// results are the step-off list without them, in its order, cut to 50.
+    /// Also for a form that is a headword itself (είναι, της, το), whose
+    /// exact row stays first and uncaptioned.
+    func testFormStepOnlyInsertsLemmaRows() async throws {
+        let queries = ["έγραψα", "ήταν", "είναι", "της", "το", "τα", "δω", "κανείς", "γέρου", "δουλειές"]
+        var withStep: [String: [SearchResult]] = [:]
+        for query in queries {
+            withStep[query] = try await db.searchResults(query: query)
+        }
+        DatabaseService.lemmaStepEnabled = false
+        for query in queries {
+            let on = try XCTUnwrap(withStep[query]), off = try await db.searchResults(query: query)
+            let added = Set(lemmaRows(on).compactMap(\.id))
+            XCTAssertFalse(added.isEmpty, "'\(query)' adds lemma rows")
+            XCTAssertEqual(on.filter { $0.formMatch == nil }.map(\.id),
+                           Array(off.map(\.id).filter { !added.contains($0 ?? -1) }.prefix(50 - added.count)),
+                           "'\(query)': the other rows keep their order")
+        }
+        for (query, headword, lemma) in [("είναι", "είναι", "present 3sg of είμαι"), ("της", "τής", "genitive singular feminine of ο"),
+                                         ("το", "το", "nominative singular neuter of ο")] {
+            let on = try XCTUnwrap(withStep[query])
+            XCTAssertEqual(on.first?.entry.word, headword, "'\(query)': the exact row first")
+            XCTAssertNil(on.first?.formMatch)
+            XCTAssertEqual(on.dropFirst().first.flatMap { caption($0) }, lemma, "'\(query)': then the lemma row")
+        }
+    }
+
+    /// Queries the step skips give exactly today's results: one letter (α, ο
+    /// and η are forms of many lemmas), several words, Greek with a digit or
+    /// a Latin letter. Final sigma, capitals, σ typed last, spaces and the
+    /// Greek question mark give κάνεις's lemma rows.
+    func testFormStepEdgeQueriesOnTheFile() async throws {
+        let skipped = ["α", "ο", "η", "ά", "έγραψα σήμερα", "του γέρου", "έγραψα2", "έγραψαs"]
+        var withStep: [String: [SearchResult]] = [:]
+        for query in skipped {
+            withStep[query] = try await db.searchResults(query: query)
+        }
+        DatabaseService.lemmaStepEnabled = false
+        for query in skipped {
+            let without = try await db.searchResults(query: query)
+            XCTAssertEqual(withStep[query], without, "'\(query)' gets no form step")
+        }
+        XCTAssertFalse(try XCTUnwrap(withStep["α"]).isEmpty, "precondition: α finds rows")
+        DatabaseService.lemmaStepEnabled = true
+
+        let reference = lemmaRows(try await db.searchResults(query: "κάνεις"))
+        XCTAssertEqual(Set(reference.compactMap(\.formMatch?.lemma)), ["κάνω", "κανένας"])
+        for query in ["κανεις", "ΚΆΝΕΙΣ", "κανεισ", "  κάνεις ", "κάνεις\u{037E}", "κα\u{0301}νεις"] {
+            let rows = lemmaRows(try await db.searchResults(query: query))
+            XCTAssertEqual(rows, reference, "'\(query)' finds κάνεις's lemmas")
+        }
+    }
+
+    /// #145: in preferred mode the chips decide which pairs are searched,
+    /// and so which lemma rows show. Greek on: the Greek bucket leads with
+    /// γράφω, captioned. Greek off: no Greek row and no lemma row. "Only
+    /// this" on Greek: Greek rows only, γράφω first.
+    @MainActor
+    func testPreferredModeFollowsTheChips() async throws {
+        let order = DictAppTests.greekSourceIDs + ["wordnet", "freedict-eng-spa", "wordnet-spa-eng", "openrussian",
+                                                   "wordnet-arb-eng"]
+        let (selection, settings, _, _) = QuickSwitchFixture.makeSelection(storedOrder: order)
+        settings.resultSortMode = .preferredDictionary
+        await selection.load()
+        let vm = SearchViewModel(settings: settings, selection: selection)
+        vm.query = "έγραψα"
+        vm.onQueryChanged()
+        try await waitUntilIdle(vm)
+        XCTAssertEqual(vm.results.prefix(2).map { $0.formMatch?.lemma }, ["γράφω", "γράφω"])
+        XCTAssertEqual(vm.results.first.flatMap { caption($0) }, "aorist 1sg of γράφω")
+
+        selection.setEnabled(false, pair: "ell-eng")
+        try await waitUntilIdle(vm)
+        XCTAssertFalse(vm.results.contains { $0.formMatch != nil }, "Greek off: no lemma row")
+        XCTAssertTrue(Set(vm.results.map(\.entry.source)).isDisjoint(with: DictAppTests.greekSourceIDs))
+        XCTAssertFalse(vm.showsNoDictionariesHint, "other pairs are on")
+
+        selection.enableOnly(pair: "ell-eng")
+        try await waitUntilIdle(vm)
+        XCTAssertTrue(Set(vm.results.map(\.entry.source)).isSubset(of: DictAppTests.greekSourceIDs))
+        XCTAssertEqual(vm.results.prefix(2).map { $0.formMatch?.lemma }, ["γράφω", "γράφω"])
+    }
+
+    /// An imported Greek dictionary (headwords as typed, NFC) gets lemma rows
+    /// in relevance and preferred mode, also with the bundled Greek pair
+    /// off; its exact row stays first and uncaptioned.
+    func testImportedGreekDictionaryGetsLemmaRows() async throws {
+        let custom = "qa_greek_import"
+        let json = tempDir.appendingPathComponent("\(custom).json")
+        try Data(#"""
+            [{"word": "γράφω", "definition": "to write, imported"},
+             {"word": "είμαι", "definition": "to be, imported"},
+             {"word": "έγραψα", "definition": "I wrote, imported"}]
+            """#.utf8).write(to: json)
+        let count = try await db.importJSON(at: json, source: custom)
+        XCTAssertEqual(count, 3)
+        func key(_ row: SearchResult) -> String { "\(row.entry.source)/\(row.entry.word)\(row.formMatch == nil ? "" : "*")" }
+
+        let imported = try await db.searchResults(query: "έγραψα", enabledSources: [custom])
+        XCTAssertEqual(imported.map(key), ["\(custom)/έγραψα", "\(custom)/γράφω*"])
+        XCTAssertEqual(imported.last.flatMap { caption($0) }, "aorist 1sg of γράφω")
+        let itan = try await db.searchResults(query: "ηταν", enabledSources: [custom])
+        XCTAssertEqual(itan.map(key), ["\(custom)/είμαι*"])
+
+        let everything = try await db.searchResults(query: "έγραψα")
+        XCTAssertEqual(everything.first.map(key), "\(custom)/έγραψα")
+        XCTAssertEqual(Set(everything.dropFirst().prefix(3).map(key)),
+                       ["freedict-ell-eng/γράφω*", "wordnet-ell-eng/γράφω*", "\(custom)/γράφω*"])
+
+        // The import has its own chip; the bundled Greek pair is off.
+        let preferred = try await db.searchPreferredResults(query: "έγραψα", groups: [["wordnet"], [custom]],
+                                                            enabledSources: ["wordnet", custom])
+        XCTAssertEqual(preferred.map(key), ["\(custom)/έγραψα", "\(custom)/γράφω*"])
+    }
+}
+
+/// QA, local only (0136, "Performance"): search time on #129's probe set plus
+/// the inflected probes, against 1.4.0 on the same simulator. 1.4.0 is its
+/// database of a fresh English install, built by `build_140_database` in
+/// `Scripts/make_search_probe.py`, searched with v1.4.0's SQL; its path comes
+/// from `LIBREDICT_SEARCH_140_DB` (passed as
+/// `TEST_RUNNER_LIBREDICT_SEARCH_140_DB`), and the test is skipped without
+/// it. Each round runs every probe once on 1.4.0, on this build with the
+/// form step and without it; the gate is the median round ≤ 1.10 × 1.4.0's.
+extension WordFormsSearchTests {
+    private static let probeQueries = ["house", "a", "the", "ice cream", "dog", "water", "run", "entry", "light",
+                                       "дом", "вод", "говорить", "casa", "comer", "agua", "perro", "كتاب", "ماء",
+                                       "بيت", "γράφω", "γραφω", "νερο", "σκυλος", "έγραψα", "ήταν", "went", "mice"]
+    private static let preferredQueries = ["house", "casa", "νερο", "έγραψα"]
+    /// A fresh English install's pair groups (`make_search_probe.py`).
+    private static let englishGroups = [["wordnet"], ["freedict-eng-spa", "wordnet-spa-eng"], ["openrussian"],
+                                        ["freedict-ell-eng", "wordnet-eng-ell", "freedict-eng-ell", "wordnet-ell-eng"],
+                                        ["wordnet-arb-eng"]]
+
+    /// v1.4.0's `DatabaseService.search` and `searchPreferred` SQL.
+    private static func search140(_ queue: DatabaseQueue, _ query: String, preferred: Bool) async throws -> Int {
+        let sanitized = String(query.unicodeScalars.filter { CharacterSet.alphanumerics.union(.whitespaces).contains($0) })
+            .trimmingCharacters(in: .whitespaces)
+        let fts = Search.ftsQuery(sanitized: sanitized)
+        let order = """
+            (e.word_normalized = ? COLLATE NOCASE OR e.word_normalized = ? COLLATE NOCASE) DESC,
+            (e.word_normalized LIKE ? COLLATE NOCASE OR e.word_normalized LIKE ? COLLATE NOCASE) DESC, rank
+            """
+        let orderArguments: StatementArguments = [fts.rankKey, fts.rawKey, fts.rankKey + "%", fts.rawKey + "%"]
+        return try await queue.read { db in
+            guard preferred else {
+                return try DictionaryEntry.fetchAll(db, sql: """
+                    SELECT e.* FROM entries_fts fts JOIN entries e ON e.id = fts.rowid
+                    WHERE entries_fts MATCH ? ORDER BY \(order) LIMIT ?
+                    """, arguments: [fts.match] + orderArguments + [50]).count
+            }
+            var taken: [Int64] = []
+            for members in englishGroups {
+                let marks = members.map { _ in "?" }.joined(separator: ", ")
+                taken += try DictionaryEntry.fetchAll(db, sql: """
+                    SELECT e.* FROM entries_fts fts JOIN entries e ON e.id = fts.rowid
+                    WHERE entries_fts MATCH ? AND e.source IN (\(marks)) ORDER BY \(order) LIMIT ?
+                    """, arguments: [fts.match] + StatementArguments(members) + orderArguments + [4]).compactMap(\.id)
+            }
+            let enabled = Array(Set(englishGroups.joined())).sorted()
+            let tail = try DictionaryEntry.fetchAll(db, sql: """
+                SELECT e.* FROM entries_fts fts JOIN entries e ON e.id = fts.rowid
+                WHERE entries_fts MATCH ? AND e.source IN (\(enabled.map { _ in "?" }.joined(separator: ", ")))
+                  AND e.id NOT IN (\(taken.map { _ in "?" }.joined(separator: ", "))) ORDER BY rank LIMIT ?
+                """, arguments: [fts.match] + StatementArguments(enabled) + StatementArguments(taken) + [50 - taken.count])
+            return taken.count + tail.count
+        }
+    }
+
+    func testProbeTimingAgainst140() async throws {
+        guard let path = ProcessInfo.processInfo.environment["LIBREDICT_SEARCH_140_DB"] else {
+            throw XCTSkip("LIBREDICT_SEARCH_140_DB is not set")
+        }
+        var config = Configuration()
+        config.readonly = true
+        let old = try DatabaseQueue(path: path, configuration: config)
+        let groups = Self.englishGroups, enabled = Set(Self.englishGroups.joined())
+        let probes = Self.probeQueries.map { ($0, false) } + Self.preferredQueries.map { ($0, true) }
+
+        func time(_ body: () async throws -> Void) async rethrows -> Double {
+            let start = DispatchTime.now().uptimeNanoseconds
+            try await body()
+            return Double(DispatchTime.now().uptimeNanoseconds - start) / 1_000_000
+        }
+        func runApp(step: Bool) async throws -> [Double] {
+            DatabaseService.lemmaStepEnabled = step
+            defer { DatabaseService.lemmaStepEnabled = true }
+            var times: [Double] = []
+            for (query, preferred) in probes {
+                times.append(try await time {
+                    if preferred {
+                        _ = try await db.searchPreferredResults(query: query, groups: groups, enabledSources: enabled)
+                    } else {
+                        _ = try await db.searchResults(query: query)
+                    }
+                })
+            }
+            return times
+        }
+        func run140() async throws -> [Double] {
+            var times: [Double] = []
+            for (query, preferred) in probes {
+                times.append(try await time { _ = try await Self.search140(old, query, preferred: preferred) })
+            }
+            return times
+        }
+        func median(_ values: [Double]) -> Double {
+            let sorted = values.sorted()
+            return sorted.count % 2 == 1 ? sorted[sorted.count / 2] : (sorted[sorted.count / 2 - 1] + sorted[sorted.count / 2]) / 2
+        }
+
+        _ = try await run140(); _ = try await runApp(step: true); _ = try await runApp(step: false)   // warm caches
+        let rounds = Int(ProcessInfo.processInfo.environment["LIBREDICT_SEARCH_ROUNDS"] ?? "") ?? 5
+        var v140: [[Double]] = [], on: [[Double]] = [], off: [[Double]] = []
+        for _ in 0..<rounds {
+            v140.append(try await run140())
+            on.append(try await runApp(step: true))
+            off.append(try await runApp(step: false))
+        }
+        let totals = (v140: median(v140.map { $0.reduce(0, +) }), on: median(on.map { $0.reduce(0, +) }),
+                      off: median(off.map { $0.reduce(0, +) }))
+        for (index, (query, preferred)) in probes.enumerated() {
+            print(String(format: "probe %@%@: 1.4.0 %.1f ms, step on %.1f ms, step off %.1f ms", query,
+                         preferred ? " (preferred)" : "", median(v140.map { $0[index] }),
+                         median(on.map { $0[index] }), median(off.map { $0[index] })))
+        }
+        print(String(format: "probe set, median of %d rounds: 1.4.0 %.1f ms, step on %.1f ms (%.3f×), step off %.1f ms (%.3f×)",
+                     rounds, totals.v140, totals.on, totals.on / totals.v140, totals.off, totals.off / totals.v140))
+        XCTAssertLessThanOrEqual(totals.on, totals.v140 * 1.10, "search with the form step is within 10% of 1.4.0")
+    }
+}
+
+/// #142: the form lookup reads the primary-key prefix of `form_lookup`, so
+/// it never scans the table, and an accent-fold collision returns every
+/// lemma.
+extension WordFormsLookupTests {
+    /// `EXPLAIN QUERY PLAN` of the app's Greek candidate query: a primary-key
+    /// search, no `SCAN` (the prototype's 6× slowdown). #143 adds the morphy
+    /// lookups.
+    func testLookupsUsePrimaryKey() async throws {
+        await DictAppTests.waitForHostAppLaunch()
+        let url = try TestDictionary.bundledURL()
+        let plan = try DatabaseQueue().inDatabase { db -> [String] in
+            try db.execute(sql: "ATTACH DATABASE ? AS dict", arguments: [DatabaseService.dictionaryURI(url)])
+            return try Row.fetchAll(db, sql: "EXPLAIN QUERY PLAN " + DatabaseService.greekLemmaCandidatesSQL,
+                                    arguments: ["εγραψα", "εγραψα"]).map { $0["detail"] as String }
+        }
+        XCTAssertTrue(plan.contains { $0.contains("SEARCH f USING PRIMARY KEY (form_norm=?)") }, "\(plan)")
+        XCTAssertFalse(plan.contains { $0.hasPrefix("SCAN") }, "no table scan: \(plan)")
+    }
+
+    /// κανείς and κάνεις both fold to κανεισ: the query shows κάνω and κανένας.
+    func testFoldCollisionReturnsAllLemmas() async throws {
+        try readDictionaryFile { db in
+            XCTAssertEqual(Set(try lemmas(of: "κανείς", in: db)), ["κάνω", "κανένας"])
+        }
+        await DictAppTests.waitForHostAppLaunch()
+        let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+        try await DatabaseService.shared.setup(userPath: tempDir.appendingPathComponent("user.sqlite").path,
+                                               dictionaryURL: try TestDictionary.bundledURL())
+        for query in ["κανείς", "κάνεις", "κανεις"] {
+            let results = try await DatabaseService.shared.searchResults(query: query)
+            var lemmas: [String] = []
+            for lemma in results.compactMap(\.formMatch?.lemma) where !lemmas.contains(lemma) {
+                lemmas.append(lemma)
+            }
+            XCTAssertEqual(lemmas, ["κάνω", "κανένας"], "'\(query)': the verb first, then the pronoun")
         }
     }
 }
@@ -9693,8 +10485,8 @@ final class QuickSwitchSearchTests: XCTestCase {
         try await waitUntilIdle(vm)
     }
 
-    private func sources(_ results: [DictionaryEntry]) -> Set<String> {
-        Set(results.map(\.source))
+    private func sources(_ results: [SearchResult]) -> Set<String> {
+        Set(results.map(\.entry.source))
     }
 
     /// A chip change re-runs the same query at once: new results, no keystroke.
@@ -9798,7 +10590,7 @@ final class QuickSwitchSearchTests: XCTestCase {
         XCTAssertEqual(selection.pairs.map(\.id), QuickSwitchFixture.pairIDs, "the import joins eng-spa, no new chip")
         try await waitUntilIdle(vm)
         XCTAssertEqual(vm.query, "qjoinword", "no keystroke")
-        XCTAssertEqual(vm.results.map { EntryKey($0) }, [EntryKey(source: "wordnet-spa-eng", word: "qjoinword")],
+        XCTAssertEqual(vm.results.map { EntryKey($0.entry) }, [EntryKey(source: "wordnet-spa-eng", word: "qjoinword")],
                        "the query ran again and finds the imported row")
     }
 
@@ -9821,7 +10613,7 @@ final class QuickSwitchSearchTests: XCTestCase {
 
         selection.setEnabled(true, pair: "eng-rus")
         try await waitUntilIdle(vm)
-        let resultSources = vm.results.map(\.source)
+        let resultSources = vm.results.map(\.entry.source)
         XCTAssertEqual(Set(resultSources), QuickSwitchFixture.greekSources.union(["openrussian"]))
         let firstRussian = try XCTUnwrap(resultSources.firstIndex(of: "openrussian"))
         XCTAssertTrue(resultSources[..<firstRussian].allSatisfy(QuickSwitchFixture.greekSources.contains),
@@ -9832,7 +10624,7 @@ final class QuickSwitchSearchTests: XCTestCase {
         try await waitUntilIdle(vm)
         XCTAssertNil(settings.enabledSources)
         XCTAssertEqual(sources(vm.results), Set(QuickSwitchFixture.sources))
-        XCTAssertTrue(QuickSwitchFixture.greekSources.contains(try XCTUnwrap(vm.results.first?.source)))
+        XCTAssertTrue(QuickSwitchFixture.greekSources.contains(try XCTUnwrap(vm.results.first?.entry.source)))
     }
 
     /// The chips filter Search only (0129): with every pair off, Recent words

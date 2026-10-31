@@ -33,10 +33,11 @@ struct SearchView: View {
                     ContentUnavailableView.search(text: vm.query)
                         .accessibilityIdentifier("search_no_results")
                 } else {
-                    ForEach(vm.results) { entry in
-                        NavigationLink(value: entry) {
-                            SourceStripeRow(source: entry.source) {
-                                EntryRow(entry: entry)
+                    ForEach(vm.results) { result in
+                        // Issue #142: a lemma row opens and records the lemma's entry.
+                        NavigationLink(value: result.entry) {
+                            SourceStripeRow(source: result.entry.source) {
+                                EntryRow(entry: result.entry, formMatch: result.formMatch)
                             }
                         }
                         .listRowInsets(EdgeInsets())   // stripe reaches the leading edge (#6 §4c)
@@ -234,8 +235,10 @@ private struct ChipShape: ViewModifier {
 // MARK: - Row
 
 /// A single search result row showing word, source badge, and definition snippet.
+/// A lemma row also shows its form caption under the headword (Issue #142).
 private struct EntryRow: View {
     let entry: DictionaryEntry
+    var formMatch: FormMatch?
     @Environment(\.locale) private var locale
 
     var body: some View {
@@ -253,6 +256,15 @@ private struct EntryRow: View {
                     // not the abbreviations; a custom import keeps its text.
                     .accessibilityLabel(badgeAccessibilityLabel)
                     .accessibilityIdentifier("source_badge_\(entry.source)")
+            }
+            if let formMatch {
+                // "aorist 1sg of γράφω"; VoiceOver reads the person as the
+                // Greek pronoun, "aorist, εγώ of γράφω".
+                Text(verbatim: FormCaption.text(for: formMatch, locale: locale))
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .accessibilityLabel(Text(verbatim: FormCaption.accessibilityText(for: formMatch, locale: locale)))
+                    .accessibilityIdentifier("form_caption")
             }
             if !entry.phonetic.isEmpty {
                 Text(entry.phonetic)

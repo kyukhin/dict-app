@@ -326,8 +326,9 @@ class SettingsViewModel: ObservableObject {
     ]
 
     /// The `<lang>.lproj` bundle for `locale` (same rule as
-    /// `LocalizationManager.localizedBundle`), falling back to `.main`.
-    nonisolated private static func localizedBundle(for locale: Locale) -> Bundle {
+    /// `LocalizationManager.localizedBundle`), falling back to `.main`. Also
+    /// resolves the Search form captions (#142).
+    nonisolated static func localizedBundle(for locale: Locale) -> Bundle {
         let code = locale.language.languageCode?.identifier ?? locale.identifier
         return Bundle.main.path(forResource: code, ofType: "lproj").flatMap(Bundle.init(path:)) ?? .main
     }

@@ -108,6 +108,42 @@ struct EntryKey: Hashable, Sendable {
     }
 }
 
+// MARK: - Search by any form (Issue #142)
+
+/// Why the form step added a row to Search: the query is an inflected form
+/// of `lemma` (0136-word-forms.md, "Search path"). Captioned by
+/// `FormCaption`; never persisted.
+struct FormMatch: Hashable, Sendable {
+    /// What the form step knows about the query as a form of the lemma.
+    enum Analysis: Hashable, Sendable {
+        /// Greek: the Wiktextract tags of the form's caption tag set
+        /// (`dict.form_lookup.tagset_id`), e.g. aorist 1sg is `active
+        /// first-person indicative past perfective singular`.
+        case greek(tags: Set<String>)
+        // #143 adds the English analysis: morphy's pos, rule and suffix.
+    }
+
+    /// The lemma's headword (NFC), e.g. γράφω.
+    let lemma: String
+    let analysis: Analysis
+}
+
+/// One Search row: an entry, plus the form match that brought it in when
+/// the query is an inflected form of its headword (Issue #142). Its
+/// identity is the entry id, unique across the dictionary file and the
+/// imports (#129).
+struct SearchResult: Identifiable, Hashable, Sendable {
+    let entry: DictionaryEntry
+    var formMatch: FormMatch?
+
+    init(entry: DictionaryEntry, formMatch: FormMatch? = nil) {
+        self.entry = entry
+        self.formMatch = formMatch
+    }
+
+    var id: Int64? { entry.id }
+}
+
 // MARK: - DictionaryFile (Issue #140)
 
 /// The bundled, read-only dictionary file `dictionaries.sqlite`, written by
