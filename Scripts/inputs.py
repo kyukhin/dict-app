@@ -20,6 +20,7 @@ verifies it the same way and never downloads.
 
 from __future__ import annotations
 
+import functools
 import hashlib
 import json
 import os
@@ -101,7 +102,8 @@ def committed(key: str) -> Path:
 def use_nltk_data(cache_dir: Path) -> None:
     """Fetch the pinned WordNet 3.0 and OMW 1.4 corpora and point NLTK at
     them alone, so neither `~/nltk_data` nor `nltk.download()` (unversioned)
-    can change the rows. NLTK reads the corpora straight from the zips."""
+    can change the rows. Read them through `corpora/<name>.zip/...` paths:
+    a plain `corpora/<name>` path prefers an extracted copy that no pin covers."""
     try:
         import nltk
     except ImportError as err:
@@ -109,4 +111,27 @@ def use_nltk_data(cache_dir: Path) -> None:
                            "pip install -r Scripts/requirements.txt") from err
     for key in NLTK_CORPORA:
         fetch(key, cache_dir)
-    nltk.data.path[:] = [str(Path(cache_dir) / "nltk_data")]
+    root = Path(cache_dir) / "nltk_data"
+    # NLTK 3.10 refuses data that another account can write to, which a
+    # umask of 002 gives every download: drop the group and world write bits.
+    for path in (root, *root.rglob("*")):
+        if path.is_symlink():
+            raise RuntimeError(f"{path} is a symlink; the NLTK cache takes plain files only")
+        mode = path.stat().st_mode
+        if mode & 0o022:
+            path.chmod(mode & ~0o022)
+    nltk.data.path[:] = [str(root)]
+
+
+@functools.cache
+def wordnet(cache_dir: Path):
+    """The WordNet 3.0 reader with OMW 1.4 on the pinned zips, one instance
+    shared by the builders. Since NLTK 3.10 `nltk.corpus.wordnet` reads
+    `omw-2.0`, which is not pinned; this is its NLTK 3.9 definition."""
+    use_nltk_data(cache_dir)
+    import nltk
+    from nltk.corpus.reader import CorpusReader, WordNetCorpusReader
+
+    omw = CorpusReader(nltk.data.find("corpora/omw-1.4.zip/omw-1.4/"),
+                       r".*/wn-data-.*\.tab", encoding="utf8")
+    return WordNetCorpusReader(nltk.data.find("corpora/wordnet.zip/wordnet/"), omw)

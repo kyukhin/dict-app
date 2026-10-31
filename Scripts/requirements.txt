@@ -1,4 +1,6 @@
 # Build dependencies of Scripts/build_dictionaries.py. Pinned: the NLTK
-# WordNet reader shapes the WordNet rows.
-nltk==3.9.4
+# WordNet reader shapes the WordNet rows, and since NLTK 3.10 it runs its
+# regexes through `regex`.
+nltk==3.10.4
+regex==2026.9.29
 defusedxml==0.7.1

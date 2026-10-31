@@ -154,8 +154,7 @@ def build_and_collect(cache_dir: Path = inputs.DEFAULT_CACHE_DIR) -> tuple[list[
         `(word, definition, phonetic, pos, "wordnet-spa-eng")` tuples and
         `version` describes the WordNet/OMW data actually used.
     """
-    inputs.use_nltk_data(cache_dir)
-    from nltk.corpus import wordnet as wn
+    wn = inputs.wordnet(cache_dir)
 
     wn_version = wn.get_version() or "unknown"
     version = f"OMW 1.4 / WordNet {wn_version}"
