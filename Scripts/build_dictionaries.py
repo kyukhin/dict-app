@@ -220,8 +220,7 @@ WORDNET_DESCRIPTION = (
 
 
 def wordnet(cache_dir: Path) -> list[Dictionary]:
-    inputs.use_nltk_data(cache_dir)
-    from nltk.corpus import wordnet as wn
+    wn = inputs.wordnet(cache_dir)
 
     rows = []
     for lemma in sorted(set(wn.all_lemma_names())):

@@ -172,7 +172,7 @@ def wordnet_license_text() -> str:
     with OMW (Apache 2.0 §4(a)). Fails the build if that file is missing."""
     import nltk
 
-    apache = nltk.data.load("corpora/omw-1.4/ell/LICENSE", format="text")
+    apache = nltk.data.load("corpora/omw-1.4.zip/omw-1.4/ell/LICENSE", format="text")
     if "Apache License" not in apache or "Version 2.0" not in apache:
         raise RuntimeError("corpora/omw-1.4/ell/LICENSE is not the Apache License 2.0")
     return "\n\n".join([
@@ -255,8 +255,7 @@ def _omw_pos(synsets) -> str:
 def build_omw(cache_dir: Path) -> tuple[list[tuple], list[tuple], str]:
     """Return `(ell_eng_rows, eng_ell_rows, version)` from one WordNet
     instance, so the synset join is exact (as for Arabic and Spanish)."""
-    inputs.use_nltk_data(cache_dir)
-    from nltk.corpus import wordnet as wn
+    wn = inputs.wordnet(cache_dir)
 
     version = f"OMW 1.4 / WordNet {wn.get_version() or 'unknown'}"
 
