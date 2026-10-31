@@ -21,15 +21,16 @@ enum Search {
     /// `tail`. Deduplicates by entry `id` defensively (buckets are disjoint by
     /// source and the tail SQL already excludes bucketed IDs, so this is a
     /// belt-and-braces guarantee that the result never repeats a row). Order is
-    /// preserved: each ordered bucket, then the tail.
-    static func assemble(
-        buckets: [String: [DictionaryEntry]],
-        tail: [DictionaryEntry],
+    /// preserved: each ordered bucket, then the tail. Rows are entries or,
+    /// since #142, `SearchResult`s.
+    static func assemble<Row: Identifiable>(
+        buckets: [String: [Row]],
+        tail: [Row],
         order: [String]
-    ) -> [DictionaryEntry] {
+    ) -> [Row] where Row.ID == Int64? {
         var seen = Set<Int64>()
-        var result: [DictionaryEntry] = []
-        func append(_ entries: [DictionaryEntry]) {
+        var result: [Row] = []
+        func append(_ entries: [Row]) {
             for entry in entries {
                 guard let id = entry.id else { result.append(entry); continue }
                 if seen.insert(id).inserted { result.append(entry) }
@@ -94,6 +95,96 @@ enum Search {
         // Rank on both keys: bundled Greek rows store the folded key, custom
         // imports store the raw (NFC) headword (PR #113 review).
         return ("(" + sanitized + "*) OR (" + folded + "*)", folded, sanitized)
+    }
+
+    // MARK: Search by any form (Issue #142)
+    //
+    // 0136-word-forms.md, "Search path": a one-word query is also looked up
+    // as an inflected form, and its lemmas' headword rows come right after
+    // the exact matches, each with a `FormMatch`. The SQL is in
+    // `DatabaseService`; the decisions below are pure.
+
+    /// Which form step a sanitized query gets.
+    enum FormStep: Equatable {
+        /// Every letter Greek: look up `key`, the folded query, in
+        /// `dict.form_lookup`.
+        case greek(key: String)
+        // #143 adds `english` for a query of a–z letters, through Morphy.
+    }
+
+    /// A query needs at least this many letters for the form step.
+    static let formStepMinimumLetters = 2
+    /// At most this many lemmas and lemma rows join one search.
+    static let maximumFormLemmas = 5
+    static let maximumLemmaRows = 10
+
+    /// The form step for a sanitized query: one word of 2+ letters, every
+    /// letter Greek (accents, case and final sigma are folded away). Several
+    /// words, other or mixed scripts and digits get none.
+    static func formStep(for sanitized: String) -> FormStep? {
+        var letters = 0
+        for scalar in sanitized.precomposedStringWithCanonicalMapping.unicodeScalars {
+            switch scalar.properties.generalCategory {
+            case .nonspacingMark, .spacingMark, .enclosingMark:
+                continue
+            default:
+                guard isGreek(scalar), scalar.properties.isAlphabetic else { return nil }
+                letters += 1
+            }
+        }
+        return letters >= formStepMinimumLetters ? .greek(key: foldGreek(sanitized)) : nil
+    }
+
+    /// A lemma the query is a form of, as the candidate query returns it.
+    struct LemmaCandidate: Equatable, Sendable {
+        /// The lemma's headword (NFC) and its folded search key.
+        let word: String
+        let wordNormalized: String
+        let match: FormMatch
+    }
+
+    /// One row of a base search query: the entry, and whether it matched the
+    /// query's key exactly (the first ranking term).
+    struct RankedEntry: Equatable, Sendable {
+        let entry: DictionaryEntry
+        let isExact: Bool
+    }
+
+    /// Merges one bucket: the exact rows (the leading run of `ranked`, which
+    /// is in rank order), then the lemma rows not already among them, then
+    /// the remaining rows of `ranked` without the lemma rows, cut to `limit`.
+    /// A lemma row that `ranked` has further down moves up and keeps its
+    /// caption. Without lemma rows the result is `ranked` as it is.
+    static func mergeLemmaBucket(ranked: [RankedEntry], lemmaRows: [SearchResult], limit: Int) -> [SearchResult] {
+        let exact = ranked.prefix { $0.isExact }
+        var seen = Set<Int64>()
+        var result: [SearchResult] = []
+        func append(_ row: SearchResult) {
+            guard let id = row.id else { result.append(row); return }
+            if seen.insert(id).inserted { result.append(row) }
+        }
+        exact.forEach { append(SearchResult(entry: $0.entry)) }
+        lemmaRows.forEach(append)
+        ranked.dropFirst(exact.count).forEach { append(SearchResult(entry: $0.entry)) }
+        return Array(result.prefix(limit))
+    }
+
+    /// The lemma rows of the first `maximumLemmas` lemmas present in `rows`,
+    /// which come ordered by candidate.
+    static func capLemmas(_ rows: [SearchResult], maximumLemmas: Int = maximumFormLemmas) -> [SearchResult] {
+        var lemmas: [String] = []
+        return rows.filter { row in
+            guard let lemma = row.formMatch?.lemma else { return false }
+            if lemmas.contains(lemma) { return true }
+            guard lemmas.count < maximumLemmas else { return false }
+            lemmas.append(lemma)
+            return true
+        }
+    }
+
+    /// An FTS5 string literal: `"…"` with inner quotes doubled.
+    static func ftsString(_ s: String) -> String {
+        "\"" + s.replacingOccurrences(of: "\"", with: "\"\"") + "\""
     }
 }
 
@@ -394,16 +485,16 @@ actor DatabaseService {
     }
 
     /// The 1.4.0 ranking: an exact `word_normalized` match on the folded or
-    /// raw key, then a prefix match, then FTS `rank`. Takes
-    /// `relevanceArguments(_:)`.
+    /// raw key (the `is_exact` column, #142), then a prefix match, then FTS
+    /// `rank`. Takes `relevanceArguments(_:)`.
     private static let relevanceOrder = """
-        (word_normalized = ? COLLATE NOCASE OR word_normalized = ? COLLATE NOCASE) DESC,
+        is_exact DESC,
             (word_normalized LIKE ? COLLATE NOCASE OR word_normalized LIKE ? COLLATE NOCASE) DESC,
             rank
         """
 
     private static func relevanceArguments(_ fts: (match: String, rankKey: String, rawKey: String)) -> StatementArguments {
-        [fts.rankKey, fts.rawKey, fts.rankKey + "%", fts.rawKey + "%"]
+        [fts.rankKey + "%", fts.rawKey + "%"]
     }
 
     /// The sources of the imported dictionaries.
@@ -411,15 +502,15 @@ actor DatabaseService {
         Set(try String.fetchAll(db, sql: "SELECT source FROM imported_sources"))
     }
 
-    /// Rows matching `match`, as `DictionaryEntry`s ranked by `order` and cut
-    /// to `limit`. `sources`: the sources to keep (`nil`: every source).
-    /// `ids`: rows to leave out. `withImports` adds the imported branch. Each
-    /// branch has the entry columns plus `rank`, so `order` names columns of
-    /// the union.
-    private static func rankedEntries(
-        _ db: Database, match: String, sources: [String]?, excluding ids: [Int64] = [],
-        withImports: Bool, order: String, orderArguments: StatementArguments, limit: Int
-    ) throws -> [DictionaryEntry] {
+    /// The `UNION ALL` of the search branches, one per store, each with the
+    /// entry columns plus `rank`: rows matching `match` and `filter` (SQL on
+    /// the entry `e`, with its arguments). `sources`: the sources to keep
+    /// (`nil`: every source). `ids`: rows to leave out. `withImports` adds
+    /// the imported branch.
+    private static func searchBranches(
+        match: String, filter: (sql: String, arguments: StatementArguments)? = nil,
+        sources: [String]?, excluding ids: [Int64] = [], withImports: Bool
+    ) -> (sql: String, arguments: StatementArguments) {
         var branches: [String] = []
         var arguments = StatementArguments()
         for store in withImports ? Store.allCases : [.dictionary] {
@@ -431,6 +522,10 @@ actor DatabaseService {
                 WHERE \(t.match) MATCH ?
                 """
             arguments += [match]
+            if let filter {
+                branch += " AND " + filter.sql
+                arguments += filter.arguments
+            }
             if let sources {
                 branch += " AND e.source IN (\(sources.map { _ in "?" }.joined(separator: ", ")))"
                 arguments += StatementArguments(sources)
@@ -441,23 +536,46 @@ actor DatabaseService {
             }
             branches.append(branch)
         }
+        return (branches.joined(separator: "\nUNION ALL\n"), arguments)
+    }
+
+    /// Rows matching the query, ranked by `order` and cut to `limit`, each
+    /// with `is_exact`: whether its `word_normalized` is the folded or the
+    /// raw key (#142). `order` names columns of the union and `is_exact`.
+    private static func rankedEntries(
+        _ db: Database, fts: (match: String, rankKey: String, rawKey: String), sources: [String]?,
+        excluding ids: [Int64] = [], withImports: Bool, order: String, orderArguments: StatementArguments,
+        limit: Int
+    ) throws -> [Search.RankedEntry] {
+        let union = searchBranches(match: fts.match, sources: sources, excluding: ids, withImports: withImports)
+        var arguments: StatementArguments = [fts.rankKey, fts.rawKey]
+        arguments += union.arguments
         arguments += orderArguments
         arguments += [limit]
-        return try DictionaryEntry.fetchAll(db, sql: """
-            SELECT * FROM (
-            \(branches.joined(separator: "\nUNION ALL\n"))
+        return try Row.fetchAll(db, sql: """
+            SELECT *, (word_normalized = ? COLLATE NOCASE OR word_normalized = ? COLLATE NOCASE) AS is_exact FROM (
+            \(union.sql)
             )
             ORDER BY \(order)
             LIMIT ?
             """, arguments: arguments)
+            .map { row in Search.RankedEntry(entry: try DictionaryEntry(row: row), isExact: row["is_exact"]) }
     }
 
     /// Prefix search using FTS5 with relevance ranking:
     ///   Priority 1: exact match (word == query)
     ///   Priority 2: starts-with (word LIKE 'query%')
     ///   Priority 3: FTS relevance (rank)
-    /// The unicode61 tokenizer handles both Latin and Cyrillic input.
+    /// The unicode61 tokenizer handles both Latin and Cyrillic input. The
+    /// entries of `searchResults`, lemma rows included (#142).
     func search(query: String, limit: Int = 50, enabledSources: Set<String>? = nil) async throws -> [DictionaryEntry] {
+        try await searchResults(query: query, limit: limit, enabledSources: enabledSources).map(\.entry)
+    }
+
+    /// Relevance search, as `search`, with the form step (#142): when the
+    /// query is an inflected form, its lemmas' rows follow the exact matches,
+    /// each with its `FormMatch`.
+    func searchResults(query: String, limit: Int = 50, enabledSources: Set<String>? = nil) async throws -> [SearchResult] {
         // If an explicit (non-nil) empty set is passed, no sources are enabled — return immediately.
         if let sources = enabledSources, sources.isEmpty { return [] }
 
@@ -466,13 +584,17 @@ actor DatabaseService {
         guard !sanitized.isEmpty else { return [] }
         // Issue #87: Greek queries also match their folded form.
         let fts = Search.ftsQuery(sanitized: sanitized)
+        let formStep = Self.formStep(for: sanitized)
         return try await read(pool) { db in
             let imported = try Self.importedSources(db)
+            let sources = enabledSources.map { Array($0) }
             let withImports = enabledSources.map { !imported.isDisjoint(with: $0) } ?? !imported.isEmpty
-            return try Self.rankedEntries(
-                db, match: fts.match, sources: enabledSources.map { Array($0) }, withImports: withImports,
+            let ranked = try Self.rankedEntries(
+                db, fts: fts, sources: sources, withImports: withImports,
                 order: Self.relevanceOrder, orderArguments: Self.relevanceArguments(fts), limit: limit
             )
+            let lemmaRows = try Self.lemmaRows(db, step: formStep, sources: sources, withImports: withImports)
+            return Search.mergeLemmaBucket(ranked: ranked, lemmaRows: lemmaRows, limit: limit)
         }
     }
 
@@ -487,6 +609,7 @@ actor DatabaseService {
     /// no window functions): a single global query capped at `limit` could push
     /// a low-ranking dictionary's top rows past the cutoff, so its top-N would
     /// be missing. Assembly is the pure `Search.assemble` for testability.
+    /// The entries of `searchPreferredResults`, lemma rows included (#142).
     func searchPreferred(
         query: String,
         groups: [[String]],
@@ -494,6 +617,21 @@ actor DatabaseService {
         topN: Int = Search.preferredDictionaryTopN,
         limit: Int = 50
     ) async throws -> [DictionaryEntry] {
+        try await searchPreferredResults(query: query, groups: groups, enabledSources: enabledSources,
+                                         topN: topN, limit: limit).map(\.entry)
+    }
+
+    /// "Preferred dictionary first", as `searchPreferred`, with the form step
+    /// (#142): each pair bucket merges its lemma rows after its exact rows,
+    /// then takes its top N, before the tail query, so the tail excludes
+    /// them. Lemma rows of sources outside every pair group join the tail.
+    func searchPreferredResults(
+        query: String,
+        groups: [[String]],
+        enabledSources: Set<String>,
+        topN: Int = Search.preferredDictionaryTopN,
+        limit: Int = 50
+    ) async throws -> [SearchResult] {
         if enabledSources.isEmpty { return [] }
         guard let pool = dbPool else { throw DBError.notConnected }
         let sanitized = sanitizeFTS(query)
@@ -507,38 +645,155 @@ actor DatabaseService {
             .filter { !$0.isEmpty }
         // Issue #87: Greek queries also match their folded form.
         let fts = Search.ftsQuery(sanitized: sanitized)
+        let formStep = Self.formStep(for: sanitized)
 
         return try await read(pool) { db in
             let imported = try Self.importedSources(db)
-            var buckets: [String: [DictionaryEntry]] = [:]
+            let lemmaRows = try Self.lemmaRows(db, step: formStep, sources: Array(enabledSources),
+                                               withImports: !imported.isDisjoint(with: enabledSources))
+            var buckets: [String: [SearchResult]] = [:]
             var bucketOrder: [String] = []
             var takenIds: [Int64] = []
 
             for (index, members) in enabledGroups.enumerated() {
                 // Index, not joined IDs: a custom ID may contain any separator.
                 let key = String(index)
-                let rows = try Self.rankedEntries(
-                    db, match: fts.match, sources: members, withImports: !imported.isDisjoint(with: members),
+                let ranked = try Self.rankedEntries(
+                    db, fts: fts, sources: members, withImports: !imported.isDisjoint(with: members),
                     order: Self.relevanceOrder, orderArguments: Self.relevanceArguments(fts), limit: topN
+                )
+                let rows = Search.mergeLemmaBucket(
+                    ranked: ranked, lemmaRows: lemmaRows.filter { members.contains($0.entry.source) }, limit: topN
                 )
                 buckets[key] = rows
                 bucketOrder.append(key)
                 takenIds += rows.compactMap(\.id)
             }
 
-            // Relevance tail over all enabled sources, excluding bucketed IDs.
-            var tail: [DictionaryEntry] = []
+            // Relevance tail over all enabled sources, excluding bucketed IDs,
+            // with the lemma rows of sources outside every group (#142).
+            var tail: [SearchResult] = []
             let remaining = limit - takenIds.count
             if remaining > 0 {
-                tail = try Self.rankedEntries(
-                    db, match: fts.match, sources: Array(enabledSources), excluding: takenIds,
+                let ranked = try Self.rankedEntries(
+                    db, fts: fts, sources: Array(enabledSources), excluding: takenIds,
                     withImports: !imported.isDisjoint(with: enabledSources),
                     order: "rank", orderArguments: [], limit: remaining
+                )
+                let grouped = Set(enabledGroups.joined())
+                tail = Search.mergeLemmaBucket(
+                    ranked: ranked, lemmaRows: lemmaRows.filter { !grouped.contains($0.entry.source) }, limit: remaining
                 )
             }
 
             return Search.assemble(buckets: buckets, tail: tail, order: bucketOrder)
         }
+    }
+
+    // MARK: - Search by any form (Issue #142)
+    //
+    // 0136-word-forms.md, "Search path". Inside the search's read: the
+    // query's lemmas from the forms tables (`dict.form_lookup`, through its
+    // primary-key prefix), then their headword rows in the enabled
+    // dictionaries. The merge is the pure `Search.mergeLemmaBucket`.
+
+    #if DEBUG
+    /// Unit-test seam: turns the form step off, so a test compares search
+    /// with and without it. The app never sets it.
+    static var lemmaStepEnabled = true
+    #endif
+
+    /// The Greek lemma candidates of a folded query (both arguments): a probe
+    /// of the `form_lookup` primary-key prefix, then the lemma and tag set
+    /// by id. A lookup that missed the key's first column would scan the
+    /// table (6× slower in the prototype); a unit test checks the plan.
+    static let greekLemmaCandidatesSQL = """
+        SELECT l.word, l.word_normalized, t.tags
+        FROM dict.form_lookup f
+        JOIN dict.lemma l ON l.id = f.lemma_id
+        JOIN dict.tagset t ON t.id = f.tagset_id
+        WHERE f.form_norm = ? AND l.word_normalized <> ?
+        ORDER BY CASE l.pos WHEN 'verb' THEN 0 WHEN 'noun' THEN 1 WHEN 'adj' THEN 2 ELSE 3 END,
+                 l.word, l.pos
+        """
+
+    /// The form step for a sanitized query, or `nil`.
+    private static func formStep(for sanitized: String) -> Search.FormStep? {
+        #if DEBUG
+        guard lemmaStepEnabled else { return nil }
+        #endif
+        return Search.formStep(for: sanitized)
+    }
+
+    /// The lemmas the query is a form of, ordered verb, noun, adj, others,
+    /// then by word, without the lemmas whose key is the query's own (a base
+    /// form adds nothing). One per headword: the first of its parts of speech
+    /// (κύριε: κύριος, noun). Lemmas that fold alike but are spelt apart
+    /// (γέρου: γέρος and γερός) each stay, so a row is captioned with its
+    /// own lemma (`lemmaRows`). Unlimited: the lemma-row query's limit
+    /// applies after the enabled filter.
+    private static func lemmaCandidates(_ db: Database, step: Search.FormStep) throws -> [Search.LemmaCandidate] {
+        switch step {
+        case .greek(let key):
+            let rows = try Row.fetchAll(db, sql: greekLemmaCandidatesSQL, arguments: [key, key])
+            var words = Set<String>()
+            return rows.compactMap { row in
+                let word: String = row["word"], wordNormalized: String = row["word_normalized"]
+                guard words.insert(word).inserted else { return nil }
+                let tags = Set((row["tags"] as String).split(separator: " ").map(String.init))
+                return Search.LemmaCandidate(word: word, wordNormalized: wordNormalized,
+                                             match: FormMatch(lemma: word, analysis: .greek(tags: tags)))
+            }
+        }
+    }
+
+    /// The headword rows of the query's lemmas in the enabled dictionaries,
+    /// each with its `FormMatch`: ordered by candidate, then rank, at most
+    /// `Search.maximumLemmaRows` rows of `Search.maximumFormLemmas` lemmas.
+    /// One query of the base query's shape: an FTS filter on the
+    /// `word_normalized` column, which uses the index, plus the exact key.
+    /// Bundled Greek rows store the folded key and imported rows the word as
+    /// it is, so each lemma matches both.
+    private static func lemmaRows(_ db: Database, step: Search.FormStep?, sources: [String]?,
+                                  withImports: Bool) throws -> [SearchResult] {
+        guard let step else { return [] }
+        let candidates = try lemmaCandidates(db, step: step)
+        guard !candidates.isEmpty else { return [] }
+
+        let keysPerCandidate = candidates.map { Array(Set([$0.wordNormalized, $0.word])).sorted() }
+        let keys = keysPerCandidate.flatMap { $0 }
+        let match = "word_normalized : (" + keys.map(Search.ftsString).joined(separator: " OR ") + ")"
+        let union = searchBranches(
+            match: match,
+            filter: ("e.word_normalized COLLATE NOCASE IN (\(keys.map { _ in "?" }.joined(separator: ", ")))",
+                     StatementArguments(keys)),
+            sources: sources, withImports: withImports
+        )
+        var whens: [String] = []
+        var arguments = StatementArguments()
+        for (index, candidateKeys) in keysPerCandidate.enumerated() {
+            whens.append("WHEN " + candidateKeys.map { _ in "word_normalized = ? COLLATE NOCASE" }
+                .joined(separator: " OR ") + " THEN \(index)")
+            arguments += StatementArguments(candidateKeys)
+        }
+        arguments += union.arguments
+        arguments += [Search.maximumLemmaRows]
+        let rows = try Row.fetchAll(db, sql: """
+            SELECT *, CASE \(whens.joined(separator: " ")) END AS candidate FROM (
+            \(union.sql)
+            )
+            ORDER BY candidate, rank
+            LIMIT ?
+            """, arguments: arguments)
+        return Search.capLemmas(try rows.compactMap { row in
+            guard let index: Int = row["candidate"], candidates.indices.contains(index) else { return nil }
+            let entry = try DictionaryEntry(row: row)
+            // Lemmas that fold alike share a key, which orders the rows; the
+            // caption names the lemma the row spells (γερός, not γέρος), else
+            // the key's first lemma.
+            let candidate = candidates.first { $0.word == entry.word } ?? candidates[index]
+            return SearchResult(entry: entry, formMatch: candidate.match)
+        })
     }
 
     // MARK: - Entries by key (Issue #138)
