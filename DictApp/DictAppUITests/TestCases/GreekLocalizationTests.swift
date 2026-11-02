@@ -374,6 +374,50 @@ final class GreekLocalizationTests: XCTestCase {
         try assertNoEnglishLeak(on: "Bookmarks", skippingCellContent: true)
     }
 
+    /// Issue #144: the inflection table of γράφω in Greek: its title, the
+    /// "All forms" button and the VoiceOver label of each cell ("αόριστος,
+    /// εγώ, έγραψα"), with no English left.
+    func testInflectionLabelsInGreek() throws {
+        typealias IDs = AccessibilityIdentifiers.Inflection
+        let field = app.searchFields.firstMatch
+        XCTAssertTrue(field.waitForExistence(timeout: TestData.Timeouts.long))
+        field.tap()
+        dismissSiriPrivacyNoticeIfPresent()
+        app.searchFields.firstMatch.typeText("γράφω")
+        let row = app.collectionViews.firstMatch.cells
+            .containing(.any, identifier: AccessibilityIdentifiers.Search.sourceBadge(source: TestData.Sources.freedictEllEng))
+            .containing(NSPredicate(format: "label == %@", "γράφω"))
+            .firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: TestData.Timeouts.long), "'γράφω' must list the FreeDict entry")
+        dismissKeyboardIfPresent()
+        row.tap()
+        let page = InflectionTablePage(app: app)
+        XCTAssertTrue(page.table.waitForExistence(timeout: TestData.Timeouts.long), "γράφω must show its table")
+        XCTAssertTrue(page.table.staticTexts["Κλίση ρήματος"].exists, "the title reads 'Κλίση ρήματος'")
+        XCTAssertTrue(page.table.staticTexts["Τύποι: Wiktionary, CC BY-SA 4.0"].exists, "the source line is Greek")
+        XCTAssertEqual(page.cell(IDs.verbCell(slot: "aorist", person: "1sg")).label, "αόριστος, εγώ, έγραψα")
+        XCTAssertEqual(page.cell(IDs.verbCell(slot: "future", person: "1sg")).label, "μέλλοντας, εγώ, θα γράψω")
+        XCTAssertEqual(page.cell(IDs.verbCell(slot: "imperative_continuous", person: "2sg")).label,
+                       "προστακτική, εξακολουθητική, εσύ, γράφε")
+        XCTAssertTrue(page.table.staticTexts["Προστακτική"].exists, "the imperative block is titled 'Προστακτική'")
+        XCTAssertEqual(page.allFormsButton.label, "Όλοι οι τύποι")
+        XCTAssertTrue(page.reveal(page.cell(IDs.verbCell(slot: "present", person: "1sg"))))
+        attachScreenshot("13-inflection-grafo")
+        try assertNoEnglishLeak(on: "Inflection table", skippingIdentifierPrefixes: ["definition_content"])
+
+        page.tapAllForms()
+        let passive = page.cell(IDs.verbCell(voice: "passive", slot: "aorist", person: "1sg"))
+        XCTAssertTrue(passive.waitForExistence(timeout: TestData.Timeouts.medium))
+        XCTAssertEqual(passive.label, "παθητική φωνή, αόριστος, εγώ, γράφτηκα / γράφηκα")
+        XCTAssertEqual(page.cell(IDs.verbCell(slot: "perfect", person: "1sg")).label, "παρακείμενος, εγώ, έχω γράψει")
+        XCTAssertTrue(page.table.staticTexts["Παθητική φωνή"].exists, "the passive is headed 'Παθητική φωνή'")
+        XCTAssertTrue(page.table.staticTexts["Υποτακτική"].exists)
+        XCTAssertEqual(page.allFormsButton.label, "Κύριοι τύποι")
+        XCTAssertTrue(page.reveal(passive))
+        attachScreenshot("14-inflection-grafo-all-forms")
+        try assertNoEnglishLeak(on: "Inflection table, all forms", skippingIdentifierPrefixes: ["definition_content"])
+    }
+
     /// Issue #145: the Search chips in Greek. "All" reads "Όλα τα λεξικά",
     /// the Greek pair comes first (the #88 default), and with every chip off
     /// a query shows the Greek hint.
@@ -477,7 +521,7 @@ final class GreekLocalizationTests: XCTestCase {
         let keyboard = app.keyboards.firstMatch
         guard keyboard.exists else { return }
         for label in ["Αναζήτηση", "αναζήτηση", "Search", "search", "Απόκρυψη πληκτρολογίου", "Hide keyboard"] {
-            let key = keyboard.buttons[label]
+            let key = keyboard.buttons[label].firstMatch
             if key.exists {
                 key.tap()
                 if keyboard.waitForNonExistence(timeout: TestData.Timeouts.short) { return }

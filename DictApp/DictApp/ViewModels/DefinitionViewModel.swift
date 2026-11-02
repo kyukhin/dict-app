@@ -6,6 +6,9 @@ import Foundation
 final class DefinitionViewModel: ObservableObject {
     @Published var isBookmarked: Bool = false
     @Published var errorMessage: String?
+    /// Issue #144: the Greek headword's inflection table; nil for other
+    /// sources and for words without one.
+    @Published private(set) var inflectionTable: InflectionTable?
 
     let entry: DictionaryEntry
     /// Issue #202: the headword's voice language. Without that voice the
@@ -47,5 +50,16 @@ final class DefinitionViewModel: ObservableObject {
 
     func speak() {
         SpeechService.shared.speak(entry.word, language: speechLanguage)
+    }
+
+    // MARK: - Issue #144: inflection table
+
+    /// Loads the table of a Greek headword, its labels in the language of
+    /// `locale`. Other sources read nothing. A table is extra: a failed read
+    /// leaves the screen without one.
+    func loadInflection(locale: Locale) async {
+        guard InflectionLookup.sources.contains(entry.source) else { return }
+        guard let paradigm = try? await db.inflection(for: entry) else { return }
+        inflectionTable = ParadigmLayout.table(for: paradigm, locale: locale)
     }
 }

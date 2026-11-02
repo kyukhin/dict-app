@@ -158,6 +158,858 @@ enum DictionaryFile {
     static let formatVersion = 2
 }
 
+// MARK: - Word forms: inflection tables (Issue #144)
+//
+// The Definition screen's Greek inflection tables (0136-word-forms.md,
+// "Inflection tables" and "Tables (#144)"). Pure: no SQL, no SwiftUI.
+// `DatabaseService.inflection(for:)` reads a `LemmaParadigm`, `ParadigmLayout`
+// maps its cells to slots and builds the `InflectionTable` that
+// `InflectionTableView` (DefinitionView.swift) renders.
+
+/// One `dict.paradigm` cell: a form and its Wiktextract tag set.
+struct ParadigmCell: Equatable, Sendable {
+    let form: String
+    let tags: Set<String>
+
+    init(form: String, tags: Set<String>) {
+        self.form = form
+        self.tags = tags
+    }
+
+    /// `tags` as `dict.tagset.tags` stores them: space-separated.
+    init(form: String, tags: String) {
+        self.init(form: form, tags: Set(tags.split(separator: " ").map(String.init)))
+    }
+}
+
+/// The table of one Greek lemma, as `DatabaseService.inflection(for:)` reads it.
+struct LemmaParadigm: Equatable, Sendable {
+    /// The lemma whose table this is (NFC).
+    let word: String
+    /// Its Wiktextract part of speech: `verb`, `noun`, `adj` or `name`.
+    let pos: String
+    /// The cells in table order (`dict.paradigm.ord`).
+    let cells: [ParadigmCell]
+    /// The entry's own lemma has no table, and this is the lemma it is an
+    /// alternative or form of (πάω → πηγαίνω): the view names it under the title.
+    let isLinked: Bool
+}
+
+/// Which lemma's table an entry shows ("Which table" in 0136-word-forms.md).
+enum InflectionLookup {
+    /// The sources whose entries get a table: Greek headwords.
+    static let sources: Set<String> = ["freedict-ell-eng", "wordnet-ell-eng"]
+
+    /// The parts of speech with a table. An entry without a `pos` tries them all.
+    static let posOrder = ["verb", "noun", "adj", "name"]
+
+    /// A `dict.lemma` row.
+    struct Lemma: Equatable, Sendable {
+        let id: Int64
+        let word: String
+        let pos: String
+    }
+
+    /// A lemma that a table-less lemma's word is a form of, and whether that
+    /// lemma's table holds the word itself.
+    struct Link: Equatable, Sendable {
+        let lemma: Lemma
+        let holdsHeadword: Bool
+    }
+
+    /// The Wiktextract parts of speech of an entry's `pos` labels, in the
+    /// entry's own order, without repeats: noun → noun, adjective or
+    /// adjective satellite → adj, verb → verb, proper noun → name. Other
+    /// labels have no table.
+    static func lemmaPOS(forEntryPOS pos: String) -> [String] {
+        var result: [String] = []
+        for label in pos.split(separator: ",") {
+            let mapped: String?
+            switch label.trimmingCharacters(in: .whitespaces).lowercased() {
+            case "noun": mapped = "noun"
+            case "adjective", "adjective satellite": mapped = "adj"
+            case "verb": mapped = "verb"
+            case "proper noun": mapped = "name"
+            default: mapped = nil
+            }
+            if let mapped, !result.contains(mapped) { result.append(mapped) }
+        }
+        return result
+    }
+
+    /// How a lemma's word matches the entry's (Kirill, 2026-11-01).
+    enum Match: Sendable {
+        /// Spelled exactly as the headword.
+        case exact
+        /// The same but for case or a diaeresis: Ταύρος and ταύρος, Μάϊος and
+        /// Μάιος, ΕΛΙΑ and ελιά (capitals carry no accent).
+        case near
+    }
+
+    /// How `lemmaWord` matches `entryWord`, or nil when only folding makes
+    /// them meet: an accent elsewhere is another word (Σόφια is not σοφία,
+    /// αλκή not άλκη).
+    static func match(_ lemmaWord: String, _ entryWord: String) -> Match? {
+        // `==` on String is canonical equivalence, so NFC and NFD agree.
+        if lemmaWord == entryWord { return .exact }
+        // A word in capitals is written without accents.
+        if isAllCaps(lemmaWord) || isAllCaps(entryWord) {
+            return Search.foldGreek(lemmaWord) == Search.foldGreek(entryWord) ? .near : nil
+        }
+        return nearKey(lemmaWord) == nearKey(entryWord) ? .near : nil
+    }
+
+    private static func isAllCaps(_ word: String) -> Bool {
+        word.contains(where: \.isLetter) && !word.contains(where: \.isLowercase)
+    }
+
+    /// `word` lowercase, without diaeresis, with σ for the final sigma.
+    private static func nearKey(_ word: String) -> String {
+        let scalars = word.lowercased().decomposedStringWithCanonicalMapping.unicodeScalars
+            .filter { $0 != "\u{0308}" }
+            .map { $0 == "\u{03C2}" ? "\u{03C3}" : $0 }
+        return String(String.UnicodeScalarView(scalars)).precomposedStringWithCanonicalMapping
+    }
+
+    /// The lemmas of part of speech `pos` among `candidates` (the lemmas whose
+    /// folded word is the entry's) that match the entry's word as `kinds`.
+    static func lemmas(ofPOS pos: String, entryWord: String, candidates: [Lemma], matching kinds: Set<Match>) -> [Lemma] {
+        candidates.filter { lemma in
+            lemma.pos == pos && match(lemma.word, entryWord).map(kinds.contains) == true
+        }
+    }
+
+    /// The table an entry shows ("Which table", Kirill, 2026-10-31 and
+    /// 2026-11-01). `table` gives a lemma's table, or nil when it has none;
+    /// `link` gives the table of the one lemma of a part of speech that the
+    /// entry's word is a form or an alternative of, or nil for none or several.
+    /// A lemma matches the word exactly or near (`Match`); one that differs in
+    /// its accents never does.
+    /// - An entry with parts of speech tries its labels in its own order.
+    ///   1. A lemma spelled exactly as the headword, of any of its labels, comes
+    ///      first; a noun label also takes the proper noun so spelled (WordNet's
+    ///      noun Κίνα shows Κίνα, not κίνα).
+    ///   2. Then the first label whose near lemmas have a table ("adjective,
+    ///      noun": the adjective's). A noun label with no noun lemma takes the
+    ///      near proper nouns of a capitalized word (Ταύρος: ταύρος, ρώμη: not
+    ///      Ρώμη); a label with no lemma at all takes `link` (μέρα: ημέρα).
+    ///   Several tables at one step: no table.
+    /// - An entry without one shows the table when exactly one lemma of any
+    ///   part of speech has one, exact lemmas first; several: no table.
+    static func choose<Table: Equatable>(entryWord: String, entryPOS: String, candidates: [Lemma],
+                                         table: (Lemma) throws -> Table?,
+                                         link: (String) throws -> Table? = { _ in nil }) rethrows -> Table? {
+        func tables(_ lemmas: [Lemma]) throws -> [Table] {
+            var found: [Table] = []
+            for lemma in lemmas {
+                if let value = try table(lemma), !found.contains(value) { found.append(value) }
+            }
+            return found
+        }
+        func of(_ pos: String, _ kinds: Set<Match>) -> [Lemma] {
+            lemmas(ofPOS: pos, entryWord: entryWord, candidates: candidates, matching: kinds)
+        }
+        let labels = lemmaPOS(forEntryPOS: entryPOS)
+        if labels.isEmpty {
+            guard entryPOS.trimmingCharacters(in: .whitespaces).isEmpty else { return nil }
+            for kind in [Match.exact, .near] {
+                let all = try tables(posOrder.flatMap { of($0, [kind]) })
+                if all.count == 1 { return all[0] }
+                if all.count > 1 { return nil }
+            }
+            return nil
+        }
+        // 1. A lemma spelled as the headword beats every other.
+        for pos in labels {
+            for group in [of(pos, [.exact])] + (pos == "noun" ? [of("name", [.exact])] : []) {
+                let found = try tables(group)
+                if found.count == 1 { return found[0] }
+                if found.count > 1 { return nil }
+            }
+        }
+        // 2. Near lemmas, the proper noun, the link.
+        for pos in labels {
+            let own = of(pos, [.exact, .near])
+            var group = of(pos, [.near])
+            if own.isEmpty, pos == "noun" {
+                // A near proper noun stands only for a capitalized word: ρώμη
+                // (vigour) is not Ρώμη.
+                group = entryWord.first?.isUppercase == true ? of("name", [.near]) : []
+            }
+            var found = try tables(group)
+            if found.isEmpty, own.isEmpty, let linked = try link(pos) { found = [linked] }
+            if found.count == 1 { return found[0] }
+            if found.count > 1 { return nil }
+        }
+        return nil
+    }
+
+    /// The lemma whose table a table-less lemma shows: the only link, else
+    /// the only one whose table holds the word itself; otherwise none.
+    static func chooseLink(_ links: [Link]) -> Lemma? {
+        if links.count == 1 { return links[0].lemma }
+        let holding = links.filter(\.holdsHeadword)
+        return holding.count == 1 ? holding[0].lemma : nil
+    }
+
+    /// Whether a linked lemma's `forms` are a table for `word`: they hold the
+    /// word itself, or no form that folds like it. A form that only folds
+    /// like the word is another word's (μετρό and μέτρο, συνεδρία and
+    /// συνέδρια); with no such form the link comes from the word's own page
+    /// (μέρα, alternative of ημέρα).
+    static func linkFits(word: String, forms: [String]) -> Bool {
+        let key = Search.foldGreek(word)
+        return forms.contains(word) || !forms.contains { Search.foldGreek($0) == key }
+    }
+
+    /// `linkFits(word:forms:)` for a linked lemma of part of speech `pos` with
+    /// `cells`, and, for a noun, adjective or proper noun whose table holds the
+    /// word, the word is one of its nominatives (Kirill, 2026-11-01): καφέ is
+    /// no headword form of καφές, πράγματα is one of πράγμα. Verbs link as before.
+    static func linkFits(word: String, pos: String, cells: [ParadigmCell]) -> Bool {
+        guard linkFits(word: word, forms: cells.map(\.form)) else { return false }
+        guard pos != "verb" else { return true }
+        let own = cells.filter { $0.form == word }
+        return own.isEmpty || own.contains { $0.tags.contains("nominative") }
+    }
+}
+
+/// A grammatical label of the tables, from the string catalog: lowercase as
+/// in running text ("aorist"), or capitalized as a header ("Aorist").
+enum FormLabel: String, CaseIterable, Sendable {
+    case present, imperfect, aorist, future, futureContinuous, perfect, pluperfect, futurePerfect
+    case subjunctive, imperative
+    case continuous, simple
+    case active, passive
+    case presentParticiple, pastParticiple, perfectParticiple, infinitive
+    case nominative, genitive, accusative, vocative
+    case singular, plural
+    case masculine, feminine, neuter
+    case comparative, superlative
+
+    /// The catalog key, `forms.<group>.<name>`.
+    var key: String {
+        let group: String
+        switch self {
+        case .present, .imperfect, .aorist, .future, .futureContinuous, .perfect, .pluperfect, .futurePerfect:
+            group = "tense"
+        case .subjunctive, .imperative: group = "mood"
+        case .continuous, .simple: group = "aspect"
+        case .active, .passive: group = "voice"
+        case .presentParticiple, .pastParticiple, .perfectParticiple, .infinitive: group = "nonfinite"
+        case .nominative, .genitive, .accusative, .vocative: group = "case"
+        case .singular, .plural: group = "number"
+        case .masculine, .feminine, .neuter: group = "gender"
+        case .comparative, .superlative: group = "degree"
+        }
+        return "forms.\(group).\(rawValue)"
+    }
+
+    /// The label in the in-app language of `locale`, as in running text.
+    func text(locale: Locale) -> String {
+        SettingsViewModel.localizedString(key, locale: locale)
+    }
+
+    /// The label as a header or title: its first letter capitalized.
+    func title(locale: Locale) -> String {
+        let text = text(locale: locale)
+        guard let first = text.first else { return text }
+        // No locale: Greek uppercasing in `el` would drop the accent (Ά → Α).
+        return String(first).uppercased() + text.dropFirst()
+    }
+}
+
+/// A Greek inflection table, ready to render: sections of rows and columns
+/// whose texts are already localized. Empty rows, columns and sections are
+/// gone; a single missing cell has no forms and shows "—".
+struct InflectionTable: Equatable {
+    enum Kind: Equatable {
+        case conjugation, declension
+    }
+
+    let kind: Kind
+    /// The lemma whose table this is, when it is not the entry's own (πηγαίνω
+    /// for πάω): shown under the title.
+    let linkedLemma: String?
+    let sections: [Section]
+
+    /// The default view.
+    var mainSections: [Section] { sections.filter(\.isMain) }
+    /// What "All forms" adds below it.
+    var moreSections: [Section] { sections.filter { !$0.isMain } }
+
+    struct Section: Identifiable, Equatable {
+        let id: String
+        /// A voice heading ("Passive") over the first section of the other voice.
+        let heading: String?
+        /// "Imperative", "Singular", …; nil for a section that needs none.
+        let title: String?
+        let isMain: Bool
+        /// Column headers. A section of labelled rows has one untitled column.
+        let columns: [Header]
+        let rows: [Row]
+
+        var showsColumnHeaders: Bool { columns.contains { !$0.title.isEmpty } }
+        var showsRowHeaders: Bool { rows.contains { $0.header != nil } }
+    }
+
+    /// A column or row header: a capitalized label, or a Greek pronoun.
+    struct Header: Identifiable, Equatable {
+        let id: String
+        let title: String
+    }
+
+    struct Row: Identifiable, Equatable {
+        let id: String
+        let header: Header?
+        /// One per column of the section.
+        let cells: [Cell]
+    }
+
+    struct Cell: Identifiable, Equatable {
+        /// The accessibility identifier, `inflection_cell_…`.
+        let id: String
+        /// Several forms are variants of one slot; none is a missing form.
+        let forms: [String]
+        /// "aorist, εγώ, έγραψα": column, row, form. Greek runs carry the `el`
+        /// language attribute, so VoiceOver speaks them with the Greek voice.
+        let accessibilityLabel: AttributedString
+
+        static let missing = "—"
+
+        var text: String { forms.isEmpty ? Self.missing : forms.joined(separator: " / ") }
+        /// `text` broken after each slash, one form per line, for a narrow grid.
+        var stackedText: String { forms.count > 1 ? forms.joined(separator: " /\n") : text }
+        var accessibilityText: String { String(accessibilityLabel.characters) }
+    }
+}
+
+/// Maps a lemma's cells to the slots of its table and builds the localized
+/// `InflectionTable` (0136-word-forms.md, "Tables (#144)"). Periphrastic forms
+/// (θα, να, έχω, είχα, έχοντας + a form) are generated here, never stored.
+enum ParadigmLayout {
+
+    /// The table of `paradigm` in the in-app language of `locale`, or nil
+    /// when no cell fits a slot (the screen then shows no table).
+    static func table(for paradigm: LemmaParadigm, locale: Locale) -> InflectionTable? {
+        let labels = Labels(locale: locale)
+        let isVerb = paradigm.pos == "verb"
+        let sections: [InflectionTable.Section]
+        switch paradigm.pos {
+        case "verb": sections = conjugation(paradigm.cells, labels: labels)
+        case "adj": sections = adjectiveDeclension(paradigm.cells, labels: labels)
+        case "noun", "name": sections = nounDeclension(paradigm.cells, labels: labels)
+        default: sections = []
+        }
+        guard !sections.isEmpty else { return nil }
+        return InflectionTable(kind: isVerb ? .conjugation : .declension,
+                               linkedLemma: paradigm.isLinked ? paradigm.word : nil,
+                               sections: sections)
+    }
+
+    /// Whether `paradigm` has any cell that fits a slot, i.e. would show a table.
+    static func hasTable(_ paradigm: LemmaParadigm) -> Bool {
+        table(for: paradigm, locale: Locale(identifier: "en")) != nil
+    }
+
+    /// Cells tagged so are hidden from tables; they stay searchable.
+    static let hiddenTags: Set<String> = ["rare", "archaic", "dated"]
+
+    // MARK: Persons and voices
+
+    enum Voice: String, CaseIterable, Sendable {
+        case active, passive
+
+        var label: FormLabel { self == .active ? .active : .passive }
+    }
+
+    /// A person and number, the row of a verb table.
+    enum Person: String, CaseIterable, Sendable {
+        case firstSingular = "1sg", secondSingular = "2sg", thirdSingular = "3sg"
+        case firstPlural = "1pl", secondPlural = "2pl", thirdPlural = "3pl"
+
+        /// The row label: a Greek pronoun, never translated.
+        var pronoun: String {
+            ["εγώ", "εσύ", "αυτός", "εμείς", "εσείς", "αυτοί"][index]
+        }
+
+        /// The perfect's auxiliary (έχω γράψει).
+        var have: String {
+            ["έχω", "έχεις", "έχει", "έχουμε", "έχετε", "έχουν"][index]
+        }
+
+        /// The pluperfect's auxiliary (είχα γράψει).
+        var had: String {
+            ["είχα", "είχες", "είχε", "είχαμε", "είχατε", "είχαν"][index]
+        }
+
+        private var index: Int { Self.allCases.firstIndex(of: self) ?? 0 }
+
+        /// The person of a cell tagged with one person and one number.
+        init?(tags: Set<String>) {
+            let persons = ["first-person", "second-person", "third-person"]
+            let found = persons.indices.filter { tags.contains(persons[$0]) }
+            let singular = tags.contains("singular"), plural = tags.contains("plural")
+            guard found.count == 1, singular != plural else { return nil }
+            self = Self.allCases[found[0] + (plural ? 3 : 0)]
+        }
+    }
+
+    // MARK: Verb slots
+
+    /// A finite slot read from the cells.
+    enum FiniteSlot: Hashable, Sendable {
+        case present, imperfect, aorist, dependent, imperativeContinuous, imperativeSimple
+    }
+
+    /// A nonfinite slot. The perfect participle is generated.
+    enum NonfiniteSlot: String, CaseIterable, Sendable {
+        case presentParticiple = "present_participle"
+        case pastParticiple = "past_participle"
+        case perfectParticiple = "perfect_participle"
+        case infinitive
+
+        var label: FormLabel {
+            switch self {
+            case .presentParticiple: return .presentParticiple
+            case .pastParticiple: return .pastParticiple
+            case .perfectParticiple: return .perfectParticiple
+            case .infinitive: return .infinitive
+            }
+        }
+    }
+
+    enum VerbSlot: Hashable, Sendable {
+        case finite(FiniteSlot, Person)
+        case nonfinite(NonfiniteSlot)
+    }
+
+    private static let caseTags = ["nominative", "genitive", "accusative", "vocative"]
+    private static let genderTags = ["masculine", "feminine", "neuter"]
+
+    /// The voice and slot of a verb cell, or nil for a hidden cell or one
+    /// that matches no slot:
+    /// - voice: `passive` → passive, otherwise active;
+    /// - present: `present`, indicative or with no mood, not `dependent`; imperfect:
+    ///   `imperfect`; aorist: `past perfective`; dependent: `dependent`;
+    /// - imperative continuous/simple: `imperative` with
+    ///   `imperfective`/`perfective`, 2sg and 2pl only;
+    /// - aorist infinitive: `infinitive-aorist`;
+    /// - participles: `participle` with `present`, or in the passive with
+    ///   `past` or `perfect` (γραμμένος); a declined participle only as its
+    ///   nominative masculine singular.
+    static func verbSlot(of tags: Set<String>) -> (voice: Voice, slot: VerbSlot)? {
+        guard tags.isDisjoint(with: hiddenTags) else { return nil }
+        let voice: Voice = tags.contains("passive") ? .passive : .active
+        if tags.contains("infinitive-aorist") { return (voice, .nonfinite(.infinitive)) }
+        if tags.contains("participle") {
+            let declined = !tags.isDisjoint(with: caseTags + genderTags + ["singular", "plural"])
+            if declined, !tags.isSuperset(of: ["nominative", "masculine", "singular"]) { return nil }
+            if tags.contains("present") { return (voice, .nonfinite(.presentParticiple)) }
+            if voice == .passive, tags.contains("past") || tags.contains("perfect") {
+                return (voice, .nonfinite(.pastParticiple))
+            }
+            return nil
+        }
+        guard let person = Person(tags: tags) else { return nil }
+        if tags.contains("imperative") {
+            guard person == .secondSingular || person == .secondPlural else { return nil }
+            if tags.contains("imperfective") { return (voice, .finite(.imperativeContinuous, person)) }
+            if tags.contains("perfective") { return (voice, .finite(.imperativeSimple, person)) }
+            return nil
+        }
+        if tags.contains("dependent") { return (voice, .finite(.dependent, person)) }
+        if tags.contains("imperfect") { return (voice, .finite(.imperfect, person)) }
+        if tags.isSuperset(of: ["past", "perfective"]) { return (voice, .finite(.aorist, person)) }
+        // Wiktionary's present-only template (πρόκειται, οφείλω, αφορά) tags
+        // its cells `present` with no mood.
+        if tags.contains("present"), tags.isDisjoint(with: Self.nonIndicativeMoods) {
+            return (voice, .finite(.present, person))
+        }
+        return nil
+    }
+
+    /// Moods whose present is no indicative present.
+    private static let nonIndicativeMoods: Set<String> = ["subjunctive", "optative", "conditional"]
+
+    /// The forms of one voice by slot, in table order, without repeats.
+    struct VoiceForms: Equatable {
+        private(set) var finite: [FiniteSlot: [Person: [String]]] = [:]
+        private(set) var nonfinite: [NonfiniteSlot: [String]] = [:]
+
+        var isEmpty: Bool { finite.isEmpty && nonfinite.isEmpty }
+
+        mutating func add(_ form: String, to slot: VerbSlot) {
+            switch slot {
+            case let .finite(finiteSlot, person):
+                var forms = finite[finiteSlot, default: [:]][person, default: []]
+                if !forms.contains(form) { forms.append(form) }
+                finite[finiteSlot, default: [:]][person] = forms
+            case let .nonfinite(nonfiniteSlot):
+                var forms = nonfinite[nonfiniteSlot, default: []]
+                if !forms.contains(form) { forms.append(form) }
+                nonfinite[nonfiniteSlot] = forms
+            }
+        }
+
+        func forms(_ slot: FiniteSlot, _ person: Person) -> [String] {
+            finite[slot]?[person] ?? []
+        }
+
+        func forms(_ slot: NonfiniteSlot) -> [String] {
+            nonfinite[slot] ?? []
+        }
+
+        /// The persons with a finite form. The periphrastic perfects are
+        /// built only for them: προκύπτει has no εγώ, so no "έχω προκύψει".
+        var persons: Set<Person> {
+            Set(finite.values.flatMap { $0.filter { !$0.value.isEmpty }.keys })
+        }
+
+        // Generated forms, one per variant of the source cell.
+
+        /// θα + dependent: θα γράψω.
+        func future(_ person: Person) -> [String] { forms(.dependent, person).map { "θα " + $0 } }
+        /// θα + present: θα γράφω.
+        func futureContinuous(_ person: Person) -> [String] { forms(.present, person).map { "θα " + $0 } }
+        /// να + present: να γράφω.
+        func subjunctiveContinuous(_ person: Person) -> [String] { forms(.present, person).map { "να " + $0 } }
+        /// να + dependent: να γράψω.
+        func subjunctiveSimple(_ person: Person) -> [String] { forms(.dependent, person).map { "να " + $0 } }
+        /// έχω + aorist infinitive: έχω γράψει.
+        func perfect(_ person: Person) -> [String] {
+            guard persons.contains(person) else { return [] }
+            return forms(.infinitive).map { person.have + " " + $0 }
+        }
+        /// είχα + aorist infinitive: είχα γράψει.
+        func pluperfect(_ person: Person) -> [String] {
+            guard persons.contains(person) else { return [] }
+            return forms(.infinitive).map { person.had + " " + $0 }
+        }
+        /// θα + perfect: θα έχω γράψει.
+        func futurePerfect(_ person: Person) -> [String] { perfect(person).map { "θα " + $0 } }
+        /// έχοντας + aorist infinitive: έχοντας γράψει.
+        var perfectParticiple: [String] { forms(.infinitive).map { "έχοντας " + $0 } }
+    }
+
+    /// The forms of each voice that has any.
+    static func voiceForms(_ cells: [ParadigmCell]) -> [Voice: VoiceForms] {
+        var voices: [Voice: VoiceForms] = [:]
+        for cell in cells {
+            guard let match = verbSlot(of: cell.tags) else { continue }
+            voices[match.voice, default: VoiceForms()].add(cell.form, to: match.slot)
+        }
+        return voices
+    }
+
+    /// The main voice: active, or passive when the verb has no active present
+    /// and a passive one (deponents such as έρχομαι).
+    static func mainVoice(_ voices: [Voice: VoiceForms]) -> Voice {
+        let hasPresent = { (voice: Voice) in
+            Person.allCases.contains { !(voices[voice]?.forms(.present, $0).isEmpty ?? true) }
+        }
+        return !hasPresent(.active) && hasPresent(.passive) ? .passive : .active
+    }
+
+    // MARK: Conjugation
+
+    /// A column of a verb grid: its id slug, header, the labels VoiceOver
+    /// reads before the row, and its forms per person.
+    private struct VerbColumn {
+        let slug: String
+        let header: FormLabel
+        let spoken: [FormLabel]
+        let forms: (Person) -> [String]
+
+        init(_ slug: String, _ header: FormLabel, spoken: [FormLabel]? = nil, _ forms: @escaping (Person) -> [String]) {
+            self.slug = slug
+            self.header = header
+            self.spoken = spoken ?? [header]
+            self.forms = forms
+        }
+    }
+
+    /// The verb sections: the main voice's default view (Present, Imperfect,
+    /// Aorist, Future; the imperative), then under "All forms" the rest of
+    /// the main voice and everything of the other voice.
+    static func conjugation(_ cells: [ParadigmCell], labels: Labels) -> [InflectionTable.Section] {
+        let voices = voiceForms(cells)
+        let main = mainVoice(voices)
+        var sections: [InflectionTable.Section] = []
+        if let forms = voices[main] {
+            sections += voiceSections(forms, voice: main, isMainVoice: true, labels: labels)
+        }
+        let other: Voice = main == .active ? .passive : .active
+        if let forms = voices[other], !forms.isEmpty {
+            var otherSections = voiceSections(forms, voice: other, isMainVoice: false, labels: labels)
+            if let first = otherSections.first {
+                otherSections[0] = InflectionTable.Section(
+                    id: first.id, heading: other.label.title(locale: labels.locale), title: first.title,
+                    isMain: false, columns: first.columns, rows: first.rows)
+            }
+            sections += otherSections
+        }
+        // A verb with nothing for the default view shows all it has at once.
+        if !sections.contains(where: \.isMain) {
+            sections = sections.map {
+                InflectionTable.Section(id: $0.id, heading: $0.heading, title: $0.title, isMain: true,
+                                        columns: $0.columns, rows: $0.rows)
+            }
+        }
+        return sections
+    }
+
+    private static func voiceSections(_ forms: VoiceForms, voice: Voice, isMainVoice: Bool,
+                                      labels: Labels) -> [InflectionTable.Section] {
+        let present = VerbColumn("present", .present) { forms.forms(.present, $0) }
+        let imperfect = VerbColumn("imperfect", .imperfect) { forms.forms(.imperfect, $0) }
+        let aorist = VerbColumn("aorist", .aorist) { forms.forms(.aorist, $0) }
+        let future = VerbColumn("future", .future) { forms.future($0) }
+        let futureContinuous = VerbColumn("future_continuous", .futureContinuous) { forms.futureContinuous($0) }
+        let perfect = VerbColumn("perfect", .perfect) { forms.perfect($0) }
+        let pluperfect = VerbColumn("pluperfect", .pluperfect) { forms.pluperfect($0) }
+        let futurePerfect = VerbColumn("future_perfect", .futurePerfect) { forms.futurePerfect($0) }
+        let imperative = [
+            VerbColumn("imperative_continuous", .continuous, spoken: [.imperative, .continuous]) {
+                forms.forms(.imperativeContinuous, $0)
+            },
+            VerbColumn("imperative_simple", .simple, spoken: [.imperative, .simple]) {
+                forms.forms(.imperativeSimple, $0)
+            },
+        ]
+        let subjunctive = [
+            VerbColumn("subjunctive_continuous", .continuous, spoken: [.subjunctive, .continuous]) {
+                forms.subjunctiveContinuous($0)
+            },
+            VerbColumn("subjunctive_simple", .simple, spoken: [.subjunctive, .simple]) {
+                forms.subjunctiveSimple($0)
+            },
+        ]
+        // The other voice is named before each cell; the main voice is not.
+        let prefix = isMainVoice ? nil : voice.label
+        let persons = Person.allCases
+        let imperativePersons: [Person] = [.secondSingular, .secondPlural]
+        let v = voice.rawValue
+        // Both voices have the same shape: four tenses, the imperative, four
+        // more tenses. For the main voice the first two are the default view.
+        let sections: [InflectionTable.Section?] = [
+            verbGrid(id: "\(v)_indicative", title: nil, isMain: isMainVoice, voice: voice, prefix: prefix,
+                     columns: [present, imperfect, aorist, future], persons: persons, labels: labels),
+            verbGrid(id: "\(v)_imperative", title: labels.title(.imperative), isMain: isMainVoice, voice: voice,
+                     prefix: prefix, columns: imperative, persons: imperativePersons, labels: labels),
+            verbGrid(id: "\(v)_more", title: nil, isMain: false, voice: voice, prefix: prefix,
+                     columns: [futureContinuous, perfect, pluperfect, futurePerfect], persons: persons, labels: labels),
+            verbGrid(id: "\(v)_subjunctive", title: labels.title(.subjunctive), isMain: false,
+                     voice: voice, prefix: prefix, columns: subjunctive, persons: persons, labels: labels),
+            nonfiniteSection(forms, voice: voice, prefix: prefix, labels: labels),
+        ]
+        return sections.compactMap { $0 }
+    }
+
+    /// Persons × columns, without empty rows and columns.
+    private static func verbGrid(id: String, title: String?, isMain: Bool, voice: Voice, prefix: FormLabel?,
+                                 columns: [VerbColumn], persons: [Person],
+                                 labels: Labels) -> InflectionTable.Section? {
+        let filled = columns.filter { column in persons.contains { !column.forms($0).isEmpty } }
+        let rows = persons.filter { person in filled.contains { !$0.forms(person).isEmpty } }
+        guard !filled.isEmpty, !rows.isEmpty else { return nil }
+        return InflectionTable.Section(
+            id: id, heading: nil, title: title, isMain: isMain,
+            columns: filled.map { InflectionTable.Header(id: $0.slug, title: labels.title($0.header)) },
+            rows: rows.map { person in
+                InflectionTable.Row(
+                    id: person.rawValue,
+                    header: InflectionTable.Header(id: person.rawValue, title: person.pronoun),
+                    cells: filled.map { column in
+                        // "aorist, εγώ, έγραψα"; the other voice first names itself.
+                        let spoken = (prefix.map { [$0] } ?? []) + column.spoken
+                        return labels.cell(
+                            id: "inflection_cell_\(voice.rawValue)_\(column.slug)_\(person.rawValue)",
+                            forms: column.forms(person),
+                            labels: spoken.map { labels.text($0) },
+                            greek: [person.pronoun])
+                    })
+            })
+    }
+
+    /// Participles and the aorist infinitive: labelled rows, one column.
+    private static func nonfiniteSection(_ forms: VoiceForms, voice: Voice, prefix: FormLabel?,
+                                         labels: Labels) -> InflectionTable.Section? {
+        let rows: [InflectionTable.Row] = NonfiniteSlot.allCases.compactMap { slot in
+            let values = slot == .perfectParticiple ? forms.perfectParticiple : forms.forms(slot)
+            guard !values.isEmpty else { return nil }
+            let spoken = (prefix.map { [$0] } ?? []) + [slot.label]
+            return InflectionTable.Row(
+                id: slot.rawValue,
+                header: InflectionTable.Header(id: slot.rawValue, title: labels.title(slot.label)),
+                cells: [labels.cell(id: "inflection_cell_\(voice.rawValue)_\(slot.rawValue)", forms: values,
+                                    labels: spoken.map { labels.text($0) }, greek: [])])
+        }
+        guard !rows.isEmpty else { return nil }
+        return InflectionTable.Section(id: "\(voice.rawValue)_nonfinite", heading: nil,
+                                       title: labels.nonfiniteTitle, isMain: false,
+                                       columns: [InflectionTable.Header(id: "form", title: "")], rows: rows)
+    }
+
+    // MARK: Declension
+
+    static let cases: [FormLabel] = [.nominative, .genitive, .accusative, .vocative]
+    static let numbers: [FormLabel] = [.singular, .plural]
+    static let genders: [FormLabel] = [.masculine, .feminine, .neuter]
+
+    /// The one label of `options` among `tags`, or nil for none or several.
+    private static func single(_ options: [FormLabel], in tags: Set<String>) -> FormLabel? {
+        let found = options.filter { tags.contains($0.rawValue) }
+        return found.count == 1 ? found[0] : nil
+    }
+
+    private static func isDegree(_ tags: Set<String>) -> Bool {
+        tags.contains("comparative") || tags.contains("superlative")
+    }
+
+    /// Forms by key, in table order, without repeats.
+    private struct Slots<Key: Hashable> {
+        private(set) var forms: [Key: [String]] = [:]
+
+        mutating func add(_ form: String, at key: Key) {
+            var values = forms[key, default: []]
+            if !values.contains(form) { values.append(form) }
+            forms[key] = values
+        }
+
+        subscript(key: Key) -> [String] { forms[key] ?? [] }
+    }
+
+    private struct NominalKey: Hashable {
+        let grammaticalCase: FormLabel
+        let number: FormLabel
+        let gender: FormLabel?
+    }
+
+    /// Nouns: case × number. Gender tags are ignored.
+    static func nounDeclension(_ cells: [ParadigmCell], labels: Labels) -> [InflectionTable.Section] {
+        var slots = Slots<NominalKey>()
+        for cell in cells where cell.tags.isDisjoint(with: hiddenTags) && !isDegree(cell.tags) {
+            guard let grammaticalCase = single(cases, in: cell.tags),
+                  let number = single(numbers, in: cell.tags) else { continue }
+            slots.add(cell.form, at: NominalKey(grammaticalCase: grammaticalCase, number: number, gender: nil))
+        }
+        let section = nominalGrid(id: "declension", title: nil, columns: numbers, labels: labels) { row, column in
+            NominalKey(grammaticalCase: row, number: column, gender: nil)
+        } forms: { slots[$0] }
+        return [section].compactMap { $0 }
+    }
+
+    /// Adjectives: case × gender, one block for the singular and one for the
+    /// plural, then the comparative and superlative. Only cells without a
+    /// degree tag fill the blocks, so a lemma that keeps only its degree
+    /// tables (γόνιμος) shows no positive grid.
+    static func adjectiveDeclension(_ cells: [ParadigmCell], labels: Labels) -> [InflectionTable.Section] {
+        var slots = Slots<NominalKey>()
+        var degrees = Slots<FormLabel>()
+        for cell in cells where cell.tags.isDisjoint(with: hiddenTags) {
+            if isDegree(cell.tags) {
+                if let degree = degree(of: cell) { degrees.add(cell.form, at: degree) }
+                continue
+            }
+            guard let grammaticalCase = single(cases, in: cell.tags),
+                  let number = single(numbers, in: cell.tags),
+                  let gender = single(genders, in: cell.tags) else { continue }
+            slots.add(cell.form, at: NominalKey(grammaticalCase: grammaticalCase, number: number, gender: gender))
+        }
+        var sections = numbers.map { number in
+            nominalGrid(id: number.rawValue, title: labels.title(number), columns: genders, labels: labels) { row, column in
+                NominalKey(grammaticalCase: row, number: number, gender: column)
+            } forms: { slots[$0] }
+        }
+        let degreeRows: [InflectionTable.Row] = [FormLabel.comparative, .superlative].compactMap { degree in
+            let values = degrees[degree]
+            guard !values.isEmpty else { return nil }
+            return InflectionTable.Row(
+                id: degree.rawValue,
+                header: InflectionTable.Header(id: degree.rawValue, title: labels.title(degree)),
+                cells: [labels.cell(id: "inflection_cell_\(degree.rawValue)", forms: values,
+                                    labels: [labels.text(degree)], greek: [])])
+        }
+        if !degreeRows.isEmpty {
+            sections.append(InflectionTable.Section(id: "degrees", heading: nil, title: nil, isMain: true,
+                                                    columns: [InflectionTable.Header(id: "form", title: "")],
+                                                    rows: degreeRows))
+        }
+        return sections.compactMap { $0 }
+    }
+
+    /// The degree of an adjective cell, for its nominative masculine singular
+    /// only. The snapshot tags every degree cell both `comparative` and
+    /// `superlative`; then a form in -τερος is the comparative (ωραιότερος,
+    /// καλύτερος) and any other the superlative (ωραιότατος, μέγιστος).
+    static func degree(of cell: ParadigmCell) -> FormLabel? {
+        guard cell.tags.isSuperset(of: ["nominative", "masculine", "singular"]) else { return nil }
+        switch (cell.tags.contains("comparative"), cell.tags.contains("superlative")) {
+        case (true, false): return .comparative
+        case (false, true): return .superlative
+        case (true, true): return Search.foldGreek(cell.form).hasSuffix("τεροσ") ? .comparative : .superlative
+        case (false, false): return nil
+        }
+    }
+
+    /// Cases × `columns`, without empty rows and columns.
+    private static func nominalGrid(id: String, title: String?, columns: [FormLabel], labels: Labels,
+                                    key: (FormLabel, FormLabel) -> NominalKey,
+                                    forms: (NominalKey) -> [String]) -> InflectionTable.Section? {
+        let filled = columns.filter { column in cases.contains { !forms(key($0, column)).isEmpty } }
+        let rows = cases.filter { row in filled.contains { !forms(key(row, $0)).isEmpty } }
+        guard !filled.isEmpty, !rows.isEmpty else { return nil }
+        return InflectionTable.Section(
+            id: id, heading: nil, title: title, isMain: true,
+            columns: filled.map { InflectionTable.Header(id: $0.rawValue, title: labels.title($0)) },
+            rows: rows.map { row in
+                InflectionTable.Row(
+                    id: row.rawValue,
+                    header: InflectionTable.Header(id: row.rawValue, title: labels.title(row)),
+                    cells: filled.map { column in
+                        let slot = key(row, column)
+                        // "genitive, singular[, masculine], καλού"; the id
+                        // names the case, the number, then the gender.
+                        let spoken = [slot.grammaticalCase, slot.number] + (slot.gender.map { [$0] } ?? [])
+                        return labels.cell(id: "inflection_cell_" + spoken.map(\.rawValue).joined(separator: "_"),
+                                           forms: forms(slot), labels: spoken.map { labels.text($0) }, greek: [])
+                    })
+            })
+    }
+
+    // MARK: Labels
+
+    /// The localized texts of one table.
+    struct Labels {
+        let locale: Locale
+
+        func text(_ label: FormLabel) -> String { label.text(locale: locale) }
+        func title(_ label: FormLabel) -> String { label.title(locale: locale) }
+
+        var nonfiniteTitle: String { SettingsViewModel.localizedString("forms.section.nonfinite", locale: locale) }
+        var noForm: String { SettingsViewModel.localizedString("forms.a11y.noForm", locale: locale) }
+
+        /// Arabic joins the spoken parts with the Arabic comma.
+        var separator: String { locale.language.languageCode?.identifier == "ar" ? "\u{060C} " : ", " }
+
+        /// A cell whose VoiceOver label reads `labels`, then the `greek` parts
+        /// (the pronoun), then its forms, or "no form".
+        func cell(id: String, forms: [String], labels: [String], greek: [String]) -> InflectionTable.Cell {
+            var parts: [(text: String, isGreek: Bool)] = labels.map { ($0, false) } + greek.map { ($0, true) }
+            parts.append(forms.isEmpty ? (noForm, false) : (forms.joined(separator: " / "), true))
+            var label = AttributedString()
+            for (index, part) in parts.enumerated() {
+                if index > 0 { label += AttributedString(separator) }
+                var run = AttributedString(part.text)
+                if part.isGreek { run.languageIdentifier = "el" }
+                label += run
+            }
+            return InflectionTable.Cell(id: id, forms: forms, accessibilityLabel: label)
+        }
+    }
+}
+
 // MARK: - DictMetadata
 
 /// One `dict.dict_metadata` row: a bundled dictionary (Issue #138).

@@ -70,6 +70,37 @@ struct AccessibilityIdentifiers {
         static let definitionContent = "definition_content"
     }
 
+    // MARK: - Inflection table (Issue #144)
+    //
+    // On the Definition screen of a Greek headword (0136-word-forms.md,
+    // "Tables (#144)"). A cell's `label` is its VoiceOver text ("aorist, εγώ,
+    // έγραψα"); headers are hidden from VoiceOver and have no id.
+    struct Inflection {
+        static let table = "inflection_table"
+        static let allFormsButton = "inflection_all_forms_button"
+        /// The lemma under the title when the table is another lemma's (πάω → πηγαίνω).
+        static let linkedLemma = "inflection_linked_lemma"
+        /// A verb cell: `inflection_cell_active_aorist_1sg`.
+        static func verbCell(voice: String = "active", slot: String, person: String) -> String {
+            return "inflection_cell_\(voice)_\(slot)_\(person)"
+        }
+        /// A participle or the infinitive: `inflection_cell_active_present_participle`.
+        static func nonfiniteCell(voice: String = "active", slot: String) -> String {
+            return "inflection_cell_\(voice)_\(slot)"
+        }
+        /// A noun or adjective cell: `inflection_cell_genitive_singular[_masculine]`.
+        static func nominalCell(case grammaticalCase: String, number: String, gender: String? = nil) -> String {
+            return "inflection_cell_\(grammaticalCase)_\(number)" + (gender.map { "_\($0)" } ?? "")
+        }
+        /// `inflection_cell_comparative`, `inflection_cell_superlative`.
+        static func degreeCell(_ degree: String) -> String {
+            return "inflection_cell_\(degree)"
+        }
+        /// The Credits row in Settings › Support, and the Wiktionary line on Credits.
+        static let creditsLink = "settings_credits_link"
+        static let creditsWiktionary = "credits_wiktionary"
+    }
+
     // MARK: - Reading Mode (Issue #5)
     struct ReadingMode {
         /// Open-book toolbar toggle shared by the Search root and Definition.

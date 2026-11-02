@@ -395,6 +395,48 @@ final class ArabicLocalizationTests: XCTestCase {
         }
     }
 
+    /// Issue #144: the inflection table mirrors. The title and the VoiceOver
+    /// labels are Arabic, the tense columns run right to left (Present right
+    /// of Imperfect) with the pronoun column on the right, and the Greek
+    /// forms keep their own order.
+    func testInflectionTableIsRightToLeft() throws {
+        typealias IDs = AccessibilityIdentifiers.Inflection
+        search(for: "γράφω")
+        let row = app.collectionViews.firstMatch.cells
+            .containing(.any, identifier: AccessibilityIdentifiers.Search.sourceBadge(source: TestData.Sources.freedictEllEng))
+            .containing(NSPredicate(format: "label == %@", "γράφω"))
+            .firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: TestData.Timeouts.long), "'γράφω' must list the FreeDict entry")
+        app.dismissKeyboardIfPresent()
+        row.tap()
+        let page = InflectionTablePage(app: app)
+        XCTAssertTrue(page.table.waitForExistence(timeout: TestData.Timeouts.long), "γράφω must show its table")
+        XCTAssertTrue(page.table.staticTexts["تصريف الفعل"].exists, "the title reads 'تصريف الفعل'")
+
+        let present = page.cell(IDs.verbCell(slot: "present", person: "1sg"))
+        let imperfect = page.cell(IDs.verbCell(slot: "imperfect", person: "1sg"))
+        XCTAssertEqual(present.label, "المضارع\u{060C} εγώ\u{060C} γράφω")
+        XCTAssertEqual(page.cell(IDs.verbCell(slot: "aorist", person: "1sg")).label, "الماضي البسيط\u{060C} εγώ\u{060C} έγραψα")
+        XCTAssertTrue(page.reveal(present))
+        XCTAssertGreaterThan(present.frame.minX, imperfect.frame.maxX, "Present is right of Imperfect")
+        // Headers are hidden from VoiceOver; where XCUITest still lists the
+        // pronoun, it must sit right of the forms.
+        let pronoun = page.table.staticTexts["εγώ"].firstMatch
+        if pronoun.exists {
+            XCTAssertGreaterThan(pronoun.frame.minX, present.frame.maxX, "the pronoun column is on the right")
+        }
+        XCTAssertEqual(page.allFormsButton.label, "كل الصيغ")
+        attachScreenshot("γράφω (ar), main forms")
+
+        page.tapAllForms()
+        let passive = page.cell(IDs.verbCell(voice: "passive", slot: "aorist", person: "1sg"))
+        XCTAssertTrue(passive.waitForExistence(timeout: TestData.Timeouts.medium))
+        XCTAssertEqual(passive.label, "المبني للمجهول\u{060C} الماضي البسيط\u{060C} εγώ\u{060C} γράφτηκα / γράφηκα")
+        XCTAssertEqual(page.allFormsButton.label, "الصيغ الرئيسية")
+        XCTAssertTrue(page.reveal(passive))
+        attachScreenshot("γράφω (ar), all forms")
+    }
+
     /// The pushed detail's navigation bar (its `identifier` is the title)
     /// starts with U+200F and reads "<name> – الإنجليزية" in logical order.
     private func assertDetailTitle(leadingWith name: String, english: String,

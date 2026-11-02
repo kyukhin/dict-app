@@ -152,6 +152,7 @@ struct SettingsView: View {
             NavigationLink("settings.support.credits") {
                 CreditsView()
             }
+            .accessibilityIdentifier("settings_credits_link")
         }
     }
 

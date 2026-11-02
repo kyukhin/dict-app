@@ -10110,6 +10110,916 @@ final class DictionaryReopenTests: XCTestCase {
     }
 }
 
+// MARK: - Issue #144: inflection tables on the Definition screen
+//
+// 0136-word-forms.md, "Inflection tables (#144)" and "Tables (#144)". The
+// layout is pure; the paradigms come from the real bundled
+// `dictionaries.sqlite` through `DatabaseService.inflection(for:)`, so the
+// lookup rule is exercised too. Synthetic cells cover what the snapshot
+// does not pin down.
+
+/// The real dictionary file on `DatabaseService.shared`, and the paradigm
+/// and English table of a Greek entry.
+private enum InflectionFixture {
+    static let en = Locale(identifier: "en")
+
+    static func open(in directory: URL) async throws {
+        await DictAppTests.waitForHostAppLaunch()
+        try await DatabaseService.shared.setup(userPath: directory.appendingPathComponent("user.sqlite").path,
+                                               dictionaryURL: try TestDictionary.bundledURL())
+    }
+
+    static func entry(_ word: String, pos: String, source: String = "freedict-ell-eng") -> DictionaryEntry {
+        DictionaryEntry(id: nil, word: word, definition: "", phonetic: "", pos: pos, source: source)
+    }
+
+    static func paradigm(_ word: String, pos: String, source: String = "freedict-ell-eng") async throws -> LemmaParadigm? {
+        try await DatabaseService.shared.inflection(for: entry(word, pos: pos, source: source))
+    }
+
+    static func table(_ word: String, pos: String, locale: Locale = en) async throws -> InflectionTable {
+        let found = try await paradigm(word, pos: pos)
+        let paradigm = try XCTUnwrap(found, "\(word) has a paradigm")
+        return try XCTUnwrap(ParadigmLayout.table(for: paradigm, locale: locale), "\(word) has a table")
+    }
+
+    static func cells(_ cells: [(String, String)]) -> [ParadigmCell] {
+        cells.map { ParadigmCell(form: $0.0, tags: $0.1) }
+    }
+}
+
+private extension InflectionTable {
+    func section(_ id: String) -> Section? { sections.first { $0.id == id } }
+
+    /// Every cell by its accessibility identifier.
+    var cellsByID: [String: Cell] {
+        Dictionary(uniqueKeysWithValues: sections.flatMap { $0.rows.flatMap(\.cells) }.map { ($0.id, $0) })
+    }
+
+    func forms(_ id: String) -> [String]? { cellsByID[id]?.forms }
+}
+
+private extension InflectionTable.Section {
+    var columnIDs: [String] { columns.map(\.id) }
+    var rowIDs: [String] { rows.map(\.id) }
+}
+
+/// `ParadigmLayout`: slots, generated forms, empty rows and columns, labels.
+final class ParadigmLayoutTests: XCTestCase {
+    private var tempDir: URL!
+
+    override func setUp() async throws {
+        try await super.setUp()
+        tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        try await InflectionFixture.open(in: tempDir)
+    }
+
+    override func tearDown() async throws {
+        try? FileManager.default.removeItem(at: tempDir)
+        try await super.tearDown()
+    }
+
+    /// γράφω, default view: the persons × Present, Imperfect, Aorist, Future
+    /// (θα γράψω) in grammar-book order, then the 2×2 imperative. Rare
+    /// cells are hidden, variants share a cell.
+    @MainActor
+    func testVerbMainViewInGrammarBookOrder() async throws {
+        let table = try await InflectionFixture.table("γράφω", pos: "verb")
+        XCTAssertEqual(table.kind, .conjugation)
+        XCTAssertNil(table.linkedLemma)
+        XCTAssertEqual(table.mainSections.map(\.id), ["active_indicative", "active_imperative"])
+
+        let main = try XCTUnwrap(table.section("active_indicative"))
+        XCTAssertEqual(main.columnIDs, ["present", "imperfect", "aorist", "future"])
+        XCTAssertEqual(main.columns.map(\.title), ["Present", "Imperfect", "Aorist", "Future"])
+        XCTAssertEqual(main.rowIDs, ["1sg", "2sg", "3sg", "1pl", "2pl", "3pl"])
+        XCTAssertEqual(main.rows.compactMap(\.header?.title), ["εγώ", "εσύ", "αυτός", "εμείς", "εσείς", "αυτοί"])
+        XCTAssertNil(main.title)
+        XCTAssertNil(main.heading)
+        XCTAssertEqual(table.forms("inflection_cell_active_present_1sg"), ["γράφω"])
+        XCTAssertEqual(table.forms("inflection_cell_active_imperfect_1sg"), ["έγραφα"])
+        XCTAssertEqual(table.forms("inflection_cell_active_aorist_1sg"), ["έγραψα"])
+        XCTAssertEqual(table.forms("inflection_cell_active_future_1sg"), ["θα γράψω"])
+        XCTAssertEqual(table.forms("inflection_cell_active_present_1pl"), ["γράφουμε"], "rare γράφομε is hidden")
+        XCTAssertEqual(table.forms("inflection_cell_active_imperfect_3pl"), ["έγραφαν", "γράφαν", "γράφανε"])
+        XCTAssertEqual(table.cellsByID["inflection_cell_active_imperfect_3pl"]?.text, "έγραφαν / γράφαν / γράφανε")
+        XCTAssertEqual(table.forms("inflection_cell_active_future_3pl"), ["θα γράψουν", "θα γράψουνε"])
+
+        let imperative = try XCTUnwrap(table.section("active_imperative"))
+        XCTAssertEqual(imperative.title, "Imperative")
+        XCTAssertEqual(imperative.columnIDs, ["imperative_continuous", "imperative_simple"])
+        XCTAssertEqual(imperative.columns.map(\.title), ["Continuous", "Simple"])
+        XCTAssertEqual(imperative.rowIDs, ["2sg", "2pl"])
+        XCTAssertEqual(table.forms("inflection_cell_active_imperative_continuous_2sg"), ["γράφε"])
+        XCTAssertEqual(table.forms("inflection_cell_active_imperative_simple_2sg"), ["γράψε"])
+        XCTAssertEqual(table.forms("inflection_cell_active_imperative_continuous_2pl"), ["γράφετε"])
+        XCTAssertEqual(table.forms("inflection_cell_active_imperative_simple_2pl"), ["γράψτε", "γράφτε"])
+    }
+
+    /// γράφω, "All forms": the rest of the active (future continuous, perfect,
+    /// pluperfect, future perfect, να-forms, participles, infinitive), then
+    /// everything of the passive under a "Passive" heading.
+    @MainActor
+    func testAllFormsAddTheRestThenThePassive() async throws {
+        let table = try await InflectionFixture.table("γράφω", pos: "verb")
+        XCTAssertEqual(table.moreSections.map(\.id), [
+            "active_more", "active_subjunctive", "active_nonfinite",
+            "passive_indicative", "passive_imperative", "passive_more", "passive_subjunctive", "passive_nonfinite",
+        ])
+        let more = try XCTUnwrap(table.section("active_more"))
+        XCTAssertEqual(more.columnIDs, ["future_continuous", "perfect", "pluperfect", "future_perfect"])
+        XCTAssertEqual(table.forms("inflection_cell_active_future_continuous_1sg"), ["θα γράφω"])
+        XCTAssertEqual(table.forms("inflection_cell_active_perfect_1sg"), ["έχω γράψει"])
+        XCTAssertEqual(table.forms("inflection_cell_active_perfect_3pl"), ["έχουν γράψει"])
+        XCTAssertEqual(table.forms("inflection_cell_active_pluperfect_2sg"), ["είχες γράψει"])
+        XCTAssertEqual(table.forms("inflection_cell_active_future_perfect_1sg"), ["θα έχω γράψει"])
+
+        let subjunctive = try XCTUnwrap(table.section("active_subjunctive"))
+        XCTAssertEqual(subjunctive.title, "Subjunctive")
+        XCTAssertEqual(subjunctive.columnIDs, ["subjunctive_continuous", "subjunctive_simple"])
+        XCTAssertEqual(table.forms("inflection_cell_active_subjunctive_continuous_1sg"), ["να γράφω"])
+        XCTAssertEqual(table.forms("inflection_cell_active_subjunctive_simple_1sg"), ["να γράψω"])
+
+        let nonfinite = try XCTUnwrap(table.section("active_nonfinite"))
+        XCTAssertEqual(nonfinite.rowIDs, ["present_participle", "perfect_participle", "infinitive"])
+        XCTAssertFalse(nonfinite.showsColumnHeaders)
+        XCTAssertEqual(table.forms("inflection_cell_active_present_participle"), ["γράφοντας"])
+        XCTAssertEqual(table.forms("inflection_cell_active_perfect_participle"), ["έχοντας γράψει"])
+        XCTAssertEqual(table.forms("inflection_cell_active_infinitive"), ["γράψει"])
+
+        let passive = try XCTUnwrap(table.section("passive_indicative"))
+        XCTAssertEqual(passive.heading, "Passive")
+        XCTAssertEqual(passive.columnIDs, ["present", "imperfect", "aorist", "future"], "the main voice's shape")
+        XCTAssertEqual(table.section("passive_more")?.columnIDs,
+                       ["future_continuous", "perfect", "pluperfect", "future_perfect"])
+        XCTAssertEqual(table.sections.filter { $0.heading != nil }.map(\.id), ["passive_indicative"])
+        XCTAssertEqual(table.forms("inflection_cell_passive_present_1sg"), ["γράφομαι"])
+        XCTAssertEqual(table.forms("inflection_cell_passive_imperfect_1sg"), ["γραφόμουν", "γραφόμουνα"])
+        XCTAssertEqual(table.forms("inflection_cell_passive_aorist_1sg"), ["γράφτηκα", "γράφηκα"])
+        XCTAssertEqual(table.forms("inflection_cell_passive_future_1sg"), ["θα γραφτώ", "θα γραφώ"])
+        XCTAssertEqual(table.forms("inflection_cell_passive_perfect_1sg"), ["έχω γραφτεί", "έχω γραφεί"])
+        XCTAssertEqual(table.forms("inflection_cell_passive_future_perfect_1sg"), ["θα έχω γραφτεί", "θα έχω γραφεί"])
+        XCTAssertEqual(table.forms("inflection_cell_passive_imperative_simple_2sg"), ["γράψου"])
+        XCTAssertEqual(table.forms("inflection_cell_passive_past_participle"), ["γραμμένος"])
+        XCTAssertEqual(table.forms("inflection_cell_passive_perfect_participle"), ["έχοντας γραφτεί", "έχοντας γραφεί"])
+        XCTAssertNil(table.forms("inflection_cell_passive_present_participle"), "γράφω has no passive present participle")
+    }
+
+    /// έρχομαι has no active present: its main voice is the passive, with
+    /// no voice heading, and nothing of the active follows.
+    @MainActor
+    func testDeponentShowsThePassiveAsItsMainVoice() async throws {
+        let table = try await InflectionFixture.table("έρχομαι", pos: "verb")
+        XCTAssertEqual(table.mainSections.map(\.id), ["passive_indicative", "passive_imperative"])
+        XCTAssertFalse(table.sections.contains { $0.id.hasPrefix("active_") })
+        XCTAssertTrue(table.sections.allSatisfy { $0.heading == nil })
+        XCTAssertEqual(table.forms("inflection_cell_passive_present_1sg"), ["έρχομαι"])
+        XCTAssertEqual(table.forms("inflection_cell_passive_aorist_1sg"), ["ήρθα", "ήλθα"])
+        XCTAssertEqual(table.forms("inflection_cell_passive_future_1sg"), ["θα έρθω", "θα έλθω"])
+        XCTAssertEqual(table.forms("inflection_cell_passive_imperative_simple_2sg"), ["έλα"])
+        XCTAssertEqual(table.forms("inflection_cell_passive_present_participle"), ["ερχόμενος"])
+        XCTAssertEqual(table.cellsByID["inflection_cell_passive_aorist_1sg"]?.accessibilityText,
+                       "aorist, εγώ, ήρθα / ήλθα", "the main voice is not named")
+    }
+
+    /// είμαι has no aorist, no dependent and only archaic imperatives: those
+    /// columns and the imperative go; θα είμαι is under "All forms".
+    @MainActor
+    func testDefectiveVerbDropsEmptyColumns() async throws {
+        let table = try await InflectionFixture.table("είμαι", pos: "verb")
+        XCTAssertEqual(table.mainSections.map(\.id), ["active_indicative"])
+        XCTAssertEqual(table.section("active_indicative")?.columnIDs, ["present", "imperfect"])
+        XCTAssertEqual(table.forms("inflection_cell_active_present_3sg"), ["είναι"], "rare, dated έναι is hidden")
+        XCTAssertEqual(table.forms("inflection_cell_active_imperfect_1sg"), ["ήμουν", "ήμουνα"])
+        XCTAssertEqual(table.section("active_more")?.columnIDs, ["future_continuous"])
+        XCTAssertEqual(table.forms("inflection_cell_active_future_continuous_1sg"), ["θα είμαι"])
+        XCTAssertEqual(table.forms("inflection_cell_active_present_participle"), ["όντας"])
+        XCTAssertNil(table.section("active_imperative"))
+    }
+
+    /// πρέπει has third persons only, so only αυτός and αυτοί rows remain;
+    /// προκύπτει's periphrastic perfect is built for its persons only.
+    @MainActor
+    func testImpersonalVerbsKeepOnlyTheirPersons() async throws {
+        let prepei = try await InflectionFixture.table("πρέπει", pos: "verb")
+        XCTAssertEqual(prepei.section("active_indicative")?.rowIDs, ["3sg", "3pl"])
+        XCTAssertEqual(prepei.section("active_indicative")?.columnIDs, ["present", "imperfect"])
+        XCTAssertEqual(prepei.forms("inflection_cell_active_present_3sg"), ["πρέπει"])
+
+        let prokyptei = try await InflectionFixture.table("προκύπτει", pos: "verb")
+        XCTAssertEqual(prokyptei.section("active_more")?.rowIDs, ["3sg", "3pl"])
+        XCTAssertEqual(prokyptei.forms("inflection_cell_active_perfect_3sg"), ["έχει προκύψει"])
+        XCTAssertNil(prokyptei.forms("inflection_cell_active_perfect_1sg"), "no έχω προκύψει")
+    }
+
+    /// Wiktionary's present-only template tags its cells `present` without
+    /// `indicative`: πρόκειται (rank 286 of the subtitle list), αφορά and
+    /// οφείλω still show their present, the headword included.
+    @MainActor
+    func testPresentWithoutAMoodTagFillsThePresent() async throws {
+        let prokeitai = try await InflectionFixture.table("πρόκειται", pos: "verb")
+        XCTAssertEqual(prokeitai.section("active_indicative")?.columnIDs, ["present", "imperfect"])
+        XCTAssertEqual(prokeitai.section("active_indicative")?.rowIDs, ["3sg"])
+        XCTAssertEqual(prokeitai.forms("inflection_cell_active_present_3sg"), ["πρόκειται"])
+        XCTAssertEqual(prokeitai.forms("inflection_cell_active_imperfect_3sg"), ["επρόκειτο"])
+
+        let afora = try await InflectionFixture.table("αφορά", pos: "verb")
+        XCTAssertEqual(afora.forms("inflection_cell_active_present_3pl"), ["αφορούν", "αφορούνε"])
+
+        let ofeilo = try await InflectionFixture.table("οφείλω", pos: "verb")
+        XCTAssertEqual(ofeilo.mainSections.first?.columnIDs, ["present", "imperfect"])
+        XCTAssertEqual(ofeilo.forms("inflection_cell_active_present_1sg"), ["οφείλω"])
+        XCTAssertEqual(ofeilo.forms("inflection_cell_active_present_1pl"), ["οφείλουμε"], "rare οφείλομε is hidden")
+        XCTAssertEqual(ofeilo.forms("inflection_cell_passive_present_1sg"), ["οφείλομαι"])
+        XCTAssertEqual(ofeilo.forms("inflection_cell_active_future_continuous_1sg"), ["θα οφείλω"])
+
+        // Other moods keep out of the Present column.
+        XCTAssertEqual(ParadigmLayout.verbSlot(of: ["present", "first-person", "singular"])?.slot,
+                       .finite(.present, .firstSingular))
+        XCTAssertNil(ParadigmLayout.verbSlot(of: ["present", "subjunctive", "first-person", "singular"]))
+    }
+
+    /// Every table of the shipped file, built from its lemma's own cells, is
+    /// well formed: each cell id once, one cell per column in every row, no
+    /// row or column without a form, and a default view. Every noun, name
+    /// and adjective lemma with cells has a table, and every shown form of a
+    /// table's plain slots is in it: the present (any person and voice), a
+    /// noun's case and number, an adjective's case, number and gender.
+    func testEveryShippedTableIsWellFormed() throws {
+        let rows: [(id: Int64, word: String, pos: String, form: String, tags: String)] = try BundledDictionary().read { db in
+            try Row.fetchAll(db, sql: """
+                SELECT l.id, l.word, l.pos, p.form, t.tags
+                FROM lemma l JOIN paradigm p ON p.lemma_id = l.id JOIN tagset t ON t.id = p.tagset_id
+                WHERE l.pos IN ('verb', 'noun', 'adj', 'name') ORDER BY l.id, p.ord
+                """).map { ($0["id"], $0["word"], $0["pos"], $0["form"], $0["tags"]) }
+        }
+        var lemmas: [(word: String, pos: String, cells: [ParadigmCell])] = []
+        var lastID: Int64?
+        for row in rows {
+            let cell = ParadigmCell(form: row.form, tags: row.tags)
+            if row.id == lastID {
+                lemmas[lemmas.count - 1].cells.append(cell)
+            } else {
+                lemmas.append((row.word, row.pos, [cell]))
+                lastID = row.id
+            }
+        }
+        XCTAssertGreaterThan(lemmas.count, 20_000, "the snapshot's verb, noun, adjective and name lemmas with cells")
+
+        let hidden = ParadigmLayout.hiddenTags
+        let persons = ["first-person", "second-person", "third-person"]
+        let cases: Set<String> = ["nominative", "genitive", "accusative", "vocative"]
+        let genders: Set<String> = ["masculine", "feminine", "neuter"]
+        var tables: [String: Int] = [:], withCells: [String: Int] = [:]
+        var failures: [String] = []
+        for lemma in lemmas {
+            withCells[lemma.pos, default: 0] += 1
+            guard let table = ParadigmLayout.table(for: LemmaParadigm(word: lemma.word, pos: lemma.pos,
+                                                                       cells: lemma.cells, isLinked: false),
+                                                   locale: InflectionFixture.en) else { continue }
+            tables[lemma.pos, default: 0] += 1
+            var ids = Set<String>(), shown = Set<String>()
+            if table.mainSections.isEmpty { failures.append("\(lemma.word): no default view") }
+            for section in table.sections {
+                for row in section.rows {
+                    if row.cells.count != section.columns.count { failures.append("\(lemma.word) \(section.id) \(row.id): cells ≠ columns") }
+                    if row.cells.allSatisfy(\.forms.isEmpty) { failures.append("\(lemma.word) \(section.id): empty row \(row.id)") }
+                    for cell in row.cells {
+                        if !ids.insert(cell.id).inserted { failures.append("\(lemma.word): \(cell.id) twice") }
+                        if cell.forms.contains(where: \.isEmpty) { failures.append("\(lemma.word): empty form in \(cell.id)") }
+                        let isPresent = cell.id.range(of: "_present_[123](sg|pl)$", options: .regularExpression) != nil
+                        if lemma.pos != "verb" || isPresent { shown.formUnion(cell.forms) }
+                    }
+                }
+                for (index, column) in section.columns.enumerated() where section.rows.allSatisfy({ $0.cells[index].forms.isEmpty }) {
+                    failures.append("\(lemma.word) \(section.id): empty column \(column.id)")
+                }
+            }
+            // The plain slots: each such form of the lemma is in its table.
+            for cell in lemma.cells where cell.tags.isDisjoint(with: hidden) {
+                let tags = cell.tags
+                let expected: Bool
+                switch lemma.pos {
+                case "verb":
+                    expected = tags.contains("present") && persons.filter(tags.contains).count == 1
+                        && tags.contains("singular") != tags.contains("plural")
+                        && tags.isDisjoint(with: ["imperative", "dependent", "imperfect", "participle", "subjunctive"])
+                case "adj":
+                    expected = tags.intersection(cases).count == 1 && tags.intersection(genders).count == 1
+                        && tags.contains("singular") != tags.contains("plural")
+                        && tags.isDisjoint(with: ["comparative", "superlative"])
+                default:
+                    expected = tags.intersection(cases).count == 1 && tags.contains("singular") != tags.contains("plural")
+                        && tags.isDisjoint(with: ["comparative", "superlative"])
+                }
+                if expected, !shown.contains(cell.form) {
+                    failures.append("\(lemma.word) (\(lemma.pos)): \(cell.form) [\(cell.tags.sorted().joined(separator: " "))] not shown")
+                }
+            }
+        }
+        XCTAssertEqual(failures.count, 0, failures.prefix(20).joined(separator: "\n"))
+        for pos in ["noun", "name", "adj"] {
+            XCTAssertEqual(tables[pos], withCells[pos], "every \(pos) lemma with cells has a table")
+        }
+        // Verbs without a table hold only cells no slot takes: participles
+        // tagged as verbs (αγαπημένος), measured 340 of 2,204 (#141).
+        XCTAssertGreaterThanOrEqual(tables["verb"] ?? 0, 1_860)
+    }
+
+    /// Hidden tags, variants, a single missing cell ("—"), a declined
+    /// participle, an active "past participle" (template noise) and a verb
+    /// with nothing for the default view.
+    func testCellRulesOnMadeUpCells() throws {
+        let cells = InflectionFixture.cells([
+            ("λύνω", "active first-person imperfective indicative present singular"),
+            ("λύνεις", "active imperfective indicative present second-person singular"),
+            ("λύνομε", "active first-person imperfective indicative plural present rare"),
+            ("έλυνα", "active first-person imperfect imperfective indicative singular"),
+            ("έλυα", "active archaic first-person imperfect imperfective indicative singular"),
+            ("ελύνατε", "active dated imperfect imperfective indicative plural second-person"),
+            ("έλυσα", "active first-person indicative past perfective singular"),
+            ("λύσα", "active first-person indicative past perfective singular"),
+            ("λυμένος", "masculine nominative singular participle passive past"),
+            ("λυμένη", "feminine nominative singular participle passive past"),
+            ("λύσει", "active participle past"),
+            ("λύσει", "active infinitive-aorist"),
+        ])
+        let table = try XCTUnwrap(ParadigmLayout.table(
+            for: LemmaParadigm(word: "λύνω", pos: "verb", cells: cells, isLinked: false), locale: InflectionFixture.en))
+        let main = try XCTUnwrap(table.section("active_indicative"))
+        XCTAssertEqual(main.columnIDs, ["present", "imperfect", "aorist"], "no dependent: no Future column")
+        XCTAssertEqual(main.rowIDs, ["1sg", "2sg"], "the plural rows hold only hidden cells")
+        XCTAssertEqual(table.forms("inflection_cell_active_imperfect_1sg"), ["έλυνα"], "archaic έλυα is hidden")
+        XCTAssertEqual(table.forms("inflection_cell_active_aorist_1sg"), ["έλυσα", "λύσα"])
+        XCTAssertEqual(table.cellsByID["inflection_cell_active_aorist_1sg"]?.text, "έλυσα / λύσα")
+        let missing = try XCTUnwrap(table.cellsByID["inflection_cell_active_aorist_2sg"])
+        XCTAssertEqual(missing.forms, [])
+        XCTAssertEqual(missing.text, "—")
+        XCTAssertEqual(missing.accessibilityText, "aorist, εσύ, no form")
+        XCTAssertEqual(table.forms("inflection_cell_passive_past_participle"), ["λυμένος"],
+                       "a declined participle shows its nominative masculine singular")
+        XCTAssertNil(table.forms("inflection_cell_active_past_participle"), "the active has no past participle")
+        XCTAssertEqual(table.forms("inflection_cell_active_perfect_1sg"), ["έχω λύσει"])
+        XCTAssertNil(table.forms("inflection_cell_active_perfect_1pl"), "no finite 1pl, so no έχουμε λύσει")
+
+        let participleOnly = try XCTUnwrap(ParadigmLayout.table(
+            for: LemmaParadigm(word: "χ", pos: "verb", cells: InflectionFixture.cells([
+                ("χιονισμένος", "indeclinable participle passive perfect"),
+            ]), isLinked: false), locale: InflectionFixture.en))
+        XCTAssertEqual(participleOnly.moreSections, [], "nothing for the default view: everything shows at once")
+        XCTAssertEqual(participleOnly.forms("inflection_cell_passive_past_participle"), ["χιονισμένος"])
+
+        XCTAssertNil(ParadigmLayout.table(
+            for: LemmaParadigm(word: "χ", pos: "verb", cells: InflectionFixture.cells([
+                ("χ", "masculine nominative singular"), ("χα", "active rare first-person present indicative singular"),
+            ]), isLinked: false), locale: InflectionFixture.en), "no slot filled: no table")
+    }
+
+    /// σπίτι: case × number, 4 × 2.
+    @MainActor
+    func testNounTableIsCaseByNumber() async throws {
+        let table = try await InflectionFixture.table("σπίτι", pos: "noun")
+        XCTAssertEqual(table.kind, .declension)
+        XCTAssertEqual(table.sections.map(\.id), ["declension"])
+        XCTAssertEqual(table.moreSections, [], "nouns have no \"All forms\"")
+        let grid = try XCTUnwrap(table.section("declension"))
+        XCTAssertEqual(grid.columnIDs, ["singular", "plural"])
+        XCTAssertEqual(grid.columns.map(\.title), ["Singular", "Plural"])
+        XCTAssertEqual(grid.rowIDs, ["nominative", "genitive", "accusative", "vocative"])
+        XCTAssertEqual(grid.rows.compactMap(\.header?.title), ["Nominative", "Genitive", "Accusative", "Vocative"])
+        XCTAssertEqual(table.forms("inflection_cell_genitive_singular"), ["σπιτιού"])
+        XCTAssertEqual(table.forms("inflection_cell_genitive_plural"), ["σπιτιών"])
+        XCTAssertEqual(table.forms("inflection_cell_vocative_plural"), ["σπίτια"])
+    }
+
+    /// καλός: case × gender, once for the singular and once for the plural.
+    /// Degrees: ωραίος has both, γόνιμος keeps only them (no positive grid),
+    /// κακός and παλιός have irregular and double forms.
+    @MainActor
+    func testAdjectiveTablesAndDegrees() async throws {
+        let kalos = try await InflectionFixture.table("καλός", pos: "adjective")
+        XCTAssertEqual(kalos.sections.map(\.id), ["singular", "plural"])
+        for number in ["singular", "plural"] {
+            let block = try XCTUnwrap(kalos.section(number))
+            XCTAssertEqual(block.title, number.capitalized)
+            XCTAssertEqual(block.columnIDs, ["masculine", "feminine", "neuter"])
+            XCTAssertEqual(block.rowIDs, ["nominative", "genitive", "accusative", "vocative"])
+        }
+        XCTAssertEqual(kalos.forms("inflection_cell_nominative_singular_feminine"), ["καλή"])
+        XCTAssertEqual(kalos.forms("inflection_cell_genitive_singular_masculine"), ["καλού"])
+        XCTAssertEqual(kalos.forms("inflection_cell_accusative_plural_masculine"), ["καλούς"])
+        XCTAssertEqual(kalos.forms("inflection_cell_vocative_singular_masculine"), ["καλέ"])
+
+        let oraios = try await InflectionFixture.table("ωραίος", pos: "adjective")
+        XCTAssertEqual(oraios.sections.map(\.id), ["singular", "plural", "degrees"])
+        XCTAssertEqual(oraios.forms("inflection_cell_nominative_singular_masculine"), ["ωραίος"],
+                       "degree cells never fill the positive grid")
+        XCTAssertEqual(oraios.forms("inflection_cell_comparative"), ["ωραιότερος"])
+        XCTAssertEqual(oraios.forms("inflection_cell_superlative"), ["ωραιότατος"])
+        XCTAssertEqual(oraios.section("degrees")?.rows.compactMap(\.header?.title), ["Comparative", "Superlative"])
+
+        let gonimos = try await InflectionFixture.table("γόνιμος", pos: "adjective")
+        XCTAssertEqual(gonimos.sections.map(\.id), ["degrees"], "only its comparative tables: no positive grid")
+        XCTAssertEqual(gonimos.forms("inflection_cell_comparative"), ["γονιμότερος"])
+        XCTAssertEqual(gonimos.forms("inflection_cell_superlative"), ["γονιμότατος"])
+
+        let kakos = try await InflectionFixture.table("κακός", pos: "adjective")
+        XCTAssertEqual(kakos.forms("inflection_cell_comparative"), ["χειρότερος"])
+        XCTAssertEqual(kakos.forms("inflection_cell_superlative"), ["κάκιστος", "χείριστος"])
+        let palios = try await InflectionFixture.table("παλιός", pos: "adjective")
+        XCTAssertEqual(palios.forms("inflection_cell_comparative"), ["παλαιότερος", "παλιότερος"])
+        XCTAssertEqual(palios.forms("inflection_cell_superlative"), ["παλαιότατος"])
+    }
+
+    /// The degree of a cell tagged both ways is read from its ending.
+    func testDegreeOfCellsTaggedBothWays() {
+        func degree(_ form: String, _ tags: String) -> FormLabel? {
+            ParadigmLayout.degree(of: ParadigmCell(form: form, tags: tags))
+        }
+        let both = "comparative masculine nominative singular superlative"
+        XCTAssertEqual(degree("μεγαλύτερος", both), .comparative)
+        XCTAssertEqual(degree("ΜΕΓΑΛΥΤΕΡΟΣ", both), .comparative)
+        XCTAssertEqual(degree("μέγιστος", both), .superlative)
+        XCTAssertEqual(degree("ακρότατος", both), .superlative)
+        XCTAssertEqual(degree("κάκιστος", "masculine nominative singular superlative"), .superlative)
+        XCTAssertEqual(degree("καλύτερος", "comparative masculine nominative singular"), .comparative)
+        XCTAssertNil(degree("μεγαλύτερη", "comparative feminine nominative singular superlative"))
+        XCTAssertNil(degree("μεγάλος", "masculine nominative singular"))
+    }
+
+    /// VoiceOver reads "column, row, form", Greek parts in Greek; the other
+    /// voice names itself first; Arabic uses its comma.
+    @MainActor
+    func testCellAccessibilityLabel() async throws {
+        let grafo = try await InflectionFixture.table("γράφω", pos: "verb")
+        let aorist = try XCTUnwrap(grafo.cellsByID["inflection_cell_active_aorist_1sg"])
+        XCTAssertEqual(aorist.accessibilityText, "aorist, εγώ, έγραψα")
+        let greekRuns = aorist.accessibilityLabel.runs.filter { $0.languageIdentifier == "el" }
+            .map { String(aorist.accessibilityLabel[$0.range].characters) }
+        XCTAssertEqual(greekRuns, ["εγώ", "έγραψα"], "the pronoun and the form carry the el attribute")
+        XCTAssertEqual(grafo.cellsByID["inflection_cell_active_imperative_simple_2pl"]?.accessibilityText,
+                       "imperative, simple, εσείς, γράψτε / γράφτε")
+        XCTAssertEqual(grafo.cellsByID["inflection_cell_passive_aorist_1sg"]?.accessibilityText,
+                       "passive, aorist, εγώ, γράφτηκα / γράφηκα")
+        XCTAssertEqual(grafo.cellsByID["inflection_cell_active_present_participle"]?.accessibilityText,
+                       "present participle, γράφοντας")
+
+        let spiti = try await InflectionFixture.table("σπίτι", pos: "noun")
+        XCTAssertEqual(spiti.cellsByID["inflection_cell_genitive_singular"]?.accessibilityText, "genitive, singular, σπιτιού")
+        let kalos = try await InflectionFixture.table("καλός", pos: "adjective")
+        XCTAssertEqual(kalos.cellsByID["inflection_cell_genitive_singular_masculine"]?.accessibilityText,
+                       "genitive, singular, masculine, καλού")
+
+        let arabic = try await InflectionFixture.table("γράφω", pos: "verb", locale: Locale(identifier: "ar"))
+        XCTAssertEqual(arabic.cellsByID["inflection_cell_active_aorist_1sg"]?.accessibilityText,
+                       "الماضي البسيط\u{060C} εγώ\u{060C} έγραψα")
+        let greek = try await InflectionFixture.table("γράφω", pos: "verb", locale: Locale(identifier: "el"))
+        XCTAssertEqual(greek.cellsByID["inflection_cell_active_aorist_1sg"]?.accessibilityText, "αόριστος, εγώ, έγραψα")
+        XCTAssertEqual(greek.section("active_indicative")?.columns.map(\.title),
+                       ["Ενεστώτας", "Παρατατικός", "Αόριστος", "Μέλλοντας"])
+    }
+}
+
+/// `InflectionLookup` and `DatabaseService.inflection(for:)`: which lemma's
+/// table an entry shows.
+final class InflectionLookupTests: XCTestCase {
+    private var tempDir: URL!
+
+    override func setUp() async throws {
+        try await super.setUp()
+        tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        try await InflectionFixture.open(in: tempDir)
+    }
+
+    override func tearDown() async throws {
+        try? FileManager.default.removeItem(at: tempDir)
+        try await super.tearDown()
+    }
+
+    /// The labels keep the entry's own order (Kirill, 2026-10-31).
+    func testEntryPOSLabelsMapToLemmaPOS() {
+        XCTAssertEqual(InflectionLookup.lemmaPOS(forEntryPOS: "verb"), ["verb"])
+        XCTAssertEqual(InflectionLookup.lemmaPOS(forEntryPOS: "adjective, noun"), ["adj", "noun"])
+        XCTAssertEqual(InflectionLookup.lemmaPOS(forEntryPOS: "adjective satellite, noun"), ["adj", "noun"])
+        XCTAssertEqual(InflectionLookup.lemmaPOS(forEntryPOS: "adjective, adjective satellite, noun"), ["adj", "noun"])
+        XCTAssertEqual(InflectionLookup.lemmaPOS(forEntryPOS: "noun, verb"), ["noun", "verb"])
+        XCTAssertEqual(InflectionLookup.lemmaPOS(forEntryPOS: "adverb, noun"), ["noun"])
+        XCTAssertEqual(InflectionLookup.lemmaPOS(forEntryPOS: "proper noun"), ["name"])
+        XCTAssertEqual(InflectionLookup.lemmaPOS(forEntryPOS: "adverb"), [])
+        XCTAssertEqual(InflectionLookup.lemmaPOS(forEntryPOS: ""), [])
+    }
+
+    private typealias Lemma = InflectionLookup.Lemma
+
+    /// κάλος (noun), καλός (adj), καλός (noun): each with a table named after it.
+    private let kalos = [Lemma(id: 1, word: "κάλος", pos: "noun"), Lemma(id: 2, word: "καλός", pos: "adj"),
+                         Lemma(id: 3, word: "καλός", pos: "noun")]
+
+    /// `links`: the table each part of speech's single link gives (none when absent).
+    private func choose(_ word: String, _ pos: String, tables: [Int64: String] = [1: "κάλος", 2: "adj", 3: "noun"],
+                        candidates: [Lemma]? = nil, links: [String: String] = [:]) -> String? {
+        InflectionLookup.choose(entryWord: word, entryPOS: pos, candidates: candidates ?? kalos,
+                                table: { tables[$0.id] }, link: { links[$0] })
+    }
+
+    func testChooseTheExactWordThenANearOne() {
+        XCTAssertEqual(choose("καλός", "adjective"), "adj")
+        XCTAssertEqual(choose("κάλος", "noun"), "κάλος")
+        XCTAssertEqual(choose("Καλός", "adjective"), "adj", "the only adjective that differs in case")
+        XCTAssertEqual(choose("ΚΑΛΌΣ", "adjective"), "adj", "capitals with Σ for the final sigma")
+        XCTAssertNil(choose("καλος", "adjective"), "an accent missing: another word")
+        XCTAssertNil(choose("καλος", "noun"), "both nouns differ in accent: none")
+        let alpha = [Lemma(id: 40, word: "άλφα", pos: "noun"), Lemma(id: 41, word: "Άλφα", pos: "noun")]
+        XCTAssertNil(choose("ΆΛΦΑ", "noun", tables: [40: "άλφα", 41: "Άλφα"], candidates: alpha),
+                     "two nouns differ only in case, both with a table: none")
+        XCTAssertEqual(choose("ΆΛΦΑ", "noun", tables: [40: "άλφα"], candidates: alpha), "άλφα")
+        XCTAssertNil(choose("καλός", "verb"))
+        XCTAssertNil(choose("καλός", "adverb"), "a part of speech without tables")
+        XCTAssertEqual(choose("καλός".decomposedStringWithCanonicalMapping, "noun"), "noun", "NFD equals NFC")
+    }
+
+    /// Kirill, 2026-11-01: a lemma spelled exactly as the headword beats one
+    /// matched by folding, across the parts of speech the entry allows, the
+    /// proper noun included for a noun label. A lemma whose accent differs
+    /// never matches; one that differs only in case or a diaeresis still does
+    /// when no lemma is spelled as the headword.
+    @MainActor
+    func testExactSpellingBeatsANearOrFoldedMatch() async throws {
+        XCTAssertEqual(InflectionLookup.match("Κίνα", "Κίνα"), .exact)
+        XCTAssertEqual(InflectionLookup.match("ταύρος", "Ταύρος"), .near)
+        XCTAssertEqual(InflectionLookup.match("Μάιος", "Μάϊος"), .near, "a diaeresis is no other word")
+        XCTAssertNil(InflectionLookup.match("σοφία", "Σόφια"), "the accent elsewhere: another word")
+        XCTAssertNil(InflectionLookup.match("άλκη", "αλκή"))
+        XCTAssertEqual(InflectionLookup.match("ελιά", "ΕΛΙΑ"), .near, "capitals are written without accents")
+        XCTAssertEqual(InflectionLookup.match("ΛΑΟΣ", "Λάος"), .near)
+
+        let kina = [Lemma(id: 50, word: "Κίνα", pos: "name"), Lemma(id: 51, word: "κίνα", pos: "noun"),
+                    Lemma(id: 52, word: "κινά", pos: "noun")]
+        XCTAssertEqual(choose("Κίνα", "noun", tables: [50: "Κίνα", 51: "κίνα"], candidates: kina), "Κίνα",
+                       "the proper noun spelled as the headword beats the common noun in another case")
+        XCTAssertEqual(choose("κίνα", "noun", tables: [50: "Κίνα", 51: "κίνα"], candidates: kina), "κίνα")
+        let laos = [Lemma(id: 53, word: "Λάος", pos: "name"), Lemma(id: 54, word: "λαός", pos: "noun")]
+        XCTAssertNil(choose("Λάος", "noun", tables: [54: "λαός"], candidates: laos),
+                     "Λάος has no table, and λαός is another word")
+        let tavros = [Lemma(id: 55, word: "Ταύρος", pos: "name"), Lemma(id: 56, word: "ταύρος", pos: "noun")]
+        XCTAssertEqual(choose("Ταύρος", "noun", tables: [56: "ταύρος"], candidates: tavros), "ταύρος",
+                       "the exact lemma has no table: the noun in another case stays")
+        let sofia = [Lemma(id: 57, word: "Σοφία", pos: "name"), Lemma(id: 58, word: "σοφία", pos: "noun")]
+        XCTAssertNil(choose("Σόφια", "noun", tables: [57: "Σοφία", 58: "σοφία"], candidates: sofia))
+        XCTAssertNil(choose("Σόφια", "proper noun", tables: [57: "Σοφία", 58: "σοφία"], candidates: sofia))
+        XCTAssertEqual(choose("Κίνα", "", tables: [50: "Κίνα", 51: "κίνα"], candidates: kina), "Κίνα",
+                       "without a part of speech the exact lemma comes first too")
+        XCTAssertEqual(choose("Κίνα", "adjective, noun", tables: [50: "Κίνα", 51: "κίνα"], candidates: kina), "Κίνα",
+                       "an exact lemma of a later label beats a near one of an earlier label")
+
+        // The real file: WordNet labels these proper nouns "noun".
+        let exact: [(word: String, lemma: String)] = [("Κίνα", "Κίνα"), ("Γεωργία", "Γεωργία"), ("Άγκυρα", "Άγκυρα")]
+        for item in exact {
+            let paradigm = try await InflectionFixture.paradigm(item.word, pos: "noun", source: "wordnet-ell-eng")
+            XCTAssertEqual(paradigm?.word, item.lemma, "\(item.word) shows its own proper noun's table")
+            XCTAssertEqual(paradigm?.pos, "name")
+        }
+        for word in ["Λάος", "Σόφια", "Καμπανία", "Μαλάκια", "αλκή"] {
+            let paradigm = try await InflectionFixture.paradigm(word, pos: "noun", source: "wordnet-ell-eng")
+            XCTAssertNil(paradigm, "\(word) shows \(paradigm?.word ?? "")'s table")
+        }
+        let sofiaFD = try await InflectionFixture.paradigm("Σόφια", pos: "proper noun")
+        XCTAssertNil(sofiaFD, "FreeDict's Σόφια (the city) is not Σοφία")
+        for (word, lemma) in [("Ταύρος", "ταύρος"), ("Ελληνικά", "ελληνικά")] {
+            let paradigm = try await InflectionFixture.paradigm(word, pos: "noun", source: "wordnet-ell-eng")
+            XCTAssertEqual(paradigm?.word, lemma, "\(word): a match in another case stays")
+        }
+    }
+
+    /// Kirill, 2026-11-01: a form link of a noun, adjective or proper noun
+    /// counts only when the headword is a nominative of the linked lemma: καφέ
+    /// (café) is the genitive of καφές, μικρό the accusative of the noun μικρός.
+    /// Verbs link as before; a link from the word's own page holds no form.
+    @MainActor
+    func testFormLinkNeedsANominative() async throws {
+        let kafes = [ParadigmCell(form: "καφές", tags: "nominative singular"),
+                     ParadigmCell(form: "καφέ", tags: "genitive singular"),
+                     ParadigmCell(form: "καφέ", tags: "accusative singular"),
+                     ParadigmCell(form: "καφέδες", tags: "nominative plural")]
+        XCTAssertFalse(InflectionLookup.linkFits(word: "καφέ", pos: "noun", cells: kafes))
+        XCTAssertTrue(InflectionLookup.linkFits(word: "καφέδες", pos: "noun", cells: kafes))
+        XCTAssertTrue(InflectionLookup.linkFits(word: "καφέ", pos: "verb", cells: kafes), "verbs link as before")
+        XCTAssertTrue(InflectionLookup.linkFits(word: "μέρα", pos: "noun",
+                                                cells: [ParadigmCell(form: "ημέρα", tags: "nominative singular")]),
+                      "μέρα is no form of ημέρα's table: its own page links it")
+        XCTAssertFalse(InflectionLookup.linkFits(word: "μετρό", pos: "noun",
+                                                 cells: [ParadigmCell(form: "μέτρο", tags: "nominative singular")]),
+                       "a fold collision still never links")
+
+        let lost: [(word: String, source: String)] = [
+            ("μικρό", "wordnet-ell-eng"), ("καφέ", "freedict-ell-eng"), ("καφέ", "wordnet-ell-eng"),
+            ("κολιέ", "freedict-ell-eng"), ("πόλο", "freedict-ell-eng"), ("χημικό", "wordnet-ell-eng"),
+            ("σάκε", "freedict-ell-eng"), ("χούμους", "freedict-ell-eng"),
+            // Right links that go with them: oblique headwords.
+            ("κόμματος", "freedict-ell-eng"), ("κτιρίων", "wordnet-ell-eng"), ("περίμετρο", "freedict-ell-eng"),
+            ("τίγρης", "wordnet-ell-eng"),
+        ]
+        for item in lost {
+            let paradigm = try await InflectionFixture.paradigm(item.word, pos: "noun", source: item.source)
+            XCTAssertNil(paradigm, "\(item.word) shows \(paradigm?.word ?? "")'s table")
+        }
+        let kept: [(word: String, pos: String, lemma: String)] = [
+            ("πράγματα", "noun", "πράγμα"), ("άνθρωποι", "noun", "άνθρωπος"), ("μέρα", "noun", "ημέρα"),
+            ("αρέσει", "verb", "αρέσω"), ("γίνεται", "verb", "γίνομαι"),
+        ]
+        for item in kept {
+            let paradigm = try await InflectionFixture.paradigm(item.word, pos: item.pos, source: "wordnet-ell-eng")
+            XCTAssertEqual(paradigm?.word, item.lemma, "\(item.word) keeps \(item.lemma)'s table")
+        }
+    }
+
+    /// Kirill, 2026-10-31: the first label of the entry's own `pos` whose
+    /// lemma has a table.
+    func testLabelsAreTriedInTheEntrysOrder() {
+        XCTAssertEqual(choose("καλός", "adjective, noun"), "adj", "FreeDict's καλός: the adjective first")
+        XCTAssertEqual(choose("καλός", "noun, adjective"), "noun")
+        XCTAssertEqual(choose("καλός", "noun, adjective", tables: [1: "κάλος", 2: "adj"]), "adj",
+                       "a label whose lemma has no table gives way to the next")
+        XCTAssertEqual(choose("καλός", "adverb, adjective"), "adj", "labels without tables are skipped")
+    }
+
+    /// Kirill, 2026-10-31: an entry without a `pos` shows the table when
+    /// exactly one lemma of any part of speech has one.
+    func testEntryWithoutPartOfSpeech() {
+        XCTAssertNil(choose("καλός", ""), "the adjective and the noun both have a table: none")
+        XCTAssertEqual(choose("καλός", "", tables: [2: "adj"]), "adj", "one table: shown")
+        XCTAssertEqual(choose("καλός", " ", tables: [3: "noun"]), "noun")
+        XCTAssertNil(choose("καλός", "", tables: [:]), "no table")
+        XCTAssertNil(choose("καλος", "", tables: [1: "κάλος", 3: "noun"]),
+                     "two folded nouns with tables: none")
+        let shared = [Lemma(id: 4, word: "πάω", pos: "verb"), Lemma(id: 5, word: "πάω", pos: "noun")]
+        XCTAssertEqual(choose("πάω", "", tables: [4: "πηγαίνω", 5: "πηγαίνω"], candidates: shared), "πηγαίνω",
+                       "one table reached twice counts once")
+    }
+
+    /// Kirill, 2026-10-31: a word Wiktionary has only as a form or an
+    /// alternative page (μέρα of ημέρα, αγαπώ of αγαπάω) shows the table of
+    /// the one lemma of its part of speech it belongs to.
+    func testWordWithoutALemmaFollowsItsSingleLink() {
+        XCTAssertEqual(choose("μέρα", "noun", candidates: [], links: ["noun": "ημέρα"]), "ημέρα")
+        XCTAssertEqual(choose("αγαπώ", "verb", candidates: [], links: ["verb": "αγαπάω"]), "αγαπάω")
+        XCTAssertNil(choose("φράκτης", "noun", candidates: [], links: [:]),
+                     "several lemmas, so the link gives none: no table")
+        XCTAssertEqual(choose("ζητώ", "verb", candidates: [Lemma(id: 7, word: "ζήτω", pos: "intj")],
+                              links: ["verb": "ζητάω"]), "ζητάω", "a lemma of another part of speech does not count")
+        XCTAssertEqual(choose("x", "adverb, verb", candidates: [], links: ["verb": "linked"]), "linked")
+        XCTAssertEqual(choose("καλός", "noun", links: ["noun": "linked"]), "noun",
+                       "a word with a lemma of its own never takes a link")
+        XCTAssertNil(choose("καλός", "noun", tables: [1: "κάλος"], links: ["noun": "linked"]),
+                     "its lemma has no table: the per-lemma link is the table closure's, not this one")
+        XCTAssertNil(choose("γρήγορα", "adverb", candidates: [], links: ["noun": "linked", "verb": "linked"]),
+                     "an adverb has no table")
+        XCTAssertNil(choose("μέρα", "", candidates: [], links: ["noun": "ημέρα"]),
+                     "an entry without a part of speech follows no link")
+    }
+
+    /// Kirill, 2026-10-31: WordNet labels proper nouns "noun" (Αθήνα): a noun
+    /// entry with no noun lemma takes the proper-noun lemma, before any link.
+    func testNounFallsBackToTheProperNoun() {
+        let athina = [Lemma(id: 10, word: "Αθήνα", pos: "name"), Lemma(id: 11, word: "Αθηνά", pos: "name")]
+        XCTAssertEqual(choose("Αθήνα", "noun", tables: [10: "Αθήνα", 11: "Αθηνά"], candidates: athina), "Αθήνα",
+                       "the exact name, not the folded Αθηνά")
+        XCTAssertEqual(choose("Αθήνα", "proper noun", tables: [10: "Αθήνα", 11: "Αθηνά"], candidates: athina), "Αθήνα")
+        let cairo = [Lemma(id: 12, word: "Κάιρο", pos: "name")]
+        XCTAssertEqual(choose("Κάιρο", "noun", tables: [12: "Κάιρο"], candidates: cairo, links: ["noun": "καιρός"]),
+                       "Κάιρο", "the proper noun comes before a link of the folded word")
+        XCTAssertEqual(choose("Κάιρο", "noun", tables: [:], candidates: cairo, links: ["noun": "καιρός"]),
+                       "καιρός", "a proper noun without a table gives way to the link")
+        XCTAssertNil(choose("Κάιρο", "verb", tables: [12: "Κάιρο"], candidates: cairo),
+                     "only a noun label falls back to the proper noun")
+        XCTAssertNil(choose("Αθηνα", "noun", tables: [10: "Αθήνα", 11: "Αθηνά"], candidates: athina),
+                     "two names match only by folded word: no table")
+    }
+
+    /// A proper noun stands only for a capitalized word or its own spelling:
+    /// the lowercase common noun ρώμη (vigour) does not show Ρώμη (Rome).
+    @MainActor
+    func testProperNounNeedsACapitalOrItsOwnSpelling() async throws {
+        let romi = [Lemma(id: 20, word: "Ρώμη", pos: "name")]
+        XCTAssertNil(choose("ρώμη", "noun", tables: [20: "Ρώμη"], candidates: romi))
+        XCTAssertEqual(choose("Ρώμη", "noun", tables: [20: "Ρώμη"], candidates: romi), "Ρώμη")
+        XCTAssertEqual(choose("Μάϊος", "noun", tables: [21: "Μάιος"], candidates: [Lemma(id: 21, word: "Μάιος", pos: "name")]),
+                       "Μάιος", "a capitalized word takes the proper noun it folds to")
+        XCTAssertEqual(choose("τιτάνας", "noun", tables: [22: "τιτάνας"], candidates: [Lemma(id: 22, word: "τιτάνας", pos: "name")]),
+                       "τιτάνας", "a lowercase proper noun of the same spelling")
+
+        // The real file: WordNet and FreeDict label these common nouns
+        // "noun"; their capitalized namesakes are a city, a town and a place.
+        for (word, source) in [("ρώμη", "wordnet-ell-eng"), ("παραμυθία", "wordnet-ell-eng"), ("κάμινος", "wordnet-ell-eng"),
+                               ("λίβανος", "freedict-ell-eng"), ("σαρία", "freedict-ell-eng")] {
+            let paradigm = try await InflectionFixture.paradigm(word, pos: "noun", source: source)
+            XCTAssertNil(paradigm, "\(word) shows \(paradigm?.word ?? "")'s table")
+        }
+        let maios = try await InflectionFixture.paradigm("Μάϊος", pos: "noun", source: "wordnet-ell-eng")
+        XCTAssertEqual(maios?.word, "Μάιος")
+        XCTAssertEqual(maios?.pos, "name")
+    }
+
+    /// A link must hold the word itself or come from the word's own page: a
+    /// table that only holds another word folded alike is not the word's.
+    /// Both the table-less lemma (μετρό, ναζί) and the word without a lemma
+    /// (πορνό, συνεδρία, Ινδία) showed such a table before.
+    @MainActor
+    func testLinksNeverFollowAFoldCollision() async throws {
+        XCTAssertTrue(InflectionLookup.linkFits(word: "αγαπώ", forms: ["αγαπάω", "αγαπώ", "αγάπησα"]))
+        XCTAssertTrue(InflectionLookup.linkFits(word: "μέρα", forms: ["ημέρα", "ημέρας", "ημέρες"]),
+                      "no form folds like μέρα: the link comes from its own page")
+        XCTAssertFalse(InflectionLookup.linkFits(word: "μετρό", forms: ["μέτρο", "μέτρου", "μέτρα"]))
+        XCTAssertFalse(InflectionLookup.linkFits(word: "Ινδία", forms: ["ίνδιο", "ινδίου", "ίνδια"]))
+
+        let collisions: [(word: String, pos: String, source: String)] = [
+            ("μετρό", "noun", "freedict-ell-eng"), ("ναζί", "noun", "freedict-ell-eng"),
+            ("πορνό", "noun", "freedict-ell-eng"), ("συνεδρία", "noun", "freedict-ell-eng"),
+            ("μελανιά", "noun", "freedict-ell-eng"), ("Ινδία", "noun", "wordnet-ell-eng"),
+            ("εξαιρώ", "verb", "freedict-ell-eng"),
+        ]
+        for item in collisions {
+            let paradigm = try await InflectionFixture.paradigm(item.word, pos: item.pos, source: item.source)
+            XCTAssertNil(paradigm, "\(item.word) shows \(paradigm?.word ?? "")'s table")
+        }
+        let kept: [(word: String, pos: String, source: String, lemma: String)] = [
+            ("μέρα", "noun", "freedict-ell-eng", "ημέρα"), ("αγαπώ", "verb", "wordnet-ell-eng", "αγαπάω"),
+            ("πάω", "verb", "wordnet-ell-eng", "πηγαίνω"), ("παιδιά", "noun", "freedict-ell-eng", "παιδί"),
+        ]
+        for item in kept {
+            let paradigm = try await InflectionFixture.paradigm(item.word, pos: item.pos, source: item.source)
+            XCTAssertEqual(paradigm?.word, item.lemma, "\(item.word) keeps \(item.lemma)'s table")
+        }
+    }
+
+    func testChooseLink() {
+        let a = InflectionLookup.Lemma(id: 1, word: "παιδί", pos: "noun")
+        let b = InflectionLookup.Lemma(id: 2, word: "παΐδι", pos: "noun")
+        XCTAssertEqual(InflectionLookup.chooseLink([.init(lemma: a, holdsHeadword: false)]), a)
+        XCTAssertEqual(InflectionLookup.chooseLink([.init(lemma: a, holdsHeadword: true),
+                                                    .init(lemma: b, holdsHeadword: false)]), a)
+        XCTAssertNil(InflectionLookup.chooseLink([.init(lemma: a, holdsHeadword: false),
+                                                  .init(lemma: b, holdsHeadword: false)]))
+        XCTAssertNil(InflectionLookup.chooseLink([]))
+    }
+
+    /// The real file: Greek entries find their lemma's table; πάω shows
+    /// πηγαίνω's; other sources, adverbs and entries without a part of
+    /// speech get none.
+    @MainActor
+    func testInflectionForEntries() async throws {
+        let grafo = try await InflectionFixture.paradigm("γράφω", pos: "verb")
+        XCTAssertEqual(grafo?.word, "γράφω")
+        XCTAssertEqual(grafo?.pos, "verb")
+        XCTAssertEqual(grafo?.isLinked, false)
+        XCTAssertEqual(grafo?.cells.first, ParadigmCell(form: "γράφω",
+                                                        tags: "active first-person imperfective indicative present singular"))
+        let wn = try await InflectionFixture.paradigm("γράφω", pos: "verb", source: "wordnet-ell-eng")
+        XCTAssertEqual(wn?.word, "γράφω")
+
+        // The real labels: WordNet's καλός is "adjective", FreeDict's
+        // "adjective, noun" (good; darling). The entry's own order decides.
+        let kalosWN = try await InflectionFixture.paradigm("καλός", pos: "adjective", source: "wordnet-ell-eng")
+        XCTAssertEqual(kalosWN?.pos, "adj")
+        let kalosFD = try await InflectionFixture.paradigm("καλός", pos: "adjective, noun")
+        XCTAssertEqual(kalosFD?.pos, "adj", "FreeDict's καλός shows the adjective's table")
+        let kalosNoun = try await InflectionFixture.paradigm("καλός", pos: "noun, adjective")
+        XCTAssertEqual(kalosNoun?.pos, "noun")
+
+        // Without a part of speech: άδωρος has one table (adj), καλός two.
+        let adoros = try await InflectionFixture.paradigm("άδωρος", pos: "")
+        XCTAssertEqual(adoros?.word, "άδωρος")
+        XCTAssertEqual(adoros?.pos, "adj")
+        let kalosNoPOS = try await InflectionFixture.paradigm("καλός", pos: "")
+        XCTAssertNil(kalosNoPOS, "καλός has an adjective and a noun table: none")
+
+        // Kirill, 2026-10-31: form and alternative pages follow their single
+        // link; WordNet's "noun" Αθήνα takes the proper noun.
+        let linked: [(word: String, pos: String, source: String, lemma: String)] = [
+            ("μέρα", "noun", "freedict-ell-eng", "ημέρα"), ("βδομάδα", "noun", "freedict-ell-eng", "εβδομάδα"),
+            ("αγαπώ", "verb", "wordnet-ell-eng", "αγαπάω"), ("αρέσει", "verb", "wordnet-ell-eng", "αρέσω"),
+            ("ζητώ", "verb", "wordnet-ell-eng", "ζητάω"), ("γίνεται", "verb", "wordnet-ell-eng", "γίνομαι"),
+        ]
+        for item in linked {
+            let paradigm = try await InflectionFixture.paradigm(item.word, pos: item.pos, source: item.source)
+            XCTAssertEqual(paradigm?.word, item.lemma, "\(item.word) shows \(item.lemma)'s table")
+            XCTAssertEqual(paradigm?.isLinked, true, "\(item.word): the title names \(item.lemma)")
+        }
+        for (word, cells) in [("Αθήνα", 4), ("Αγγλία", 4), ("Απρίλιος", 4)] {
+            let paradigm = try await InflectionFixture.paradigm(word, pos: "noun", source: "wordnet-ell-eng")
+            XCTAssertEqual(paradigm?.word, word, "WordNet's noun \(word) shows its proper-noun table")
+            XCTAssertEqual(paradigm?.pos, "name")
+            XCTAssertEqual(paradigm?.isLinked, false)
+            XCTAssertEqual(paradigm?.cells.count, cells)
+        }
+        let fraktis = try await InflectionFixture.paradigm("φράκτης", pos: "noun")
+        XCTAssertNil(fraktis, "φράκτης is a form of φράχτης and of φρακτή, and neither table holds it: none")
+
+        let paoParadigm = try await InflectionFixture.paradigm("πάω", pos: "verb")
+        let pao = try XCTUnwrap(paoParadigm)
+        XCTAssertEqual(pao.word, "πηγαίνω")
+        XCTAssertTrue(pao.isLinked)
+        let paoTable = try XCTUnwrap(ParadigmLayout.table(for: pao, locale: InflectionFixture.en))
+        XCTAssertEqual(paoTable.linkedLemma, "πηγαίνω")
+        // παιδιά (a table-less noun lemma) is a form of παιδί and of παΐδι;
+        // only παιδί's table holds παιδιά itself.
+        let paidia = try await InflectionFixture.paradigm("παιδιά", pos: "noun")
+        XCTAssertEqual(paidia?.word, "παιδί")
+        XCTAssertEqual(paidia?.isLinked, true)
+
+        let none: [(String, String, String)] = [
+            ("γράφω", "verb", "freedict-eng-ell"), ("write", "verb", "wordnet"),
+            ("γρήγορα", "adverb", "freedict-ell-eng"),
+            ("σπίτι", "verb", "freedict-ell-eng"),
+        ]
+        for (word, pos, source) in none {
+            let paradigm = try await InflectionFixture.paradigm(word, pos: pos, source: source)
+            XCTAssertNil(paradigm, "\(word) (\(pos), \(source)) has no table")
+        }
+    }
+
+    /// Every table read goes through an index or a primary-key prefix.
+    func testInflectionQueriesUseIndexes() throws {
+        let queue = try DatabaseQueue()
+        try queue.writeWithoutTransaction { db in
+            try db.execute(sql: "ATTACH DATABASE ? AS dict",
+                           arguments: [DatabaseService.dictionaryURI(try TestDictionary.bundledURL())])
+        }
+        let plans = try queue.read { db in
+            try [DatabaseService.lemmaCandidatesSQL, DatabaseService.paradigmSQL, DatabaseService.linkedLemmasSQL]
+                .map { sql in
+                    try Row.fetchAll(db, sql: "EXPLAIN QUERY PLAN " + sql,
+                                     arguments: StatementArguments(Array(repeating: "x", count: sql.filter { $0 == "?" }.count)))
+                        .map { $0["detail"] as String }
+                }
+        }
+        for plan in plans {
+            XCTAssertFalse(plan.isEmpty)
+            for step in plan {
+                XCTAssertFalse(step.hasPrefix("SCAN"), "no table scan: \(plan)")
+            }
+        }
+    }
+
+    /// The view model reads a table for Greek entries only.
+    @MainActor
+    func testDefinitionViewModelLoadsTheTable() async throws {
+        let greek = DefinitionViewModel(entry: InflectionFixture.entry("γράφω", pos: "verb"), hasVoice: { _ in false })
+        await greek.loadInflection(locale: InflectionFixture.en)
+        XCTAssertEqual(greek.inflectionTable?.kind, .conjugation)
+
+        let noPOS = DefinitionViewModel(entry: InflectionFixture.entry("άδωρος", pos: ""), hasVoice: { _ in false })
+        await noPOS.loadInflection(locale: InflectionFixture.en)
+        XCTAssertEqual(noPOS.inflectionTable?.kind, .declension, "άδωρος (no part of speech) shows its table")
+
+        let english = DefinitionViewModel(entry: InflectionFixture.entry("write", pos: "verb", source: "wordnet"),
+                                          hasVoice: { _ in false })
+        await english.loadInflection(locale: InflectionFixture.en)
+        XCTAssertNil(english.inflectionTable)
+    }
+}
+
+/// Every label of the tables resolves in the five UI languages.
+final class FormLabelTests: XCTestCase {
+    private static let codes = ["en", "ru", "es", "ar", "el"]
+    private static let otherKeys = [
+        "forms.section.conjugation", "forms.section.declension", "forms.section.nonfinite",
+        "forms.button.allForms", "forms.button.mainForms", "forms.source", "forms.a11y.noForm",
+    ]
+
+    func testEveryLabelResolvesInEveryLanguage() {
+        for code in Self.codes {
+            let locale = Locale(identifier: code)
+            var seen: [String: FormLabel] = [:]
+            for label in FormLabel.allCases {
+                let text = label.text(locale: locale)
+                XCTAssertNotEqual(text, label.key, "\(code): \(label.key) is missing")
+                XCTAssertFalse(text.isEmpty)
+                if let other = seen[text] {
+                    XCTFail("\(code): \(label) and \(other) read the same, '\(text)'")
+                }
+                seen[text] = label
+            }
+            for key in Self.otherKeys {
+                XCTAssertNotEqual(SettingsViewModel.localizedString(key, locale: locale), key, "\(code): \(key)")
+            }
+        }
+        XCTAssertEqual(FormLabel.aorist.text(locale: Locale(identifier: "ru")), "аорист")
+        XCTAssertEqual(FormLabel.genitive.text(locale: Locale(identifier: "es")), "genitivo")
+        XCTAssertEqual(FormLabel.aorist.text(locale: Locale(identifier: "el")), "αόριστος")
+    }
+
+    func testTitlesCapitalizeOnlyTheFirstLetter() {
+        XCTAssertEqual(FormLabel.futureContinuous.title(locale: Locale(identifier: "en")), "Future continuous")
+        XCTAssertEqual(FormLabel.aorist.title(locale: Locale(identifier: "el")), "Αόριστος")
+        XCTAssertEqual(FormLabel.passive.title(locale: Locale(identifier: "ru")), "Страдательный залог")
+        XCTAssertEqual(FormLabel.genitive.title(locale: Locale(identifier: "ar")), "المجرور")
+        XCTAssertEqual(FormLabel.singular.title(locale: Locale(identifier: "ru")), "Ед. ч.")
+    }
+}
+
 // MARK: - Issue #145: quick dictionary switching (0146-quick-switch.md)
 
 /// The nine bundled sources on a test dictionary file. Each has one row that
