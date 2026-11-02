@@ -1851,6 +1851,618 @@
         }
       }
     },
+    "forms.section.conjugation": {
+      "comment": "Definition: title of a Greek verb's inflection table (#144).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conjugation"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Спряжение"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conjugación"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تصريف الفعل"
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Κλίση ρήματος"
+          }
+        }
+      }
+    },
+    "forms.section.declension": {
+      "comment": "Definition: title of a Greek noun's or adjective's inflection table (#144).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Declension"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Склонение"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Declinación"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تصريف الاسم"
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Κλίση"
+          }
+        }
+      }
+    },
+    "forms.section.nonfinite": {
+      "comment": "Definition: title of the block with the participles and the aorist infinitive (#144).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Participles and infinitive"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Причастия и инфинитив"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Participios e infinitivo"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الصفات الفعلية والمصدر"
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Μετοχές και απαρέμφατο"
+          }
+        }
+      }
+    },
+    "forms.button.allForms": {
+      "comment": "Definition: button that shows every form of a Greek verb below the main ones (#144).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "All forms"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Все формы"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Todas las formas"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "كل الصيغ"
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Όλοι οι τύποι"
+          }
+        }
+      }
+    },
+    "forms.button.mainForms": {
+      "comment": "Definition: the same button once open; it hides the extra forms again (#144).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Main forms"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Основные формы"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Formas principales"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الصيغ الرئيسية"
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Κύριοι τύποι"
+          }
+        }
+      }
+    },
+    "forms.source": {
+      "comment": "Definition: footer under an inflection table. Wiktionary and the license are not translated (#144).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Forms: Wiktionary, CC BY-SA 4.0"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Формы: Wiktionary, CC BY-SA 4.0"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Formas: Wiktionary, CC BY-SA 4.0"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الصيغ: Wiktionary، CC BY-SA 4.0"
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Τύποι: Wiktionary, CC BY-SA 4.0"
+          }
+        }
+      }
+    },
+    "forms.a11y.noForm": {
+      "comment": "VoiceOver: an empty cell of an inflection table, e.g. \"aorist, εγώ, no form\" (#144).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "no form"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "нет формы"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sin forma"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا توجد صيغة"
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "χωρίς τύπο"
+          }
+        }
+      }
+    },
+    "forms.tense.future": {
+      "comment": "Greek grammar label, lowercase (inflection table, #144): the future simple, θα γράψω.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "future"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "будущее"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "futuro"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "المستقبل"
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "μέλλοντας"
+          }
+        }
+      }
+    },
+    "forms.tense.futureContinuous": {
+      "comment": "Greek grammar label, lowercase (inflection table, #144): the future continuous, θα γράφω.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "future continuous"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "будущее длительное"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "futuro continuo"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "المستقبل المستمر"
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "εξακολουθητικός μέλλοντας"
+          }
+        }
+      }
+    },
+    "forms.tense.perfect": {
+      "comment": "Greek grammar label, lowercase (inflection table, #144): the perfect, έχω γράψει.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "perfect"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "перфект"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "perfecto"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "المضارع التام"
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "παρακείμενος"
+          }
+        }
+      }
+    },
+    "forms.tense.pluperfect": {
+      "comment": "Greek grammar label, lowercase (inflection table, #144): the pluperfect, είχα γράψει.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "pluperfect"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "плюсквамперфект"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "pluscuamperfecto"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الماضي التام"
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "υπερσυντέλικος"
+          }
+        }
+      }
+    },
+    "forms.tense.futurePerfect": {
+      "comment": "Greek grammar label, lowercase (inflection table, #144): the future perfect, θα έχω γράψει.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "future perfect"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "будущее совершенное"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "futuro perfecto"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "المستقبل التام"
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "συντελεσμένος μέλλοντας"
+          }
+        }
+      }
+    },
+    "forms.mood.subjunctive": {
+      "comment": "Greek grammar label, lowercase (inflection table, #144): the subjunctive, να γράφω / να γράψω.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "subjunctive"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "сослагательное"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "subjuntivo"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "المضارع المنصوب"
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "υποτακτική"
+          }
+        }
+      }
+    },
+    "forms.voice.active": {
+      "comment": "Greek grammar label, lowercase (inflection table, #144): the active voice.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "active"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "действительный залог"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "activo"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "المبني للمعلوم"
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ενεργητική φωνή"
+          }
+        }
+      }
+    },
+    "forms.nonfinite.presentParticiple": {
+      "comment": "Greek grammar label, lowercase (inflection table, #144): the present participle, γράφοντας, ερχόμενος.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "present participle"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "причастие настоящего времени"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "participio presente"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الصفة الفعلية للمضارع"
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "μετοχή ενεστώτα"
+          }
+        }
+      }
+    },
+    "forms.nonfinite.pastParticiple": {
+      "comment": "Greek grammar label, lowercase (inflection table, #144): the passive perfect participle, γραμμένος.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "past participle"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "причастие прошедшего времени"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "participio pasado"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الصفة الفعلية للماضي"
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "μετοχή παρακειμένου"
+          }
+        }
+      }
+    },
+    "forms.nonfinite.perfectParticiple": {
+      "comment": "Greek grammar label, lowercase (inflection table, #144): the periphrastic perfect participle, έχοντας γράψει.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "perfect participle"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "перфектное причастие"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "participio perfecto"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الصفة الفعلية التامة"
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "περιφραστική μετοχή"
+          }
+        }
+      }
+    },
     "dictionary.entries.count %lld": {
       "extractionState": "manual",
       "localizations": {
@@ -4365,6 +4977,42 @@
           "stringUnit": {
             "state": "translated",
             "value": "Greek WordNet (OMW) — ελληνικά-αγγλικά, αγγλικά-ελληνικά, Apache 2.0"
+          }
+        }
+      }
+    },
+    "credits.dataSources.wiktionary": {
+      "comment": "Credits: the source of the Greek word forms and inflection tables (#144). kaikki.org and the license are not translated.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Word forms: Wiktionary contributors, via kaikki.org (CC BY-SA 4.0)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Словоформы: участники Викисловаря, через kaikki.org (CC BY-SA 4.0)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Formas de las palabras: colaboradores de Wikcionario, vía kaikki.org (CC BY-SA 4.0)"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "صيغ الكلمات: مساهمو ويكاموس، عبر kaikki.org (CC BY-SA 4.0)"
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Κλιτοί τύποι: συντελεστές του Βικιλεξικού, μέσω του kaikki.org (CC BY-SA 4.0)"
           }
         }
       }

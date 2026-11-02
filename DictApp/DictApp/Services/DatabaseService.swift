@@ -818,6 +818,96 @@ actor DatabaseService {
                 """, arguments: arguments)
     }
 
+    // MARK: - Inflection tables (Issue #144)
+    //
+    // The Greek forms tables of the dictionary file (#141). Each read goes
+    // through an index or a primary-key prefix: `lemma.word_normalized`,
+    // `paradigm (lemma_id, ord)`, `form_lookup (form_norm, lemma_id)`.
+
+    /// The lemmas whose folded word is the key.
+    static let lemmaCandidatesSQL = """
+        SELECT id, word, pos FROM dict.lemma WHERE word_normalized = ? AND lang = 'ell'
+        """
+
+    /// A lemma's cells in table order.
+    static let paradigmSQL = """
+        SELECT p.form, t.tags FROM dict.paradigm p JOIN dict.tagset t ON t.id = p.tagset_id
+        WHERE p.lemma_id = ? ORDER BY p.ord
+        """
+
+    /// The lemmas of one part of speech with a table that a folded word is a
+    /// form or an alternative of, other than the given lemma; and whether the
+    /// table holds the word itself.
+    static let linkedLemmasSQL = """
+        SELECT l.id, l.word, l.pos,
+               EXISTS (SELECT 1 FROM dict.paradigm h WHERE h.lemma_id = l.id AND h.form = ?) AS holds_headword
+        FROM dict.form_lookup f JOIN dict.lemma l ON l.id = f.lemma_id
+        WHERE f.form_norm = ? AND f.lemma_id <> ? AND l.pos = ?
+          AND EXISTS (SELECT 1 FROM dict.paradigm p WHERE p.lemma_id = l.id)
+        ORDER BY l.word
+        """
+
+    /// The table a Greek entry shows (`InflectionLookup.choose`): of the
+    /// lemma it names, or, when that lemma has none, of the lemma it is a form
+    /// or an alternative of (πάω → πηγαίνω). A word with no lemma of its part
+    /// of speech follows its single link (μέρα → ημέρα), and a noun with no
+    /// noun lemma takes its proper noun (WordNet's Αθήνα). `nil` for entries
+    /// of other sources and for words without a table.
+    func inflection(for entry: DictionaryEntry) async throws -> LemmaParadigm? {
+        guard InflectionLookup.sources.contains(entry.source) else { return nil }
+        guard let pool = dbPool else { throw DBError.notConnected }
+        let word = entry.word.precomposedStringWithCanonicalMapping
+        let pos = entry.pos
+        let key = Search.foldGreek(word)
+        return try await read(pool) { db in
+            let candidates = try Row.fetchAll(db, sql: Self.lemmaCandidatesSQL, arguments: [key]).map {
+                InflectionLookup.Lemma(id: $0["id"], word: $0["word"], pos: $0["pos"])
+            }
+            return try InflectionLookup.choose(
+                entryWord: word, entryPOS: pos, candidates: candidates,
+                table: { lemma in try Self.table(of: lemma, in: db) },
+                link: { pos in try Self.linkedTable(of: word, pos: pos, excluding: nil, in: db) })
+        }
+    }
+
+    /// `lemma`'s own table, else that of the lemma it is a form or an
+    /// alternative of (πάω → πηγαίνω); nil when neither has a cell that fits
+    /// a slot.
+    private static func table(of lemma: InflectionLookup.Lemma, in db: Database) throws -> LemmaParadigm? {
+        let cells = try paradigmCells(db, lemmaID: lemma.id)
+        guard !cells.isEmpty else {
+            return try linkedTable(of: lemma.word, pos: lemma.pos, excluding: lemma.id, in: db)
+        }
+        let paradigm = LemmaParadigm(word: lemma.word, pos: lemma.pos, cells: cells, isLinked: false)
+        return ParadigmLayout.hasTable(paradigm) ? paradigm : nil
+    }
+
+    /// The table of the one lemma of part of speech `pos` with a table that
+    /// `word` is a form or an alternative of (`InflectionLookup.chooseLink`),
+    /// other than the lemma `excluding`; nil for none or several, for a table
+    /// that only holds another word folded alike, and for a noun, adjective
+    /// or proper noun the word is no nominative of (`InflectionLookup.linkFits`).
+    private static func linkedTable(of word: String, pos: String, excluding: Int64?,
+                                    in db: Database) throws -> LemmaParadigm? {
+        let links = try Row.fetchAll(db, sql: linkedLemmasSQL,
+                                     arguments: [word, Search.foldGreek(word), excluding ?? -1, pos])
+            .map { row in
+                InflectionLookup.Link(lemma: InflectionLookup.Lemma(id: row["id"], word: row["word"], pos: row["pos"]),
+                                      holdsHeadword: row["holds_headword"])
+            }
+        guard let linked = InflectionLookup.chooseLink(links) else { return nil }
+        let cells = try paradigmCells(db, lemmaID: linked.id)
+        guard InflectionLookup.linkFits(word: word, pos: linked.pos, cells: cells) else { return nil }
+        let paradigm = LemmaParadigm(word: linked.word, pos: linked.pos, cells: cells, isLinked: true)
+        return ParadigmLayout.hasTable(paradigm) ? paradigm : nil
+    }
+
+    private static func paradigmCells(_ db: Database, lemmaID: Int64) throws -> [ParadigmCell] {
+        try Row.fetchAll(db, sql: paradigmSQL, arguments: [lemmaID]).map {
+            ParadigmCell(form: $0["form"], tags: $0["tags"] as String)
+        }
+    }
+
     // MARK: - History
 
     /// Records a viewed word with the `source` of the entry that was viewed

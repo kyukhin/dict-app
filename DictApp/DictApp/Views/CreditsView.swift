@@ -16,6 +16,9 @@ struct CreditsView: View {
                 Text("credits.dataSources.spanishWordnet")
                 Text("credits.dataSources.arabicWordnet")
                 Text("credits.dataSources.greekWordnet")
+                // Issue #144: the Greek word forms and inflection tables (0136).
+                Text("credits.dataSources.wiktionary")
+                    .accessibilityIdentifier("credits_wiktionary")
             }
             Section("credits.licenses.section") {
                 Text("credits.licenses.placeholder")

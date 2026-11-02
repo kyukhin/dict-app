@@ -159,7 +159,8 @@ extension XCUIApplication {
         let keyboard = keyboards.firstMatch
         guard !isKeyboardGone(keyboard) else { return true }
         for key in ["Hide keyboard", "Search", "search", "Return", "return", "Done", "Go"] {
-            let button = keyboard.buttons[key]
+            // The Arabic iPad keyboard on iOS 26 has two Search keys.
+            let button = keyboard.buttons[key].firstMatch
             guard button.exists, isTapPointInWindow(button) else { continue }
             button.tap()
             if waitForKeyboardGone(keyboard) { return true }

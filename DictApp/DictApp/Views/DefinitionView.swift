@@ -7,6 +7,8 @@ import UIKit      // Issue #12: UIWindowScene for the scene-based review request
 
 struct DefinitionView: View {
     @StateObject private var vm: DefinitionViewModel
+    /// The in-app language, for the inflection table's labels (Issue #144).
+    @Environment(\.locale) private var locale
 
     init(entry: DictionaryEntry) {
         _vm = StateObject(wrappedValue: DefinitionViewModel(entry: entry))
@@ -62,6 +64,12 @@ struct DefinitionView: View {
                     .font(.body)
                     .textSelection(.enabled)
                     .accessibilityIdentifier("definition_content")
+
+                // Issue #144: how a Greek headword inflects.
+                if let table = vm.inflectionTable {
+                    Divider()
+                    InflectionTableView(table: table)
+                }
             }
             .padding()
         }
@@ -79,6 +87,9 @@ struct DefinitionView: View {
                 .accessibilityLabel(Text(vm.isBookmarked ? "definition.a11y.removeBookmark" : "definition.a11y.addBookmark"))
                 .accessibilityIdentifier("bookmark_button")
             }
+        }
+        .task {
+            await vm.loadInflection(locale: locale)
         }
         .task {
             await vm.onAppear()
@@ -130,5 +141,200 @@ struct ReadingModeToolbarButton: View {
                                                        : "readingMode.a11y.enable"))
         .accessibilityAddTraits(readingMode.isEnabled ? .isSelected : [])
         .accessibilityIdentifier("reading_mode_toggle")
+    }
+}
+
+// MARK: - Issue #144: inflection tables
+//
+// Renders an `InflectionTable` (Models.swift) as built: no grammar here.
+// Layout uses leading/trailing only, so Arabic mirrors it and the pronoun
+// column lands on the right; Greek forms still read left to right.
+
+struct InflectionTableView: View {
+    let table: InflectionTable
+    /// "All forms" is open. Not stored: every Definition screen starts closed.
+    @State private var showsAllForms = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(table.kind == .conjugation
+                     ? LocalizedStringKey("forms.section.conjugation")
+                     : LocalizedStringKey("forms.section.declension"))
+                    .font(.title3.bold())
+                    .accessibilityAddTraits(.isHeader)
+                if let lemma = table.linkedLemma {
+                    Text(verbatim: lemma)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .accessibilityIdentifier("inflection_linked_lemma")
+                }
+            }
+
+            ForEach(table.mainSections) { InflectionSectionView(section: $0) }
+
+            if !table.moreSections.isEmpty {
+                Button {
+                    showsAllForms.toggle()
+                } label: {
+                    Text(showsAllForms ? LocalizedStringKey("forms.button.mainForms")
+                                       : LocalizedStringKey("forms.button.allForms"))
+                }
+                .buttonStyle(.bordered)
+                .accessibilityIdentifier("inflection_all_forms_button")
+
+                if showsAllForms {
+                    ForEach(table.moreSections) { InflectionSectionView(section: $0) }
+                }
+            }
+
+            Text("forms.source")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("inflection_table")
+    }
+}
+
+/// One section, in the widest rendering that fits: the full grid, bands of
+/// two columns, or one block per column (narrow screens, large text). A
+/// cell's variants stay on one line when that fits, else one per line. When
+/// even a block is too wide (accessibility text sizes), each row label goes
+/// above its forms, so the screen never scrolls sideways.
+private struct InflectionSectionView: View {
+    let section: InflectionTable.Section
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if let heading = section.heading {
+                Text(verbatim: heading)
+                    .font(.headline)
+                    .accessibilityAddTraits(.isHeader)
+            }
+            if let title = section.title {
+                Text(verbatim: title)
+                    .font(.subheadline.weight(.semibold))
+                    .accessibilityAddTraits(.isHeader)
+            }
+            let all = Array(section.columns.indices)
+            ViewThatFits(in: .horizontal) {
+                InflectionGrid(section: section, columns: all, stacksVariants: false)
+                InflectionGrid(section: section, columns: all, stacksVariants: true)
+                InflectionBands(section: section, perBand: 2, stacksVariants: false)
+                InflectionBands(section: section, perBand: 2, stacksVariants: true)
+                InflectionBands(section: section, perBand: 1, stacksVariants: true)
+                InflectionStack(section: section)
+            }
+        }
+        .accessibilityElement(children: .contain)
+    }
+}
+
+/// The section's columns cut into bands of `perBand`, each a grid with the
+/// row headers. One per band is the block rendering.
+private struct InflectionBands: View {
+    let section: InflectionTable.Section
+    let perBand: Int
+    let stacksVariants: Bool
+
+    var body: some View {
+        let starts = Array(stride(from: 0, to: section.columns.count, by: perBand))
+        VStack(alignment: .leading, spacing: 14) {
+            ForEach(starts, id: \.self) { start in
+                InflectionGrid(section: section,
+                               columns: Array(start..<min(start + perBand, section.columns.count)),
+                               stacksVariants: stacksVariants)
+            }
+        }
+    }
+}
+
+/// A grid of the section's `columns`: headers hidden from VoiceOver, each
+/// data cell one element that reads "column, row, form".
+private struct InflectionGrid: View {
+    let section: InflectionTable.Section
+    let columns: [Int]
+    let stacksVariants: Bool
+
+    var body: some View {
+        Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: 16, verticalSpacing: 6) {
+            if section.showsColumnHeaders {
+                GridRow {
+                    if section.showsRowHeaders {
+                        Color.clear.gridCellUnsizedAxes([.horizontal, .vertical])
+                    }
+                    ForEach(columns, id: \.self) { index in
+                        Text(verbatim: section.columns[index].title)
+                            .font(.footnote.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                            .fixedSize()
+                            .accessibilityHidden(true)
+                    }
+                }
+            }
+            ForEach(section.rows) { row in
+                GridRow {
+                    if section.showsRowHeaders {
+                        Text(verbatim: row.header?.title ?? "")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .fixedSize()
+                            .accessibilityHidden(true)
+                    }
+                    ForEach(columns, id: \.self) { index in
+                        InflectionCellView(cell: row.cells[index], stacksVariants: stacksVariants, wraps: false)
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// The last resort: one block per column, each row label above its forms,
+/// every text free to wrap. A grid row (Accusative | σπιτιού) does not fit
+/// an iPhone at the largest accessibility sizes.
+private struct InflectionStack: View {
+    let section: InflectionTable.Section
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            ForEach(section.columns.indices, id: \.self) { index in
+                VStack(alignment: .leading, spacing: 8) {
+                    if !section.columns[index].title.isEmpty {
+                        Text(verbatim: section.columns[index].title)
+                            .font(.footnote.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                            .accessibilityHidden(true)
+                    }
+                    ForEach(section.rows) { row in
+                        VStack(alignment: .leading, spacing: 0) {
+                            if let header = row.header {
+                                Text(verbatim: header.title)
+                                    .font(.subheadline)
+                                    .foregroundStyle(.secondary)
+                                    .accessibilityHidden(true)
+                            }
+                            InflectionCellView(cell: row.cells[index], stacksVariants: true, wraps: true)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// One text, so VoiceOver finds one element with the composed label.
+private struct InflectionCellView: View {
+    let cell: InflectionTable.Cell
+    let stacksVariants: Bool
+    let wraps: Bool
+
+    var body: some View {
+        Text(verbatim: stacksVariants ? cell.stackedText : cell.text)
+            .fixedSize(horizontal: !wraps, vertical: true)
+            .accessibilityLabel(Text(cell.accessibilityLabel))
+            .accessibilityIdentifier(cell.id)
     }
 }
