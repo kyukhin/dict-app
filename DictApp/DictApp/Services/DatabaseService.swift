@@ -109,7 +109,9 @@ enum Search {
         /// Every letter Greek: look up `key`, the folded query, in
         /// `dict.form_lookup`.
         case greek(key: String)
-        // #143 adds `english` for a query of a–z letters, through Morphy.
+        /// Every letter a–z, any case (Issue #143): look up `word`,
+        /// lowercased (Morphy's step 0), through `Morphy`.
+        case english(word: String)
     }
 
     /// A query needs at least this many letters for the form step.
@@ -119,9 +121,14 @@ enum Search {
     static let maximumLemmaRows = 10
 
     /// The form step for a sanitized query: one word of 2+ letters, every
-    /// letter Greek (accents, case and final sigma are folded away). Several
-    /// words, other or mixed scripts and digits get none.
+    /// letter a–z in any case (English, #143) or every letter Greek
+    /// (accents, case and final sigma are folded away). Several words,
+    /// other or mixed scripts and digits get none.
     static func formStep(for sanitized: String) -> FormStep? {
+        // Issue #143: English, a–z only, so `lowercased()` ignores the locale.
+        if sanitized.unicodeScalars.allSatisfy({ ("a"..."z").contains($0) || ("A"..."Z").contains($0) }) {
+            return sanitized.unicodeScalars.count >= formStepMinimumLetters ? .english(word: sanitized.lowercased()) : nil
+        }
         var letters = 0
         for scalar in sanitized.precomposedStringWithCanonicalMapping.unicodeScalars {
             switch scalar.properties.generalCategory {
@@ -167,6 +174,13 @@ enum Search {
         lemmaRows.forEach(append)
         ranked.dropFirst(exact.count).forEach { append(SearchResult(entry: $0.entry)) }
         return Array(result.prefix(limit))
+    }
+
+    /// The sources an English form step reads lemma rows from (Kirill,
+    /// 2026-11-02, #143): the enabled ones (`nil`: every one) whose headwords
+    /// are English, so Spanish WordNet's do never reads as a form of doing.
+    static func englishLemmaSources(enabled: [String]?, english: Set<String>) -> [String] {
+        (enabled.map { $0.filter(english.contains) } ?? Array(english)).sorted()
     }
 
     /// The lemma rows of the first `maximumLemmas` lemmas present in `rows`,
@@ -731,7 +745,7 @@ actor DatabaseService {
     /// (κύριε: κύριος, noun). Lemmas that fold alike but are spelt apart
     /// (γέρου: γέρος and γερός) each stay, so a row is captioned with its
     /// own lemma (`lemmaRows`). Unlimited: the lemma-row query's limit
-    /// applies after the enabled filter.
+    /// applies after the enabled filter. English: `Morphy`'s lemmas (#143).
     private static func lemmaCandidates(_ db: Database, step: Search.FormStep) throws -> [Search.LemmaCandidate] {
         switch step {
         case .greek(let key):
@@ -744,6 +758,8 @@ actor DatabaseService {
                 return Search.LemmaCandidate(word: word, wordNormalized: wordNormalized,
                                              match: FormMatch(lemma: word, analysis: .greek(tags: tags)))
             }
+        case .english(let word):
+            return try englishLemmaCandidates(db, word: word)
         }
     }
 
@@ -757,6 +773,12 @@ actor DatabaseService {
     private static func lemmaRows(_ db: Database, step: Search.FormStep?, sources: [String]?,
                                   withImports: Bool) throws -> [SearchResult] {
         guard let step else { return [] }
+        var sources = sources
+        if case .english = step {
+            let english = Search.englishLemmaSources(enabled: sources, english: try englishHeadwordSources(db))
+            guard !english.isEmpty else { return [] }
+            sources = english
+        }
         let candidates = try lemmaCandidates(db, step: step)
         guard !candidates.isEmpty else { return [] }
 
@@ -794,6 +816,60 @@ actor DatabaseService {
             let candidate = candidates.first { $0.word == entry.word } ?? candidates[index]
             return SearchResult(entry: entry, formMatch: candidate.match)
         })
+    }
+
+    // MARK: Search by an English form (Issue #143)
+    //
+    // 0136-word-forms.md, "Morphy (#143)" and "Search path" step 2: one
+    // primary-key query on `dict.morphy_exception`, one on `dict.morphy_lemma`
+    // for the rule bases, then the pure `Morphy`. English rows store the word
+    // as their key, so a base is both the lemma's word and its key. The
+    // lemma rows come only from dictionaries whose headwords are English.
+
+    /// The word's lines of WordNet's exception lists: the primary-key prefix
+    /// `form = ?`. A unit test checks the plan.
+    static let morphyExceptionSQL = "SELECT pos, base FROM dict.morphy_exception WHERE form = ? ORDER BY pos, base"
+
+    /// The parts of speech (`pos_mask`) of `count` rule bases, one
+    /// primary-key search each.
+    static func morphyLemmaSQL(count: Int) -> String {
+        "SELECT word, pos_mask FROM dict.morphy_lemma WHERE word IN (\(Array(repeating: "?", count: count).joined(separator: ", ")))"
+    }
+
+    /// The dictionaries whose headwords are English (Kirill, 2026-11-02):
+    /// bundled ones by `dict_metadata.from_lang`, imports by
+    /// `imported_sources.from_lang` once an import records its language
+    /// (#208). Until then an import counts only under a bundled English
+    /// source ID, whose `dict_metadata` row it shares.
+    static let englishHeadwordSourcesSQL = """
+        SELECT source FROM dict.dict_metadata WHERE from_lang = 'eng'
+        UNION
+        SELECT source FROM imported_sources WHERE from_lang = 'eng'
+        """
+
+    private static func englishHeadwordSources(_ db: Database) throws -> Set<String> {
+        Set(try String.fetchAll(db, sql: englishHeadwordSourcesSQL))
+    }
+
+    /// The lemmas the lowercased `word` is a form of, in `Morphy`'s order,
+    /// without the word itself.
+    private static func englishLemmaCandidates(_ db: Database, word: String) throws -> [Search.LemmaCandidate] {
+        let exceptions = try Row.fetchAll(db, sql: morphyExceptionSQL, arguments: [word]).compactMap { row in
+            Morphy.PartOfSpeech(rawValue: row["pos"]).map { Morphy.Exception(pos: $0, base: row["base"]) }
+        }
+        let bases = Morphy.ruleBases(of: word)
+        var lemmas: [String: Int] = [:]
+        if !bases.isEmpty {
+            for row in try Row.fetchAll(db, sql: morphyLemmaSQL(count: bases.count), arguments: StatementArguments(bases)) {
+                let word: String = row["word"], mask: Int = row["pos_mask"]
+                lemmas[word] = mask
+            }
+        }
+        return Morphy.analyses(of: word, exceptions: exceptions, lemmas: lemmas).map { analysis in
+            Search.LemmaCandidate(word: analysis.base, wordNormalized: analysis.base, match: FormMatch(
+                lemma: analysis.base,
+                analysis: .english(pos: analysis.pos, rule: analysis.rule, suffix: analysis.suffix)))
+        }
     }
 
     // MARK: - Entries by key (Issue #138)
@@ -837,14 +913,22 @@ actor DatabaseService {
 
     /// The lemmas of one part of speech with a table that a folded word is a
     /// form or an alternative of, other than the given lemma; and whether the
-    /// table holds the word itself.
+    /// table holds the word itself. Issue #143: only the lemmas whose table
+    /// holds the word, or whose link page is spelled as the word
+    /// (`form_link`), so a word that only folds like a link page (στύλος like
+    /// στυλός, βολέ like βόλε) links nowhere. Arguments: the word, the word,
+    /// its folded key, the lemma to leave out, the part of speech.
     static let linkedLemmasSQL = """
-        SELECT l.id, l.word, l.pos,
-               EXISTS (SELECT 1 FROM dict.paradigm h WHERE h.lemma_id = l.id AND h.form = ?) AS holds_headword
-        FROM dict.form_lookup f JOIN dict.lemma l ON l.id = f.lemma_id
-        WHERE f.form_norm = ? AND f.lemma_id <> ? AND l.pos = ?
-          AND EXISTS (SELECT 1 FROM dict.paradigm p WHERE p.lemma_id = l.id)
-        ORDER BY l.word
+        SELECT id, word, pos, holds_headword FROM (
+            SELECT l.id, l.word, l.pos,
+                   EXISTS (SELECT 1 FROM dict.paradigm h WHERE h.lemma_id = l.id AND h.form = ?) AS holds_headword,
+                   EXISTS (SELECT 1 FROM dict.form_link k WHERE k.form = ? AND k.lemma_id = l.id) AS spells_link
+            FROM dict.form_lookup f JOIN dict.lemma l ON l.id = f.lemma_id
+            WHERE f.form_norm = ? AND f.lemma_id <> ? AND l.pos = ?
+              AND EXISTS (SELECT 1 FROM dict.paradigm p WHERE p.lemma_id = l.id)
+        )
+        WHERE holds_headword OR spells_link
+        ORDER BY word
         """
 
     /// The table a Greek entry shows (`InflectionLookup.choose`): of the
@@ -887,10 +971,12 @@ actor DatabaseService {
     /// other than the lemma `excluding`; nil for none or several, for a table
     /// that only holds another word folded alike, and for a noun, adjective
     /// or proper noun the word is no nominative of (`InflectionLookup.linkFits`).
+    /// A link needs the word itself: a cell of the table or the link page's
+    /// own spelling (`linkedLemmasSQL`, #143).
     private static func linkedTable(of word: String, pos: String, excluding: Int64?,
                                     in db: Database) throws -> LemmaParadigm? {
         let links = try Row.fetchAll(db, sql: linkedLemmasSQL,
-                                     arguments: [word, Search.foldGreek(word), excluding ?? -1, pos])
+                                     arguments: [word, word, Search.foldGreek(word), excluding ?? -1, pos])
             .map { row in
                 InflectionLookup.Link(lemma: InflectionLookup.Lemma(id: row["id"], word: row["word"], pos: row["pos"]),
                                       holdsHeadword: row["holds_headword"])

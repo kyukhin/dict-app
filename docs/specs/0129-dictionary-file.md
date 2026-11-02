@@ -1,7 +1,7 @@
 # Dictionaries as one read-only file
 
 > Spec written by Claude (AI) for LibreDict.
-> Status: Approved by Kirill on 2026-10-30 (first approved on 2026-10-28) · Epic: #129 · Tickets: #112, #138, #139, #140, #213, #216 · Updated: 2026-10-31
+> Status: Approved by Kirill on 2026-10-30 (first approved on 2026-10-28) · Epic: #129 · Tickets: #112, #138, #139, #140, #213, #216 · Updated: 2026-11-02
 
 This spec is the #112 design. It replaces the Bundled data, Database, Launch and Imported dictionaries sections of [0000-overview.md](0000-overview.md) once implemented. Order: #138, then #139 and #140, then #213.
 
@@ -131,7 +131,7 @@ So concurrent failures cause one reopen, and no call loops. If the file were inv
 | `dict_metadata` | One row per dictionary source: `display_name`, `version`, `license`, `url`, `word_count` (equal to the row count, checked), `description`, `from_lang` and `to_lang` (ISO 639-3, such as `ell` and `eng`; #208). No `built_at`. Dictionaries only: every row is a Dictionary Order source |
 | `data_source` | One row per non-dictionary data set (Wiktionary forms, Tatoeba, word lists): `id`, `kind`, `display_name`, `version`, `license`, `url`. Empty in E1. Credits will read it |
 
-- `PRAGMA user_version` is the format version (1 in #140, 2 since #141 added the word-form tables). The app constant `DictionaryFile.formatVersion` must match, and a unit test checks it. The app and the file always ship together, so there is no runtime negotiation.
+- `PRAGMA user_version` is the format version (1 in #140, 2 since #141 added the word-form tables, 3 since #143 added the morphy tables). The app constant `DictionaryFile.formatVersion` must match, and a unit test checks it. The app and the file always ship together, so there is no runtime negotiation.
 - No `ANALYZE`: the query plans must stay those measured below.
 - Measured on today's data: 126.0 MB, against 134.9 MB for the seed. Dropping `created_at`, `built_at` and the empty `history` and `bookmarks` tables saves 8.8 MB. It returns the same results as the seed on the probe set. Compressed (IPA) size is ~45 MB either way.
 
@@ -145,7 +145,7 @@ So concurrent failures cause one reopen, and no call loops. If the file were inv
 6. Each epic states its size budget. The build prints the size of every table (`dbstat`) and the total.
 7. One rebuilt file per data PR, after rebasing. LFS already holds ~470 MB of seed versions, and each rebuild adds ~130 MB.
 
-Owners of the DDL: E2 #136 (`lemma`, `form_lookup`, `paradigm`, `tagset`), E3 #130 (built-in word lists, if its spec puts them here), E6 #133 (`grammar_topic`, `grammar_text`, `grammar_link`, #171), E7 #134 (examples).
+Owners of the DDL: E2 #136 (`lemma`, `form_lookup`, `form_link`, `paradigm`, `tagset`, `morphy_exception`, `morphy_lemma`), E3 #130 (built-in word lists, if its spec puts them here), E6 #133 (`grammar_topic`, `grammar_text`, `grammar_link`, #171), E7 #134 (examples).
 
 #### Build (#140)
 
@@ -353,3 +353,4 @@ The probe set is ~25 queries across en, ru, es, ar and el (`house`, `a`, `the`, 
 - 2026-10-31: #213 rebased onto #141. 264 unit tests (2 skips) on a newly created iPhone 15 Pro simulator, iOS 17.5. `testUserDataWritesAreNotRetried` skipped its user-WAL part in the first 6 runs after the simulator was created (the WAL stayed readable for 10 s), then passed 6 of 6; the head before the rebase passed 7 of 7 on the same simulator.
 - 2026-10-31: #216 updates NLTK from 3.9.4 to 3.10.4, which fixes its Dependabot advisories. NLTK 3.10's `nltk.corpus.wordnet` reads `omw-2.0`, which is not pinned, so the builders take their reader from `inputs.wordnet()`: WordNet on the pinned `wordnet.zip` and `omw-1.4.zip`, defined as in NLTK 3.9, one instance per build. No input changed. 3.10 runs the reader's regexes through the `regex` package, so `requirements.txt` pins it too (2026.9.29). NLTK 3.10 also refuses data that another account can write to, so `use_nltk_data` drops the group and world write bits on the NLTK cache (a umask of 002 sets them on every download); with a group-writable cache the build failed before and is byte-identical after. `--verify` gives the committed sha256 `b3c7fefc…a4f99` and an unchanged `forms-qa.md` with the inputs cached, under `PYTHONHASHSEED=7` and from an empty cache (Python 3.14.0, SQLite 3.51.2). A build with the inputs cached takes 41 s (40 s with 3.9.4).
 - 2026-10-31: #216 review: the WordNet reader and the Greek license read the corpora through `corpora/<name>.zip/...` paths, since a plain `corpora/<name>` path prefers an extracted copy that no pin covers, and `use_nltk_data` refuses a symlink in the NLTK cache. `--verify` from a group-writable cache holding tampered extracted copies, under umask 002, gives the committed sha256.
+- 2026-11-02: #143 registers the second static step, `build_morphy.py` (WordNet's exception lists and single-word lemmas, read inside the pinned `wordnet.zip`), and adds `form_link` to the forms step; `user_version` and `DictionaryFile.formatVersion` go to 3. The file is 151,674,880 bytes, SHA-256 `24a1494d…14301d77`; `--verify` gives it byte for byte, also under `PYTHONHASHSEED=7` and after rebasing onto #144. Details in [0136-word-forms.md](0136-word-forms.md).

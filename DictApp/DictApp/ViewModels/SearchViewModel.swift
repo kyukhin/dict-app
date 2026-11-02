@@ -143,9 +143,10 @@ final class SearchViewModel: ObservableObject {
 
 // MARK: - Form captions (Issue #142)
 
-/// The caption under a lemma row on Search, "aorist 1sg of γράφω"
-/// (0136-word-forms.md, "Caption"). Pure: the labels come from the form's
-/// tag set, the strings from the in-app language's lproj.
+/// The caption under a lemma row on Search, "aorist 1sg of γράφω" or "form
+/// of go" (0136-word-forms.md, "Caption"). Pure: the labels come from the
+/// form's tag set or, for English, Morphy's analysis (#143); the strings
+/// from the in-app language's lproj.
 enum FormCaption {
     /// One part of a caption. The raw value is its catalog key.
     enum Label: String, CaseIterable {
@@ -178,6 +179,8 @@ enum FormCaption {
         case thirdPlural = "forms.person.3pl"
         case alternative = "forms.alternative"
         case form = "forms.form"
+        /// English verbs in -ing (Issue #143): "-ing form of run".
+        case ingForm = "forms.ingForm"
 
         /// The Greek pronoun VoiceOver reads for a person-number label, the
         /// word the inflection tables show (Greek, never translated).
@@ -218,6 +221,22 @@ enum FormCaption {
     static func labels(for match: FormMatch) -> [Label] {
         switch match.analysis {
         case .greek(let tags): return labels(forGreekTags: tags)
+        case .english(let pos, _, let suffix): return labels(forEnglish: pos, suffix: suffix)
+        }
+    }
+
+    /// The label of an English form (Issue #143), from Morphy's part of
+    /// speech and the query's ending: a noun is a plural; an adjective or
+    /// adverb in -er a comparative, in -est a superlative; a verb in -ing an
+    /// -ing form; anything else a form ("form of go": morphy does not tell
+    /// the past from the participle).
+    static func labels(forEnglish pos: Morphy.PartOfSpeech, suffix: String) -> [Label] {
+        switch (pos, suffix) {
+        case (.noun, _): return [.plural]
+        case (.adjective, "er"), (.adverb, "er"): return [.comparative]
+        case (.adjective, "est"), (.adverb, "est"): return [.superlative]
+        case (.verb, "ing"): return [.ingForm]
+        default: return [.form]
         }
     }
 

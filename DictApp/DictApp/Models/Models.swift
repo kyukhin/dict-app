@@ -120,7 +120,10 @@ struct FormMatch: Hashable, Sendable {
         /// (`dict.form_lookup.tagset_id`), e.g. aorist 1sg is `active
         /// first-person indicative past perfective singular`.
         case greek(tags: Set<String>)
-        // #143 adds the English analysis: morphy's pos, rule and suffix.
+        /// English (Issue #143): how `Morphy` found the lemma, its part of
+        /// speech, the detachment rule (`nil`: WordNet's exception list)
+        /// and the query's ending the caption names (`Morphy.Analysis`).
+        case english(pos: Morphy.PartOfSpeech, rule: Morphy.Rule?, suffix: String)
     }
 
     /// The lemma's headword (NFC), e.g. γράφω.
@@ -144,6 +147,126 @@ struct SearchResult: Identifiable, Hashable, Sendable {
     var id: Int64? { entry.id }
 }
 
+// MARK: - Morphy (Issue #143)
+
+/// WordNet 3.0's morphy, ported (0136-word-forms.md, "Morphy (#143)"): the
+/// lemmas an inflected English word is a form of (went → go, dogs → dog).
+/// Pure: `DatabaseService` reads the word's lines of WordNet's exception
+/// lists (`dict.morphy_exception`) and which rule bases are single-word
+/// WordNet lemmas (`dict.morphy_lemma`), and passes them in.
+enum Morphy {
+    /// A WordNet part of speech; the raw value is `morphy_exception.pos`.
+    /// The cases are in candidate order.
+    enum PartOfSpeech: String, CaseIterable, Hashable, Sendable {
+        case verb = "v", noun = "n", adjective = "a", adverb = "r"
+
+        /// Its bit in `morphy_lemma.pos_mask`.
+        var maskBit: Int {
+            switch self {
+            case .noun: return 1
+            case .verb: return 2
+            case .adjective: return 4
+            case .adverb: return 8
+            }
+        }
+    }
+
+    /// A detachment rule: a word ending in `detach` may be a form of the
+    /// word with `attach` in its place (cities: ies → y).
+    struct Rule: Hashable, Sendable {
+        let detach: String
+        let attach: String
+    }
+
+    /// A line of WordNet's exception lists for the word: it is a form of
+    /// `base` as `pos` (went: verb, go).
+    struct Exception: Hashable, Sendable {
+        let pos: PartOfSpeech
+        let base: String
+    }
+
+    /// One lemma of the word.
+    struct Analysis: Hashable, Sendable {
+        let base: String
+        let pos: PartOfSpeech
+        /// The detachment rule that gave `base`; `nil` for an exception.
+        let rule: Rule?
+        /// The word's ending its caption names: "ing" for a verb, "er" or
+        /// "est" for an adjective or adverb, else "".
+        let suffix: String
+    }
+
+    /// WordNet's detachment rules, in its order. Adverbs have none.
+    static let rules: [PartOfSpeech: [Rule]] = {
+        let table: [PartOfSpeech: [(String, String)]] = [
+            .noun: [("s", ""), ("ses", "s"), ("xes", "x"), ("zes", "z"), ("ches", "ch"), ("shes", "sh"),
+                    ("men", "man"), ("ies", "y")],
+            .verb: [("s", ""), ("ies", "y"), ("es", "e"), ("es", ""), ("ed", "e"), ("ed", ""), ("ing", "e"), ("ing", "")],
+            .adjective: [("er", ""), ("est", ""), ("er", "e"), ("est", "e")],
+        ]
+        return table.mapValues { $0.map { Rule(detach: $0.0, attach: $0.1) } }
+    }()
+
+    /// The noise guard: a rule's noun or adjective base needs this many
+    /// letters (was ↛ wa, as ↛ a, us ↛ u, has ↛ ha). Verbs keep shorter
+    /// bases (goes → go).
+    static let minimumNominalBaseLength = 3
+
+    /// Every base the detachment rules give `word`, in candidate order,
+    /// after the noise guard and before the lemma check.
+    static func detachments(of word: String) -> [Analysis] {
+        PartOfSpeech.allCases.flatMap { pos in
+            (rules[pos] ?? []).compactMap { rule -> Analysis? in
+                guard word.hasSuffix(rule.detach) else { return nil }
+                let base = String(word.dropLast(rule.detach.count)) + rule.attach
+                guard !base.isEmpty, pos == .verb || base.count >= minimumNominalBaseLength else { return nil }
+                return Analysis(base: base, pos: pos, rule: rule, suffix: suffix(of: word, as: pos))
+            }
+        }
+    }
+
+    /// The rule bases of `word`, each once: what `morphy_lemma` is asked for.
+    static func ruleBases(of word: String) -> [String] {
+        var seen = Set<String>()
+        return detachments(of: word).map(\.base).filter { seen.insert($0).inserted }
+    }
+
+    /// The lemmas of `token`, WordNet 3.0's morphy:
+    /// 0. lowercase it (`lowercased()` ignores the locale);
+    /// 1. for each part of speech in the order verb, noun, adjective,
+    ///    adverb: all its `exceptions` if it has any (went → go; better →
+    ///    good, well), else the first detachment rule, in `rules` order,
+    ///    whose base `lemmas` (word → `pos_mask`) has for that part of speech,
+    ///    as NLTK's `morphy()` takes it: hoping → hope, not hop (Kirill,
+    ///    2026-11-02);
+    /// 2. without the word itself and repeated bases: a base keeps its first
+    ///    part of speech, so goes is the verb go's form (Kirill, 2026-11-01),
+    ///    though `noun.exc` lists it as the plural of the noun go.
+    static func analyses(of token: String, exceptions: [Exception], lemmas: [String: Int]) -> [Analysis] {
+        let word = token.lowercased()
+        let detached = detachments(of: word)
+        let found = PartOfSpeech.allCases.flatMap { pos -> [Analysis] in
+            let own = exceptions.filter { $0.pos == pos }
+            guard own.isEmpty else {
+                return own.map { Analysis(base: $0.base, pos: pos, rule: nil, suffix: suffix(of: word, as: pos)) }
+            }
+            let hit = detached.first { $0.pos == pos && (lemmas[$0.base] ?? 0) & pos.maskBit != 0 }
+            return hit.map { [$0] } ?? []
+        }
+        var seen: Set<String> = [word]
+        return found.filter { seen.insert($0.base).inserted }
+    }
+
+    /// The ending of `word` that its caption as `pos` names.
+    private static func suffix(of word: String, as pos: PartOfSpeech) -> String {
+        switch pos {
+        case .verb: return word.hasSuffix("ing") ? "ing" : ""
+        case .adjective, .adverb: return word.hasSuffix("est") ? "est" : word.hasSuffix("er") ? "er" : ""
+        case .noun: return ""
+        }
+    }
+}
+
 // MARK: - DictionaryFile (Issue #140)
 
 /// The bundled, read-only dictionary file `dictionaries.sqlite`, written by
@@ -155,7 +278,7 @@ enum DictionaryFile {
     /// The file's `PRAGMA user_version`. The app and the file ship together,
     /// so nothing checks it at runtime; a unit test checks the bundled file.
     /// A changed table shape bumps it and `FORMAT_VERSION` in the build script.
-    static let formatVersion = 2
+    static let formatVersion = 3
 }
 
 // MARK: - Word forms: inflection tables (Issue #144)

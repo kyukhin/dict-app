@@ -8889,7 +8889,7 @@ extension SearchAssembleTests {
 
     /// The form step: one Greek word of 2+ letters, with or without accents,
     /// in any case, precomposed or not. Several words, other or mixed
-    /// scripts, digits and one letter get none (#143 adds a–z).
+    /// scripts, digits and one letter get none (a–z: `MorphyTests`, #143).
     func testFormStepNeedsOneGreekWordOfTwoLetters() {
         XCTAssertEqual(Search.formStep(for: "έγραψα"), .greek(key: "εγραψα"))
         XCTAssertEqual(Search.formStep(for: "εγραψα"), .greek(key: "εγραψα"))
@@ -8897,7 +8897,7 @@ extension SearchAssembleTests {
         XCTAssertEqual(Search.formStep(for: "γρα\u{0301}φω"), .greek(key: "γραφω"), "decomposed accent")
         XCTAssertEqual(Search.formStep(for: "κάνεις"), .greek(key: "κανεισ"), "final sigma folds")
         XCTAssertEqual(Search.formStep(for: "δω"), .greek(key: "δω"), "two letters are enough")
-        for query in ["", "ά", "έγραψα σήμερα", "έγραψα1", "abγρ", "went", "дом", "ماء"] {
+        for query in ["", "ά", "έγραψα σήμερα", "έγραψα1", "abγρ", "дом", "ماء"] {
             XCTAssertNil(Search.formStep(for: query), "'\(query)' gets no form step")
         }
     }
@@ -9170,11 +9170,14 @@ final class WordFormsSearchTests: XCTestCase {
     }
 
     /// #142, #143: base forms, and every probe query of #129, give the same
-    /// results with the form step on and off. #143 adds go, mouse, good, run.
+    /// results with the form step on and off. #143 adds go, mouse, good,
+    /// goose and well. On the main actor, as its assertions sit between
+    /// awaits (#229).
+    @MainActor
     func testBaseFormResultsUnchanged() async throws {
         let queries = ["house", "a", "the", "ice cream", "dog", "water", "run", "entry", "light", "дом", "вод",
                        "говорить", "casa", "comer", "agua", "perro", "كتاب", "ماء", "بيت", "γράφω", "γραφω", "νερο",
-                       "σκυλος", "σπίτι", "είμαι", "νερό", "ποτέ", "πότε"]
+                       "σκυλος", "σπίτι", "είμαι", "νερό", "ποτέ", "πότε", "go", "mouse", "good", "goose", "well"]
         var withStep: [String: [SearchResult]] = [:]
         for query in queries {
             withStep[query] = try await db.searchResults(query: query)
@@ -9561,19 +9564,35 @@ extension WordFormsSearchTests {
 /// it never scans the table, and an accent-fold collision returns every
 /// lemma.
 extension WordFormsLookupTests {
-    /// `EXPLAIN QUERY PLAN` of the app's Greek candidate query: a primary-key
-    /// search, no `SCAN` (the prototype's 6× slowdown). #143 adds the morphy
-    /// lookups.
+    /// `EXPLAIN QUERY PLAN` of the app's Greek candidate query, of the
+    /// morphy lookups and of the `form_link` check of table links (#143):
+    /// primary-key searches, no `SCAN` (the prototype's 6× slowdown), and no
+    /// sort for the exceptions.
     func testLookupsUsePrimaryKey() async throws {
         await DictAppTests.waitForHostAppLaunch()
         let url = try TestDictionary.bundledURL()
-        let plan = try DatabaseQueue().inDatabase { db -> [String] in
+        let bases = Morphy.ruleBases(of: "cities")
+        let queries: [(String, StatementArguments)] = [
+            (DatabaseService.greekLemmaCandidatesSQL, ["εγραψα", "εγραψα"]),
+            (DatabaseService.morphyExceptionSQL, ["went"]),
+            (DatabaseService.morphyLemmaSQL(count: bases.count), StatementArguments(bases)),
+            (DatabaseService.linkedLemmasSQL, ["στύλος", "στύλος", "στυλοσ", -1, "noun"]),
+        ]
+        let plans = try DatabaseQueue().inDatabase { db -> [[String]] in
             try db.execute(sql: "ATTACH DATABASE ? AS dict", arguments: [DatabaseService.dictionaryURI(url)])
-            return try Row.fetchAll(db, sql: "EXPLAIN QUERY PLAN " + DatabaseService.greekLemmaCandidatesSQL,
-                                    arguments: ["εγραψα", "εγραψα"]).map { $0["detail"] as String }
+            return try queries.map { sql, arguments in
+                try Row.fetchAll(db, sql: "EXPLAIN QUERY PLAN " + sql, arguments: arguments).map { $0["detail"] as String }
+            }
         }
-        XCTAssertTrue(plan.contains { $0.contains("SEARCH f USING PRIMARY KEY (form_norm=?)") }, "\(plan)")
-        XCTAssertFalse(plan.contains { $0.hasPrefix("SCAN") }, "no table scan: \(plan)")
+        XCTAssertTrue(plans[0].contains { $0.contains("SEARCH f USING PRIMARY KEY (form_norm=?)") }, "\(plans[0])")
+        XCTAssertTrue(plans[1].contains { $0.hasPrefix("SEARCH") && $0.hasSuffix("morphy_exception USING PRIMARY KEY (form=?)") }, "\(plans[1])")
+        XCTAssertTrue(plans[2].contains { $0.hasPrefix("SEARCH") && $0.hasSuffix("morphy_lemma USING PRIMARY KEY (word=?)") }, "\(plans[2])")
+        XCTAssertTrue(plans[3].contains { $0.hasSuffix("SEARCH k USING PRIMARY KEY (form=? AND lemma_id=?)") },
+                      "form_link by its whole key: \(plans[3])")
+        for plan in plans {
+            XCTAssertFalse(plan.contains { $0.hasPrefix("SCAN") }, "no table scan: \(plan)")
+        }
+        XCTAssertFalse(plans[1].contains { $0.contains("TEMP B-TREE") }, "the key orders the exceptions: \(plans[1])")
     }
 
     /// κανείς and κάνεις both fold to κανεισ: the query shows κάνω and κανένας.
@@ -9595,6 +9614,602 @@ extension WordFormsLookupTests {
             }
             XCTAssertEqual(lemmas, ["κάνω", "κανένας"], "'\(query)': the verb first, then the pronoun")
         }
+    }
+}
+
+// MARK: - Issue #143: search by inflected English form (0136-word-forms.md)
+
+/// `Morphy`, the WordNet 3.0 morphy port (0136, "Morphy (#143)"): pure, on
+/// fixtures copied from the bundled file's `morphy_exception` lines and
+/// `morphy_lemma` parts of speech for these words.
+final class MorphyTests: XCTestCase {
+    private static let noun = 1, verb = 2, adjective = 4, adverb = 8
+
+    /// WordNet's exception lines: form → (pos, base).
+    private static let exceptions: [String: [Morphy.Exception]] = [
+        "went": [.init(pos: .verb, base: "go")],
+        "mice": [.init(pos: .noun, base: "mouse")],
+        "better": [.init(pos: .adjective, base: "good"), .init(pos: .adjective, base: "well"),
+                   .init(pos: .adverb, base: "well")],
+        "best": [.init(pos: .adjective, base: "good"), .init(pos: .adverb, base: "well")],
+        "running": [.init(pos: .verb, base: "run")],
+        "geese": [.init(pos: .noun, base: "goose")],
+        "was": [.init(pos: .verb, base: "be")],
+        "has": [.init(pos: .verb, base: "have")],
+        "goes": [.init(pos: .noun, base: "go")],
+        "axes": [.init(pos: .noun, base: "ax"), .init(pos: .noun, base: "axis")],
+        "leaves": [.init(pos: .noun, base: "leaf"), .init(pos: .noun, base: "leave")],
+    ]
+
+    /// Single-word WordNet lemmas → `pos_mask`.
+    private static let lemmas: [String: Int] = [
+        "go": noun | verb | adjective, "mouse": noun | verb, "good": noun | adjective | adverb,
+        "well": noun | verb | adjective | adverb, "run": noun | verb, "goose": noun | verb, "be": noun | verb,
+        "have": noun | verb, "dog": noun | verb, "box": noun | verb, "city": noun, "walk": noun | verb,
+        "new": adjective | adverb, "news": noun, "wa": noun, "u": noun | adjective, "us": noun, "ha": noun,
+        "a": noun, "as": noun | adverb, "ax": noun | verb, "axe": noun | verb, "axis": noun,
+        "leaf": noun | verb, "leave": noun | verb, "hope": noun | verb, "hop": noun | verb,
+        "plane": noun | verb | adjective, "plan": noun | verb, "scare": noun | verb, "scar": noun | verb,
+    ]
+
+    /// Morphy as `DatabaseService` runs it: the word's exception lines and
+    /// the lemmas among its rule bases.
+    private func analyses(_ token: String) -> [Morphy.Analysis] {
+        let word = token.lowercased()
+        let bases = Set(Morphy.ruleBases(of: word))
+        return Morphy.analyses(of: token, exceptions: Self.exceptions[word] ?? [],
+                               lemmas: Self.lemmas.filter { bases.contains($0.key) })
+    }
+
+    private func exception(_ base: String, _ pos: Morphy.PartOfSpeech, suffix: String = "") -> Morphy.Analysis {
+        Morphy.Analysis(base: base, pos: pos, rule: nil, suffix: suffix)
+    }
+
+    private func rule(_ base: String, _ pos: Morphy.PartOfSpeech, _ detach: String, _ attach: String = "") -> Morphy.Analysis {
+        Morphy.Analysis(base: base, pos: pos, rule: Morphy.Rule(detach: detach, attach: attach), suffix: "")
+    }
+
+    /// #143's cases: went → go, mice → mouse, better → good and well,
+    /// running → run, geese → goose, from the exception lists, each with the
+    /// ending its caption names.
+    func testSpecCases() {
+        XCTAssertEqual(analyses("went"), [exception("go", .verb)])
+        XCTAssertEqual(analyses("mice"), [exception("mouse", .noun)])
+        XCTAssertEqual(analyses("better"), [exception("good", .adjective, suffix: "er"),
+                                            exception("well", .adjective, suffix: "er")],
+                       "well is an adjective and an adverb of better: once, as the adjective")
+        XCTAssertEqual(analyses("running"), [exception("run", .verb, suffix: "ing")])
+        XCTAssertEqual(analyses("geese"), [exception("goose", .noun)])
+        XCTAssertEqual(analyses("best"), [exception("good", .adjective, suffix: "est"),
+                                          exception("well", .adverb, suffix: "est")])
+    }
+
+    /// Step 0: the token is lowercased first.
+    func testCapitalsAreLowercased() {
+        for (token, word) in [("WENT", "went"), ("Went", "went"), ("RUNNING", "running"), ("Mice", "mice"),
+                              ("DOGS", "dogs")] {
+            XCTAssertEqual(analyses(token), analyses(word), token)
+            XCTAssertFalse(analyses(token).isEmpty, token)
+        }
+    }
+
+    /// Regular forms through the detachment rules, kept only when the base is
+    /// a WordNet lemma of that part of speech. A base that several parts of
+    /// speech give comes once, in the order verb, noun, adjective.
+    func testDetachmentRules() {
+        XCTAssertEqual(analyses("dogs"), [rule("dog", .verb, "s")], "dog is a verb and a noun: the verb comes first")
+        XCTAssertEqual(analyses("boxes"), [rule("box", .verb, "es")])
+        XCTAssertEqual(analyses("cities"), [rule("city", .noun, "ies", "y")], "city is no verb")
+        XCTAssertEqual(analyses("walked"), [rule("walk", .verb, "ed")])
+        XCTAssertEqual(Morphy.analyses(of: "walking", exceptions: [], lemmas: ["walk": Self.noun | Self.verb]),
+                       [Morphy.Analysis(base: "walk", pos: .verb, rule: Morphy.Rule(detach: "ing", attach: ""), suffix: "ing")])
+        XCTAssertEqual(Morphy.analyses(of: "taller", exceptions: [], lemmas: ["tall": Self.adjective]),
+                       [Morphy.Analysis(base: "tall", pos: .adjective, rule: Morphy.Rule(detach: "er", attach: ""), suffix: "er")])
+        XCTAssertEqual(Morphy.analyses(of: "nicest", exceptions: [], lemmas: ["nice": Self.adjective]),
+                       [Morphy.Analysis(base: "nice", pos: .adjective, rule: Morphy.Rule(detach: "est", attach: "e"), suffix: "est")])
+    }
+
+    /// The noise guard: a noun or adjective base needs 3+ letters, so was,
+    /// has, us and as find no two-letter noun; a verb base may be shorter
+    /// (goes → go). news is no form of new, which is no noun.
+    func testNoiseGuard() {
+        XCTAssertEqual(analyses("news"), [], "new is an adjective and an adverb, not a noun or verb")
+        XCTAssertEqual(analyses("was"), [exception("be", .verb)], "not wa (Washington)")
+        XCTAssertEqual(analyses("has"), [exception("have", .verb)], "not ha")
+        XCTAssertEqual(analyses("us"), [], "not u")
+        XCTAssertEqual(analyses("as"), [], "not a")
+        XCTAssertEqual(Morphy.analyses(of: "goes", exceptions: [], lemmas: ["go": Self.noun | Self.verb]),
+                       [rule("go", .verb, "es")], "a verb keeps its two-letter base")
+        XCTAssertEqual(Morphy.analyses(of: "gos", exceptions: [], lemmas: ["go": Self.noun | Self.verb]),
+                       [rule("go", .verb, "s")], "the noun's go is guarded, the verb's is not")
+        XCTAssertEqual(Morphy.minimumNominalBaseLength, 3)
+    }
+
+    /// Parts of speech in the order verb, noun, adjective, adverb, each with
+    /// its exceptions if it has any, else its rules (Kirill, 2026-11-01); a
+    /// base keeps its first part of speech; the word itself is dropped.
+    func testOrderAndRepeats() {
+        XCTAssertEqual(analyses("axes"), [rule("axe", .verb, "s"), exception("ax", .noun), exception("axis", .noun)],
+                       "the verb's first hit (s → axe), then the noun's exceptions; the noun's rules are skipped")
+        XCTAssertEqual(analyses("goes"), [rule("go", .verb, "es")],
+                       "the verb's es → go comes before noun.exc's goes → go (the plural of the noun go)")
+        XCTAssertEqual(analyses("leaves"), [rule("leave", .verb, "s"), exception("leaf", .noun)])
+        XCTAssertEqual(Morphy.analyses(of: "bars", exceptions: [Morphy.Exception(pos: .noun, base: "barium")],
+                                       lemmas: ["bar": Self.noun | Self.verb]),
+                       [rule("bar", .verb, "s"), exception("barium", .noun)],
+                       "the noun has an exception, so its s → bar does not run; the verb's does")
+        XCTAssertEqual(Morphy.analyses(of: "news", exceptions: [Morphy.Exception(pos: .noun, base: "news")], lemmas: [:]),
+                       [], "a line that names the word itself adds nothing")
+        XCTAssertEqual(Morphy.analyses(of: "went", exceptions: [Morphy.Exception(pos: .adverb, base: "a"),
+                                                                Morphy.Exception(pos: .verb, base: "go")], lemmas: [:]).map(\.base),
+                       ["go", "a"], "exceptions in the order verb, noun, adjective, adverb")
+    }
+
+    /// Within a part of speech without an exception, only the first rule
+    /// whose base is a lemma of it counts, as NLTK's morphy() takes it
+    /// (Kirill, 2026-11-02): hoping is hope, not also hop; planes plane, not
+    /// plan; scared scare, not scar. A later rule still counts when the
+    /// earlier ones give no lemma (walked: walke is none, walk is).
+    func testFirstRuleHitOnly() {
+        XCTAssertEqual(analyses("hoping"), [Morphy.Analysis(base: "hope", pos: .verb,
+                                                            rule: Morphy.Rule(detach: "ing", attach: "e"), suffix: "ing")])
+        XCTAssertEqual(analyses("planes"), [rule("plane", .verb, "s")], "the noun's s → plane repeats plane")
+        XCTAssertEqual(analyses("scared"), [rule("scare", .verb, "ed", "e")])
+        XCTAssertEqual(analyses("walked"), [rule("walk", .verb, "ed")])
+        XCTAssertEqual(Morphy.analyses(of: "hopes", exceptions: [], lemmas: ["hope": Self.verb, "hop": Self.verb]).map(\.base),
+                       ["hope"], "s → hope comes before es → hop")
+    }
+
+    /// The captions the order gives (Kirill, 2026-11-01): goes and dogs are
+    /// verb forms, mice a plural, better the comparative of good and well.
+    func testCaptionsFollowTheOrder() {
+        func captions(_ token: String) -> [String] {
+            analyses(token).map { analysis in
+                FormCaption.text(for: FormMatch(lemma: analysis.base, analysis: .english(
+                    pos: analysis.pos, rule: analysis.rule, suffix: analysis.suffix)), locale: Locale(identifier: "en"))
+            }
+        }
+        XCTAssertEqual(captions("goes"), ["form of go"])
+        XCTAssertEqual(captions("dogs"), ["form of dog"])
+        XCTAssertEqual(captions("mice"), ["plural of mouse"])
+        XCTAssertEqual(captions("better"), ["comparative of good", "comparative of well"])
+        XCTAssertEqual(captions("running"), ["-ing form of run"])
+        XCTAssertEqual(captions("went"), ["form of go"])
+    }
+
+    /// What `DatabaseService` asks `morphy_lemma` for: every rule base once,
+    /// after the noise guard.
+    func testRuleBases() {
+        XCTAssertEqual(Morphy.ruleBases(of: "cities"), ["citie", "city", "citi"])
+        XCTAssertEqual(Morphy.ruleBases(of: "better"), ["bett", "bette"])
+        XCTAssertEqual(Morphy.ruleBases(of: "us"), ["u"], "the verb's u; the noun's is guarded")
+        XCTAssertEqual(Morphy.ruleBases(of: "go"), [])
+        XCTAssertEqual(Morphy.ruleBases(of: "es"), ["e"], "the verb's s → e; es → leaves nothing")
+        XCTAssertEqual(Morphy.ruleBases(of: "s"), [], "no empty base")
+    }
+
+    /// The form step sends one word of 2+ letters a–z, in any case, to
+    /// Morphy, lowercased; other queries keep the Greek step or none.
+    func testFormStepTakesOneEnglishWordOfTwoLetters() {
+        XCTAssertEqual(Search.formStep(for: "went"), .english(word: "went"))
+        XCTAssertEqual(Search.formStep(for: "WENT"), .english(word: "went"))
+        XCTAssertEqual(Search.formStep(for: "Geese"), .english(word: "geese"))
+        XCTAssertEqual(Search.formStep(for: "us"), .english(word: "us"), "two letters are enough")
+        XCTAssertEqual(Search.formStep(for: "έγραψα"), .greek(key: "εγραψα"))
+        for query in ["", "a", "ice cream", "went2", "café", "cafe\u{0301}", "naïve", "wentά", "дом", "ماء"] {
+            XCTAssertNil(Search.formStep(for: query), "'\(query)' gets no form step")
+        }
+    }
+}
+
+/// #143: English captions, from Morphy's part of speech and the query's
+/// ending (0136, "Morphy (#143)", Caption).
+extension FormCaptionTests {
+    private func english(_ lemma: String, _ pos: Morphy.PartOfSpeech, suffix: String = "") -> FormMatch {
+        FormMatch(lemma: lemma, analysis: .english(pos: pos, rule: nil, suffix: suffix))
+    }
+
+    /// The spec table's captions; VoiceOver reads them as shown.
+    func testEnglishMorphyCaptions() {
+        let en = Locale(identifier: "en")
+        let cases: [(FormMatch, String)] = [
+            (english("go", .verb), "form of go"),
+            (english("mouse", .noun), "plural of mouse"),
+            (english("goose", .noun), "plural of goose"),
+            (english("good", .adjective, suffix: "er"), "comparative of good"),
+            (english("well", .adjective, suffix: "er"), "comparative of well"),
+            (english("good", .adjective, suffix: "est"), "superlative of good"),
+            (english("hard", .adverb, suffix: "est"), "superlative of hard"),
+            (english("run", .verb, suffix: "ing"), "-ing form of run"),
+            (english("bad", .adjective), "form of bad"),
+            (FormMatch(lemma: "walk", analysis: .english(pos: .verb, rule: Morphy.Rule(detach: "ed", attach: ""), suffix: "")),
+             "form of walk"),
+        ]
+        for (match, caption) in cases {
+            XCTAssertEqual(FormCaption.text(for: match, locale: en), caption)
+            XCTAssertEqual(FormCaption.accessibilityText(for: match, locale: en), caption, "VoiceOver reads it as shown")
+        }
+        XCTAssertEqual(FormCaption.labels(forEnglish: .noun, suffix: ""), [.plural])
+        XCTAssertEqual(FormCaption.labels(forEnglish: .adverb, suffix: "er"), [.comparative])
+        XCTAssertEqual(FormCaption.labels(forEnglish: .verb, suffix: "er"), [.form], "a verb in -er is a form")
+        XCTAssertEqual(FormCaption.labels(forEnglish: .adjective, suffix: "ing"), [.form])
+    }
+
+    /// "-ing form of run" and "form of go" in the other UI languages; Arabic
+    /// starts with U+200F and isolates the lemma.
+    func testEnglishCaptionsInEveryUILanguage() {
+        let run = english("run", .verb, suffix: "ing"), go = english("go", .verb)
+        XCTAssertEqual(FormCaption.text(for: run, locale: Locale(identifier: "ru")), "форма на -ing от run")
+        XCTAssertEqual(FormCaption.text(for: run, locale: Locale(identifier: "es")), "forma en -ing de run")
+        XCTAssertEqual(FormCaption.text(for: run, locale: Locale(identifier: "el")), "τύπος σε -ing του run")
+        XCTAssertEqual(FormCaption.text(for: go, locale: Locale(identifier: "ru")), "форма от go")
+        XCTAssertEqual(FormCaption.text(for: english("mouse", .noun), locale: Locale(identifier: "es")), "pl. de mouse")
+
+        let arabic = FormCaption.text(for: run, locale: Locale(identifier: "ar"))
+        XCTAssertEqual(arabic.unicodeScalars.first, "\u{200F}", arabic)
+        XCTAssertTrue(arabic.contains("\u{2068}run\u{2069}"), "the lemma is isolated: \(arabic.unicodeScalars.map(\.value))")
+        XCTAssertEqual(String(arabic.unicodeScalars.filter { !bidiControls.contains($0) }), "صيغة ing من run")
+    }
+}
+
+/// #143 on the real file: inflected English forms find their lemmas
+/// through Morphy, right after the exact rows (0136, "Search by any form").
+extension WordFormsSearchTests {
+    private static let englishHeadwordSources: Set<String> = ["wordnet", "freedict-eng-spa", "freedict-eng-ell",
+                                                              "wordnet-eng-ell"]
+
+    /// Checks that the lemma rows of `query` are `lemmas`' headwords in the
+    /// four dictionaries with English headwords, in this order, each with its
+    /// caption, right after the exact rows and before every other row.
+    @MainActor
+    private func assertEnglishLemmaRows(_ query: String, _ lemmas: [(lemma: String, text: String)],
+                                        file: StaticString = #filePath, line: UInt = #line) async throws {
+        let results = try await db.searchResults(query: query)
+        let first = try XCTUnwrap(results.firstIndex { $0.formMatch != nil }, "'\(query)' adds no lemma row",
+                                  file: file, line: line)
+        XCTAssertTrue(results[..<first].allSatisfy { $0.entry.word.lowercased() == query.lowercased() },
+                      "'\(query)': only exact rows precede the lemma rows: \(results[..<first].map(\.entry.word))",
+                      file: file, line: line)
+        let added = lemmaRows(results)
+        XCTAssertEqual(results[first..<(first + added.count)].map(\.id), added.map(\.id),
+                       "'\(query)': the lemma rows are one block", file: file, line: line)
+        var order: [String] = []
+        for lemma in added.compactMap(\.formMatch?.lemma) where !order.contains(lemma) {
+            order.append(lemma)
+        }
+        XCTAssertEqual(order, lemmas.map(\.lemma), "'\(query)': the lemmas in Morphy's order", file: file, line: line)
+        for (lemma, text) in lemmas {
+            let rows = added.filter { $0.formMatch?.lemma == lemma }
+            XCTAssertEqual(Set(rows.map(\.entry.source)), Self.englishHeadwordSources,
+                           "'\(query)' shows \(lemma) from every dictionary with English headwords", file: file, line: line)
+            for row in rows {
+                XCTAssertEqual(row.entry.word.lowercased(), lemma, file: file, line: line)
+                XCTAssertEqual(caption(row), text, "'\(query)'", file: file, line: line)
+            }
+        }
+    }
+
+    /// #143: went → go, mice → mouse, better → good and well, running →
+    /// run, geese → goose, also in capitals, plus regular forms (goes and
+    /// dogs as verb forms); a form that is a headword keeps its exact rows
+    /// first.
+    @MainActor
+    func testEnglishIrregularForms() async throws {
+        for query in ["went", "WENT", "Went"] {
+            try await assertEnglishLemmaRows(query, [("go", "form of go")])
+        }
+        try await assertEnglishLemmaRows("mice", [("mouse", "plural of mouse")])
+        try await assertEnglishLemmaRows("better", [("good", "comparative of good"), ("well", "comparative of well")])
+        for query in ["running", "RUNNING"] {
+            try await assertEnglishLemmaRows(query, [("run", "-ing form of run")])
+        }
+        try await assertEnglishLemmaRows("geese", [("goose", "plural of goose")])
+        try await assertEnglishLemmaRows("cities", [("city", "plural of city")])
+        try await assertEnglishLemmaRows("walked", [("walk", "form of walk")])
+        // Verb first (Kirill, 2026-11-01): goes is the verb's form, though
+        // noun.exc lists it as the plural of the noun go.
+        try await assertEnglishLemmaRows("goes", [("go", "form of go")])
+        try await assertEnglishLemmaRows("dogs", [("dog", "form of dog")])
+
+        let went = try await db.searchResults(query: "went")
+        XCTAssertEqual(went.first.map { "\($0.entry.source)/\($0.entry.word)" }, "freedict-eng-ell/went",
+                       "went's own row comes first, uncaptioned")
+        XCTAssertNil(went.first?.formMatch)
+        for query in ["running", "better"] {
+            let rows = try await db.searchResults(query: query)
+            let exact = rows.prefix { $0.formMatch == nil }
+            XCTAssertEqual(Set(exact.map(\.entry.source)), Self.englishHeadwordSources, "'\(query)': its own rows first")
+            XCTAssertTrue(exact.allSatisfy { $0.entry.word == query })
+        }
+    }
+
+    /// The English step adds rows and moves none: without its lemma rows the
+    /// results are the step-off list, in its order, cut to 50; a query
+    /// Morphy finds nothing for is unchanged.
+    @MainActor
+    func testEnglishFormStepOnlyInsertsLemmaRows() async throws {
+        let queries = ["went", "mice", "better", "running", "geese", "dogs", "cities", "walked", "was", "news", "us"]
+        var withStep: [String: [SearchResult]] = [:]
+        for query in queries {
+            withStep[query] = try await db.searchResults(query: query)
+        }
+        DatabaseService.lemmaStepEnabled = false
+        for query in queries {
+            let on = try XCTUnwrap(withStep[query]), off = try await db.searchResults(query: query)
+            let added = Set(lemmaRows(on).compactMap(\.id))
+            XCTAssertEqual(on.filter { $0.formMatch == nil }.map(\.id),
+                           Array(off.map(\.id).filter { !added.contains($0 ?? -1) }.prefix(50 - added.count)),
+                           "'\(query)': the other rows keep their order")
+        }
+        let newsOff = try await db.searchResults(query: "news")
+        XCTAssertEqual(withStep["news"], newsOff, "news ↛ new")
+        XCTAssertEqual(Set(lemmaRows(try XCTUnwrap(withStep["was"])).compactMap(\.formMatch?.lemma)), ["be"], "not wa")
+        XCTAssertEqual(lemmaRows(try XCTUnwrap(withStep["us"])), [], "not u")
+    }
+}
+
+/// #143 (Kirill, 2026-11-02): English lemma rows come only from
+/// dictionaries whose headwords are English, and Morphy takes the first rule
+/// hit per part of speech; on the real file.
+extension WordFormsSearchTests {
+    private static let englishSources: Set<String> = ["wordnet", "freedict-eng-spa", "freedict-eng-ell", "wordnet-eng-ell"]
+
+    func testEnglishLemmaSourcesAreTheEnabledEnglishOnes() {
+        let english: Set<String> = ["wordnet", "freedict-eng-spa"]
+        XCTAssertEqual(Search.englishLemmaSources(enabled: nil, english: english), ["freedict-eng-spa", "wordnet"])
+        XCTAssertEqual(Search.englishLemmaSources(enabled: ["wordnet-spa-eng", "wordnet"], english: english), ["wordnet"])
+        XCTAssertEqual(Search.englishLemmaSources(enabled: ["wordnet-spa-eng"], english: english), [])
+    }
+
+    /// doing, ideas and doctors: Spanish WordNet has do, idea and doctor as
+    /// headwords, which read as English forms before; now their lemma rows
+    /// come from the English dictionaries only, and a Spanish WordNet row
+    /// carries no caption. With only Spanish WordNet on, no lemma row.
+    @MainActor
+    func testEnglishLemmaRowsComeOnlyFromEnglishDictionaries() async throws {
+        for (query, lemma) in [("doing", "do"), ("ideas", "idea"), ("doctors", "doctor")] {
+            let results = try await db.searchResults(query: query)
+            let rows = lemmaRows(results)
+            XCTAssertEqual(Set(rows.compactMap(\.formMatch?.lemma)), [lemma], "'\(query)'")
+            XCTAssertEqual(Set(rows.map(\.entry.source)), Self.englishSources, "'\(query)': every English dictionary, no other")
+            XCTAssertTrue(results.filter { $0.entry.source == "wordnet-spa-eng" }.allSatisfy { $0.formMatch == nil },
+                          "'\(query)': no Spanish WordNet row is captioned as an English form")
+            let spanishOnly = try await db.searchResults(query: query, enabledSources: ["wordnet-spa-eng"])
+            XCTAssertTrue(spanishOnly.allSatisfy { $0.formMatch == nil }, "'\(query)' with only Es–En · WN on")
+        }
+    }
+
+    /// The first rule hit only: hoping → hope, planes → plane (a Spanish-looking
+    /// a–z query keeps its English rows), on the file.
+    @MainActor
+    func testEnglishFirstRuleHitOnTheFile() async throws {
+        for (query, lemma, caption) in [("hoping", "hope", "-ing form of hope"), ("planes", "plane", "form of plane"),
+                                        ("scared", "scare", "form of scare")] {
+            let rows = lemmaRows(try await db.searchResults(query: query))
+            XCTAssertEqual(Set(rows.compactMap(\.formMatch?.lemma)), [lemma], "'\(query)'")
+            XCTAssertEqual(Set(rows.compactMap { self.caption($0) }), [caption], "'\(query)'")
+        }
+    }
+
+    /// An import records no language yet (`imported_sources.from_lang` is
+    /// NULL until #208), so it gets no English lemma rows; one named like a
+    /// bundled English source shares that source's language and does.
+    @MainActor
+    func testImportsGetEnglishLemmaRowsOnlyAsAnEnglishSource() async throws {
+        for source in ["qa_en_custom", "freedict-eng-spa"] {
+            let file = tempDir.appendingPathComponent("\(source).json")
+            try Data(#"[{"word": "adjudge", "definition": "to judge, imported"}]"#.utf8).write(to: file)
+            let count = try await db.importJSON(at: file, source: source)
+            XCTAssertEqual(count, 1, "\(source): FreeDict lacks adjudge, WordNet has it")
+        }
+        let rows = lemmaRows(try await db.searchResults(query: "adjudges"))
+        XCTAssertEqual(Set(rows.map(\.entry.source)), Self.englishSources,
+                       "the bundled English rows plus the import named like En–Es · FD; qa_en_custom is not English")
+        XCTAssertEqual(Set(rows.compactMap(\.formMatch?.lemma)), ["adjudge"])
+        let customOnly = try await db.searchResults(query: "adjudges", enabledSources: ["qa_en_custom"])
+        XCTAssertTrue(customOnly.allSatisfy { $0.formMatch == nil }, "no English lemma row from an import of unknown language")
+    }
+}
+
+/// QA, #143: more English forms through the search path on the real file:
+/// irregular nouns and adjectives, regular -ing and -men forms, forms that
+/// are headwords themselves, several lemmas in Morphy's order, and words
+/// that are no form of anything.
+extension WordFormsSearchTests {
+    @MainActor
+    func testEnglishFormsMatrixOnTheFile() async throws {
+        let cases: [(query: String, lemmas: [(lemma: String, caption: String)])] = [
+            ("children", [("child", "plural of child")]),
+            ("women", [("woman", "plural of woman")]),
+            ("data", [("datum", "plural of datum")]),
+            ("best", [("good", "superlative of good"), ("well", "superlative of well")]),
+            ("bigger", [("big", "comparative of big")]),
+            ("walking", [("walk", "-ing form of walk")]),
+            ("saw", [("see", "form of see")]),
+            ("is", [("be", "form of be")]),
+            ("axes", [("axe", "form of axe"), ("ax", "plural of ax"), ("axis", "plural of axis")]),
+            ("leaves", [("leave", "form of leave"), ("leaf", "plural of leaf")]),
+        ]
+        for (query, lemmas) in cases {
+            let results = try await db.searchResults(query: query)
+            let first = try XCTUnwrap(results.firstIndex { $0.formMatch != nil }, "'\(query)' adds no lemma row")
+            XCTAssertTrue(results[..<first].allSatisfy { $0.entry.word.lowercased() == query },
+                          "'\(query)': only its own rows precede the lemma rows: \(results[..<first].map(\.entry.word))")
+            let added = lemmaRows(results)
+            XCTAssertEqual(results[first..<(first + added.count)].map(\.id), added.map(\.id), "'\(query)': one block")
+            var order: [String] = []
+            for lemma in added.compactMap(\.formMatch?.lemma) where !order.contains(lemma) {
+                order.append(lemma)
+            }
+            XCTAssertEqual(order, lemmas.map(\.lemma), "'\(query)': the lemmas in Morphy's order")
+            for row in added {
+                XCTAssertEqual(row.entry.word.lowercased(), row.formMatch?.lemma, "'\(query)': \(row.entry.source)/\(row.entry.word)")
+                let expected = lemmas.first { $0.lemma == row.formMatch?.lemma }?.caption
+                XCTAssertEqual(caption(row), expected, "'\(query)': \(row.entry.source)/\(row.entry.word)")
+            }
+        }
+        // Words that are no form of anything: no lemma row, today's results.
+        let plain = ["this", "his", "yes", "its", "always", "perhaps", "people", "thus", "less", "unless", "series",
+                     "hers", "ours"]
+        var withStep: [String: [SearchResult]] = [:]
+        for query in plain {
+            withStep[query] = try await db.searchResults(query: query)
+        }
+        DatabaseService.lemmaStepEnabled = false
+        for query in plain {
+            let off = try await db.searchResults(query: query)
+            XCTAssertEqual(withStep[query], off, "'\(query)' gains no lemma row")
+        }
+    }
+
+    /// planes typed as Spanish (Kirill, 2026-11-02: an a–z query keeps its
+    /// English rows). With the Spanish – English pair only, its one English
+    /// dictionary gives plane, "form of plane"; Spanish WordNet's plan is no
+    /// lemma row. In preferred mode with the Spanish pair first, that row
+    /// leads the Spanish bucket, and every English dictionary keeps its own.
+    @MainActor
+    func testSpanishLookingQueryKeepsItsEnglishRows() async throws {
+        func key(_ row: SearchResult) -> String {
+            "\(row.entry.source)/\(row.entry.word)\(row.formMatch.map { ": " + FormCaption.text(for: $0, locale: Locale(identifier: "en")) } ?? "")"
+        }
+        let spanishPair: Set<String> = ["freedict-eng-spa", "wordnet-spa-eng"]
+        let pairOnly = try await db.searchResults(query: "planes", enabledSources: spanishPair)
+        XCTAssertEqual(lemmaRows(pairOnly).map(key), ["freedict-eng-spa/plane: form of plane"])
+        XCTAssertEqual(pairOnly.first.map(key), "freedict-eng-spa/plane: form of plane", "no row of its own, so it leads")
+
+        let groups = [["freedict-eng-spa", "wordnet-spa-eng"], ["wordnet"], ["openrussian"], DictAppTests.greekSourceIDs,
+                      ["wordnet-arb-eng"]]
+        let preferred = try await db.searchPreferredResults(query: "planes", groups: groups,
+                                                            enabledSources: Set(groups.joined()))
+        XCTAssertEqual(preferred.first.map(key), "freedict-eng-spa/plane: form of plane")
+        XCTAssertEqual(Set(lemmaRows(preferred).map(key)), [
+            "freedict-eng-spa/plane: form of plane", "wordnet/plane: form of plane",
+            "freedict-eng-ell/plane: form of plane", "wordnet-eng-ell/plane: form of plane",
+        ])
+        XCTAssertEqual(Set(preferred.compactMap(\.id)).count, preferred.count, "no row repeats")
+    }
+}
+
+/// #143: the morphy tables in the bundled file (0136, "Data"), and Morphy's
+/// cases on them.
+extension WordFormsLookupTests {
+    func testMorphyTablesFollowTheSpec() throws {
+        // Read first, assert after (see `DictionaryFileTests.testDictionaryFileFormat`).
+        let file = try BundledDictionary().read { db in
+            func primaryKey(_ table: String) throws -> [String] {
+                try Row.fetchAll(db, sql: "PRAGMA table_info(\(table.quotedDatabaseIdentifier))")
+                    .filter { ($0["pk"] as Int) > 0 }
+                    .sorted { ($0["pk"] as Int) < ($1["pk"] as Int) }
+                    .map { $0["name"] as String }
+            }
+            return (exceptionKey: try primaryKey("morphy_exception"), lemmaKey: try primaryKey("morphy_lemma"),
+                    schema: try String.fetchAll(db, sql: """
+                        SELECT sql FROM sqlite_master WHERE tbl_name IN ('morphy_exception', 'morphy_lemma') ORDER BY name
+                        """),
+                    exceptions: try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM morphy_exception"),
+                    lemmas: try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM morphy_lemma"),
+                    partsOfSpeech: try String.fetchAll(db, sql: "SELECT DISTINCT pos FROM morphy_exception ORDER BY pos"),
+                    badLemmas: try String.fetchAll(db, sql: """
+                        SELECT word FROM morphy_lemma
+                        WHERE pos_mask NOT BETWEEN 1 AND 15 OR word <> lower(word)
+                           OR instr(word, '_') > 0 OR instr(word, '-') > 0 OR instr(word, ' ') > 0
+                        LIMIT 5
+                        """),
+                    specLines: try String.fetchAll(db, sql: """
+                        SELECT form || ' ' || pos || ' ' || base FROM morphy_exception
+                        WHERE form IN ('went', 'mice', 'better', 'running', 'geese') ORDER BY form, pos, base
+                        """),
+                    masks: try Dictionary(uniqueKeysWithValues: Row.fetchAll(db, sql: """
+                        SELECT word, pos_mask FROM morphy_lemma WHERE word IN ('go', 'mouse', 'good', 'well', 'run', 'goose', 'new', 'wa')
+                        """).map { ($0["word"] as String, $0["pos_mask"] as Int) }),
+                    credits: try Int.fetchOne(db, sql: """
+                        SELECT (SELECT COUNT(*) FROM data_source WHERE id LIKE '%morphy%' OR display_name LIKE '%WordNet%')
+                             + (SELECT COUNT(*) FROM dict_metadata WHERE source LIKE '%morphy%')
+                        """))
+        }
+        XCTAssertEqual(file.exceptionKey, ["form", "pos", "base"])
+        XCTAssertEqual(file.lemmaKey, ["word"])
+        XCTAssertEqual(file.schema.count, 2, "the two tables, no extra index: \(file.schema)")
+        XCTAssertTrue(file.schema.allSatisfy { $0.contains("WITHOUT ROWID") }, "\(file.schema)")
+        XCTAssertEqual(file.exceptions, 6_050, "WordNet 3.0's exception lines, one row per base; noun.exc repeats 3")
+        XCTAssertEqual(file.lemmas, 77_898, "WordNet 3.0's lemmas without _ or -")
+        XCTAssertEqual(file.partsOfSpeech, ["a", "n", "r", "v"])
+        XCTAssertEqual(file.badLemmas, [], "single lowercase words with a mask of 1, 2, 4 and 8")
+        XCTAssertEqual(file.specLines, ["better a good", "better a well", "better r well", "geese n goose", "mice n mouse",
+                                        "running v run", "went v go"])
+        XCTAssertEqual(file.masks, ["go": 7, "mouse": 3, "good": 13, "well": 15, "run": 3, "goose": 3, "new": 12, "wa": 1])
+        XCTAssertEqual(file.credits, 0, "WordNet is credited as the wordnet dictionary; morphy adds no row")
+    }
+
+    /// #141 data fixes (Kirill, 2026-11-01, #143): a link page's own spelling
+    /// is stored when it is no cell of its lemma's table, so a word that only
+    /// folds like it (στύλος, βολέ) can be told apart; a synonym gloss is no
+    /// form link, so υποδηματοποιός and ψωμάς keep their own tables.
+    func testLinkPagesKeepTheirSpelling() throws {
+        let file = try BundledDictionary().read { db in
+            (schema: try String.fetchOne(db, sql: "SELECT sql FROM sqlite_master WHERE name = 'form_link'"),
+             key: try Row.fetchAll(db, sql: "PRAGMA table_info(form_link)")
+                .filter { ($0["pk"] as Int) > 0 }.sorted { ($0["pk"] as Int) < ($1["pk"] as Int) }.map { $0["name"] as String },
+             rows: try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM form_link"),
+             spelled: try Set(Row.fetchAll(db, sql: """
+                SELECT f.form, l.word FROM form_link f JOIN lemma l ON l.id = f.lemma_id
+                WHERE f.form IN ('στυλός', 'βόλε', 'βόλος', 'μέρα', 'στύλος', 'βολέ', 'υποδηματοποιός')
+                """).map { "\($0["form"] as String) → \($0["word"] as String)" }),
+             cellsOrOrphans: try Int.fetchOne(db, sql: """
+                SELECT COUNT(*) FROM form_link f
+                WHERE f.lemma_id NOT IN (SELECT id FROM lemma)
+                   OR EXISTS (SELECT 1 FROM paradigm p WHERE p.lemma_id = f.lemma_id AND p.form = f.form)
+                """),
+             withoutLookupRow: try Row.fetchAll(db, sql: "SELECT form, lemma_id FROM form_link").filter { row in
+                 try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM form_lookup WHERE form_norm = ? AND lemma_id = ?",
+                                  arguments: [Search.foldGreek(row["form"] as String), row["lemma_id"] as Int64]) == 0
+             }.map { $0["form"] as String },
+             ownTables: try String.fetchAll(db, sql: """
+                SELECT l.word FROM lemma l WHERE l.word IN ('υποδηματοποιός', 'ψωμάς') AND l.pos = 'noun'
+                  AND EXISTS (SELECT 1 FROM paradigm p WHERE p.lemma_id = l.id) ORDER BY l.word
+                """),
+             synonymLinks: try String.fetchAll(db, sql: """
+                SELECT f.form_norm || ' → ' || l.word FROM form_lookup f JOIN lemma l ON l.id = f.lemma_id
+                WHERE (f.form_norm, l.word) IN (VALUES ('υποδηματοποιοσ', 'τσαγκάρης'), ('παχυσ', 'χοντρός'),
+                                                      ('ψωμασ', 'αρτοποιός'), ('σιδεριτησ', 'τσάι'))
+                """))
+        }
+        XCTAssertEqual(file.key, ["form", "lemma_id"])
+        XCTAssertTrue(file.schema?.contains("WITHOUT ROWID") == true, "\(file.schema ?? "no form_link")")
+        XCTAssertGreaterThan(file.rows ?? 0, 8_000, "every link page that is no cell of its lemma's table")
+        XCTAssertEqual(file.spelled, ["στυλός → στυλό", "βόλε → βώλος", "βόλος → βώλος", "μέρα → ημέρα"],
+                       "στύλος (pillar) and βολέ (volley) only fold like link pages")
+        XCTAssertEqual(file.cellsOrOrphans, 0, "a spelling that is a cell is in paradigm already; no orphan rows")
+        XCTAssertEqual(file.withoutLookupRow, [], "every link spelling has its folded lookup row")
+        XCTAssertEqual(file.ownTables, ["υποδηματοποιός", "ψωμάς"], "synonym pages are lemmas with their own tables")
+        XCTAssertEqual(file.synonymLinks, [], "a synonym gloss is no form link")
+    }
+}
+
+/// #143: a table link needs the word itself, a cell of the linked table or
+/// the link page's own spelling (`form_link`), on the real file. #144's
+/// `chooseLink` and `linkFits` still apply after it.
+extension InflectionLookupTests {
+    @MainActor
+    func testLinksNeedTheWordsOwnSpelling() async throws {
+        let none: [(word: String, source: String)] = [
+            ("στύλος", "freedict-ell-eng"), ("στύλος", "wordnet-ell-eng"), ("βολέ", "freedict-ell-eng"),
+        ]
+        for item in none {
+            let paradigm = try await InflectionFixture.paradigm(item.word, pos: "noun", source: item.source)
+            XCTAssertNil(paradigm, "\(item.word) (\(item.source)) only folds like a link page; it shows \(paradigm?.word ?? "")'s table")
+        }
+        let linked: [(word: String, pos: String, lemma: String)] = [
+            ("μέρα", "noun", "ημέρα"), ("πάω", "verb", "πηγαίνω"), ("αγαπώ", "verb", "αγαπάω"),
+        ]
+        for item in linked {
+            let paradigm = try await InflectionFixture.paradigm(item.word, pos: item.pos)
+            XCTAssertEqual(paradigm?.word, item.lemma, "\(item.word): a link page's spelling or a cell keeps the link")
+            XCTAssertEqual(paradigm?.isLinked, true, item.word)
+        }
+        let own = try await InflectionFixture.paradigm("υποδηματοποιός", pos: "noun")
+        XCTAssertEqual(own?.word, "υποδηματοποιός", "a synonym gloss is no link: the word's own table")
+        XCTAssertEqual(own?.isLinked, false)
     }
 }
 
@@ -10914,8 +11529,12 @@ final class InflectionLookupTests: XCTestCase {
             XCTAssertEqual(paradigm?.isLinked, false)
             XCTAssertEqual(paradigm?.cells.count, cells)
         }
+        // #143: φράκτης folds like a form of φρακτή too, but only φράχτης's
+        // link page is spelled φράκτης (`form_link`); the ambiguity rule is
+        // `testChooseLink`'s.
         let fraktis = try await InflectionFixture.paradigm("φράκτης", pos: "noun")
-        XCTAssertNil(fraktis, "φράκτης is a form of φράχτης and of φρακτή, and neither table holds it: none")
+        XCTAssertEqual(fraktis?.word, "φράχτης", "φράκτης is the alternative form of φράχτης")
+        XCTAssertEqual(fraktis?.isLinked, true)
 
         let paoParadigm = try await InflectionFixture.paradigm("πάω", pos: "verb")
         let pao = try XCTUnwrap(paoParadigm)
