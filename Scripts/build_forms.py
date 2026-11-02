@@ -3,10 +3,10 @@
 build_forms.py
 Greek word forms from Wiktionary, a static data step of
 `build_dictionaries.py` (docs/specs/0136-word-forms.md, "Pipeline: Greek
-forms (#141)"). It fills `lemma`, `tagset`, `paradigm` and `form_lookup` and
-the forms' `data_source` row, reads `entries` only, and writes the QA report
-`Scripts/reports/forms-qa.md`. Its QA gates raise, so a failing gate fails
-the dictionary build.
+forms (#141)"). It fills `lemma`, `tagset`, `paradigm`, `form_lookup` and
+`form_link` (#143) and the forms' `data_source` row, reads `entries` only,
+and writes the QA report `Scripts/reports/forms-qa.md`. Its QA gates raise,
+so a failing gate fails the dictionary build.
 
 Input: the Greek lines (`lang_code` el) of kaikki.org's raw Wiktextract dump
 of the English Wiktionary. kaikki.org keeps only its latest dump, so the
@@ -118,10 +118,20 @@ CREATE TABLE form_lookup (
     tagset_id INTEGER NOT NULL,   -- the first cell in table order with this key
     PRIMARY KEY (form_norm, lemma_id)
 ) WITHOUT ROWID;
+
+-- A link page's own spelling, when it is no cell of its lemma's table
+-- (#143): στυλός -> στυλό, βόλε -> βώλος. form_lookup holds links by the
+-- folded key only, and another word can fold alike (στύλος, βολέ); with a
+-- cell of the table, paradigm already holds the spelling.
+CREATE TABLE form_link (
+    form     TEXT    NOT NULL,   -- NFC, the link page's word
+    lemma_id INTEGER NOT NULL,
+    PRIMARY KEY (form, lemma_id)
+) WITHOUT ROWID;
 """
-TABLES = ("lemma", "tagset", "paradigm", "form_lookup")
+TABLES = ("lemma", "tagset", "paradigm", "form_lookup", "form_link")
 KEY_ORDER = {"lemma": "id", "tagset": "id", "paradigm": "lemma_id, ord",
-             "form_lookup": "form_norm, lemma_id"}
+             "form_lookup": "form_norm, lemma_id", "form_link": "form, lemma_id"}
 
 
 # ---------------------------------------------------------------------------
@@ -180,6 +190,10 @@ GRAMMAR_WORD = re.compile(
     r"genitive|accusative|vocative|nominative|feminine|neuter|masculine|comparative|"
     r"superlative|alternative|passive|active|perfective|imperfective|subjunctive|future|"
     r"infinitive|diminutive|spelling|form")
+# A gloss that names a synonym ("a formal synonym of τσαγκάρης") is a
+# meaning, not a form link, though "formal" holds the grammar word "form"
+# (#143, Kirill 2026-11-01).
+SYNONYM = re.compile(r"\bsynonym\b")
 # A sense about a periphrastic form ("θα κάνεις: second-person singular
 # perfective future of κάνω") is a "… of X" gloss of a multi-word form.
 PERIPHRASTIC = ("θα ", "να ")
@@ -285,6 +299,7 @@ class Forms:
         self.cells: dict[int, list[tuple]] = {}        # lemma id -> [(form, tags)]
         self.lookup: dict[tuple, tuple] = {}           # (form_norm, lemma id) -> (rank, tags)
         self.link_forms: list[tuple] = []              # (form, lemma id) of the kept links
+        self.spelled_links: list[tuple] = []           # form_link: (form, lemma id), sorted
 
     def catch(self, rule: str, example: str, keep: int = 20) -> None:
         self.junk[rule] += 1
@@ -358,9 +373,11 @@ def sense_links(entry: dict, word: str, pos: str, forms: Forms) -> tuple[list[Li
             continue  # "θα κάνεις: … future of κάνω": a multi-word form, no link
         found = GLOSS_RE.match(gloss)
         if found and GRAMMAR_WORD.search(found.group("desc")):
-            for target in re.split(r" (?:and|or) ", found.group("targets")):
-                links.append(Link(word, pos, nfc(target.split(" (")[0]), gloss_tags(found.group("desc")), "gloss"))
-            continue
+            if not SYNONYM.search(found.group("desc")):
+                for target in re.split(r" (?:and|or) ", found.group("targets")):
+                    links.append(Link(word, pos, nfc(target.split(" (")[0]), gloss_tags(found.group("desc")), "gloss"))
+                continue
+            forms.catch("synonym gloss: a meaning, no link", f"{word}: {gloss[:60]}")
         is_lemma = True
     return links, is_lemma
 
@@ -526,6 +543,10 @@ def collect(lines, allowlist: set) -> Forms:
             key = (normalize_greek(link.form), lemma_id)
             if key not in forms.lookup or forms.lookup[key][0] > (1, index):
                 forms.lookup[key] = ((1, index), link.tags)
+
+    # 6. Link spellings: a link page that is no cell of its lemma's table.
+    cell_forms = {i: {form for form, _ in cells} for i, cells in forms.cells.items()}
+    forms.spelled_links = sorted({(form, i) for form, i in forms.link_forms if form not in cell_forms.get(i, ())})
     return forms
 
 
@@ -546,6 +567,7 @@ def write_tables(conn: sqlite3.Connection, forms: Forms, version: str) -> None:
         conn.executemany("INSERT INTO form_lookup(form_norm, lemma_id, tagset_id) VALUES (?, ?, ?)",
                          [(norm, i, tagset_id[" ".join(tags)])
                           for (norm, i), (_, tags) in sorted(forms.lookup.items())])
+        conn.executemany("INSERT INTO form_link(form, lemma_id) VALUES (?, ?)", forms.spelled_links)
         conn.execute("INSERT INTO data_source(id, kind, display_name, version, license, url) "
                      "VALUES (:id, :kind, :display_name, :version, :license, :url)",
                      {**DATA_SOURCE, "version": version})
@@ -695,7 +717,8 @@ def report(forms: Forms, qa: dict, hashes: dict, sizes: dict, pins: dict, gates:
         f"of which ambiguous (more than one lemma): {qa['ambiguous']:,}; tag sets: {hashes['tagset'][0]:,}",
         "- Links: " + ", ".join(f"{kind} {n:,}" for kind, n in sorted(forms.link_kinds.items()))
         + f"; aspect taken from the gloss: {forms.link_aspects:,}"
-        + f"; unresolved targets: {len(forms.unresolved):,} ({sum(forms.unresolved.values()):,} links)",
+        + f"; unresolved targets: {len(forms.unresolved):,} ({sum(forms.unresolved.values()):,} links)"
+        + f"; link spellings that are no cell of their lemma's table (`form_link`): {hashes['form_link'][0]:,}",
         "",
         "## Junk caught",
         "",
@@ -1073,6 +1096,56 @@ def synthetic_template_checks() -> list[tuple[str, bool]]:
     ]
 
 
+def synthetic_link_checks() -> list[tuple[str, bool]]:
+    """The link rules of #143, on made-up pages shaped like the real ones:
+    a link page's own spelling (στυλός, βόλε) and synonym glosses."""
+    def page(word, pos, forms=(), senses=({"glosses": ["a meaning"]},)):
+        return json.dumps({"word": word, "pos": pos, "lang_code": "el", "senses": list(senses),
+                           "forms": [{"form": f, "tags": list(t), "source": "declension"} for f, t in forms]},
+                          ensure_ascii=False)
+
+    nominative, genitive = ("nominative", "singular"), ("genitive", "singular")
+    vocative = ("singular", "vocative")
+    lines = [
+        page("στυλό", "noun", [("στυλό", nominative), ("στυλού", genitive)]),
+        page("στυλός", "noun", senses=[{"glosses": ["alternative form of στυλό (styló)"],
+                                         "alt_of": [{"word": "στυλό"}], "tags": ["alt-of", "alternative"]}]),
+        page("βώλος", "noun", [("βώλος", nominative), ("βώλου", genitive), ("βώλε", vocative)]),
+        page("βόλος", "noun", senses=[{"glosses": ["alternative form of βώλος (vólos)"],
+                                        "alt_of": [{"word": "βώλος"}], "tags": ["alt-of", "alternative"]}]),
+        page("βόλε", "noun", senses=[{"glosses": ["vocative singular of βόλος (vólos)"],
+                                       "form_of": [{"word": "βόλος"}], "tags": ["form-of", *vocative]}]),
+        page("βώλου", "noun", senses=[{"glosses": ["genitive singular of βώλος (vólos)"],
+                                        "form_of": [{"word": "βώλος"}], "tags": ["form-of", *genitive]}]),
+        page("τσαγκάρης", "noun", [("τσαγκάρης", nominative), ("τσαγκάρη", genitive)]),
+        page("υποδηματοποιός", "noun", [("υποδηματοποιός", nominative), ("υποδηματοποιού", genitive)],
+             senses=[{"glosses": ["a formal synonym of of τσαγκάρης (tsagkáris): shoemaker, cobbler"]}]),
+        page("μιλώ", "verb", senses=[{"glosses": ["a more formal variant of μιλάω (miláo)"]}]),
+        page("μιλάω", "verb", [("μιλάω", ("first-person", "present", "singular"))]),
+    ]
+    forms = collect(lines, set())
+    words = {i: w for i, w, _, _ in forms.lemmas}
+    spelled = {(form, words[i]) for form, i in forms.spelled_links}
+
+    def lookup(form):
+        return {words[i] for (norm, i) in forms.lookup if norm == normalize_greek(form)}
+
+    return [
+        ("synthetic: a link page keeps its own spelling when it is no cell of its lemma's table",
+         spelled == {("στυλός", "στυλό"), ("βόλε", "βώλος"), ("βόλος", "βώλος"), ("μιλώ", "μιλάω")}
+         and forms.spelled_links == sorted(forms.spelled_links)),
+        ("synthetic: a link page that is a cell of its lemma's table (βώλου) needs no spelling",
+         "βώλος" in lookup("βώλου") and not any(form == "βώλου" for form, _ in spelled)),
+        ("synthetic: a word that only folds like a link page has no spelling of its own (στύλος, βολέ)",
+         "στυλό" in lookup("στύλος") and not any(form in ("στύλος", "βολέ") for form, _ in spelled)),
+        ("synthetic: a synonym gloss is a meaning, not a link: υποδηματοποιός keeps its own table",
+         "υποδηματοποιός" in words.values() and "τσαγκάρης" not in lookup("υποδηματοποιός")
+         and len([c for i, w in words.items() if w == "υποδηματοποιός" for c in forms.cells[i]]) == 2
+         and forms.junk["synonym gloss: a meaning, no link"] == 1),
+        ("synthetic: a formal variant is still a link (μιλώ → μιλάω)", "μιλάω" in lookup("μιλώ")),
+    ]
+
+
 def self_check() -> int:
     """Build the fixture twice, compare the table hashes, check the cases."""
     lines = FIXTURE.read_text(encoding="utf-8").splitlines()
@@ -1152,6 +1225,7 @@ def self_check() -> int:
     ]
     checks += synthetic_checks()
     checks += synthetic_template_checks()
+    checks += synthetic_link_checks()
     failed = [name for name, ok in checks if not ok]
     for name, ok in checks:
         print(f"  {'ok  ' if ok else 'FAIL'} {name}")

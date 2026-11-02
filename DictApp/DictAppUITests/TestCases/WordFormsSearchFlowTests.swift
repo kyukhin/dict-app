@@ -10,7 +10,7 @@ import XCTest
 /// - Greek is typed through `SearchPage.searchFor`. If "search field should
 ///   contain typed term" fails, check the simulator's hardware-keyboard
 ///   setting first.
-/// - #143 adds `testEnglishIrregularQuery` (went) here.
+/// - English forms (#143, WordNet morphy): `testEnglishIrregularQuery`.
 final class WordFormsSearchFlowTests: XCTestCase {
 
     var app: XCUIApplication!
@@ -58,7 +58,9 @@ final class WordFormsSearchFlowTests: XCTestCase {
         XCTAssertTrue(search.waitForResults(), "'έγραψα' must return results")
         waitForFirstResult(word: "γράφω", sources: greekToEnglish, query: "έγραψα")
 
-        let caption = firstCell.descendants(matching: .any)[AccessibilityIdentifiers.Search.formCaption].firstMatch
+        // The γράφω row's own caption: a `firstMatch` here could resolve in
+        // another row (#143).
+        let caption = firstCell.staticTexts.matching(identifier: AccessibilityIdentifiers.Search.formCaption).element
         XCTAssertTrue(caption.waitForExistence(timeout: TestData.Timeouts.medium), "the lemma row carries its caption")
         XCTAssertEqual(caption.label, "aorist, εγώ of γράφω", "VoiceOver reads the person as the Greek pronoun")
 
@@ -97,7 +99,7 @@ final class WordFormsSearchFlowTests: XCTestCase {
 
             SearchPage(app: app).searchFor("έγραψα")
             waitForFirstResult(word: "γράφω", sources: greekToEnglish, query: "έγραψα (\(code))")
-            let caption = firstCell.descendants(matching: .any)[AccessibilityIdentifiers.Search.formCaption].firstMatch
+            let caption = firstCell.staticTexts.matching(identifier: AccessibilityIdentifiers.Search.formCaption).element
             XCTAssertTrue(caption.waitForExistence(timeout: TestData.Timeouts.medium), "\(code): the caption")
             let visible = String(String.UnicodeScalarView(caption.label.unicodeScalars.filter { !bidiControls.contains($0) }))
             XCTAssertEqual(visible, label, "\(code): the caption's VoiceOver text")
@@ -117,8 +119,12 @@ final class WordFormsSearchFlowTests: XCTestCase {
 
     private var firstCell: XCUIElement { app.collectionViews.firstMatch.cells.element(boundBy: 0) }
 
-    private func badge(in cell: XCUIElement, source: String) -> XCUIElement {
-        cell.descendants(matching: .any)[AccessibilityIdentifiers.Search.sourceBadge(source: source)].firstMatch
+    /// Whether `cell` itself shows `source`'s badge. Counted within the cell:
+    /// a `firstMatch` after `cells.element(boundBy:)` can resolve in another
+    /// cell (#143).
+    private func hasBadge(_ cell: XCUIElement, source: String) -> Bool {
+        cell.descendants(matching: .any).matching(identifier: AccessibilityIdentifiers.Search.sourceBadge(source: source))
+            .count > 0
     }
 
     /// Polls until the first result row is `word` with one of `sources`'
@@ -132,10 +138,76 @@ final class WordFormsSearchFlowTests: XCTestCase {
             let cell = firstCell
             matched = cell.exists
                 && cell.staticTexts.matching(NSPredicate(format: "label == %@", word)).count > 0
-                && sources.contains { badge(in: cell, source: $0).exists }
+                && sources.contains { hasBadge(cell, source: $0) }
             if matched { break }
             Thread.sleep(forTimeInterval: 0.2)
         } while Date() < deadline
         XCTAssertTrue(matched, "'\(query)': first result must be '\(word)' from \(sources)", file: file, line: line)
+    }
+}
+
+// MARK: - Issue #143: search by inflected English form
+
+extension WordFormsSearchFlowTests {
+    /// `went` (WordNet morphy): its own row from En–El · FD comes first,
+    /// uncaptioned, then go, captioned "form of go", which VoiceOver reads as
+    /// shown; that row opens go. The caption queries count within one cell:
+    /// a `firstMatch` after `cells.element(boundBy:)` can resolve in another
+    /// cell.
+    func testEnglishIrregularQuery() throws {
+        let search = tabBarPage.tapSearchTab()
+        search.searchFor("went")
+        XCTAssertTrue(search.waitForResults(), "'went' must return results")
+        waitForFirstResult(word: "went", sources: [TestData.Sources.freedictEngEll], query: "went")
+        let formCaption = AccessibilityIdentifiers.Search.formCaption
+        XCTAssertEqual(firstCell.staticTexts.matching(identifier: formCaption).count, 0, "went's own row has no caption")
+
+        let lemmaCell = app.collectionViews.firstMatch.cells.element(boundBy: 1)
+        let caption = lemmaCell.staticTexts.matching(identifier: formCaption).element
+        XCTAssertTrue(caption.waitForExistence(timeout: TestData.Timeouts.medium), "the second row carries a caption")
+        XCTAssertEqual(lemmaCell.staticTexts.matching(NSPredicate(format: "label == %@", "go")).count, 1,
+                       "the second row is go")
+        XCTAssertEqual(caption.label, "form of go")
+
+        let definition = search.tapSearchResult(at: 1)
+        XCTAssertTrue(definition.waitForDefinitionToLoad(), "definition view must load")
+        XCTAssertTrue(app.navigationBars["go"].waitForExistence(timeout: TestData.Timeouts.medium),
+                      "go's definition opens")
+    }
+
+    /// QA: an English caption follows the UI language too. cities has no
+    /// row of its own, so its first row is city, captioned "plural of city"
+    /// in each language (Arabic compared without its bidi controls). A
+    /// screenshot of the results is attached per language.
+    func testEnglishCaptionInEachUILanguage() throws {
+        let spoken: [(code: String, label: String)] = [
+            ("en", "plural of city"),
+            ("ru", "мн. ч. от city"),
+            ("es", "pl. de city"),
+            ("el", "πληθυντικός του city"),
+            ("ar", "الجمع من city"),
+        ]
+        let english = [TestData.Sources.wordnet, TestData.Sources.freedictEngSpa, TestData.Sources.freedictEngEll,
+                       TestData.Sources.wordnetEngEll]
+        let bidiControls: Set<Unicode.Scalar> = ["\u{200E}", "\u{200F}", "\u{2066}", "\u{2067}", "\u{2068}", "\u{2069}"]
+        for (code, label) in spoken {
+            app.terminate()
+            app = XCUIApplication()
+            app.launchArguments = ["-disableReviewPrompt", "-resetData", "-AppleLanguages", "(\(code))", "-AppleLocale", code]
+            app.launch()
+            XCTAssertTrue(app.waitForDictionariesReady(), "\(code): Search after launch")
+
+            SearchPage(app: app).searchFor("cities")
+            waitForFirstResult(word: "city", sources: english, query: "cities (\(code))")
+            let caption = firstCell.staticTexts.matching(identifier: AccessibilityIdentifiers.Search.formCaption).element
+            XCTAssertTrue(caption.waitForExistence(timeout: TestData.Timeouts.medium), "\(code): the caption")
+            let visible = String(String.UnicodeScalarView(caption.label.unicodeScalars.filter { !bidiControls.contains($0) }))
+            XCTAssertEqual(visible, label, "\(code): the caption's VoiceOver text")
+
+            let shot = XCTAttachment(screenshot: app.screenshot())
+            shot.name = "cities-\(code)"
+            shot.lifetime = .keepAlways
+            add(shot)
+        }
     }
 }

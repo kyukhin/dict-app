@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - [#141] The dictionary file now carries Greek word forms and inflection tables from a pinned Wiktionary snapshot, checked by a QA report on every build.
 - [#142] Search finds a Greek word from any of its inflected forms, with or without accents: έγραψα shows γράφω right after the exact matches, captioned "aorist 1sg of γράφω". About 89% of the 5,000 most frequent Greek words are now findable, up from 39%.
 - [#144] A Greek word's Definition screen shows its conjugation or declension table, with "All forms" for the rest of a verb's forms; Credits names Wiktionary as their source.
+- [#143] Search finds an English word from its inflected forms through WordNet's morphy rules, such as went → go ("form of go") and mice → mouse ("plural of mouse").
 - [#145] Dictionary chips under the Search field switch dictionaries on and off in one tap, in the Dictionary Order sequence; a long press offers "Only this" and "All" turns every one back on. The chips and the Settings switches are one setting, and results refresh at once.
 
 ### Changed

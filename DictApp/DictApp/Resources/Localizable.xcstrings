@@ -1851,6 +1851,42 @@
         }
       }
     },
+    "forms.ingForm": {
+      "comment": "Search caption (#143): an English verb form in -ing, as in \"-ing form of run\". Keep -ing in Latin letters.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "-ing form"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "форма на -ing"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "forma en -ing"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "صيغة ing"
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "τύπος σε -ing"
+          }
+        }
+      }
+    },
     "forms.section.conjugation": {
       "comment": "Definition: title of a Greek verb's inflection table (#144).",
       "extractionState": "manual",

@@ -12,11 +12,11 @@ Written by `Scripts/build_forms.py` on every build of the forms step ([0136-word
 
 ## Counts
 
-- Pages: 85,425 (29,447 lemma pages, 55,978 form pages)
-- Lemmas: 27,350 (noun 14,368, adj 5,760, verb 3,934, name 1,813, adv 999, intj 115, num 79, pron 70, conj 53, character 51, symbol 42, prep 41, particle 14, article 7, det 4)
-- Lemmas with a table: 21,996 (noun 13,340, adj 5,569, verb 1,863, name 1,178, pron 24, num 16, det 4, article 2)
-- Table cells: 390,598; lookup rows: 247,476; lookup keys: 236,935, of which ambiguous (more than one lemma): 9,746; tag sets: 970
-- Links: alt_of 3,147, form_of 67,463, gloss 465; aspect taken from the gloss: 5,232; unresolved targets: 388 (613 links)
+- Pages: 85,425 (29,449 lemma pages, 55,976 form pages)
+- Lemmas: 27,352 (noun 14,370, adj 5,760, verb 3,934, name 1,813, adv 999, intj 115, num 79, pron 70, conj 53, character 51, symbol 42, prep 41, particle 14, article 7, det 4)
+- Lemmas with a table: 21,998 (noun 13,342, adj 5,569, verb 1,863, name 1,178, pron 24, num 16, det 4, article 2)
+- Table cells: 390,614; lookup rows: 247,480; lookup keys: 236,941, of which ambiguous (more than one lemma): 9,744; tag sets: 970
+- Links: alt_of 3,147, form_of 67,463, gloss 461; aspect taken from the gloss: 5,232; unresolved targets: 388 (613 links); link spellings that are no cell of their lemma's table (`form_link`): 8,997
 
 ## Junk caught
 
@@ -37,6 +37,7 @@ Written by `Scripts/build_forms.py` on every build of the forms step ([0136-word
 | placeholder or non-Greek cell | 10,687 | -@Άβα, -@Άννα, -@Ήρα, -@Όλγα, -@Αγάπια, -@Αγγέλα, -@Αθίγγανη, -@Αιθιοπίνα, -@Αμερικάνα, -@Αμπχάζια, -@Αμφιτρίτη, Αναξιμένoυς@Αναξιμένης |
 | single-word future cell | 315 | έρπομε@έρπω, έλθω@έρχομαι, αγγίσω@αγγίζω, αγγιστώ@αγγίζω, αγιαστώ@αγιάζω, αγοροφέρνουμε@αγοροφέρνω, αδικιέμαι@αδικώ, αεροφωτογραφιστώ@αεροφωτογραφίζω, ακολουθιέμαι@ακολουθώ, ακοντισθώ@ακοντίζω, ακούομαι@ακούω, ακροασθώ@ακροάζομαι |
 | stoplisted form | 13 |  |
+| synonym gloss: a meaning, no link | 4 | παχύς: fat, a formal synonym of χοντρός (chontrós), ψωμάς: baker, informal synonym of αρτοποιός (artopoiós), φούρναρης , υποδηματοποιός: a formal synonym of of τσαγκάρης (tsagkáris): shoemaker, cob, σιδερίτης: formal term, synonym of τσάι του βουνού (tsái tou vounoú): i |
 
 ### Tables declined from another word (40, all)
 
@@ -81,7 +82,7 @@ Written by `Scripts/build_forms.py` on every build of the forms step ([0136-word
 | Top-500 nouns covered | 95.4% | ≥ 90% | pass |
 | Top-5,000 findable | 89.2% | ≥ 87% | pass |
 | Stoplisted forms mapping to a verb | 0 | 0 | pass |
-| Forms tables | 24.1 MB | ≤ 25 MB | pass |
+| Forms tables | 24.3 MB | ≤ 25 MB | pass |
 
 **Top-500 verbs**: covered 482 of 500 (96.4%): own table 437, via a linked lemma 45. Missing (18): συμβαίνει, συμβαίνω, υποθέτω, πυροβολώ, ξαναβλέπω, μέλλων, χαρούμενος, προηγούμενος, παρελθών, μεγαλώνω, λειτουργώ, αναλαμβάνω, μεθυσμένος, καταραμένος, επιτίθεμαι, έστω, ξεφεύγω, ξεπερνάω.
 
@@ -101,8 +102,9 @@ Written by `Scripts/build_forms.py` on every build of the forms step ([0136-word
 
 | Table | Rows | Bytes (dbstat) | sha256 of the rows in key order |
 |---|---|---|---|
-| `lemma` | 27,350 | 3,170,304 | `b0357ac5278101a9371f8177e5af1d7577f7ccb63310fd274f315302c6d2b91f` |
+| `lemma` | 27,352 | 3,170,304 | `e57399c4ea3ee798431d4fcfff0333a16314ed4a7f39fd1c791df0213f55e963` |
 | `tagset` | 970 | 106,496 | `59caeb029d555b1e860c1e5f377980d614ae2a63b0f1b4ebbf70efe462d05631` |
-| `paradigm` | 390,598 | 12,967,936 | `fce777c701230be8d34d1a7b1f77238a451fddcd75f0e99da5b338a5118dc77f` |
-| `form_lookup` | 247,476 | 7,806,976 | `c5de38841497a8ef2690dcf762b2a4f0b51c6d06bd6518605ef01991680e4104` |
-| total | | 24,051,712 | |
+| `paradigm` | 390,614 | 12,967,936 | `b1bf0c420c5eb8f7d581166cb13525cc655c17ec541a3a638c2a7484e0c75c20` |
+| `form_lookup` | 247,480 | 7,806,976 | `00fa0330a5e5f4bfa45802785aa1dbb3e4d5ef50e8b32519e49f19ae27cb8477` |
+| `form_link` | 8,997 | 249,856 | `25f9d293f489152c5d608f2329853d7eb6a679a4892a4b9c3efcf2441a1f9bc1` |
+| total | | 24,301,568 | |
