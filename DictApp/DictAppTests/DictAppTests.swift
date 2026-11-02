@@ -104,6 +104,7 @@ final class DictAppTests: XCTestCase {
     // MARK: - Unit Tests
 
     /// Verifies a search returns the correct definition for a known entry.
+    @MainActor
     func testSearchReturnsCorrectDefinition() async throws {
         try await seedEntries(count: 10)
 
@@ -119,6 +120,7 @@ final class DictAppTests: XCTestCase {
     }
 
     /// Verifies exact lookup by entry key works (Issue #138: `entry(for:)`).
+    @MainActor
     func testExactLookup() async throws {
         try await seedEntries(count: 5)
 
@@ -128,6 +130,7 @@ final class DictAppTests: XCTestCase {
     }
 
     /// Verifies that history does not contain duplicate entries.
+    @MainActor
     func testHistoryNoDuplicates() async throws {
         try await db.addToHistory(word: "apple", source: "wordnet")
         try await db.addToHistory(word: "banana", source: "wordnet")
@@ -142,6 +145,7 @@ final class DictAppTests: XCTestCase {
     }
 
     /// Verifies that re-adding a word to history updates its timestamp (most recent first).
+    @MainActor
     func testHistoryOrderUpdatedOnRevisit() async throws {
         try await db.addToHistory(word: "alpha", source: "wordnet")
         try await db.addToHistory(word: "beta", source: "wordnet")
@@ -153,6 +157,7 @@ final class DictAppTests: XCTestCase {
     }
 
     /// Verifies clear history works.
+    @MainActor
     func testClearHistory() async throws {
         try await db.addToHistory(word: "test", source: "wordnet")
         try await db.clearHistory()
@@ -163,6 +168,7 @@ final class DictAppTests: XCTestCase {
 
     /// Verifies the My words add / check / remove cycle (Issue #138: the
     /// interim bookmark).
+    @MainActor
     func testBookmarkCycle() async throws {
         try await seedEntries(count: 1)
 
@@ -181,6 +187,7 @@ final class DictAppTests: XCTestCase {
     }
 
     /// Verifies prefix search returns multiple matches.
+    @MainActor
     func testPrefixSearch() async throws {
         try await seedEntries(count: 100)
 
@@ -284,6 +291,7 @@ final class DictAppTests: XCTestCase {
 
     /// Search with `enabledSources = nil` should return results from all sources
     /// (first-launch default behavior).
+    @MainActor
     func testSearchWithNilEnabledSourcesReturnsAll() async throws {
         try await seedSourcedEntries(source: "alpha", words: ["sharedterm", "alphaword"])
         try await seedSourcedEntries(source: "beta",  words: ["sharedterm", "betaword"])
@@ -298,6 +306,7 @@ final class DictAppTests: XCTestCase {
 
     /// Search with an empty `enabledSources` set must return an empty array
     /// without hitting the database.
+    @MainActor
     func testSearchWithEmptyEnabledSourcesReturnsEmpty() async throws {
         try await seedSourcedEntries(source: "alpha", words: ["sharedterm"])
         try await seedSourcedEntries(source: "beta",  words: ["sharedterm"])
@@ -312,6 +321,7 @@ final class DictAppTests: XCTestCase {
     /// Note: FTS5's `unicode61` tokenizer treats non-alphanumeric chars as
     /// separators and `sanitizeFTS` strips them, so test words must be pure
     /// alphanumerics (no underscores, hyphens, etc.).
+    @MainActor
     func testSearchFiltersBySpecificEnabledSources() async throws {
         try await seedSourcedEntries(source: "alpha", words: ["sharedterm", "alphaword"])
         try await seedSourcedEntries(source: "beta",  words: ["sharedterm", "betaword"])
@@ -1780,6 +1790,7 @@ final class DictAppTests: XCTestCase {
     /// AC's "search without diacritics". A *fully vocalized query* is NOT
     /// guaranteed to match; that is outside the AC and asserted only as the
     /// bare-query behaviour below.
+    @MainActor
     func testArabicBareQueryMatchesVocalizedHeadword() async throws {
         // كِتَاب (vocalized display) stored with word_normalized = كتاب (bare key).
         try await insertNormalizedEntry(
@@ -1794,6 +1805,7 @@ final class DictAppTests: XCTestCase {
     /// §1, against the **shipped** seed: at least one real wordnet-arb-eng row
     /// whose `word` carries harakat must be reachable by its bare form. This is
     /// the load-bearing path — 69% of Arabic lemmas are vocalized.
+    @MainActor
     func testArabicDiacriticInsensitiveSearchAgainstSeed() async throws {
         let queue = try Self.openBundledSeedReadOnly()
 
@@ -1823,6 +1835,7 @@ final class DictAppTests: XCTestCase {
     /// exactly must rank above a row that only contains the term in its
     /// `definition`. Without the `word_normalized`-based boost (the design's
     /// one required `search` change) the exact Arabic headword would not win.
+    @MainActor
     func testArabicNormalizedExactMatchRanksAboveDefinitionMatch() async throws {
         // Exact normalized headword.
         try await insertNormalizedEntry(
@@ -1843,6 +1856,7 @@ final class DictAppTests: XCTestCase {
     // MARK: - Performance Tests
 
     /// Measures FTS5 search time on a 100,000-entry database. Target: < 16ms.
+    @MainActor
     func testSearchPerformance100K() async throws {
         try await seedEntries(count: 100_000)
 
@@ -1865,6 +1879,7 @@ final class DictAppTests: XCTestCase {
 
     /// Order [B, A] on a known seed → top-N of B, then top-N of A, then a
     /// relevance tail; no duplicate IDs (§3b/§7).
+    @MainActor
     func testSearchPreferredBucketsByOrderThenTail() async throws {
         let topN = Search.preferredDictionaryTopN
         // Each source has > topN matches for the stem "term" so buckets fill
@@ -1887,6 +1902,7 @@ final class DictAppTests: XCTestCase {
     }
 
     /// An explicit empty enabled set returns nothing (mirrors `search`).
+    @MainActor
     func testSearchPreferredEmptyEnabledReturnsEmpty() async throws {
         try await seedSourcedEntries(source: "srcA", words: ["term_a1"])
         let results = try await db.searchPreferred(query: "term", groups: [["srcA"]], enabledSources: [])
@@ -1915,6 +1931,7 @@ final class DictAppTests: XCTestCase {
     /// groups `[[srcA, srcB], [srcC]]`, each source with > topN matches →
     /// first `topN` rows ⊆ {A, B} ranked by the shared ORDER BY (not A-then-B),
     /// next `topN` all C, no duplicate IDs.
+    @MainActor
     func testSearchPreferredMergesPairMembersIntoOneBucket() async throws {
         let topN = Search.preferredDictionaryTopN
         // A is listed FIRST in its group but its rows miss the prefix boost;
@@ -1955,6 +1972,7 @@ final class DictAppTests: XCTestCase {
 
     /// A custom ID equal to a pair's joined members must not overwrite that
     /// pair's bucket (PR #100 review: keys were `members.joined("|")`).
+    @MainActor
     func testSearchPreferredBucketKeysDoNotCollide() async throws {
         let topN = Search.preferredDictionaryTopN
         try await seedSourcedEntries(source: "srcA", words: (0..<(topN + 2)).map { "term_a\($0)" })
@@ -1975,6 +1993,7 @@ final class DictAppTests: XCTestCase {
     }
 
     /// A two-source pair yields at most `topN` bucket rows, never `2·topN`.
+    @MainActor
     func testSearchPreferredTopNIsPerPairNotPerSource() async throws {
         let topN = Search.preferredDictionaryTopN
         try await seedSourcedEntries(source: "srcA", words: (0..<(topN + 2)).map { "term_a\($0)" })
@@ -2009,6 +2028,7 @@ final class DictAppTests: XCTestCase {
     }
 
     /// group `[srcA, srcB]`, enabled `{srcB}` → bucket holds only B.
+    @MainActor
     func testSearchPreferredSkipsDisabledMembersWithinGroup() async throws {
         let topN = Search.preferredDictionaryTopN
         // Give the DISABLED member the better-ranked rows (prefix matches): if
@@ -2051,6 +2071,7 @@ final class DictAppTests: XCTestCase {
 
     /// Source with a metadata row → `license` / `version` populated;
     /// imported source (no metadata row, Issue #138) → `""`.
+    @MainActor
     func testFetchSourceStatsCarriesLicenseAndVersion() async throws {
         // Distinct counts (3 > 2 > 1) so the count-desc order is deterministic.
         try await seedSourcedEntries(source: "wordnet", words: ["alpha", "beta", "delta"])
@@ -2094,6 +2115,7 @@ final class DictAppTests: XCTestCase {
     }
 
     /// `addToHistory` records the viewed source; last-viewed source wins (§5).
+    @MainActor
     func testHistorySourceRecordedAndUpdated() async throws {
         try await db.addToHistory(word: "book", source: "wordnet")
         var history = try await db.fetchHistory()
@@ -2105,13 +2127,16 @@ final class DictAppTests: XCTestCase {
     }
 
     /// Uses XCTest's built-in measure block for repeated performance measurement.
+    /// `wait` blocks the main actor, so the search runs in a detached task.
+    @MainActor
     func testSearchPerformanceRepeated() async throws {
         try await seedEntries(count: 100_000)
 
+        let db: DatabaseService = db
         measure {
             let expectation = self.expectation(description: "search")
-            Task {
-                _ = try await self.db.search(query: "word42000")
+            Task.detached {
+                _ = try await db.search(query: "word42000")
                 expectation.fulfill()
             }
             wait(for: [expectation], timeout: 5.0)
@@ -3248,6 +3273,7 @@ final class SettingsViewModelPairTests: XCTestCase {
         try await super.tearDown()
     }
 
+    @MainActor
     private func seed(source: String) async throws {
         let count = try XCTUnwrap(counts[source], "no seed count for \(source)")
         try await dictionary.add(TestDictionary.rows(source: source, count: count))
@@ -3930,6 +3956,7 @@ final class DictionaryInfoDetailTests: XCTestCase {
 
     /// Seed: each of the nine bundled sources has `license.count > 50` and a
     /// non-empty `version`.
+    @MainActor
     func testEveryBundledSourceStatCarriesLicenseAndVersion() async throws {
         let stats = try await seedSourceStats()
         let bySource = Dictionary(uniqueKeysWithValues: stats.map { ($0.source, $0) })
@@ -3947,6 +3974,7 @@ final class DictionaryInfoDetailTests: XCTestCase {
 
     /// Seed: `eng-spa` has two sources, `infoSources` → WordNet then FreeDict,
     /// both licenses non-empty, FreeDict names CC BY-SA 3.0 (#106).
+    @MainActor
     func testSpanishPairInfoHasBothSourcesWithLicenses() async throws {
         let stats = try await seedSourceStats()
         for code in ["en", "ru", "es", "ar", "el"] {
@@ -4675,6 +4703,7 @@ extension DictAppTests {
 
     /// The stored `definition` of one fixture row, read back raw from the
     /// test's dictionary file.
+    @MainActor
     private func storedDefinition(word: String, source: String) async throws -> String {
         var config = Configuration()
         config.readonly = true
@@ -4715,6 +4744,7 @@ extension DictAppTests {
     /// familiaris — …`) and `freedict-eng-ell` (`1. σκύλος`), both stored
     /// decomposed, plus the `σκύλος` headwords of both El→En sources: all four,
     /// and nothing else.
+    @MainActor
     func testGreekAccentFreeQueryFindsDogInAllFourSources() async throws {
         try await insertGreekDogFixtures()
 
@@ -4734,6 +4764,7 @@ extension DictAppTests {
     /// (`word_normalized = word`) is also found (raw branch). The accent-free
     /// query does not reach that custom row: custom imports stay accent-exact
     /// (the documented limit, §4.3).
+    @MainActor
     func testGreekAccentedQueryFindsDogAndAccentedCustomImport() async throws {
         try await insertGreekDogFixtures()
         try await insertNormalizedEntry(word: "σκύλος", normalized: "σκύλος",
@@ -4751,6 +4782,7 @@ extension DictAppTests {
     /// Same fixtures: `ΣΚΥΛΟΣ`, `ΣΚΎΛΟΣ`, `σκυλοσ`, the prefix `σκυλ`, and a
     /// query typed/pasted decomposed (NFD) all reach the same four rows; a
     /// different Greek stem reaches none of them.
+    @MainActor
     func testGreekCaseFinalSigmaAndPrefixVariants() async throws {
         try await insertGreekDogFixtures()
 
@@ -4768,6 +4800,7 @@ extension DictAppTests {
 
     /// `προιον` / `προϊόν` → "product"; `σαιτα` / `σαΐτα` → "arrow" (ΐ);
     /// `καταπραυνω` / `καταπραΰνω` → "allay" (ΰ). Greek in decomposed definitions.
+    @MainActor
     func testGreekDialytikaAndTonosFoldInDefinitions() async throws {
         try await insertNormalizedEntry(
             word: "product", normalized: "product", definition: "**noun**\n1. προϊόν — commodities offered for sale",
@@ -4807,6 +4840,7 @@ extension DictAppTests {
     /// match in their definitions — even though the definition rows were
     /// inserted first and mention the word several times. Both boosts use the
     /// folded `rankKey`; with the raw accented key neither would fire.
+    @MainActor
     func testGreekExactHeadwordOutranksDefinitionMatches() async throws {
         try await insertNormalizedEntry(
             word: "dog", normalized: "dog", definition: "1. σκύλος, σκύλος φύλακας, σκύλος κυνηγιού",
@@ -4833,6 +4867,7 @@ extension DictAppTests {
     /// Russian regression: fixture `йод` and `иод`; `search("йод")` returns
     /// `йод` and not `иод`, `search("иод")` returns `иод` and not `йод`. A fold
     /// leaking outside Greek (NFD + drop marks) would merge the two.
+    @MainActor
     func testRussianShortIDoesNotFoldIntoI() async throws {
         try await insertNormalizedEntry(word: "йод", normalized: "йод",
                                         definition: "**noun**\n1. iodine", source: "openrussian")
@@ -4852,6 +4887,7 @@ extension DictAppTests {
     /// definition rows first; one shared bucket ranks the two exact `σκύλος`
     /// headwords first, holds exactly `topN` rows across all four sources, and
     /// the next group's bucket follows right after it.
+    @MainActor
     func testSearchPreferredGreekSourcesShareOneBucket() async throws {
         let topN = Search.preferredDictionaryTopN
         XCTAssertEqual(topN, 4, "fixture sized for topN == 4")
@@ -4896,6 +4932,7 @@ extension DictAppTests {
     /// 16 ms. Median of five timed runs after a warm-up, so one scheduler
     /// hiccup does not fail the build. 20 definitions mention σκύλος (the real
     /// seed has 19 `σκυλ*` hits).
+    @MainActor
     func testGreekSearchPerformance100K() async throws {
         XCTAssertTrue(Search.ftsQuery(sanitized: "σκύλος").match.contains(" OR "),
                       "precondition: the measured query takes the two-branch path")
@@ -5012,6 +5049,7 @@ extension DictAppTests {
     /// in `freedict-eng-ell` among the Greek sources (OMW lacks both). Through
     /// the app's `search` on a seed clone: `γρηγορα` puts `γρήγορα` first and
     /// `tomorrow` returns the `freedict-eng-ell` row first among the Greek rows.
+    @MainActor
     func testSeedWordsOnlyInFreeDictGreekSources() async throws {
         let queue = try Self.openBundledSeedReadOnly()
         let placeholders = Self.greekSourceIDs.map { _ in "?" }.joined(separator: ", ")
@@ -5044,6 +5082,7 @@ extension DictAppTests {
     /// The AC on shipped data (PM follow-up 2): `σκυλος`, `σκύλος` and
     /// `ΣΚΥΛΟΣ` reach "dog" in BOTH En→El sources and `σκύλος` in BOTH El→En
     /// sources through the app's `search` (limit 50).
+    @MainActor
     func testSeedGreekQueriesFindDogInAllFourSources() async throws {
         try await useSeedClone()
         for query in ["σκυλος", "σκύλος", "ΣΚΥΛΟΣ"] {
@@ -5211,6 +5250,7 @@ extension DictAppTests {
     /// aggregate, the two ~9.8 KB Apache texts were re-read for every one of
     /// ~48k Greek WordNet rows, and the order screen stayed empty for 25+ s
     /// on an iPhone 15 Pro simulator (7.7 s even on the Mac host).
+    @MainActor
     func testFetchSourceStatsOnSeedIsCompleteAndFast() async throws {
         let queue = try Self.openBundledSeedReadOnly()
         var expectedCounts: [String: Int] = [:]
@@ -5661,6 +5701,7 @@ extension DictAppTests {
     /// folded key only matches bundled Greek rows. Ranking on both keys keeps
     /// the exact custom headword first; ranking on the folded key alone sorts
     /// it below rows that only mention the word in their definitions.
+    @MainActor
     func testAccentedCustomGreekHeadwordRanksFirst() async throws {
         try await insertNormalizedEntry(word: "σκύλος", normalized: "σκύλος",
                                         definition: "pet", source: "custom_gr")
@@ -6142,6 +6183,7 @@ extension DictAppTests {
 
     /// The user's file stays byte-identical and gets no journal, WAL or SHM
     /// sidecar, even when it and its folder are write-protected.
+    @MainActor
     func testImportSQLiteReadsWriteProtectedFileWithoutTouchingIt() async throws {
         let fixture = try XCTUnwrap(Bundle.main.url(forResource: "test_import_fixture", withExtension: "sqlite"))
         let folder = tempDir.appendingPathComponent("picked", isDirectory: true)
@@ -6167,6 +6209,7 @@ extension DictAppTests {
 
     /// A missing file fails the import and leaves nothing at the user's path
     /// (a writable open created an empty database there).
+    @MainActor
     func testImportSQLiteMissingFileFailsWithoutCreatingIt() async throws {
         let missing = tempDir.appendingPathComponent("gone.sqlite")
         do {
@@ -6182,6 +6225,7 @@ extension DictAppTests {
 
     /// A file that is not an SQLite database: the import throws, imports
     /// nothing and leaves the file as it was.
+    @MainActor
     func testImportSQLiteRejectsNonDatabaseFile() async throws {
         let file = tempDir.appendingPathComponent("notes.sqlite")
         let bytes = Data(String(repeating: "not an SQLite database\n", count: 200).utf8)
@@ -6674,6 +6718,7 @@ final class DictionaryFileTests: XCTestCase {
     /// - missing: `mode=ro` never creates a file at the path (SQLITE_CANTOPEN);
     /// - a Git LFS pointer checked out instead of the file (the 1.x "SQLite
     ///   error 26" crash): SQLITE_NOTADB, and the pointer is left as it was.
+    @MainActor
     func testSetupFailsWithoutAReadableDictionaryFile() async throws {
         await DictAppTests.waitForHostAppLaunch()
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
@@ -6715,6 +6760,7 @@ final class DictionaryFileTests: XCTestCase {
     /// under 5 MB with no copy of the dictionary file (1.4.0 unpacked ~138 MB
     /// there). A 1.x `dict.sqlite` left by an earlier install on this
     /// simulator is #139's to move and delete, so it is left out.
+    @MainActor
     func testDictionaryFileIsNeverCopied() async throws {
         await DictAppTests.waitForHostAppLaunch()
         let fileManager = FileManager.default
@@ -6963,6 +7009,7 @@ final class TestDictionaryFixture {
 /// `DatabaseService.shared`. Each test opens a fresh user database in its own
 /// folder. A test that swaps the dictionary file reopens the service on the
 /// same user database, as an app update does.
+@MainActor
 final class UserDatabaseTests: XCTestCase {
     private var tempDir: URL!
     private var db: DatabaseService { .shared }
@@ -7476,6 +7523,7 @@ final class UserDatabaseTests: XCTestCase {
 /// by `Scripts/make_search_probe.py`. The test reads it from the source tree
 /// (the simulator shares the Mac's file system), so it needs no target
 /// membership. A PR that changes the bundled entries regenerates it.
+@MainActor
 final class SearchProbeTests: XCTestCase {
     private struct Probe: Decodable {
         struct Query: Decodable {
@@ -7617,6 +7665,7 @@ final class SearchProbeTests: XCTestCase {
 /// resource. Each test copies one into a simulated `Application
 /// Support/DictApp` folder and attaches the bundled dictionary file, so the
 /// 1.x copy of the bundled rows is recognised and dropped.
+@MainActor
 final class LegacyMigrationTests: XCTestCase {
     /// What a fixture holds, as the script writes it.
     private struct Fixture {
@@ -7665,6 +7714,7 @@ final class LegacyMigrationTests: XCTestCase {
 
     override func setUp() async throws {
         try await super.setUp()
+        executionTimeAllowance = 60
         await DictAppTests.waitForHostAppLaunch()
         tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: appSupport, withIntermediateDirectories: true)
@@ -7778,7 +7828,7 @@ final class LegacyMigrationTests: XCTestCase {
     /// History rows as `word|source|looked_at`, in id order. `source` is
     /// `''` where the table has no such column (1.1, 1.2); a NULL date reads
     /// `NULL`.
-    private static func historyRows(_ conn: Database) throws -> [String] {
+    nonisolated private static func historyRows(_ conn: Database) throws -> [String] {
         let hasSource = try Row.fetchAll(conn, sql: "PRAGMA table_info(history)")
             .contains { ($0["name"] as String?) == "source" }
         return try Row.fetchAll(conn, sql: """
@@ -9054,6 +9104,7 @@ final class FormCaptionTests: XCTestCase {
 
 /// Search with the form step on the real bundled dictionary file (0136,
 /// "Search by any form" and the #142 test plan rows).
+@MainActor
 final class WordFormsSearchTests: XCTestCase {
     private var tempDir: URL!
     private var db: DatabaseService { .shared }
@@ -9458,7 +9509,7 @@ extension WordFormsSearchTests {
                                        "بيت", "γράφω", "γραφω", "νερο", "σκυλος", "έγραψα", "ήταν", "went", "mice"]
     private static let preferredQueries = ["house", "casa", "νερο", "έγραψα"]
     /// A fresh English install's pair groups (`make_search_probe.py`).
-    private static let englishGroups = [["wordnet"], ["freedict-eng-spa", "wordnet-spa-eng"], ["openrussian"],
+    nonisolated private static let englishGroups = [["wordnet"], ["freedict-eng-spa", "wordnet-spa-eng"], ["openrussian"],
                                         ["freedict-ell-eng", "wordnet-eng-ell", "freedict-eng-ell", "wordnet-ell-eng"],
                                         ["wordnet-arb-eng"]]
 
@@ -9568,6 +9619,7 @@ extension WordFormsLookupTests {
     /// morphy lookups and of the `form_link` check of table links (#143):
     /// primary-key searches, no `SCAN` (the prototype's 6× slowdown), and no
     /// sort for the exceptions.
+    @MainActor
     func testLookupsUsePrimaryKey() async throws {
         await DictAppTests.waitForHostAppLaunch()
         let url = try TestDictionary.bundledURL()
@@ -9596,6 +9648,7 @@ extension WordFormsLookupTests {
     }
 
     /// κανείς and κάνεις both fold to κανεισ: the query shows κάνω and κανένας.
+    @MainActor
     func testFoldCollisionReturnsAllLemmas() async throws {
         try readDictionaryFile { db in
             XCTAssertEqual(Set(try lemmas(of: "κανείς", in: db)), ["κάνω", "κανένας"])
@@ -10235,6 +10288,7 @@ extension InflectionLookupTests {
 ///    immutable file cached. If the read never fails, this OS does not
 ///    invalidate the file and the test skips;
 /// 6. the service's connections now hold invalid descriptors.
+@MainActor
 final class DictionaryReopenTests: XCTestCase {
     private static let sources = ["alpha", "beta"]
     /// The My words row added before step 4.
@@ -10752,6 +10806,7 @@ private enum InflectionFixture {
         try await DatabaseService.shared.inflection(for: entry(word, pos: pos, source: source))
     }
 
+    @MainActor
     static func table(_ word: String, pos: String, locale: Locale = en) async throws -> InflectionTable {
         let found = try await paradigm(word, pos: pos)
         let paradigm = try XCTUnwrap(found, "\(word) has a paradigm")

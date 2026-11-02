@@ -232,7 +232,7 @@ There are 359 tests in 27 classes, all in [DictAppTests.swift](../../DictApp/Dic
 - `InMemoryKeyValueStore`;
 - `FakeIdleTimer`.
 
-The unit tests do not run in parallel (see [DictApp.xctestplan](../../DictApp/DictApp.xctestplan)).
+The unit tests do not run in parallel, and test timeouts are on (see [DictApp.xctestplan](../../DictApp/DictApp.xctestplan)): a test that runs past its allowance (10 minutes, 1 minute in `LegacyMigrationTests`) fails, and the run goes on with the next test (#229).
 
 ### UI tests
 
@@ -263,7 +263,7 @@ The unit tests do not run in parallel (see [DictApp.xctestplan](../../DictApp/Di
 ### Known gotchas
 
 - A dictionary file that was never pulled from LFS makes every UI test time out.
-- In a unit test that is not on the main actor, an `XCTAssert` that fails between awaits on an actor (`DatabaseService`) can be dropped: XCTest counts only some of them, and a failing test can pass. Mark such a test `@MainActor`, as `ParadigmLayoutTests` and `InflectionLookupTests` are (#144); 9 other classes still have nonisolated async tests (89).
+- In a unit test that is not on the main actor, an `XCTAssert` that fails between awaits on an actor (`DatabaseService`) can be dropped: XCTest counts only some of them, and a failing test can pass. So every async unit test, and every async helper that asserts, is `@MainActor`: the test, or its class when most of its tests are async (#144, #229). A main-actor test never blocks in `wait(for:)` on work that needs the main actor; that work runs in `Task.detached`, as in `testSearchPerformanceRepeated`.
 - An install can invalidate the bundled file while the app runs (#213). The app recovers. A unit test that reads the bundled file itself goes through `BundledDictionary`, which retries the same way; an assertion inside its read closure would catch the error first, so read, then assert.
 - With the simulator setting "Connect Hardware Keyboard" on, typed text never reaches the field. Turn it off with `defaults write com.apple.iphonesimulator ConnectHardwareKeyboard -bool false`.
 - `HistoryFlowTests` can fail when it runs after other suites on a warm simulator. It passes when run alone.
@@ -303,3 +303,4 @@ The specs of these epics will replace parts of this overview:
 - 2026-10-31: #216: the dictionary build uses NLTK 3.10.4; the file is unchanged. Updated Bundled data.
 - 2026-10-31: #144: the Definition screen of a Greek headword shows its conjugation or declension table, verbs with "All forms"; Credits names Wiktionary. Updated Screens, Code map, Database, Localization and the test sections.
 - 2026-11-02: #143: a one-word query of 2+ letters a–z also lists the dictionary words it is a form of, through a port of WordNet morphy and two new tables (`user_version` 3), captioned "form of go". The forms step keeps each link page's own spelling (`form_link`), which the table links now check, and reads no synonym gloss as a link. Updated Screens, Rules, Code map, Bundled data, Database, Search, Localization, the test sections and Upcoming changes.
+- 2026-11-02: #229: every async unit test runs on the main actor, so XCTest records each failing assertion, and test timeouts are on, so a hung test fails instead of stalling the run. Updated the unit-test section and Known gotchas.
