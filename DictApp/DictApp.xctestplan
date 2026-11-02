@@ -14,7 +14,8 @@
       "containerPath" : "container:DictApp.xcodeproj",
       "identifier" : "A50000000000000000000001",
       "name" : "DictApp"
-    }
+    },
+    "testTimeoutsEnabled" : true
   },
   "testTargets" : [
     {
