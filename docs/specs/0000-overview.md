@@ -1,7 +1,7 @@
 # LibreDict overview
 
 > Spec written by Claude (AI) for LibreDict.
-> Status: Approved by Kirill on 2026-10-27 · Epic: — · Tickets: — · Updated: 2026-11-02
+> Status: Approved by Kirill on 2026-10-27 · Epic: — · Tickets: — · Updated: 2026-11-03
 
 This spec describes the app as shipped in 1.4.0 (tag `v1.4.0`, master `f0f806e`), plus the v2.0.0 changes merged since (see History). Read it before any design, development, testing or review task, then read the spec of your epic. It describes the code as it is now. The last sections list what v2.0.0 will change. Paths are relative to the repo root. Links work from this folder.
 
@@ -200,7 +200,7 @@ They are enforced at launch and on every Dictionary Order load, with writes only
 ### Version, release, support
 
 - **Version** (#39): the scheme's Build pre-action [`generate_build_info.sh`](../../Scripts/generate_build_info.sh) writes the git-ignored `DictApp/DictApp/BuildInfo.xcconfig` with `git describe`. A HEAD on a tag gives the bare tag; otherwise the value looks like `v1.4.0-N-g<sha>`. The value then flows through `Version.xcconfig`, `GIT_DESCRIBE`, Info.plist and `AppVersion.displayString`, which strips the leading `v`. A Run Script phase fails the build when the value is stale or `.git` is missing.
-- **Release order**: merge the version bump and the CHANGELOG cut to master, push the annotated tag `vX.Y.Z` ("X.Y.Z version of the Dict app."), archive from the tagged commit, then submit. #196 (v1.4.1) adds an archive guard that fails untagged archives.
+- **Release order**: merge the version bump and the CHANGELOG cut to master, push the annotated tag `vX.Y.Z` ("X.Y.Z version of the Dict app."), archive from the tagged commit, then submit. #196 (v1.4.1) adds an archive guard that fails untagged archives. A TestFlight build before the release archives from a pre-release tag `vX.Y.Z-alpha.N` (or `-beta.N`, `-rc.N`), which Settings shows as is.
 - **CHANGELOG.md** follows Keep a Changelog, one `[#N]` line per change.
 - **Support mail** goes to `support@libredict.app` with the subject `[LibreDict <marketing version> b<build>] …` and an English telemetry block: version, iOS, device model, UI language and locale.
 
@@ -304,3 +304,4 @@ The specs of these epics will replace parts of this overview:
 - 2026-10-31: #144: the Definition screen of a Greek headword shows its conjugation or declension table, verbs with "All forms"; Credits names Wiktionary. Updated Screens, Code map, Database, Localization and the test sections.
 - 2026-11-02: #143: a one-word query of 2+ letters a–z also lists the dictionary words it is a form of, through a port of WordNet morphy and two new tables (`user_version` 3), captioned "form of go". The forms step keeps each link page's own spelling (`form_link`), which the table links now check, and reads no synonym gloss as a link. Updated Screens, Rules, Code map, Bundled data, Database, Search, Localization, the test sections and Upcoming changes.
 - 2026-11-02: #229: every async unit test runs on the main actor, so XCTest records each failing assertion, and test timeouts are on, so a hung test fails instead of stalling the run. Updated the unit-test section and Known gotchas.
+- 2026-11-03 (Kirill): the first 2.0 TestFlight build is an alpha, tagged `v2.0.0-alpha.1`; the archive guard accepts `-alpha.N`, `-beta.N` and `-rc.N` tags of the version. Updated Release order.
