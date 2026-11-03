@@ -36,7 +36,7 @@ case "${ACTION:-}" in
           case "$n" in ''|*[!0-9]*) ;; *) ok=1 ;; esac ;;
       esac
       if [ -z "$ok" ]; then
-        echo "error: archiving ${MARKETING_VERSION:-?} needs HEAD tagged $want, but HEAD is '$fresh'. Merge the version bump to master, then: git tag -a $want -m \"${MARKETING_VERSION:-} version of the Dict app.\" && git push origin $want"; exit 1
+        echo "error: archiving ${MARKETING_VERSION:-?} needs HEAD tagged $want (or $want-alpha.N, $want-beta.N, $want-rc.N for a TestFlight build), but HEAD is '$fresh'. Merge the version bump to master, then: git tag -a $want -m \"${MARKETING_VERSION:-} version of the Dict app.\" && git push origin $want"; exit 1
       fi
     fi
     ;;
