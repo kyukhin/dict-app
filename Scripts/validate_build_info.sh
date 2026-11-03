@@ -5,6 +5,8 @@
 #     generate_build_info.sh wrote it for this commit);
 #   - an archive (App Store build) must sit exactly on tag v$MARKETING_VERSION,
 #     otherwise Settings would show e.g. "1.3.0-20-gbd22843" instead of "1.4.0".
+#     A TestFlight build before the release may sit on a pre-release tag
+#     v$MARKETING_VERSION-alpha.N, -beta.N or -rc.N instead.
 set -u
 cd "$SRCROOT" || { echo "error: cannot cd to SRCROOT"; exit 1; }
 if ! git rev-parse --git-dir >/dev/null 2>&1; then
@@ -26,7 +28,14 @@ case "${ACTION:-}" in
   install|archive)
     if [ "${CONFIGURATION:-}" = Release ]; then
       want="v${MARKETING_VERSION:-}"
-      if [ "$fresh" != "$want" ]; then
+      ok=""
+      case "$fresh" in
+        "$want") ok=1 ;;
+        "$want"-alpha.*|"$want"-beta.*|"$want"-rc.*)
+          n="${fresh#"$want"-*.}"
+          case "$n" in ''|*[!0-9]*) ;; *) ok=1 ;; esac ;;
+      esac
+      if [ -z "$ok" ]; then
         echo "error: archiving ${MARKETING_VERSION:-?} needs HEAD tagged $want, but HEAD is '$fresh'. Merge the version bump to master, then: git tag -a $want -m \"${MARKETING_VERSION:-} version of the Dict app.\" && git push origin $want"; exit 1
       fi
     fi
