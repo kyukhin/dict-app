@@ -391,3 +391,395 @@ enum LearningPairs {
             .map(\.code)
     }
 }
+
+// MARK: - Statistics (0166, #163)
+//
+// The numbers of 0166, "The numbers, defined": pure, over the answer log's
+// rows or the store's grouped counts, and tested without a database. SQL
+// stays in `DatabaseService` ("Learning statistics").
+
+extension LearnDay {
+    /// Midnight UTC of the day: days are counted in UTC, where every day has
+    /// 24 hours.
+    private var utcDate: Date {
+        let parts = rawValue.split(separator: "-").map { Int($0)! }
+        return Self.calendar.date(from: DateComponents(year: parts[0], month: parts[1], day: parts[2]))!
+    }
+
+    /// Whole days from `self` to `other`: positive when `other` is later.
+    func days(to other: LearnDay) -> Int {
+        Self.calendar.dateComponents([.day], from: utcDate, to: other.utcDate).day!
+    }
+
+    /// Monday, the first day of an ISO week, whatever the locale's first
+    /// weekday: the Gregorian weekday numbers do not depend on the locale.
+    var isMonday: Bool { Self.calendar.component(.weekday, from: utcDate) == 2 }
+
+    /// The days from `start` through `end`, oldest first; empty when `end`
+    /// is earlier.
+    static func range(_ start: LearnDay, through end: LearnDay) -> [LearnDay] {
+        guard start <= end else { return [] }
+        var days: [LearnDay] = []
+        days.reserveCapacity(start.days(to: end) + 1)
+        var date = start.utcDate
+        let last = end.utcDate
+        while date <= last {
+            days.append(LearnDay(date: date, calendar: calendar))
+            date = calendar.date(byAdding: .day, value: 1, to: date)!
+        }
+        return days
+    }
+}
+
+/// One answer of the log, as the statistics read it (`learn_review`).
+struct ReviewRow: Hashable, Sendable {
+    let word: WordKey
+    let kind: CardKind
+    let outcome: Outcome
+    /// The answer that started its word (`introduced = 1`).
+    var introduced = false
+    var durationMs = 0
+}
+
+/// Answers and right answers (right or accent) of a group.
+struct Tally: Hashable, Sendable {
+    var answers = 0
+    var right = 0
+
+    var wrong: Int { answers - right }
+    /// Right ÷ all; nil without answers.
+    var accuracy: Double? { answers > 0 ? Double(right) / Double(answers) : nil }
+
+    static func + (lhs: Tally, rhs: Tally) -> Tally {
+        Tally(answers: lhs.answers + rhs.answers, right: lhs.right + rhs.right)
+    }
+
+    static func += (lhs: inout Tally, rhs: Tally) { lhs = lhs + rhs }
+}
+
+/// The numbers of a set of answers: a day of one language (Today), a run
+/// (0131's summary) or a day of the chart. Today and a summary use this one
+/// function, so they always agree.
+struct ReviewSummary: Hashable, Sendable {
+    /// An answer counts for at most 60 s of time.
+    static let durationCapMs = 60_000
+
+    /// Rows of every kind.
+    var exercises = 0
+    /// Right and accent rows.
+    var right = 0
+    /// Rows with `introduced = 1`: a word counts on the day of its first
+    /// answer, once.
+    var newWords = 0
+    /// Distinct words with a recognition or production row,
+    /// `introduced = 0`, and no `introduced = 1` row among the same rows: a
+    /// word started today is new, never also reviewed (PM, 2026-11-04).
+    var reviewedWords = 0
+    /// The sum of `duration_ms`, each capped at 60 s.
+    var timeMs = 0
+
+    /// Right ÷ all; nil without answers.
+    var accuracy: Double? { Tally(answers: exercises, right: right).accuracy }
+
+    static func of(_ rows: [ReviewRow]) -> ReviewSummary {
+        var summary = ReviewSummary()
+        var reviewed = Set<WordKey>(), started = Set<WordKey>()
+        for row in rows {
+            summary.exercises += 1
+            if row.outcome.isRight { summary.right += 1 }
+            if row.introduced {
+                summary.newWords += 1
+                started.insert(row.word)
+            } else if CardKind.wordKinds.contains(row.kind) {
+                reviewed.insert(row.word)
+            }
+            summary.timeMs += min(max(row.durationMs, 0), durationCapMs)
+        }
+        summary.reviewedWords = reviewed.subtracting(started).count
+        return summary
+    }
+}
+
+/// One active day of the log, every language (`DatabaseService.dayCounts`).
+struct DayCount: Hashable, Sendable {
+    var exercises = 0
+    var right = 0
+    /// Capped at 60 s per answer, as `ReviewSummary.timeMs`.
+    var timeMs = 0
+    var newWords = 0
+}
+
+/// A day of the 30-day chart.
+struct DayPoint: Hashable, Sendable {
+    let day: LearnDay
+    let exercises: Int
+}
+
+/// The last 30 days: today and the 29 days before. The chart, the accuracy,
+/// the hardest words and the forecast's pace use this window.
+enum DailySeries {
+    static let length = 30
+
+    /// The window's first day.
+    static func start(today: LearnDay) -> LearnDay { today.adding(days: -(length - 1)) }
+
+    /// Exercises per day, oldest first, today last; days without answers
+    /// are 0.
+    static func last30(_ counts: [LearnDay: Int], today: LearnDay) -> [DayPoint] {
+        LearnDay.range(start(today: today), through: today).map { DayPoint(day: $0, exercises: counts[$0] ?? 0) }
+    }
+}
+
+// MARK: Streak
+
+/// A day of the streak calendar.
+enum DayMark: String, Sendable {
+    /// The day's goal was met.
+    case met
+    /// Missed, saved by a freeze: the streak stayed.
+    case frozen
+    /// Missed: the streak went to 0, or stayed at 0.
+    case missed
+    /// Today, goal not met yet: not a miss before the day ends.
+    case open
+    /// Before the first answer, or after today.
+    case none
+}
+
+/// The streak as of today (`Streak.compute`).
+struct StreakState: Hashable, Sendable {
+    var current = 0
+    var best = 0
+    /// Freezes in stock today, 0 to 3.
+    var freezes = 0
+    /// Every day from the first day with answers through today.
+    var marks: [LearnDay: DayMark] = [:]
+
+    func mark(on day: LearnDay) -> DayMark { marks[day] ?? DayMark.none }
+}
+
+/// The daily goal's streak (Kirill, 2026-10-22 and 2026-11-03). Weeks run
+/// Monday to Sunday:
+/// - a day whose goal is met adds 1;
+/// - a missed day spends a freeze when one is in stock and the streak is
+///   above 0: the streak stays;
+/// - a missed day with no freeze, or with a streak of 0: the streak is 0;
+/// - every Monday adds a freeze, up to 3 in stock; a first week that starts
+///   after Monday has none;
+/// - today counts once its goal is met and is no miss before it ends.
+enum Streak {
+    static let maxFreezes = 3
+
+    /// - Parameters:
+    ///   - counts: exercises per day, every language (`dayCounts`).
+    ///   - goals: the goal in force when each past day ended (`learn_day`);
+    ///     a day without one uses `currentGoal`.
+    ///   - currentGoal: today's goal, the current setting.
+    static func compute(counts: [LearnDay: Int], goals: [LearnDay: Int], currentGoal: Int,
+                        today: LearnDay) -> StreakState {
+        var state = StreakState()
+        guard let first = counts.filter({ $0.value > 0 }).keys.min() else { return state }
+        for day in LearnDay.range(first, through: today) {
+            if day.isMonday {
+                state.freezes = min(state.freezes + 1, maxFreezes)
+            }
+            let goal = day == today ? currentGoal : (goals[day] ?? currentGoal)
+            let mark: DayMark
+            if (counts[day] ?? 0) >= goal {
+                state.current += 1
+                mark = .met
+            } else if day == today {
+                mark = .open
+            } else if state.current > 0 && state.freezes > 0 {
+                state.freezes -= 1
+                mark = .frozen
+            } else {
+                state.current = 0
+                mark = .missed
+            }
+            state.marks[day] = mark
+            state.best = max(state.best, state.current)
+        }
+        return state
+    }
+}
+
+// MARK: Accuracy
+
+/// Accuracy by direction over the last 30 days.
+struct DirectionAccuracy: Hashable, Sendable {
+    /// Match the pairs included: its rows are recognition rows.
+    var recognition = Tally()
+    var production = Tally()
+}
+
+enum Accuracy {
+    /// Recognition and production from tallies grouped by card kind;
+    /// conjugation rows are left out.
+    static func byDirection(_ tallies: [CardKind: Tally]) -> DirectionAccuracy {
+        DirectionAccuracy(recognition: tallies[.recognition] ?? Tally(), production: tallies[.production] ?? Tally())
+    }
+
+    /// The tense of an E5 facet `<tense>.<voice>`: the part before the dot,
+    /// or the whole facet without one.
+    static func tense(ofFacet facet: String) -> String {
+        facet.firstIndex(of: ".").map { String(facet[..<$0]) } ?? facet
+    }
+
+    /// Conjugation tallies by facet, merged by tense: both voices of a tense
+    /// are one group. E5 orders and names the tenses.
+    static func byTense(_ facets: [String: Tally]) -> [String: Tally] {
+        var tenses: [String: Tally] = [:]
+        for (facet, tally) in facets { tenses[tense(ofFacet: facet), default: Tally()] += tally }
+        return tenses
+    }
+}
+
+// MARK: Hardest words
+
+/// A word or a verb with its answers in the window, for the hardest words
+/// and the hardest verbs.
+struct HardWord: Hashable, Sendable {
+    let key: WordKey
+    /// Shown: the stored term, else the key's word.
+    let term: String
+    /// The list's translation; `""` = the entry's meaning.
+    let translation: String
+    /// The language of `translation`, as `LearnWord.translationLang`: #164
+    /// picks the meaning in the pair's meanings language with it.
+    let translationLang: String
+    /// Opens the Definition; nil for a word without an entry.
+    let entry: EntryKey?
+    let tally: Tally
+    /// The log id of its latest wrong answer: a larger id is later.
+    let latestMistake: Int64
+}
+
+enum HardestWords {
+    static let wordLimit = 20
+    static let verbLimit = 10
+
+    /// The words with at least one mistake: most wrong first, then lower
+    /// accuracy, then the latest mistake; at most `limit`.
+    static func rank(_ words: [HardWord], limit: Int) -> [HardWord] {
+        let ranked = words.filter { $0.tally.wrong > 0 }.sorted { a, b in
+            if a.tally.wrong != b.tally.wrong { return a.tally.wrong > b.tally.wrong }
+            // a.right / a.answers < b.right / b.answers, without division.
+            let lhs = a.tally.right * b.tally.answers, rhs = b.tally.right * a.tally.answers
+            if lhs != rhs { return lhs < rhs }
+            if a.latestMistake != b.latestMistake { return a.latestMistake > b.latestMistake }
+            return (a.key.lang, a.key.word) < (b.key.lang, b.key.word)
+        }
+        return Array(ranked.prefix(max(limit, 0)))
+    }
+}
+
+// MARK: List progress and forecast
+
+/// A list's progress over its distinct words (0166): E3's list keys and the
+/// language's word states (`DatabaseService.wordStates(lang:)`).
+struct ListProgress: Hashable, Sendable {
+    enum Stage: Hashable, Sendable {
+        /// No cards, paused, or no word card answered yet, as `WordStatus`
+        /// (PM, 2026-11-04).
+        case new
+        /// Unpaused, a word card answered, not learned.
+        case learning
+        /// Both word cards at 30 days or more.
+        case learned
+    }
+
+    /// The list's distinct words, in list order.
+    let words: [WordKey]
+    let new: Int
+    let learning: Int
+    let learned: Int
+    /// The day each started word was started on (`introduced_day`), oldest
+    /// first.
+    let startedDays: [LearnDay]
+
+    var total: Int { words.count }
+
+    /// Words started from `since` through `today`.
+    func startedCount(since: LearnDay, through today: LearnDay) -> Int {
+        startedDays.filter { $0 >= since && $0 <= today }.count
+    }
+
+    static func stage(of state: WordLearningState?) -> Stage {
+        guard let state, !state.wordCards.isEmpty, !state.isPaused,
+              !state.wordCards.allSatisfy(\.isNew) else { return .new }
+        let ladder = FixedLadder()
+        let cards = state.wordCards
+        if Set(cards.map(\.key.kind)) == Set(CardKind.wordKinds), cards.allSatisfy(ladder.isLearned) {
+            return .learned
+        }
+        return .learning
+    }
+
+    /// `items` may repeat a word: it counts once.
+    static func of(items: [WordKey], states: [WordKey: WordLearningState]) -> ListProgress {
+        var seen = Set<WordKey>()
+        let words = items.filter { seen.insert($0).inserted }
+        var counts: [Stage: Int] = [:]
+        var startedDays: [LearnDay] = []
+        for word in words {
+            counts[stage(of: states[word]), default: 0] += 1
+            if let day = states[word]?.word.introducedDay { startedDays.append(day) }
+        }
+        return ListProgress(words: words, new: counts[.new] ?? 0, learning: counts[.learning] ?? 0,
+                            learned: counts[.learned] ?? 0, startedDays: startedDays.sorted())
+    }
+}
+
+/// When a list is all learned, both cards at 30 days (Kirill, 2026-11-03).
+/// An empty list has none (`days` returns nil): the forecast is hidden.
+enum Forecast: Hashable, Sendable {
+    /// All learned in about this many days, 1 or more: "~1 day", never
+    /// "~0 days" (PM, 2026-11-04).
+    case days(Int)
+    /// New words left and none started in the window: "Start learning to
+    /// see a forecast".
+    case noPace
+    /// "All learned".
+    case done
+
+    /// Days from a new card's first right answer to learned: 1 + 3 + 7 + 14.
+    static var newWordDays: Int { daysToLearned(step: 0) }
+
+    /// The intervals from the rung above `step` up to the last rung below
+    /// learned (14 days): 25 on rung 0, 0 on rung 4.
+    private static func daysToLearned(step: Int) -> Int {
+        let learningRungs = FixedLadder.intervals.prefix { $0 < FixedLadder.learnedInterval }
+        return learningRungs.dropFirst(max(step, 0)).reduce(0, +)
+    }
+
+    /// A card's days until learned: its days until due plus the rungs left
+    /// below learned; 0 once learned.
+    static func daysToLearned(_ card: CardState, today: LearnDay) -> Int {
+        guard !FixedLadder().isLearned(card) else { return 0 }
+        return max(0, today.days(to: card.dueDay)) + daysToLearned(step: card.step)
+    }
+
+    /// - an empty list: nil, no forecast (PM, 2026-11-04);
+    /// - pace: words of the list started in the last 30 days ÷ 30, or ÷ the
+    ///   days since its first started word, today included, when fewer;
+    /// - a learning word needs the larger of its cards' `daysToLearned`;
+    /// - no new words: the learning words' largest, at least 1, or `.done`;
+    /// - new words and no pace: `.noPace`;
+    /// - else the larger of `ceil(new ÷ pace) + 25` and the learning words'
+    ///   largest.
+    static func days(progress: ListProgress, states: [WordKey: WordLearningState], today: LearnDay) -> Forecast? {
+        guard progress.total > 0 else { return nil }
+        let learning = progress.words.compactMap { word -> Int? in
+            guard let state = states[word], ListProgress.stage(of: state) == .learning else { return nil }
+            return state.wordCards.map { daysToLearned($0, today: today) }.max()
+        }.max()
+        guard progress.new > 0 else { return learning.map { .days(max($0, 1)) } ?? .done }
+        let started = progress.startedCount(since: DailySeries.start(today: today), through: today)
+        guard started > 0, let first = progress.startedDays.first else { return .noPace }
+        let window = min(DailySeries.length, max(first.days(to: today) + 1, 1))
+        // ceil(new ÷ (started ÷ window)), in integers.
+        let newDays = (progress.new * window + started - 1) / started + newWordDays
+        return .days(max(newDays, learning ?? 0))
+    }
+}

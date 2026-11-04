@@ -717,6 +717,17 @@ actor DatabaseService {
                 CREATE INDEX learn_review_run ON learn_review(run_id);
                 """)
         }
+        // The daily goal (0166, #163): the goal in force when each day ended,
+        // so a later change of the setting leaves past days alone. No
+        // backfill: a day with answers and no row uses the current goal.
+        migrator.registerMigration("166-1-daily-goal") { db in
+            try db.execute(sql: """
+                CREATE TABLE learn_day (
+                    day   TEXT PRIMARY KEY,
+                    goal  INTEGER NOT NULL
+                ) WITHOUT ROWID;
+                """)
+        }
         return migrator
     }
 
@@ -1884,9 +1895,10 @@ actor DatabaseService {
 
     /// Grades one answer. In one transaction: the card read, scheduled and
     /// updated, the word's `introduced_day` set on the first answer to one
-    /// of its word cards, and the log row inserted. #163 adds the day's goal (`learn_day`, 0166).
+    /// of its word cards, the log row inserted, and today's `learn_day` row
+    /// with `goal`, the current daily goal, unless the day has one (0166).
     @discardableResult
-    func recordAnswer(_ answer: AnswerRecord, today: LearnDay,
+    func recordAnswer(_ answer: AnswerRecord, today: LearnDay, goal: Int,
                       scheduler: any Scheduler = FixedLadder()) async throws -> CardState {
         let pool = try await userPool()
         return try await pool.write { db in
@@ -1917,6 +1929,8 @@ actor DatabaseService {
                     answer.exercise.rawValue, answer.mode.rawValue, answer.runID.uuidString, answer.outcome.rawValue,
                     card.step, next.step, introduced, answer.durationMs, answer.detail,
                 ])
+            try db.execute(sql: "INSERT OR IGNORE INTO learn_day(day, goal) VALUES (?, ?)",
+                           arguments: [today.rawValue, goal])
             return next
         }
     }
@@ -2003,7 +2017,201 @@ actor DatabaseService {
     func clearLearning() async throws {
         let pool = try await userPool()
         try await pool.write { db in
-            try db.execute(sql: "DELETE FROM learn_review; DELETE FROM learn_card; DELETE FROM learn_word")
+            try db.execute(sql: """
+                DELETE FROM learn_review; DELETE FROM learn_card; DELETE FROM learn_word; DELETE FROM learn_day
+                """)
+        }
+    }
+
+    // MARK: - Learning statistics (0166, #163)
+    //
+    // The queries behind the aggregates in `Models/Learning.swift`. Reads go
+    // through `read`; `setGoal` is a plain user-database write, never
+    // retried. The goal, the streak, the chart, a run and a word read every
+    // language; the other numbers take the chosen `lang`. Each query uses an
+    // index or reads a small table.
+
+    /// Today's goal changed in Settings: today's `learn_day` row takes it,
+    /// so a day keeps the last goal set before it ended.
+    func setGoal(_ goal: Int, today: LearnDay) async throws {
+        let pool = try await userPool()
+        try await pool.write { db in
+            try db.execute(sql: """
+                INSERT INTO learn_day(day, goal) VALUES (?, ?)
+                ON CONFLICT(day) DO UPDATE SET goal = excluded.goal
+                """, arguments: [today.rawValue, goal])
+        }
+    }
+
+    /// The goal in force when each day ended. A day with answers and no row
+    /// (before #163) uses the current goal.
+    func learnDayGoals() async throws -> [LearnDay: Int] {
+        let pool = try await userPool()
+        return try await read(pool) { db in
+            var goals: [LearnDay: Int] = [:]
+            for row in try Row.fetchAll(db, sql: "SELECT day, goal FROM learn_day") {
+                goals[try Self.learnDay(row["day"])] = row["goal"]
+            }
+            return goals
+        }
+    }
+
+    /// One `DayCount` per day with answers, every language: the goal, the
+    /// streak and the chart.
+    func dayCounts() async throws -> [LearnDay: DayCount] {
+        let pool = try await userPool()
+        return try await read(pool) { db in
+            var counts: [LearnDay: DayCount] = [:]
+            for row in try Row.fetchAll(db, sql: """
+                SELECT day, COUNT(*) AS exercises, SUM(outcome <> 'wrong') AS "right",
+                       SUM(MIN(MAX(duration_ms, 0), \(ReviewSummary.durationCapMs))) AS time_ms,
+                       SUM(introduced) AS new_words
+                FROM learn_review GROUP BY day
+                """) {
+                counts[try Self.learnDay(row["day"])] = DayCount(exercises: row["exercises"], right: row["right"],
+                                                                 timeMs: row["time_ms"], newWords: row["new_words"])
+            }
+            return counts
+        }
+    }
+
+    /// The answers of `lang` on `day`: Today's numbers through
+    /// `ReviewSummary`.
+    func reviewRows(day: LearnDay, lang: String) async throws -> [ReviewRow] {
+        try await reviewRows(where: "day = ? AND lang = ?", [day.rawValue, lang])
+    }
+
+    /// The answers of one run, whatever its language and days: 0131's run
+    /// summary through `ReviewSummary`, on the `learn_review_run` index.
+    func reviewRows(run: UUID) async throws -> [ReviewRow] {
+        try await reviewRows(where: "run_id = ?", [run.uuidString])
+    }
+
+    private func reviewRows(where condition: String, _ arguments: StatementArguments) async throws -> [ReviewRow] {
+        let pool = try await userPool()
+        return try await read(pool) { db in
+            try Row.fetchAll(db, sql: """
+                SELECT lang, word, kind, outcome, introduced, duration_ms FROM learn_review
+                WHERE \(condition) ORDER BY id
+                """, arguments: arguments).map { row in
+                guard let kind = CardKind(rawValue: row["kind"]),
+                      let outcome = Outcome(rawValue: row["outcome"]) else { throw DBError.learningRowUnreadable }
+                return ReviewRow(word: WordKey(lang: row["lang"], word: row["word"]), kind: kind, outcome: outcome,
+                                 introduced: row["introduced"], durationMs: row["duration_ms"])
+            }
+        }
+    }
+
+    /// Recognition (match the pairs included) and production answers of
+    /// `lang` from `since` on.
+    func directionAccuracy(since: LearnDay, lang: String) async throws -> DirectionAccuracy {
+        let pool = try await userPool()
+        return try await read(pool) { db in
+            var tallies: [CardKind: Tally] = [:]
+            for row in try Row.fetchAll(db, sql: """
+                SELECT kind, COUNT(*) AS answers, SUM(outcome <> 'wrong') AS "right" FROM learn_review
+                WHERE day >= ? AND lang = ? AND kind IN \(LearningSQL.wordKinds)
+                GROUP BY kind
+                """, arguments: [since.rawValue, lang]) {
+                guard let kind = CardKind(rawValue: row["kind"]) else { throw DBError.learningRowUnreadable }
+                tallies[kind] = Tally(answers: row["answers"], right: row["right"])
+            }
+            return Accuracy.byDirection(tallies)
+        }
+    }
+
+    /// The words of `lang` with the most mistakes on word cards from
+    /// `since` on (`HardestWords.rank`), with their text, its language
+    /// (`translation_lang`) and entry. The via filters nothing here.
+    func hardestWords(since: LearnDay, lang: String,
+                      limit: Int = HardestWords.wordLimit) async throws -> [HardWord] {
+        try await hardWords(kinds: LearningSQL.wordKinds, since: since, lang: lang, limit: limit)
+    }
+
+    /// The verbs of `lang` with the most mistakes in E5's drill from
+    /// `since` on.
+    func hardestVerbs(since: LearnDay, lang: String,
+                      limit: Int = HardestWords.verbLimit) async throws -> [HardWord] {
+        try await hardWords(kinds: "('\(CardKind.conjugation.rawValue)')", since: since, lang: lang, limit: limit)
+    }
+
+    /// Words of `lang` with a wrong answer on cards of `kinds` (an SQL list)
+    /// from `since` on, each with every answer of those cards in the window.
+    private func hardWords(kinds: String, since: LearnDay, lang: String, limit: Int) async throws -> [HardWord] {
+        let pool = try await userPool()
+        let words = try await read(pool) { db in
+            try Row.fetchAll(db, sql: """
+                SELECT r.lang, r.word, COUNT(*) AS answers, SUM(r.outcome <> 'wrong') AS "right",
+                       MAX(CASE WHEN r.outcome = 'wrong' THEN r.id END) AS latest_mistake,
+                       w.term, w.translation, w.translation_lang, w.source, w.headword
+                FROM learn_review r
+                LEFT JOIN learn_word w ON w.lang = r.lang AND w.word = r.word
+                WHERE r.day >= ? AND r.lang = ? AND r.kind IN \(kinds)
+                GROUP BY r.lang, r.word
+                HAVING SUM(r.outcome = 'wrong') > 0
+                """, arguments: [since.rawValue, lang]).map { row -> HardWord in
+                let word: String = row["word"]
+                let term: String? = row["term"], translation: String? = row["translation"]
+                let translationLang: String? = row["translation_lang"]
+                let source: String? = row["source"], headword: String? = row["headword"]
+                return HardWord(key: WordKey(lang: row["lang"], word: word), term: term ?? word,
+                                translation: translation ?? "", translationLang: translationLang ?? "",
+                                entry: source.flatMap { source in headword.map { EntryKey(source: source, word: $0) } },
+                                tally: Tally(answers: row["answers"], right: row["right"]),
+                                latestMistake: row["latest_mistake"])
+            }
+        }
+        return HardestWords.rank(words, limit: limit)
+    }
+
+    /// E5's drill answers of `lang` from `since` on, by tense: both voices
+    /// of a tense together (`Accuracy.byTense`).
+    func tenseAccuracy(since: LearnDay, lang: String) async throws -> [String: Tally] {
+        let pool = try await userPool()
+        return try await read(pool) { db in
+            var facets: [String: Tally] = [:]
+            for row in try Row.fetchAll(db, sql: """
+                SELECT facet, COUNT(*) AS answers, SUM(outcome <> 'wrong') AS "right" FROM learn_review
+                WHERE day >= ? AND lang = ? AND kind = '\(CardKind.conjugation.rawValue)'
+                GROUP BY facet
+                """, arguments: [since.rawValue, lang]) {
+                facets[row["facet"]] = Tally(answers: row["answers"], right: row["right"])
+            }
+            return Accuracy.byTense(facets)
+        }
+    }
+
+    /// Every word of `lang` in learning with its word cards, paused ones
+    /// included: list progress (`ListProgress.of`) and the forecast.
+    func wordStates(lang: String) async throws -> [WordKey: WordLearningState] {
+        let pool = try await userPool()
+        return try await read(pool) { db in
+            var cards: [WordKey: [CardState]] = [:]
+            for row in try Row.fetchAll(db, sql: """
+                SELECT * FROM learn_card WHERE lang = ? AND kind IN \(LearningSQL.wordKinds)
+                ORDER BY word, kind DESC, facet
+                """, arguments: [lang]) {
+                let card = try Self.cardState(row)
+                cards[card.key.word, default: []].append(card)
+            }
+            var states: [WordKey: WordLearningState] = [:]
+            for row in try Row.fetchAll(db, sql: "SELECT * FROM learn_word WHERE lang = ?", arguments: [lang]) {
+                let word = try Self.learnWord(row)
+                states[word.key] = WordLearningState(word: word, cards: cards[word.key] ?? [])
+            }
+            return states
+        }
+    }
+
+    /// Every wrong answer on the word's two cards, ever (#165).
+    func errorCount(lang: String, word: String) async throws -> Int {
+        let key = WordKey(lang: lang, word: word)
+        let pool = try await userPool()
+        return try await read(pool) { db in
+            try Int.fetchOne(db, sql: """
+                SELECT COUNT(*) FROM learn_review
+                WHERE lang = ? AND word = ? AND kind IN \(LearningSQL.wordKinds) AND outcome = 'wrong'
+                """, arguments: [key.lang, key.word]) ?? 0
         }
     }
 
