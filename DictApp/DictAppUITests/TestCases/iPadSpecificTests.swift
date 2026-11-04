@@ -23,6 +23,8 @@ import XCTest
 ///      the iPadOS 26 search drawer.
 ///   4) The Learn tab (0131, #158) in the tab bar or the iPadOS 26 strip,
 ///      in both orientations.
+///   5) A trainer run (0131, #159): full screen, its content at most
+///      600 pt wide and centred, in both orientations.
 ///
 /// All tests skip cleanly on non-iPad destinations.
 final class iPadSpecificTests: XCTestCase {
@@ -47,6 +49,12 @@ final class iPadSpecificTests: XCTestCase {
         // Issue #237: no first-launch sheet.
         app.launchArguments += [UITestHelpers.skipWelcome]
         app.launchArguments.append("-resetData")
+        if name.contains("testExerciseOnIPad") {
+            // The Greek meanings are in the Greek pack (#237).
+            app.launchArguments += ["-learningAnswerHints", "-learningSeed", "159", "-learningFixture", "due"]
+                + UITestHelpers.packArguments("ell")
+            app.launchEnvironment["OS_ACTIVITY_MODE"] = "disable"
+        }
 
         // iOS 26 surfaces an "Enable Dictation?" springboard alert the first
         // time `.searchable()` is activated. XCUI's default handler taps the
@@ -223,6 +231,48 @@ final class iPadSpecificTests: XCTestCase {
             let learnPage = tabBarPage.tapLearnTab()
             XCTAssertTrue(learnPage.waitForPicker(), "the language picker in \(orientation.rawValue)")
             XCTAssertTrue(learnPage.pickerRow("ell", via: "eng").exists, "Greek via English is offered")
+        }
+    }
+
+    /// 0131, #159: a trainer covers the screen; its question, options and
+    /// feedback bar keep to a centred column at most 600 pt wide, in
+    /// portrait and in landscape, and the run goes on after a rotation.
+    func testExerciseOnIPad() throws {
+        let tabBarPage = TabBarPage(app: app)
+        let learnPage = tabBarPage.tapLearnTab()
+        XCTAssertTrue(learnPage.waitForHome(timeout: TestData.Timeouts.long), "the Learn home")
+        let run = learnPage.openTrainer()
+        var answered = 0
+        for orientation in [UIDeviceOrientation.portrait, .landscapeLeft] {
+            XCUIDevice.shared.orientation = orientation
+            XCTAssertTrue(run.waitForQuestionOrSummary(), "a question in \(orientation.rawValue)")
+            XCTAssertTrue(run.prompt.exists, "still a question after \(answered) answers")
+            // The rotation animates: frames read at once can be mid-turn.
+            // Wait until the window has turned and the first option is centred.
+            let app = self.app!
+            let settled = NSPredicate { _, _ in
+                let window = app.windows.firstMatch.frame, option = run.option(0).frame
+                return (window.width > window.height) == orientation.isLandscape && abs(option.midX - window.midX) <= 2
+            }
+            _ = XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: settled, object: nil)],
+                               timeout: TestData.Timeouts.medium)
+            let window = app.windows.firstMatch.frame
+            XCTAssertEqual(run.view.frame.width, window.width, accuracy: 1, "the run covers the screen")
+            let options = run.options
+            XCTAssertEqual(options.count, 4, "four options in \(orientation.rawValue)")
+            for option in options {
+                XCTAssertLessThanOrEqual(option.frame.width, 600, "\(option.identifier) in \(orientation.rawValue)")
+                XCTAssertEqual(option.frame.midX, window.midX, accuracy: 2, "\(option.identifier) is centred")
+            }
+            XCTAssertLessThan(options[0].frame.maxY, options[1].frame.minY + 1, "options stacked, not cut")
+
+            run.choose(right: true)
+            XCTAssertEqual(run.waitForFeedback(), "right")
+            let continueButton = run.continueButton
+            XCTAssertLessThanOrEqual(continueButton.frame.width, 600, "the feedback bar's button in the column")
+            XCTAssertEqual(continueButton.frame.midX, window.midX, accuracy: 2)
+            run.tapContinue()
+            answered += 1
         }
     }
 }

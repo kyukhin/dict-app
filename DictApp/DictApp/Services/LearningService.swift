@@ -1,8 +1,11 @@
 // LearningService.swift
 // Learning words with spaced repetition (0131-learning.md): the services
-// around the store. The clock (#157).
+// around the store. The clock (#157), the languages (#158), the feedback
+// and the runs' launch options (#159).
 
+import AVFoundation
 import Foundation
+import SwiftUI
 
 // MARK: - Clock (#157)
 
@@ -106,6 +109,32 @@ final class LearningLanguageService {
                            uiLanguage: uiLanguage())
     }
 
+    /// Where `lang`'s words find their meanings (`LearningPairs.sourceOrder`):
+    /// the dictionaries from `lang` into `meaningsLang`, the pair's, first,
+    /// then the rest of Dictionary Order, enabled ones first in each part.
+    /// Until an order is stored, Dictionary Order is the default the
+    /// Settings screen derives (#74, #92). Without a pair (`meaningsLang`
+    /// nil, Other), Dictionary Order, enabled first.
+    func sourceOrder(lang: String, meaningsLang: String?) async throws -> [String] {
+        let pairs = try await db.learningPairs()
+        let order: [String]
+        if let stored = settings.dictionaryOrder {
+            order = stored
+        } else {
+            let sources = try await db.fetchSourceStats().map(\.source)
+            order = DictionaryGrouping.groupedOrder(DictionaryDefaults.defaultOrder(forLanguageCode: uiLanguage(),
+                                                                                    sources: sources))
+        }
+        let enabled = settings.enabledSources
+        guard let meaningsLang else {
+            func isOn(_ source: String) -> Bool { enabled?.contains(source) ?? true }
+            return order.filter(isOn) + order.filter { !isOn($0) }
+        }
+        // A limited pair's dictionaries are those of (lang, meanings).
+        return LearningPairs.sourceOrder(pair: LearningPair(lang: lang, via: meaningsLang), pairSources: pairs,
+                                         dictionaryOrder: order, enabled: enabled)
+    }
+
     /// Chooses `pair`: its language appended to the learned languages
     /// (once) and made the chosen one, its via stored, its My words not in
     /// learning yet enrolled, and the install of the pair's missing packs
@@ -155,5 +184,135 @@ final class LearningLanguageService {
         let packs = packs
         // ponytail: #241 shows the install's progress and Try again
         return Task { try await packs.installPair(lang: lang, via: via) }
+    }
+}
+
+// MARK: - Feedback (#159)
+
+/// The two feedback sounds.
+enum FeedbackSound: String, CaseIterable, Sendable {
+    /// Two rising notes.
+    case right
+    /// One low note.
+    case wrong
+}
+
+/// Where the feedback sounds go: `TonePlayer` in the app, a recorder in
+/// tests, which records what would have played.
+@MainActor
+protocol FeedbackSink: AnyObject {
+    func play(_ sound: FeedbackSound)
+}
+
+/// Plays the feedback sounds and decides on the haptics, from the Sounds
+/// and Haptics settings (0131, "Feedback"). E5's drill uses it too.
+@MainActor
+final class FeedbackPlayer {
+    static let shared = FeedbackPlayer()
+
+    private let settings: SettingsService
+    private let sink: any FeedbackSink
+
+    init(settings: SettingsService = .shared, sink: (any FeedbackSink)? = nil) {
+        self.settings = settings
+        self.sink = sink ?? TonePlayer()
+    }
+
+    /// The sound of an answer, unless Sounds is off. `accent` counts as right.
+    func play(_ outcome: Outcome) {
+        guard settings.learningSounds else { return }
+        sink.play(outcome.isRight ? .right : .wrong)
+    }
+
+    /// The haptic of an answer for `.sensoryFeedback`; nil when Haptics is off.
+    func haptic(for outcome: Outcome) -> SensoryFeedback? {
+        guard settings.learningHaptics else { return nil }
+        return outcome.isRight ? .success : .error
+    }
+}
+
+/// Plays two short tones generated in code as WAV data, so there is no
+/// sound file to license. The audio session is `.ambient`, set once: the
+/// silent switch mutes the tones and the user's music keeps playing.
+@MainActor
+final class TonePlayer: FeedbackSink {
+    private var players: [FeedbackSound: AVAudioPlayer] = [:]
+    private var isSessionSet = false
+
+    func play(_ sound: FeedbackSound) {
+        if !isSessionSet {
+            isSessionSet = true
+            try? AVAudioSession.sharedInstance().setCategory(.ambient)
+        }
+        if players[sound] == nil {
+            players[sound] = try? AVAudioPlayer(data: Self.wav(sound))
+            players[sound]?.prepareToPlay()
+        }
+        guard let player = players[sound] else { return }
+        player.currentTime = 0
+        player.play()
+    }
+
+    /// Right: two rising notes, G5 then C6, 0.1 s each. Wrong: one low
+    /// note, A3, 0.2 s.
+    static func wav(_ sound: FeedbackSound) -> Data {
+        switch sound {
+        case .right: return wav(notes: [(783.99, 0.1), (1046.5, 0.1)])
+        case .wrong: return wav(notes: [(220, 0.2)])
+        }
+    }
+
+    /// 16-bit mono PCM at 44.1 kHz: sine notes, each with a 5 ms attack
+    /// and an exponential decay, so they do not click.
+    static func wav(notes: [(frequency: Double, seconds: Double)], volume: Double = 0.3) -> Data {
+        let rate = 44_100
+        var samples: [Int16] = []
+        for note in notes {
+            let count = Int(note.seconds * Double(rate))
+            for n in 0..<count {
+                let t = Double(n) / Double(rate)
+                let envelope = min(t / 0.005, 1) * exp(-4 * t / note.seconds)
+                samples.append(Int16(sin(2 * .pi * note.frequency * t) * envelope * volume * Double(Int16.max)))
+            }
+        }
+        var data = Data()
+        func append<T: FixedWidthInteger>(_ value: T) {
+            withUnsafeBytes(of: value.littleEndian) { data.append(contentsOf: $0) }
+        }
+        let bytes = samples.count * 2
+        data.append(contentsOf: Array("RIFF".utf8)); append(UInt32(36 + bytes))
+        data.append(contentsOf: Array("WAVEfmt ".utf8)); append(UInt32(16))
+        append(UInt16(1)); append(UInt16(1)); append(UInt32(rate)); append(UInt32(rate * 2))
+        append(UInt16(2)); append(UInt16(16))
+        data.append(contentsOf: Array("data".utf8)); append(UInt32(bytes))
+        samples.forEach { append($0) }
+        return data
+    }
+}
+
+// MARK: - Launch options (#159)
+
+/// The runs' DEBUG launch arguments (0131, Test seams); release builds
+/// ignore them.
+enum LearningLaunchOptions {
+    /// `-learningSeed <n>`: fixes the option order and the distractors.
+    static var seed: UInt64? {
+        #if DEBUG
+        let arguments = CommandLine.arguments
+        guard let index = arguments.firstIndex(of: "-learningSeed"), arguments.indices.contains(index + 1) else { return nil }
+        return UInt64(arguments[index + 1])
+        #else
+        return nil
+        #endif
+    }
+
+    /// `-learningAnswerHints`: the right option gets the accessibility value
+    /// `answer`, so a UI test can answer right or wrong on purpose.
+    static var answerHints: Bool {
+        #if DEBUG
+        return CommandLine.arguments.contains("-learningAnswerHints")
+        #else
+        return false
+        #endif
     }
 }

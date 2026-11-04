@@ -19,6 +19,8 @@ class LearnPage: BasePage {
     var addWordsHint: XCUIElement { app.staticTexts[IDs.addWordsHint].firstMatch }
     var myWordsRow: XCUIElement { element(IDs.myWordsRow) }
     var languageSwitch: XCUIElement { app.segmentedControls[IDs.languageSwitch].firstMatch }
+    var trainerRecognition: XCUIElement { app.buttons[IDs.trainerRecognition].firstMatch }
+    var trainerProduction: XCUIElement { app.buttons[IDs.trainerProduction].firstMatch }
 
     /// The picker's row of the pair `lang` via `via`.
     func pickerRow(_ lang: String, via: String) -> XCUIElement {
@@ -63,6 +65,18 @@ class LearnPage: BasePage {
     func selectLanguage(named name: String) {
         XCTAssertTrue(languageSwitch.waitForExistence(timeout: TestData.Timeouts.medium), "the language switch")
         languageSwitch.buttons[name].tap()
+    }
+
+    /// Opens the Recognition or Production trainer (#159).
+    @discardableResult
+    func openTrainer(production: Bool = false) -> ExercisePage {
+        let row = production ? trainerProduction : trainerRecognition
+        XCTAssertTrue(row.waitForExistence(timeout: TestData.Timeouts.medium), "the trainer row")
+        XCTAssertTrue(row.isEnabled, "the trainer is enabled")
+        row.tap()
+        let page = ExercisePage(app: app)
+        XCTAssertTrue(page.view.waitForExistence(timeout: TestData.Timeouts.medium), "the run")
+        return page
     }
 
     @discardableResult
