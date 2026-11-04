@@ -21,6 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - [#242] A language pack downloads from GitHub Releases only when the user asks, is checked against its pinned sha256 and size, and becomes searchable without a restart; a failed, cancelled or interrupted download installs nothing and can be tried again.
 - [#171] The build turns grammar topics written in Markdown into the Greek pack, with verb and noun tables rendered from the Wiktionary forms, gates that fail a malformed or unreviewed topic, and a review document. No topic ships yet.
 - [#153] The English lists pack carries the English word lists A1 to C2 from CEFR-J and Octanove (8,647 words, 98.6% linked to an English dictionary) with English frequency ranks; Credits cites both lists.
+- [#167] The Greek conjugation drill gets its question logic: tenses by ΚΕΓ level, the verbs of the checked Greek lists with their meanings in the language of Greek's learning pair, and four real forms of the verb per question with exactly one right. No screen uses it yet.
 
 ### Changed
 - [#138] Every dictionary is searchable right after install, with no "Preparing dictionaries" bar: the app reads the bundled dictionaries in place and keeps your history, saved words and imports in a small database of their own.

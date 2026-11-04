@@ -308,8 +308,10 @@ final class SettingsService {
         static let via = "learning_via"
         /// E3's (0130); cleared with the others by `-resetData`.
         static let lists = "learning_lists"
+        /// E5's "Tenses up to" (0132).
+        static let drillTenses = "learning_drill_tenses"
         static let all = [newPerDay, dailyGoal, newOrder, answerMode, sounds, haptics,
-                          reminder, languages, language, via, lists]
+                          reminder, languages, language, via, lists, drillTenses]
     }
 
     /// The daily limit of new words, per language.
@@ -406,6 +408,14 @@ final class SettingsService {
         }
     }
     #endif
+
+    /// The drill's "Tenses up to" (0132, #167), as stored: `A1` … `B2`; nil
+    /// when absent or unknown. It only raises the highest checked list's
+    /// level (`DrillScope.tenseLevel`). nil removes the key.
+    var learningDrillTenses: DrillLevel? {
+        get { store.string(forKey: LearningKey.drillTenses).flatMap(DrillLevel.init(rawValue:)) }
+        set { store.set(newValue?.rawValue, forKey: LearningKey.drillTenses) }
+    }
 
     /// `-resetData` (DEBUG): every `learning_*` key back to its default.
     func resetLearning() {
