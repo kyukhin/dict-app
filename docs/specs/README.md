@@ -44,7 +44,8 @@ Data, modules, APIs, migrations, constraints. Links to the code.
 | Spec | Status | Epic |
 |---|---|---|
 | `0000-overview.md`: the app today (data pipeline, database, search, screens, tests) | Approved | — |
-| `0129-dictionary-file.md`: dictionaries as one read-only file, the user database, the 1.x migration, reopening an invalidated file | Approved | #129 |
+| `0129-dictionary-file.md`: dictionaries as read-only files (the English bundle and the attached language packs), the user database, the 1.x migration, reopening an invalidated file | Approved | #129 |
 | `0130-word-lists.md`: word lists by level (Greek A1–B1, English A1–C2), My words as a list, the Lists screen, list import | Approved | #130 |
 | `0136-word-forms.md`: word forms (search by any inflected form, inflection tables) | Implemented | #136 |
 | `0146-quick-switch.md`: dictionary chips on Search, one setting with Dictionary Order | Implemented | #146 |
+| `0237-downloads.md`: language packs downloaded at setup (the English-only bundle, packs on GitHub Releases, first launch, Settings → Languages, the 1.x and alpha upgrade, the install API for learning) | Approved | #237 |

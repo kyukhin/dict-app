@@ -1,9 +1,11 @@
 # Dictionaries as one read-only file
 
 > Spec written by Claude (AI) for LibreDict.
-> Status: Approved by Kirill on 2026-10-30 (first approved on 2026-10-28) · Epic: #129 · Tickets: #112, #138, #139, #140, #213, #216 · Updated: 2026-11-03
+> Status: Approved by Kirill on 2026-11-04 with #237 (before it on 2026-10-30, first on 2026-10-28) · Epic: #129 · Tickets: #112, #138, #139, #140, #213, #216; #237 changes it ([0237](0237-downloads.md)) · Updated: 2026-11-05
 
 This spec is the #112 design. It replaces the Bundled data, Database, Launch and Imported dictionaries sections of [0000-overview.md](0000-overview.md) once implemented. Order: #138, then #139 and #140, then #213.
+
+#237 ([0237-downloads.md](0237-downloads.md), Approved) changes it: the bundled file holds English only, and every other language is a pack the user downloads, attached read-only like `dict` under its own name. The paragraphs marked #237 say what changes; 0237 has the design.
 
 ## Why
 
@@ -12,20 +14,20 @@ This spec is the #112 design. It replaces the Bundled data, Database, Launch and
 - Row ids change when the data is rebuilt, so user data cannot point at them (1.x bookmarks do).
 - Every other v2.0.0 epic ships static data (word forms, word lists, grammar, examples) and needs one place for it.
 
-Goal: the app reads its dictionaries straight from one read-only file in the bundle. Everything the user creates lives in a small user database.
+Goal: the app reads its dictionaries straight from one read-only file in the bundle. Everything the user creates lives in a small user database. Since #237: from read-only files, the English one in the bundle and one per downloaded language.
 
 ## Behaviour
 
 | Situation | 1.4.0 | 2.0.0 |
 |---|---|---|
-| Fresh install | "Preparing dictionaries… N%" bar, results fill in over 20+ s | Search is ready at once, every dictionary searchable, no bar |
+| Fresh install | "Preparing dictionaries… N%" bar, results fill in over 20+ s | Search is ready at once, every dictionary searchable, no bar. Since #237: English at once; the other languages after their download, offered by the first-launch sheet (0237) |
 | App update with new dictionary data | Background sync of changed rows | Nothing to do: the new file is the data |
-| Upgrade from 1.3.0 or 1.4.0 | — | Search is ready at once. History, My words (former bookmarks) and imported dictionaries appear when the move commits, within about a second. The old database is deleted: Documents & Data drops by ~138 MB |
+| Upgrade from 1.3.0 or 1.4.0 | — | Search is ready at once. History, My words (former bookmarks) and imported dictionaries appear when the move commits, within about a second. The old database is deleted: Documents & Data drops by ~138 MB. Since #237: the first launch offers, in one tap, the packs of the dictionaries that were enabled |
 | Bookmarks tab and star | `bookmarks.entry_id` | Until #158 replaces the tab, both read and write "My words". Former bookmarks are there |
 | History row, Recent word on Search | Exact lookup of the word in any source | Opens the entry from the row's stored source (see below) |
 | Dictionary Order counts | `COUNT(*)` over all rows | Same numbers, read from metadata |
 | Import | Rows join the shared `entries` table | Same UI and formats. A file named like a bundled source adds only the words that source lacks, as in 1.4.0 |
-| Search results | — | Identical to 1.4.0 for bundled rows and for exact and prefix matches. An imported row found only through its definition text can rank differently (Decisions) |
+| Search results | — | Identical to 1.4.0 for bundled rows and for exact and prefix matches when no language pack is installed; with packs installed, exact rows stay identical to 1.4.0 and other rows can rank differently (0237, Search ranking). An imported row found only through its definition text can rank differently (Decisions) |
 | The system invalidates the open dictionary file (seen on the simulator after an install over the app; unknown on a device) | Not affected: Search reads its unpacked copy | The next read that fails reopens the file and runs once more. Search, imports and My words keep working without a restart (#213) |
 
 ### Decisions
@@ -35,7 +37,7 @@ Goal: the app reads its dictionaries straight from one read-only file in the bun
 - #129, #139: an upgrade from 1.3.0 or 1.4.0 keeps bookmarks (as My words), history, imported dictionaries and preferences.
 - 2026-10-27 (Kirill): History reopening a word by exact lookup in any source is a bug. It is fixed in E1 (#138): a History row opens the entry from its stored source, the one its stripe shows.
 - 2026-10-28 (Kirill): every dictionary records its headword and definition languages (#208). `dict_metadata` and `imported_sources` have the columns from the start, so #208 needs no migration.
-- 2026-10-28 (Kirill): search results are identical to 1.4.0 for bundled rows and for exact and prefix matches. An imported row found only through its definition text is ranked by its own index, so its place can change. Example: `entry` with the JSON fixture puts the fixture rows at places 45–50 in 1.4.0 and below the 50-row cutoff in 2.0.
+- 2026-10-28 (Kirill): search results are identical to 1.4.0 for bundled rows and for exact and prefix matches (open again under #237: one FTS index per pack changes the order across dictionaries, 0237 Open question 1). An imported row found only through its definition text is ranked by its own index, so its place can change. Example: `entry` with the JSON fixture puts the fixture rows at places 45–50 in 1.4.0 and below the 50-row cutoff in 2.0.
 - 2026-10-28 (Kirill): a History row whose entry is gone shows "not found". There is no lookup in other sources.
 - 2026-10-28 (Kirill): where built-in word lists live is decided in E3's spec (#130), not here.
 - 2026-10-19 (#111 PM decision 7): the bundled file is never opened through a writable GRDB connection.
@@ -44,6 +46,8 @@ Goal: the app reads its dictionaries straight from one read-only file in the bun
 - 2026-10-30 (Kirill, #213): the 1.x move does not retry; a failed move runs again at the next launch. Revisit if the device check shows invalidation on a device.
 - 2026-10-30 (Kirill, #213): the retry stays even if the device check shows no invalidation.
 - 2026-10-30 (Kirill, #213, after CodeRabbit review): only reads and the import retry. History and My words writes and a failed `COMMIT` are not retried, so no write can run twice.
+- 2026-11-03 (Kirill, #237): the bundle holds English only (WordNet, its forms). Every other dictionary, the Greek forms and the word lists come in language packs downloaded from GitHub Releases during setup; the app goes online only for a download the user starts (0237).
+- 2026-11-03 (Kirill): the 1.x move and E4's migration enrol nothing. A language's My words are enrolled when the user chooses to learn that language (0131).
 
 ### History rows (#138)
 
@@ -60,6 +64,8 @@ A History row and a Recent word on Search resolve like this:
 | `dictionaries.sqlite` | App bundle, from `DictApp/DictApp/Resources/` (Git LFS) | `Scripts/build_dictionaries.py` only | Bundled dictionaries and every epic's static data |
 | `user.sqlite` | `Application Support/DictApp/` | The app | History, My words, imported dictionaries, later learning data |
 | `dict.sqlite` (1.x) | `Application Support/DictApp/` | Nobody | Read once by #139, then deleted |
+| `empty-pack.sqlite` (#237) | App bundle | `Scripts/cut_packs.py` | The same schema, no rows: attached for a pack that is not installed |
+| `Packs/<id>-<version>.sqlite` (#237) | `Application Support/DictApp/`, excluded from backup | The app, from a verified download | One language pack: its dictionaries and static data |
 
 `seed.sqlite` becomes `dictionaries.sqlite` and `build_seed.py` becomes `build_dictionaries.py` (`git mv`), because nothing is seeded any more.
 
@@ -76,6 +82,7 @@ A History row and a Recent word on Search resolve like this:
   - URI filenames need SQLite's `USE_URI`. Apple builds SQLite with it (checked on the macOS 26 system library), and a unit test proves it on iOS. If iOS lacked it, the fallback is the plain path: the device bundle is read-only anyway.
 - The file is in rollback-journal mode (checked in the header), so a read-only open never needs a `-wal` or `-shm` next to it.
 - The file is not copied into the container. A one-time copy (an APFS clone, 0.33 s per #111) would add a launch step and a version check, and gain nothing.
+- **#237**: every connection also attaches each catalog pack under a fixed name (`spa`, `rus`, `arb`, `ell`, `eng_lists`): the installed file, or the empty stub. `prepareDatabase` reads the name → file map from a lock-protected snapshot; an install or removal changes it and re-attaches with #213's reopen. Searches run one branch per file that holds an enabled source. Seven attachments at most (with `legacy`), under SQLite's 10. Details in 0237, "Connection layout".
 - Rules: SQL always qualifies `dict.`. No user table shares a name with a dictionary table (`imported_entries`, not `entries`).
 
 ### The #111 cold-start crash
@@ -132,20 +139,21 @@ So concurrent failures cause one reopen, and no call loops. If the file were inv
 | `data_source` | One row per non-dictionary data set (Wiktionary forms, Tatoeba, word lists): `id`, `kind`, `display_name`, `version`, `license`, `url`. Empty in E1. Credits will read it |
 
 - `PRAGMA user_version` is the format version (1 in #140, 2 since #141 added the word-form tables, 3 since #143 added the morphy tables). The app constant `DictionaryFile.formatVersion` must match, and a unit test checks it. The app and the file always ship together, so there is no runtime negotiation.
+- **#237**: the bundle, the stub and every pack share one schema (each file fills its own tables) and one format, 4 with the catalog tables `catalog_pack`, `catalog_source`, `catalog_list` and `catalog_pair` (the limited learning pairs) in the bundle. A pack is attached only when its header's `user_version` equals `DictionaryFile.formatVersion`; otherwise the stub, and the user is offered the update. Entry ids: `(ord << 32) + n` per file, so ids stay unique across files and below 2^40. The bundle measures 56.1 MB (WordNet and morphy), the four language packs 97.9 MB (0237).
 - No `ANALYZE`: the query plans must stay those measured below.
 - Measured on today's data: 126.0 MB, against 134.9 MB for the seed. Dropping `created_at`, `built_at` and the empty `history` and `bookmarks` tables saves 8.8 MB. It returns the same results as the seed on the probe set. Compressed (IPA) size is ~45 MB either way.
 
 #### Adding static data (E2, E3, E6, E7)
 
 1. Write `Scripts/build_<area>.py` with a `SCHEMA` (DDL) and `build(conn, cache_dir)`, and add it to `STEPS` in `build_dictionaries.py`. Steps run after the dictionaries and may read `entries`.
-2. Use plain tables and indexes. The app reads them as `dict.<table>`. Tables may join by their own ids inside the file. Anything the user database stores is a text key: an `EntryKey`, a lemma, a list id string.
+2. Use plain tables and indexes. The app reads them as `dict.<table>`, or as `<pack>.<table>` when `Scripts/packs.json` puts them in a language's pack (#237: Greek forms and Greek lists in `ell`, English lists in `eng_lists`). Tables may join by their own ids inside the file. Anything the user database stores is a text key: an `EntryKey`, a lemma, a list id string.
 3. Credits: one `data_source` row per external data set. Never a `dict_metadata` row, which would show up as a dictionary in Dictionary Order.
 4. Determinism: insert in a sorted order, write no timestamps, pin every input in `Scripts/inputs.json` (an immutable URL and its sha256, or a file committed in Git LFS when the source keeps no old versions), and verify inputs before use.
 5. A changed table shape bumps `user_version` and `DictionaryFile.formatVersion` in the same PR.
 6. Each epic states its size budget. The build prints the size of every table (`dbstat`) and the total.
-7. One rebuilt file per data PR, after rebasing. LFS already holds ~470 MB of seed versions, and each rebuild adds ~130 MB.
+7. One rebuilt file per data PR, after rebasing. LFS already holds ~470 MB of seed versions, and each rebuild adds ~130 MB. Since #237 a data PR adds the bundle only when English data changes, plus the xz assets of the packs that changed (2 to 11 MB each); a table added after 2.0 ships bumps the format of every file and makes users download their packs again (0237, "The catalog").
 
-Owners of the DDL: E2 #136 (`lemma`, `form_lookup`, `form_link`, `paradigm`, `tagset`, `morphy_exception`, `morphy_lemma`), E3 #130 (built-in word lists, if its spec puts them here), E6 #133 (`grammar_topic`, `grammar_text`, `grammar_link`, #171), E7 #134 (examples).
+Owners of the DDL: E2 #136 (`lemma`, `form_lookup`, `form_link`, `paradigm`, `tagset`, `morphy_exception`, `morphy_lemma`), E3 #130 (`wordlist`, `wordlist_item`, `word_rank`, in the language packs since #237), E6 #133 (`grammar_topic`, `grammar_text`, `grammar_link`, #171), E7 #134 (examples).
 
 #### Build (#140)
 
@@ -160,6 +168,7 @@ Owners of the DDL: E2 #136 (`lemma`, `form_lookup`, `form_link`, `paradigm`, `ta
 - Reproducible: the same pinned inputs and the same SQLite version give a byte-identical file. Measured: building the 2.0 file twice from today's rows gave the same sha256. `--verify` rebuilds into a temp file and compares it with the committed file.
 - Inputs to pin: FreeDict picks the newest release online, OpenRussian reads GitHub `master`, and NLTK downloads `wordnet` and `omw-1.4` unversioned. Each becomes an immutable URL: the versioned FreeDict release, and a commit SHA for OpenRussian and `nltk_data`. A URL that can change is not allowed, because a sha256 only detects the change.
 - `generate_seed_db.py` and `download_wordnet.py` (legacy, unused) are deleted.
+- **#237**: the full file goes to the build cache; `Scripts/cut_packs.py` cuts it by `Scripts/packs.json` into the English bundle, the stub and one file per pack, writes the xz assets (`Packs/`, Git LFS) and the catalog, and checks that every row lands in exactly one file. `--verify` compares every output. Assets are published on a GitHub release `packs-YYYYMMDD` (0237, "Build and release").
 
 ### User database: `user.sqlite`
 
@@ -177,7 +186,7 @@ Migration `129-1-core`:
 | Table | Columns | Notes |
 |---|---|---|
 | `history` | `id`, `word` UNIQUE, `source`, `looked_at` (UTC text) | Same shape as 1.x, so `HistoryItem`, `HistoryTimestamp` and the 100-row list stay |
-| `my_words` | `source`, `word COLLATE NOCASE`, `added_at`; PK `(source, word)`, `WITHOUT ROWID` | My words items. E3 decides whether its list model keeps this table or moves the rows in its own migration. E4 enrols every item: cards for all existing rows in its migration, and for each new one on add |
+| `my_words` | `source`, `word COLLATE NOCASE`, `added_at`; PK `(source, word)`, `WITHOUT ROWID` | My words items. E3 keeps this table as the My words list (0130). E4 enrols a language's My words when the user chooses to learn that language; the 1.x move and E4's migration enrol nothing (Kirill, 2026-11-03; 0131) |
 | `imported_entries` | The `entries` columns plus `created_at`; unique on `(word COLLATE NOCASE, source)`; index on `source` | Ids start at 2^40 (a seeded `sqlite_sequence` row) |
 | `imported_fts` | FTS5 with external content from `imported_entries`, same tokenizer | Triggers `imported_ai`, `imported_ad`, `imported_au` |
 | `imported_sources` | `source` PK, `imported_at`, `from_lang` and `to_lang` (NULL until #208 fills them) | One row per imported dictionary: listing without a scan, room for a future delete |
@@ -214,7 +223,7 @@ Migration `129-1-core`:
 1. `-resetDatabase` (DEBUG) deletes `user.sqlite` and any 1.x `dict.sqlite`, each with its `-wal` and `-shm`, so no legacy data comes back through the migration.
 2. `setup()` opens the pool, which attaches `dict`, and runs the migrator. This takes milliseconds.
 3. Test hooks: `-resetData` clears history, `my_words` and the preferences. `-clearFixtureImports` deletes the fixture's imported rows and its `imported_sources` row.
-4. `normalizeDictionaryPreferences(knownSources:)` runs on the `dict.dict_metadata` sources, as today.
+4. `normalizeDictionaryPreferences(knownSources:)` runs on the `dict.dict_metadata` sources, as today. #237: on the bundle's and the catalog's sources, after a scan of `Packs/` picks each pack's file or the stub; the first-launch sheet follows `isReady` (0237, "Launch").
 5. If the 1.x `dict.sqlite` exists, the move below starts as a detached utility task. It starts just before the UI shows, so every user-data call from the first frame finds it.
 6. `isReady = true`.
 
@@ -229,7 +238,7 @@ There is no unpack, no plan and no progress state.
 **Move:** one write on the user database writer.
 1. ATTACH the 1.x file as `legacy`, outside the transaction (as the seed ATTACH works today). It is not attached read-only, because SQLite may have to replay its WAL.
 2. In one transaction:
-   - **Imported dictionaries:** every `legacy.entries` row whose `(source, word COLLATE NOCASE)` is not in `dict.entries` goes into `imported_entries`, with `word_normalized = word` as on import. The triggers fill `imported_fts`. This one rule carries custom imports and imports named like a bundled source, and drops the 1.x copy of the bundled data. Rows of the v1.1.0, v1.2.0, v1.3.0 and v1.4.0 seeds missing from today's data: 0 (measured), so no bundled row turns into an import. A later dictionary update that drops headwords must repeat this check, because 1.x files do not record which rows were imported.
+   - **Imported dictionaries:** every `legacy.entries` row whose `(source, word COLLATE NOCASE)` is not in `dict.entries` goes into `imported_entries`, with `word_normalized = word` as on import. **#237**: a source of a pack (`dict.catalog_source`) is decided by its row count instead, since the pack may not be installed: a count equal to the catalog's `word_count` means the rows are the pack's, and they are dropped; any other count moves all its rows, and the pack's install later deletes the rows it has. Exact, because every 1.x seed holds exactly today's rows of each dictionary it shipped (measured for 1.1.0 to 1.4.1, 0237). The triggers fill `imported_fts`. This one rule carries custom imports and imports named like a bundled source, and drops the 1.x copy of the bundled data. Rows of the v1.1.0, v1.2.0, v1.3.0 and v1.4.0 seeds missing from today's data: 0 (measured), so no bundled row turns into an import. A later dictionary update that drops headwords must repeat this check, because 1.x files do not record which rows were imported.
    - **`imported_sources`:** one row per source with at least one moved row, `imported_at` = its earliest `created_at`.
    - **History:** every row. `source` is read only if the column exists; 1.1 and 1.2 lack it, so it becomes `''`. On a word conflict, the newer `looked_at` wins.
    - **My words:** each bookmark becomes its entry's `(source, word)`, with `added_at` = the bookmark's `created_at`, through `INSERT OR IGNORE`.
@@ -273,10 +282,10 @@ There is no unpack, no plan and no progress state.
 
 | Metric | 1.4.0 | 2.0.0 target |
 |---|---|---|
-| Fresh install, launch to a usable Search (iPhone 15 Pro simulator, iOS 17.5, median of 3; and a device) | Under 5 s (#111), then 20+ s of unpack | Under 2 s, every dictionary searchable |
+| Fresh install, launch to a usable Search (iPhone 15 Pro simulator, iOS 17.5, median of 3; and a device) | Under 5 s (#111), then 20+ s of unpack | Under 2 s, every dictionary searchable. #237: English and the installed packs (0237) |
 | Upgrade from 1.4.0, same measure | — | As fast as a fresh install. The background move takes under 2 s on a device |
 | Documents & Data without imports | ~138 MB | Under 5 MB |
-| App Size | Bundle with the 134.9 MB seed | Bundle with the 126 MB file, plus the E2, E3, E6 and E7 budgets |
+| App Size | Bundle with the 134.9 MB seed | Bundle with the 126 MB file, plus the E2, E3, E6 and E7 budgets. #237: the 56.1 MB English file; packs count as Documents & Data |
 | Search, probe set, median | Baseline | Not slower |
 | Cold launches without a crash (iPad) | — | 30 of 30 |
 
@@ -296,7 +305,7 @@ The probe set is ~25 queries across en, ru, es, ar and el (`house`, `a`, `the`, 
 
 | Acceptance criterion | Test |
 |---|---|
-| #129, #140: first launch to a usable Search in under 2 s, every bundled dictionary searchable at once, no unpack progress | UI `FreshInstallTests.testFreshInstallSearchesEveryPairAtOnce`: `-resetDatabase`, then one word per pair returns results within 2 s of launch. QA: launch time |
+| #129, #140: first launch to a usable Search in under 2 s, every bundled dictionary searchable at once, no unpack progress | UI `FreshInstallTests.testFreshInstallSearchesEveryPairAtOnce`: `-resetDatabase`, then one word per pair returns results within 2 s of launch. #237 (T2 rewrites the suite, 0237): with `-installPacks all` every pair answers; with `-resetPacks` only English must (`testEnglishWorksOffline`). QA: launch time |
 | #129, #139, #140: installed size ≈ app bundle + user data, no duplicate copy | Unit `LegacyMigrationTests.testApplicationSupportHoldsOnlyTheUserDatabase` (only `user.sqlite` and its `-wal`/`-shm`, under 5 MB) and `DictionaryFileTests.testDictionaryFileIsNeverCopied` (the host app: no copy of the file in Application Support or Documents, under 5 MB). QA: simulator `du` of the app and data containers; device Settings → iPhone Storage, App Size and Documents & Data |
 | #129, #139: upgrade from 1.3.0 and 1.4.0 keeps bookmarks (as My words), history, imported dictionaries and preferences | Unit `LegacyMigrationTests.testMigrates130Fixture`, `testMigrates140Fixture`: every bookmark is a My words key that resolves, history rows and sources are equal, both fixture imports are searchable, `enabled_sources` and `dictionary_order` still apply. Fixtures `legacy-1.3.0.sqlite` and `legacy-1.4.0.sqlite` (under 1 MB each) come from `Scripts/make_legacy_fixtures.py`, which uses each tag's `Schema.sql`, seed subset and migrations plus fixed user data. `testMigratesDatabaseWithoutHistorySource` covers 1.1/1.2 with `legacy-1.2.0.sqlite`. Edge cases: `testImportWithOnlyBundledWordsRegistersNothing`, `testBookmarkOfARowTodaysDataLacksKeepsItsEntry`, `testLegacyRowsWithNullsAndAnOrphanBookmarkMove`, `testHistoryConflictsKeepTheNewerRow`, `testLegacyDatabaseWithoutUserDataIsDeleted`, `testNoLegacyDatabaseStartsNoMove`. A real device database runs only locally: `testMigratesLocalLegacyDatabase` reads `LIBREDICT_LEGACY_DB` (passed as `TEST_RUNNER_LIBREDICT_LEGACY_DB` to `xcodebuild`) and is skipped when it is absent. QA: install a `v1.4.0` build, add data, install 2.0 over it, on the simulator and through TestFlight on a device |
 | #129, #138: search identical to 1.4.0 on the probe set (en, ru, es, ar, el), including an imported dictionary | Unit `SearchProbeTests.testBundledProbeMatches140` (exact lists). `testProbeWithFixtureImports`: bundled rows keep the golden order, `qaflux` is first, `json` returns the 10 fixture rows. Existing Greek and Arabic search tests stay as they are |
@@ -316,6 +325,7 @@ The probe set is ~25 queries across en, ru, es, ar and el (`house`, `a`, `the`, 
 | #213: one retry only; a second failure surfaces as today | Unit `testASecondFailureSurfaces`: step 4 removes `dictionary.sqlite` itself instead, so the re-attach finds no file. `search` throws, `dictionaryReopenCount` grew by 1, and `addToHistory` still writes. `testImportsFailWithoutRetryAfterAFailedReattach`: with the re-attach failed, two imports fail with "no such table: dict.entries" and cause no further reopen; My words and History still write |
 | #213: History and My words writes and a failed `COMMIT` are not retried | Unit `testUserDataWritesAreNotRetried`: with the file invalidated, a History write and a My words change run once and cause no reopen; an import whose `COMMIT` fails with `SQLITE_IOERR` throws, inserts once, causes no reopen and stores nothing |
 | #213: no more first-test failures on iPads in the UI suites | UI: the four-simulator regression per the overview recipe, each suite in its own `xcodebuild` run with the app uninstalled before it. On both iPads every suite passes its first test, and the 7 suites that failed it in #139 QA (BookmarkFlow, DictionaryInfo, DictionaryOrderRefresh, GreekDictionary, HistoryFlow, SearchFlow, SearchHighlight) pass 3 runs of 3. That recipe cannot invalidate the file: after an uninstall the install shares no file with an old bundle. An update install exercises the fix, on the iPhone and both iPads: `simctl install` the app, run a suite with `xcodebuild test-without-building`, which installs over it, and once the app holds the file on its writer and a reader, remove the old bundle's link from containermanagerd's `Dead` folder, as its clean-up does. The simulator log (process `DictApp`) shows "vnode unlinked while in use", then the reopen line, and the suite passes |
+| #237: the bundle holds English only; packs attach without a restart; the 1.x move with packs missing | 0237's test plan: `PackFileTests`, `PackServiceTests`, `LegacyMigrationTests.testMoveWithPacksMissing`, `testImportUnderAPackSourceMovesUntilThePackArrives`, `DictionaryReopenTests` re-attaching every name |
 | #213: the TestFlight check is recorded in History | Pending until that build, after this PR merges. QA device check, on the first 2.0 TestFlight build after #213 merges. The same build takes #140's device size measurement. The device is connected to the Mac, with Console.app streaming process `DictApp`. (a) Update: install the build over LibreDict 1.4.0 from the App Store, holding some History and bookmarks. Then, with LibreDict open in the foreground, delete another app (from the Mac, since the device stays in LibreDict), so the `Dead` folder gets cleared. (b) Fresh install: delete the app, then install the build. Each time open the app at once, stay in the foreground (the background recycles readers), and search a different probe-set word every 2 s or so for about 20 s, so reads miss the page cache. Record in History: whether SQLite's "vnode unlinked while in use" and the reopen line appeared, whether every search returned results, whether History and My words came through the update, and Settings → General → iPhone Storage → LibreDict, App Size and Documents & Data, after each install (#140) |
 
 ## History
@@ -355,3 +365,8 @@ The probe set is ~25 queries across en, ru, es, ar and el (`house`, `a`, `the`, 
 - 2026-10-31: #216 review: the WordNet reader and the Greek license read the corpora through `corpora/<name>.zip/...` paths, since a plain `corpora/<name>` path prefers an extracted copy that no pin covers, and `use_nltk_data` refuses a symlink in the NLTK cache. `--verify` from a group-writable cache holding tampered extracted copies, under umask 002, gives the committed sha256.
 - 2026-11-02: #143 registers the second static step, `build_morphy.py` (WordNet's exception lists and single-word lemmas, read inside the pinned `wordnet.zip`), and adds `form_link` to the forms step; `user_version` and `DictionaryFile.formatVersion` go to 3. The file is 151,674,880 bytes, SHA-256 `24a1494d…14301d77`; `--verify` gives it byte for byte, also under `PYTHONHASHSEED=7` and after rebasing onto #144. Details in [0136-word-forms.md](0136-word-forms.md).
 - 2026-11-03 (QA, Kirill): device check of the first 2.0 TestFlight build, 2.0.0 (6) from `v2.0.0-alpha.1`, on an iPhone 16 Pro Max with Console.app streaming `DictApp`. (a) Update over App Store 1.4.1 (5): LibreDict opened 5 s after the install, and Binance was deleted from the Mac 6 s later while Kirill searched every 2 s for about 40 s. (b) Fresh install, then the same search. Neither run logged "vnode unlinked while in use", the reopen line or any SQLite error; every search returned results and nothing crashed. Search was usable within 1.4 s of the fresh launch (keyboard up, tap included). History and My words came through the update. iPhone Storage after (b): App 158.3 MB (the dictionary file is 151.7 MB), Documents & Data 496 KB; right after (a) it showed 115.9 MB and 963 KB, the app figure likely not yet recounted.
+- 2026-11-04: #237 (0237, Draft): the bundled file becomes English only; the other languages, the Greek forms and the word lists are packs, attached read-only under fixed names, with an empty stub for a missing pack and the catalog in the bundle (format 4); the 1.x move decides pack sources by row count. Marked in Behaviour, Decisions, Files, Connection layout, Dictionary file, Adding static data, Build, 1.x migration, Launch, Targets and the test plan. Spec changed: storage and module boundaries, so the spec is back to Draft until Kirill reviews 0237.
+- 2026-11-04: the `my_words` row follows Kirill's decision of 2026-11-03: E4 enrols a language's My words when the user chooses to learn it; the 1.x move and E4's migration enrol nothing. E3 keeps the table as the My words list.
+- 2026-11-04: The #237 change approved by Kirill.
+- 2026-11-05: Review fix: the format-4 catalog list names `catalog_pair`, as 0237 does.
+- 2026-11-05: Review fix: the fresh-install target and its test cover English and the installed packs under #237.
