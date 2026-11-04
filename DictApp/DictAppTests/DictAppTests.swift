@@ -14002,7 +14002,7 @@ final class WordListModelTests: XCTestCase {
         }
         let myWordsSQL = "SELECT source || '|' || word || '|' || added_at FROM my_words ORDER BY word"
         let before = try await pool.read { db in try String.fetchAll(db, sql: myWordsSQL) }
-        try DatabaseService.migrator.migrate(pool)
+        try DatabaseService.migrator.migrate(pool, upTo: "130-1-word-lists")
         let after = try await pool.read { db in
             (myWords: try String.fetchAll(db, sql: myWordsSQL),
              history: try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM history"),
@@ -14608,5 +14608,1619 @@ extension WordListModelTests {
         print("QA #151: wordListItems(B2) \(itemTimes) ms, cold nextNewWords(6 lists) \(nextTimes) ms")
         XCTAssertLessThan(itemMedian, 150, "wordListItems of B2: \(itemTimes) ms")
         XCTAssertLessThan(nextMedian, 500, "nextNewWords of six lists: \(nextTimes) ms")
+    }
+}
+
+// MARK: - 0131: learning data (#157)
+//
+// 0131-learning.md, Test plan: the rows of #157 and the store's language
+// filters. The ladder, the clock, the languages and the settings are pure;
+// the store runs on a temp user database.
+
+/// Shared values for the learning tests.
+enum LearningFixture {
+    static let today = LearnDay(year: 2026, month: 11, day: 4)
+    static let grafo = WordKey(lang: "ell", word: "γράφω")
+
+    static func card(_ kind: CardKind = .recognition, word: WordKey = grafo, step: Int = 0,
+                     due: LearnDay = today, last: LearnDay? = nil, suspended: Bool = false) -> CardState {
+        CardState(key: CardKey(word: word, kind: kind), step: step, dueDay: due, lastDay: last, isSuspended: suspended)
+    }
+
+    static func state(_ cards: [CardState], word: WordKey = grafo) -> WordLearningState {
+        WordLearningState(word: LearnWord(key: word, term: word.word, endings: "", partOfSpeech: "verb",
+                                          translation: "", translationLang: "", entry: nil, listID: nil,
+                                          introducedDay: nil),
+                          cards: cards)
+    }
+
+    /// Days from `a` to `b`, computed apart from `LearnDay.adding`.
+    static func days(from a: LearnDay, to b: LearnDay) -> Int {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "UTC")!
+        func date(_ day: LearnDay) -> Date {
+            let parts = day.rawValue.split(separator: "-").map { Int($0)! }
+            return calendar.date(from: DateComponents(year: parts[0], month: parts[1], day: parts[2]))!
+        }
+        return calendar.dateComponents([.day], from: date(a), to: date(b)).day!
+    }
+}
+
+final class LearningSchedulerTests: XCTestCase {
+    private let ladder = FixedLadder()
+    private let today = LearningFixture.today
+
+    private func card(_ kind: CardKind = .recognition, step: Int = 0, due: LearnDay? = nil,
+                      last: LearnDay? = nil, suspended: Bool = false) -> CardState {
+        LearningFixture.card(kind, step: step, due: due ?? today, last: last, suspended: suspended)
+    }
+
+    /// A new card answered right on each due day gets 1, 3, 7, 14, 30 and
+    /// 90 days, then stays at 90.
+    func testRightAnswersClimbTheLadder() {
+        var current = card()
+        var day = today
+        var intervals: [Int] = [], steps: [Int] = []
+        for _ in 0..<8 {
+            current = ladder.next(current, outcome: .right, today: day)
+            XCTAssertEqual(current.lastDay, day, "every answer sets last_day")
+            intervals.append(LearningFixture.days(from: day, to: current.dueDay))
+            steps.append(current.step)
+            day = current.dueDay
+        }
+        XCTAssertEqual(intervals, [1, 3, 7, 14, 30, 90, 90, 90])
+        XCTAssertEqual(steps, [1, 2, 3, 4, 5, 6, 6, 6])
+        XCTAssertEqual(FixedLadder.intervals, [1, 3, 7, 14, 30, 90])
+        XCTAssertNil(FixedLadder.interval(ofStep: 0), "step 0 is learning, not an interval")
+        XCTAssertNil(FixedLadder.interval(ofStep: 7))
+    }
+
+    /// The spec's "A card's life" table, row by row (day 1 = 2026-01-01).
+    func testACardsLifeFollowsTheSpecTable() {
+        func day(_ n: Int) -> LearnDay { LearnDay(year: 2026, month: 1, day: 1).adding(days: n - 1) }
+        var current = card(due: day(1))
+        let rows: [(day: Int, outcome: Outcome, step: Int, due: Int)] = [
+            (1, .right, 1, 2), (2, .right, 2, 5), (5, .right, 3, 12), (12, .right, 4, 26),
+            (26, .right, 5, 56), (56, .wrong, 0, 56), (56, .right, 1, 57),
+        ]
+        for row in rows {
+            current = ladder.next(current, outcome: row.outcome, today: day(row.day))
+            XCTAssertEqual(current.step, row.step, "day \(row.day), \(row.outcome)")
+            XCTAssertEqual(current.dueDay, day(row.due), "day \(row.day), \(row.outcome)")
+            XCTAssertEqual(current.lastDay, day(row.day))
+        }
+    }
+
+    /// A late answer counts the next interval from the answer day, not from
+    /// the missed due day, and climbs one rung only.
+    func testLateAnswerCountsFromTheAnswerDay() {
+        let late = ladder.next(card(step: 2, due: today.adding(days: -9), last: today.adding(days: -12)),
+                               outcome: .right, today: today)
+        XCTAssertEqual(late.step, 3)
+        XCTAssertEqual(late.dueDay, today.adding(days: 7))
+    }
+
+    func testWrongReturnsToLearningFromAnyStep() {
+        for step in 0...6 {
+            for due in [today.adding(days: -10), today, today.adding(days: 30)] {
+                let before = card(.production, step: step, due: due, last: step == 0 ? nil : today.adding(days: -40))
+                let next = ladder.next(before, outcome: .wrong, today: today)
+                let context = "step \(step), due \(due)"
+                XCTAssertEqual(next.step, 0, context)
+                XCTAssertEqual(next.dueDay, today, "back in the same session: due today, \(context)")
+                XCTAssertEqual(next.lastDay, today, context)
+                XCTAssertEqual(next.key, before.key, context)
+                XCTAssertFalse(next.isNew, "a wrong answer is an answer: Learning, not New, \(context)")
+                XCTAssertEqual(WordStatus.stage(of: next), .learning, context)
+            }
+        }
+        // Right after the relearn: every 1 day again.
+        let relearned = ladder.next(ladder.next(card(step: 6, last: today.adding(days: -90)), outcome: .wrong, today: today),
+                                    outcome: .right, today: today)
+        XCTAssertEqual(relearned.step, 1)
+        XCTAssertEqual(relearned.dueDay, today.adding(days: 1))
+    }
+
+    func testRightOnACardNotDueChangesNothing() {
+        for step in 1...6 {
+            for ahead in [1, 5, 89] {
+                let before = card(step: step, due: today.adding(days: ahead), last: today.adding(days: -3))
+                for outcome in [Outcome.right, .accent] {
+                    let next = ladder.next(before, outcome: outcome, today: today)
+                    let context = "step \(step), due in \(ahead) days, \(outcome)"
+                    XCTAssertEqual(next.step, step, context)
+                    XCTAssertEqual(next.dueDay, before.dueDay, context)
+                    XCTAssertEqual(next.lastDay, today, "the answer is still recorded, \(context)")
+                }
+            }
+        }
+        // A card in learning (step 0) is always asked, so it climbs even
+        // with a later due day.
+        let learning = ladder.next(card(step: 0, due: today.adding(days: 1), last: today.adding(days: -1)),
+                                   outcome: .right, today: today)
+        XCTAssertEqual(learning.step, 1)
+        XCTAssertEqual(learning.dueDay, today.adding(days: 1))
+    }
+
+    func testAccentCountsAsRight() {
+        XCTAssertTrue(Outcome.accent.isRight)
+        XCTAssertTrue(Outcome.right.isRight)
+        XCTAssertFalse(Outcome.wrong.isRight)
+        for step in 0...6 {
+            let due = card(step: step, due: today.adding(days: -1), last: step == 0 ? nil : today.adding(days: -2))
+            XCTAssertEqual(ladder.next(due, outcome: .accent, today: today),
+                           ladder.next(due, outcome: .right, today: today), "step \(step)")
+        }
+        let accent = ladder.next(card(step: 2, due: today, last: today.adding(days: -3)), outcome: .accent, today: today)
+        XCTAssertEqual(accent.step, 3)
+        XCTAssertEqual(accent.dueDay, today.adding(days: 7))
+    }
+
+    func testLearnedNeedsBothCardsAt30Days() {
+        XCTAssertEqual(FixedLadder.learnedInterval, 30)
+        XCTAssertEqual((0...6).map { ladder.isLearned(card(step: $0, last: today)) },
+                       [false, false, false, false, false, true, true])
+
+        func stage(recognition: Int, production: Int?) -> WordStatus.Stage {
+            var cards = [card(.recognition, step: recognition, last: today)]
+            if let production { cards.append(card(.production, step: production, last: today)) }
+            return WordStatus(LearningFixture.state(cards)).stage
+        }
+        XCTAssertEqual(stage(recognition: 5, production: 4), .learning, "14 days is not learned")
+        XCTAssertEqual(stage(recognition: 4, production: 6), .learning)
+        XCTAssertEqual(stage(recognition: 5, production: 5), .learned)
+        XCTAssertEqual(stage(recognition: 6, production: 5), .learned)
+        XCTAssertEqual(stage(recognition: 6, production: 6), .learned)
+        XCTAssertEqual(stage(recognition: 6, production: nil), .learning, "one card alone never makes a learned word")
+
+        // A later wrong answer takes the word out of "learned".
+        let recognition = card(.recognition, step: 6, due: today.adding(days: 60), last: today.adding(days: -30))
+        let production = ladder.next(card(.production, step: 5, due: today, last: today.adding(days: -30)),
+                                     outcome: .wrong, today: today)
+        XCTAssertEqual(WordStatus(LearningFixture.state([recognition, production])).stage, .learning)
+    }
+
+    /// The first right answer to learned takes 1 + 3 + 7 + 14 = 25 days, and
+    /// answering every day cannot shorten it.
+    func testTwentyFiveDaysToLearned() {
+        var recognition = card(.recognition), production = card(.production)
+        var day = today
+        var learnedOn: LearnDay?
+        for _ in 0..<10 {
+            recognition = ladder.next(recognition, outcome: .right, today: day)
+            production = ladder.next(production, outcome: .right, today: day)
+            if WordStatus(LearningFixture.state([recognition, production])).stage == .learned {
+                learnedOn = day
+                break
+            }
+            day = recognition.dueDay
+        }
+        XCTAssertEqual(learnedOn, today.adding(days: 25))
+        XCTAssertEqual(learnedOn.map { LearningFixture.days(from: today, to: $0) }, 1 + 3 + 7 + 14)
+
+        var eager = card(.recognition)
+        for offset in 0..<25 {
+            eager = ladder.next(eager, outcome: .right, today: today.adding(days: offset))
+        }
+        XCTAssertEqual(eager.step, 4, "answers before the due day do not move the card")
+        XCTAssertFalse(ladder.isLearned(eager))
+        eager = ladder.next(eager, outcome: .right, today: today.adding(days: 25))
+        XCTAssertTrue(ladder.isLearned(eager))
+    }
+
+    func testWordStatusShowsEachStage() {
+        XCTAssertEqual(WordStatus.stage(of: card(step: 0, last: nil)), .new)
+        XCTAssertEqual(WordStatus.stage(of: card(step: 0, last: today)), .learning)
+        XCTAssertEqual((1...4).map { WordStatus.stage(of: card(step: $0, last: today)) },
+                       [.every(days: 1), .every(days: 3), .every(days: 7), .every(days: 14)])
+        XCTAssertEqual(WordStatus.stage(of: card(step: 5, last: today)), .learned, "30 days")
+        XCTAssertEqual(WordStatus.stage(of: card(step: 6, last: today)), .learned, "90 days")
+
+        let new = WordStatus(LearningFixture.state([card(.recognition), card(.production)]))
+        XCTAssertEqual(new.stage, .new)
+        XCTAssertEqual(new.cards, [.recognition: .new, .production: .new])
+        XCTAssertFalse(new.isPaused)
+
+        let started = WordStatus(LearningFixture.state([card(.recognition, step: 1, last: today), card(.production)]))
+        XCTAssertEqual(started.stage, .learning, "one answered card starts the word")
+        XCTAssertEqual(started.cards, [.recognition: .every(days: 1), .production: .new])
+
+        let paused = WordStatus(LearningFixture.state([
+            card(.recognition, step: 3, last: today, suspended: true),
+            card(.production, step: 2, last: today, suspended: true),
+        ]))
+        XCTAssertTrue(paused.isPaused)
+        XCTAssertEqual(paused.stage, .learning, "a paused word keeps its progress")
+        XCTAssertEqual(paused.cards, [.recognition: .every(days: 7), .production: .every(days: 3)])
+        XCTAssertFalse(WordStatus(LearningFixture.state([card(.recognition, suspended: true), card(.production)])).isPaused,
+                       "one paused card is not a paused word")
+
+        // E5's conjugation cards never change the word's stage.
+        let drill = CardState(key: CardKey(word: LearningFixture.grafo, kind: .conjugation, facet: "aorist.active"),
+                              step: 0, dueDay: today, lastDay: today)
+        let withDrill = WordStatus(LearningFixture.state([
+            card(.recognition, step: 5, last: today), card(.production, step: 6, last: today), drill,
+        ]))
+        XCTAssertEqual(withDrill.stage, .learned)
+        XCTAssertNil(withDrill.cards[.conjugation])
+    }
+}
+
+final class LearningClockTests: XCTestCase {
+    private func calendar(_ zone: String) -> Calendar {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: zone)!
+        return calendar
+    }
+
+    private func date(_ calendar: Calendar, _ year: Int, _ month: Int, _ day: Int,
+                      _ hour: Int, _ minute: Int, _ second: Int = 0) -> Date {
+        calendar.date(from: DateComponents(year: year, month: month, day: day,
+                                           hour: hour, minute: minute, second: second))!
+    }
+
+    private func learningDay(_ date: Date, _ calendar: Calendar) -> String {
+        LearningClock(now: { date }, calendar: calendar).today.rawValue
+    }
+
+    func testDayStartsAtFourAM() {
+        let athens = calendar("Europe/Athens")
+        XCTAssertEqual(learningDay(date(athens, 2026, 11, 4, 3, 59, 59), athens), "2026-11-03")
+        XCTAssertEqual(learningDay(date(athens, 2026, 11, 4, 4, 0), athens), "2026-11-04")
+        XCTAssertEqual(learningDay(date(athens, 2026, 11, 4, 0, 30), athens), "2026-11-03",
+                       "an answer at 00:30 counts for the day before")
+        XCTAssertEqual(learningDay(date(athens, 2026, 11, 4, 23, 59), athens), "2026-11-04")
+        XCTAssertEqual(learningDay(date(athens, 2027, 1, 1, 3, 0), athens), "2026-12-31", "across a year")
+        XCTAssertEqual(learningDay(date(athens, 2028, 3, 1, 2, 0), athens), "2028-02-29", "across a leap day")
+
+        // Daylight saving: for these instants "minus 4 hours" gives another day.
+        let newYork = calendar("America/New_York")
+        // Spring forward on 2026-03-08: 02:00 EST → 03:00 EDT.
+        let springAtFour = date(newYork, 2026, 3, 8, 4, 0)
+        XCTAssertTrue(newYork.timeZone.isDaylightSavingTime(for: springAtFour), "precondition: EDT")
+        XCTAssertEqual(LearnDay(date: springAtFour.addingTimeInterval(-4 * 3600), calendar: newYork).rawValue,
+                       "2026-03-07", "precondition: minus 4 hours would give the day before")
+        XCTAssertEqual(learningDay(springAtFour, newYork), "2026-03-08")
+        XCTAssertEqual(learningDay(date(newYork, 2026, 3, 8, 3, 59), newYork), "2026-03-07")
+        // Fall back on 2026-11-01: 02:00 EDT → 01:00 EST.
+        let fallAtThree = date(newYork, 2026, 11, 1, 3, 30)
+        XCTAssertFalse(newYork.timeZone.isDaylightSavingTime(for: fallAtThree), "precondition: EST")
+        XCTAssertEqual(LearnDay(date: fallAtThree.addingTimeInterval(-4 * 3600), calendar: newYork).rawValue,
+                       "2026-11-01", "precondition: minus 4 hours would give the same day")
+        XCTAssertEqual(learningDay(fallAtThree, newYork), "2026-10-31")
+        XCTAssertEqual(learningDay(date(newYork, 2026, 11, 1, 4, 0), newYork), "2026-11-01")
+        // Athens skips 03:00–03:59 on 2026-03-29; 04:00 EEST starts the day.
+        XCTAssertEqual(learningDay(date(athens, 2026, 3, 29, 2, 59), athens), "2026-03-28")
+        XCTAssertEqual(learningDay(date(athens, 2026, 3, 29, 4, 0), athens), "2026-03-29")
+    }
+
+    /// The clock reads the time zone of its calendar: one instant is two
+    /// learning days in Athens and in New York.
+    func testDayFollowsTheCalendarsTimeZone() {
+        let instant = date(calendar("UTC"), 2026, 11, 4, 3, 0) // 05:00 in Athens, 22:00 the day before in New York
+        XCTAssertEqual(learningDay(instant, calendar("Europe/Athens")), "2026-11-04")
+        XCTAssertEqual(learningDay(instant, calendar("America/New_York")), "2026-11-03")
+        XCTAssertEqual(learningDay(instant, calendar("Asia/Tokyo")), "2026-11-04", "12:00 in Tokyo")
+    }
+
+    /// Days are validated `YYYY-MM-DD` Gregorian dates that compare as text.
+    func testLearnDayIsAValidGregorianDate() {
+        XCTAssertEqual(LearnDay(rawValue: "2026-11-04"), LearnDay(year: 2026, month: 11, day: 4))
+        XCTAssertEqual(LearnDay(rawValue: "2028-02-29")?.rawValue, "2028-02-29")
+        for text in ["", "garbage", "2026-02-29", "2026-13-01", "2026-00-10", "2026-11-4", "2026-11-04 ",
+                     "2026/11/04", "+2026-11-04", "2026-11-04-01", "2026-11-04T00:00:00"] {
+            XCTAssertNil(LearnDay(rawValue: text), "'\(text)' is no day")
+        }
+        XCTAssertEqual(LearnDay(year: 2026, month: 12, day: 31).adding(days: 1).rawValue, "2027-01-01")
+        XCTAssertEqual(LearnDay(year: 2028, month: 2, day: 28).adding(days: 1).rawValue, "2028-02-29")
+        XCTAssertEqual(LearnDay(year: 2026, month: 3, day: 1).adding(days: -1).rawValue, "2026-02-28")
+        XCTAssertEqual(LearnDay(year: 2026, month: 11, day: 4).adding(days: 90).rawValue, "2027-02-02")
+        XCTAssertEqual(LearnDay(year: 2026, month: 11, day: 4).adding(days: 0), LearnDay(year: 2026, month: 11, day: 4))
+        XCTAssertLessThan(LearnDay(year: 2026, month: 9, day: 30), LearnDay(year: 2026, month: 10, day: 1))
+        XCTAssertLessThan(LearnDay(year: 2026, month: 12, day: 31), LearnDay(year: 2027, month: 1, day: 1))
+    }
+}
+
+final class LearningLanguagesTests: XCTestCase {
+    func testStoredChoiceFallsBackToTheFirstLearned() {
+        XCTAssertEqual(LearningLanguages.chosen(stored: "eng", learned: ["ell", "eng"]), "eng")
+        XCTAssertEqual(LearningLanguages.chosen(stored: "spa", learned: ["ell", "eng"]), "ell",
+                       "a stopped language falls back to the first learned")
+        XCTAssertEqual(LearningLanguages.chosen(stored: nil, learned: ["eng", "ell"]), "eng",
+                       "the order chosen, not alphabetical")
+        XCTAssertEqual(LearningLanguages.chosen(stored: "", learned: ["eng"]), "eng")
+    }
+
+    func testNoneLearned() {
+        XCTAssertNil(LearningLanguages.chosen(stored: "ell", learned: []))
+        XCTAssertNil(LearningLanguages.chosen(stored: nil, learned: []))
+        let rows = LearningPairs.pickerRows(offered: LearningPairsTests.offered.keys, withLists: ["ell", "eng"],
+                                            learned: [], uiLanguage: "en")
+        XCTAssertEqual(Set(rows.map(\.lang)), ["ell", "eng", "spa", "rus", "arb"], "the picker offers every language")
+    }
+}
+
+/// The pairs (0131, "Languages and pairs"; Kirill, 2026-11-04): from the
+/// dictionaries' directions, plus the limited Greek via Russian.
+final class LearningPairsTests: XCTestCase {
+    private typealias Pair = LearningPair
+
+    /// 2.0's nine dictionaries, in the bundle's `dict_metadata` order.
+    static let dictionaries: [(source: String, from: String?, to: String?)] = [
+        ("wordnet", "eng", "eng"), ("openrussian", "rus", "eng"), ("freedict-eng-spa", "eng", "spa"),
+        ("wordnet-spa-eng", "spa", "eng"), ("wordnet-arb-eng", "arb", "eng"), ("wordnet-ell-eng", "ell", "eng"),
+        ("wordnet-eng-ell", "eng", "ell"), ("freedict-ell-eng", "ell", "eng"), ("freedict-eng-ell", "eng", "ell"),
+    ]
+    static let offered = LearningPairs.offered(dictionaries)
+    private static let greekViaRussian = Pair(lang: "ell", via: "rus", meaningsLang: "eng")
+    private static let english = ["ell": "Greek", "eng": "English", "spa": "Spanish", "rus": "Russian", "arb": "Arabic"]
+
+    private var pairs: Dictionary<Pair, [String]>.Keys { Self.offered.keys }
+
+    private func ids(_ pairs: [Pair]) -> [String] { pairs.map { "\($0.lang)-\($0.via)" } }
+
+    func testOfferedPairsFollowTheDictionaries() {
+        XCTAssertEqual(Self.offered, [
+            Pair(lang: "ell", via: "eng"): ["wordnet-ell-eng", "freedict-ell-eng"],
+            Pair(lang: "eng", via: "ell"): ["wordnet-eng-ell", "freedict-eng-ell"],
+            Pair(lang: "eng", via: "spa"): ["freedict-eng-spa"],
+            Pair(lang: "eng", via: "eng"): ["wordnet"],
+            Pair(lang: "spa", via: "eng"): ["wordnet-spa-eng"],
+            Pair(lang: "rus", via: "eng"): ["openrussian"],
+            Pair(lang: "arb", via: "eng"): ["wordnet-arb-eng"],
+            Self.greekViaRussian: ["wordnet-ell-eng", "freedict-ell-eng"],
+        ], "the seven pairs of the dictionaries, and Greek via Russian with the Greek–English ones")
+        XCTAssertEqual(pairs.filter(\.isLimited), [Self.greekViaRussian], "only Greek via Russian is limited")
+        XCTAssertEqual(Self.greekViaRussian.meaningsLang, "eng", "its meanings are English")
+        XCTAssertEqual(Pair(lang: "eng", via: "spa").meaningsLang, "spa", "a full pair's meanings are in its via")
+        for (lang, via) in [("eng", "rus"), ("eng", "arb"), ("ell", "spa")] {
+            XCTAssertFalse(pairs.contains { $0.lang == lang && $0.via == via }, "no \(lang) via \(via)")
+        }
+
+        // A Greek–Russian dictionary makes Greek via Russian a full pair, with
+        // no code change.
+        let withRussian = LearningPairs.offered(Self.dictionaries + [("qa-ell-rus", "ell", "rus")])
+        XCTAssertEqual(withRussian.count, 8)
+        XCTAssertEqual(withRussian[Pair(lang: "ell", via: "rus")], ["qa-ell-rus"])
+        XCTAssertNil(withRussian[Self.greekViaRussian], "the limited pair gives way")
+        // Without Greek–English dictionaries the limited pair has no meanings.
+        XCTAssertEqual(LearningPairs.offered([("wordnet", "eng", "eng")]), [Pair(lang: "eng", via: "eng"): ["wordnet"]])
+
+        // `und`, unknown or empty languages give no pair; a source counts once.
+        XCTAssertEqual(LearningPairs.offered([("a", "und", "eng"), ("b", "eng", "und"), ("c", nil, "eng"),
+                                              ("d", "spa", nil), ("e", "", "eng")]), [:])
+        XCTAssertEqual(LearningPairs.offered([("wordnet", "eng", "eng"), ("wordnet", "eng", "eng")]),
+                       [Pair(lang: "eng", via: "eng"): ["wordnet"]])
+    }
+
+    func testDefaultViaIsTheUILanguageElseEnglish() {
+        func via(_ lang: String, ui: String) -> String? {
+            LearningPairs.defaultVia(for: lang, offered: pairs, uiLanguage: ui)
+        }
+        XCTAssertEqual(via("eng", ui: "es"), "spa", "Spanish UI: English via Spanish")
+        XCTAssertEqual(via("eng", ui: "el"), "ell", "Greek UI: English via Greek")
+        for ui in ["en", "ru", "ar"] {
+            XCTAssertEqual(via("eng", ui: ui), "eng", "\(ui) UI: English via English")
+        }
+        for ui in ["en", "es", "el", "ar"] {
+            XCTAssertEqual(via("ell", ui: ui), "eng", "\(ui) UI: Greek via English")
+        }
+        XCTAssertEqual(via("ell", ui: "ru"), "rus", "Russian UI: Greek via Russian, though limited")
+        XCTAssertEqual(via("rus", ui: "ru"), "eng")
+        XCTAssertEqual(via("arb", ui: "ar"), "eng")
+        XCTAssertEqual(via("spa", ui: "es"), "eng")
+        XCTAssertEqual(via("eng", ui: "es-MX"), "spa", "a region does not matter")
+        XCTAssertEqual(LearningPairs.code(ofUILanguage: "ar"), "arb", "Arabic is written as the dictionaries write it")
+        XCTAssertNil(via("deu", ui: "en"), "no pair, no via")
+        XCTAssertNil(via("und", ui: "en"))
+
+        // No English pair: the first via by code.
+        let noEnglish = [Pair(lang: "ell", via: "rus"), Pair(lang: "ell", via: "fra")]
+        XCTAssertEqual(LearningPairs.defaultVia(for: "ell", offered: noEnglish, uiLanguage: "en"), "fra")
+        XCTAssertEqual(LearningPairs.defaultVia(for: "ell", offered: noEnglish, uiLanguage: "ru"), "rus")
+        // A limited pair alone is the default.
+        XCTAssertEqual(LearningPairs.defaultVia(for: "ell", offered: [Self.greekViaRussian], uiLanguage: "en"), "rus")
+    }
+
+    func testStoredViaFallsBackWhenNotOffered() {
+        func pair(_ lang: String, stored: [String: String], ui: String = "en",
+                  offered: [Pair]? = nil) -> Pair? {
+            LearningPairs.pair(for: lang, stored: stored, offered: offered ?? Array(pairs), uiLanguage: ui)
+        }
+        XCTAssertEqual(pair("eng", stored: ["eng": "ell"], ui: "es"), Pair(lang: "eng", via: "ell"),
+                       "the stored via wins over the UI language")
+        XCTAssertEqual(pair("eng", stored: ["eng": "rus"], ui: "es"), Pair(lang: "eng", via: "spa"),
+                       "a pair not offered: the default")
+        XCTAssertEqual(pair("eng", stored: [:], ui: "el"), Pair(lang: "eng", via: "ell"), "none stored: the default")
+        XCTAssertEqual(pair("eng", stored: ["ell": "rus"]), Pair(lang: "eng", via: "eng"),
+                       "another language's via does not count")
+        XCTAssertEqual(pair("ell", stored: ["ell": "rus"]), Self.greekViaRussian,
+                       "the limited pair, with its English meanings")
+        XCTAssertEqual(pair("ell", stored: [:], ui: "ru"), Self.greekViaRussian, "a Russian UI's default")
+        XCTAssertEqual(pair("ell", stored: ["ell": "eng"], ui: "ru"), Pair(lang: "ell", via: "eng"),
+                       "a stored via wins over the Russian UI")
+        XCTAssertNil(pair("deu", stored: ["deu": "eng"]), "no pair, no via")
+
+        // The stored via comes back with its pair.
+        let withoutSpanish = Array(pairs).filter { $0 != Pair(lang: "eng", via: "spa") }
+        XCTAssertEqual(pair("eng", stored: ["eng": "spa"], ui: "es", offered: withoutSpanish), Pair(lang: "eng", via: "eng"))
+        XCTAssertEqual(pair("eng", stored: ["eng": "spa"]), Pair(lang: "eng", via: "spa"))
+    }
+
+    func testPickerRows() {
+        func rows(learned: [String] = [], withLists: Set<String> = ["ell", "eng"], ui: String = "en",
+                  names: [String: String] = Self.english) -> [String] {
+            ids(LearningPairs.pickerRows(offered: pairs, withLists: withLists, learned: learned, uiLanguage: ui,
+                                         name: { names[$0] ?? $0 }))
+        }
+        XCTAssertEqual(rows(), ["eng-eng", "eng-ell", "eng-spa", "ell-eng", "ell-rus", "arb-eng", "rus-eng", "spa-eng"],
+                       "languages with lists first, each by name, its default via first, then its others by name")
+        let spanish = ["ell": "griego", "eng": "inglés", "spa": "español", "rus": "ruso", "arb": "árabe"]
+        XCTAssertEqual(rows(ui: "es", names: spanish),
+                       ["ell-eng", "ell-rus", "eng-spa", "eng-ell", "eng-eng", "arb-eng", "spa-eng", "rus-eng"],
+                       "Spanish UI: English via Spanish first")
+        let greek = ["ell": "Ελληνικά", "eng": "Αγγλικά", "spa": "Ισπανικά", "rus": "Ρωσικά", "arb": "Αραβικά"]
+        XCTAssertEqual(rows(ui: "el", names: greek),
+                       ["eng-ell", "eng-eng", "eng-spa", "ell-eng", "ell-rus", "arb-eng", "spa-eng", "rus-eng"])
+        XCTAssertEqual(rows(withLists: []),
+                       ["arb-eng", "eng-eng", "eng-ell", "eng-spa", "ell-eng", "ell-rus", "rus-eng", "spa-eng"])
+        XCTAssertEqual(rows(withLists: ["ell", "deu"]),
+                       ["ell-eng", "ell-rus", "arb-eng", "eng-eng", "eng-ell", "eng-spa", "rus-eng", "spa-eng"],
+                       "lists of a language without a pair offer nothing")
+
+        // Learned languages are left out, whatever their via.
+        XCTAssertEqual(rows(learned: ["eng"]), ["ell-eng", "ell-rus", "arb-eng", "rus-eng", "spa-eng"])
+        XCTAssertEqual(rows(learned: ["und", "deu"]), rows())
+        XCTAssertEqual(rows(learned: ["eng", "rus", "ell", "spa", "arb"]), [], "every language learned")
+
+        // The rows are the offered pairs, the limited one flagged.
+        let picked = LearningPairs.pickerRows(offered: pairs, withLists: ["ell"], learned: ["eng"], uiLanguage: "ru")
+        XCTAssertEqual(picked.prefix(2), [Self.greekViaRussian, Pair(lang: "ell", via: "eng")],
+                       "a Russian UI puts Greek via Russian, its default, first")
+        XCTAssertEqual(picked.filter(\.isLimited), [Self.greekViaRussian])
+
+        // Alike names stay in code order.
+        XCTAssertEqual(ids(LearningPairs.pickerRows(offered: [Pair(lang: "zzz", via: "eng"), Pair(lang: "aaa", via: "eng")],
+                                                    withLists: [], learned: [], uiLanguage: "en", name: { _ in "Other" })),
+                       ["aaa-eng", "zzz-eng"])
+        XCTAssertEqual(LearningPairs.pickerRows(offered: [Pair](), withLists: ["ell"], learned: [], uiLanguage: "en"), [])
+
+        // The Settings menu: the default first, then the others by name.
+        let name = { (code: String) in Self.english[code] ?? code }
+        XCTAssertEqual(LearningPairs.vias(for: "eng", offered: pairs, uiLanguage: "es", name: name), ["spa", "eng", "ell"])
+        XCTAssertEqual(LearningPairs.vias(for: "eng", offered: pairs, uiLanguage: "en", name: name), ["eng", "ell", "spa"])
+        XCTAssertEqual(LearningPairs.vias(for: "ell", offered: pairs, uiLanguage: "ru", name: name), ["rus", "eng"])
+        XCTAssertEqual(LearningPairs.vias(for: "ell", offered: pairs, uiLanguage: "en", name: name), ["eng", "rus"])
+        XCTAssertEqual(LearningPairs.vias(for: "rus", offered: pairs, uiLanguage: "en"), ["eng"], "one pair: no menu")
+        XCTAssertEqual(LearningPairs.vias(for: "deu", offered: pairs, uiLanguage: "en"), [])
+    }
+
+    func testSourceOrderPutsThePairFirst() {
+        let order = ["wordnet", "freedict-eng-ell", "wordnet-eng-ell", "freedict-eng-spa", "freedict-ell-eng",
+                     "wordnet-ell-eng", "openrussian", "wordnet-spa-eng", "wordnet-arb-eng"]
+        func sources(_ pair: Pair, in dictionaryOrder: [String]? = nil, enabled: Set<String>? = nil) -> [String] {
+            LearningPairs.sourceOrder(pair: pair, pairSources: Self.offered, dictionaryOrder: dictionaryOrder ?? order,
+                                      enabled: enabled)
+        }
+        XCTAssertEqual(sources(Pair(lang: "eng", via: "spa")),
+                       ["freedict-eng-spa", "wordnet", "freedict-eng-ell", "wordnet-eng-ell", "freedict-ell-eng",
+                        "wordnet-ell-eng", "openrussian", "wordnet-spa-eng", "wordnet-arb-eng"])
+        XCTAssertEqual(sources(Pair(lang: "eng", via: "ell")).prefix(3), ["freedict-eng-ell", "wordnet-eng-ell", "wordnet"],
+                       "the pair's dictionaries in Dictionary Order, not catalog order")
+        XCTAssertEqual(sources(Self.greekViaRussian).prefix(2), ["freedict-ell-eng", "wordnet-ell-eng"],
+                       "Greek via Russian looks up the Greek–English dictionaries")
+
+        // Enabled sources first, in each part.
+        let enabled = Set(order).subtracting(["freedict-eng-ell", "wordnet"])
+        XCTAssertEqual(sources(Pair(lang: "eng", via: "ell"), enabled: enabled),
+                       ["wordnet-eng-ell", "freedict-eng-ell", "freedict-eng-spa", "freedict-ell-eng", "wordnet-ell-eng",
+                        "openrussian", "wordnet-spa-eng", "wordnet-arb-eng", "wordnet"])
+        // A pair dictionary not in the order yet follows the others of its pair.
+        XCTAssertEqual(sources(Pair(lang: "eng", via: "ell"), in: ["wordnet-eng-ell", "wordnet"]),
+                       ["wordnet-eng-ell", "freedict-eng-ell", "wordnet"])
+        XCTAssertEqual(sources(Pair(lang: "deu", via: "eng")), order, "a pair without dictionaries: Dictionary Order")
+    }
+}
+
+final class LearningSettingsTests: XCTestCase {
+    private func service() -> (SettingsService, InMemoryKeyValueStore) {
+        let store = InMemoryKeyValueStore()
+        return (SettingsService(store: store), store)
+    }
+
+    func testDefaults() {
+        let (settings, store) = service()
+        XCTAssertEqual(settings.learningNewPerDay, 10)
+        XCTAssertEqual(settings.learningDailyGoal, 20)
+        XCTAssertEqual(settings.learningNewOrder, .frequency)
+        XCTAssertEqual(settings.learningAnswerMode, .lenient)
+        XCTAssertTrue(settings.learningSounds)
+        XCTAssertTrue(settings.learningHaptics)
+        XCTAssertNil(settings.learningReminder, "the reminder is off")
+        XCTAssertEqual(settings.learningLanguages, [], "no language: the picker")
+        XCTAssertNil(settings.learningLanguage)
+        XCTAssertEqual(settings.learningVia, [:], "no via stored: each language's default")
+        XCTAssertEqual(store.writeLog, [], "reading the defaults writes nothing")
+    }
+
+    /// Each setter writes the spec's key and value; out-of-range numbers are
+    /// clamped on write and on read; unknown text falls back to the default.
+    func testValuesAreClampedWhenRead() {
+        let (settings, store) = service()
+        func stored(_ key: String) -> String? { store.string(forKey: key) }
+
+        for (raw, expected) in [("99", 50), ("-3", 0), ("0", 0), ("50", 50), ("17", 17), ("abc", 10), ("", 10)] {
+            store.set(raw, forKey: "learning_new_per_day")
+            XCTAssertEqual(settings.learningNewPerDay, expected, "learning_new_per_day '\(raw)'")
+        }
+        for (raw, expected) in [("1", 5), ("1000", 200), ("5", 5), ("200", 200), ("35", 35), ("x", 20)] {
+            store.set(raw, forKey: "learning_daily_goal")
+            XCTAssertEqual(settings.learningDailyGoal, expected, "learning_daily_goal '\(raw)'")
+        }
+        for (raw, expected) in [("-5", 0), ("2000", 1439), ("1140", 1140), ("19:00", nil)] as [(String, Int?)] {
+            store.set(raw, forKey: "learning_reminder")
+            XCTAssertEqual(settings.learningReminder, expected, "learning_reminder '\(raw)'")
+        }
+
+        settings.learningNewPerDay = 75
+        XCTAssertEqual(stored("learning_new_per_day"), "50")
+        settings.learningDailyGoal = 0
+        XCTAssertEqual(stored("learning_daily_goal"), "5")
+        settings.learningReminder = 19 * 60
+        XCTAssertEqual(stored("learning_reminder"), "1140")
+        XCTAssertEqual(settings.learningReminder, 1140)
+        settings.learningReminder = nil
+        XCTAssertNil(stored("learning_reminder"), "off removes the key")
+
+        settings.learningNewOrder = .random
+        XCTAssertEqual(stored("learning_new_order"), "random")
+        store.set("alphabetical", forKey: "learning_new_order")
+        XCTAssertEqual(settings.learningNewOrder, .frequency)
+        for mode in AnswerMode.allCases {
+            settings.learningAnswerMode = mode
+            XCTAssertEqual(stored("learning_answer_mode"), mode.rawValue)
+            XCTAssertEqual(settings.learningAnswerMode, mode)
+        }
+        XCTAssertEqual(AnswerMode.allCases.map(\.rawValue), ["strict", "lenient", "choice"])
+        store.set("loose", forKey: "learning_answer_mode")
+        XCTAssertEqual(settings.learningAnswerMode, .lenient)
+
+        settings.learningSounds = false
+        settings.learningHaptics = false
+        XCTAssertEqual(stored("learning_sounds"), "0")
+        XCTAssertEqual(stored("learning_haptics"), "0")
+        XCTAssertFalse(settings.learningSounds)
+        XCTAssertFalse(settings.learningHaptics)
+        settings.learningSounds = true
+        XCTAssertEqual(stored("learning_sounds"), "1")
+        XCTAssertTrue(settings.learningSounds)
+
+        settings.learningLanguages = ["ell", "eng"]
+        XCTAssertEqual(settings.learningLanguages, ["ell", "eng"], "the order chosen is kept")
+        let json = try? JSONSerialization.jsonObject(with: store.data(forKey: "learning_languages") ?? Data())
+        XCTAssertEqual(json as? [String], ["ell", "eng"], "stored as a JSON array")
+        settings.learningLanguages = []
+        XCTAssertFalse(store.keys.contains("learning_languages"), "none learned removes the key")
+        store.set(Data("not json".utf8), forKey: "learning_languages")
+        XCTAssertEqual(settings.learningLanguages, [], "unreadable data is no language, not a crash")
+
+        settings.learningLanguage = "eng"
+        XCTAssertEqual(stored("learning_language"), "eng")
+        settings.learningLanguage = nil
+        XCTAssertFalse(store.keys.contains("learning_language"))
+    }
+
+    /// `learning_via`: a JSON object, learned language → via, kept when the
+    /// language is stopped.
+    func testViaIsStoredPerLearnedLanguage() {
+        let (settings, store) = service()
+        settings.learningLanguages = ["ell", "eng"]
+        settings.learningVia = ["eng": "spa", "ell": "eng"]
+        XCTAssertEqual(settings.learningVia, ["ell": "eng", "eng": "spa"])
+        XCTAssertEqual(store.data(forKey: "learning_via").flatMap { String(data: $0, encoding: .utf8) },
+                       #"{"ell":"eng","eng":"spa"}"#, "stored as a JSON object, keys sorted")
+
+        settings.learningVia["eng"] = "ell"
+        XCTAssertEqual(settings.learningVia, ["ell": "eng", "eng": "ell"], "changing the via keeps the others")
+        settings.learningLanguages = ["ell"]
+        XCTAssertEqual(settings.learningVia["eng"], "ell", "stopping English keeps its via")
+
+        settings.learningVia = [:]
+        XCTAssertFalse(store.keys.contains("learning_via"), "no via removes the key")
+        store.set(Data("[\"eng\"]".utf8), forKey: "learning_via")
+        XCTAssertEqual(settings.learningVia, [:], "unreadable data is no via, not a crash")
+    }
+
+    /// `-learningLanguages ell,eng:spa` (Test seams): the languages in order,
+    /// and a via for each item that names one.
+    func testLearningLanguagesLaunchArgument() {
+        let (settings, _) = service()
+        settings.setLearningLanguages(argument: "ell,eng:spa")
+        XCTAssertEqual(settings.learningLanguages, ["ell", "eng"])
+        XCTAssertEqual(settings.learningVia, ["eng": "spa"])
+
+        settings.setLearningLanguages(argument: "eng:eng,ell:rus")
+        XCTAssertEqual(settings.learningLanguages, ["eng", "ell"])
+        XCTAssertEqual(settings.learningVia, ["eng": "eng", "ell": "rus"])
+
+        settings.setLearningLanguages(argument: "spa")
+        XCTAssertEqual(settings.learningLanguages, ["spa"])
+        XCTAssertEqual(settings.learningVia, ["eng": "eng", "ell": "rus"], "an item without a via changes none")
+    }
+
+    func testResetLearningClearsEveryLearningKey() {
+        let (settings, store) = service()
+        settings.learningNewPerDay = 25
+        settings.learningDailyGoal = 50
+        settings.learningNewOrder = .random
+        settings.learningAnswerMode = .strict
+        settings.learningSounds = false
+        settings.learningHaptics = false
+        settings.learningReminder = 600
+        settings.learningLanguages = ["ell", "eng"]
+        settings.learningLanguage = "eng"
+        settings.learningVia = ["eng": "spa"]
+        store.set("[\"ell-a1\"]", forKey: "learning_lists")
+        settings.resultSortMode = .preferredDictionary
+        XCTAssertEqual(store.keys.filter { $0.hasPrefix("learning_") }.count, 11, "precondition")
+
+        settings.resetLearning()
+
+        XCTAssertEqual(store.keys.filter { $0.hasPrefix("learning_") }, [], "every learning_* key is gone")
+        XCTAssertEqual(settings.resultSortMode, .preferredDictionary, "other preferences stay")
+        XCTAssertEqual(settings.learningNewPerDay, 10)
+        XCTAssertEqual(settings.learningDailyGoal, 20)
+        XCTAssertEqual(settings.learningNewOrder, .frequency)
+        XCTAssertEqual(settings.learningAnswerMode, .lenient)
+        XCTAssertTrue(settings.learningSounds)
+        XCTAssertTrue(settings.learningHaptics)
+        XCTAssertNil(settings.learningReminder)
+        XCTAssertEqual(settings.learningLanguages, [])
+        XCTAssertNil(settings.learningLanguage)
+        XCTAssertEqual(settings.learningVia, [:])
+    }
+}
+
+/// The learning store on `DatabaseService.shared`, over a fresh user
+/// database and a `TestDictionary` with Greek and English sources.
+@MainActor
+final class LearningStoreTests: XCTestCase {
+    private var tempDir: URL!
+    private var db: DatabaseService { .shared }
+    private var userPath: String { tempDir.appendingPathComponent("user.sqlite").path }
+    private let today = LearningFixture.today
+
+    private let grafoFD = EntryKey(source: "freedict-ell-eng", word: "γράφω")
+    private let grafoWN = EntryKey(source: "wordnet-ell-eng", word: "γράφω")
+    private let spiti = EntryKey(source: "freedict-ell-eng", word: "σπίτι")
+    private let house = EntryKey(source: "wordnet", word: "house")
+    private let grafo = LearningFixture.grafo
+    private let spitiKey = WordKey(lang: "ell", word: "σπίτι")
+    private let houseKey = WordKey(lang: "eng", word: "house")
+
+    /// γράφω in two Greek dictionaries, σπίτι in one, house in WordNet.
+    static let rows = [
+        TestDictionary.Row(word: "γράφω", normalized: "γραφω", definition: "write", pos: "verb", source: "freedict-ell-eng"),
+        TestDictionary.Row(word: "γράφω", normalized: "γραφω", definition: "read, say", pos: "verb", source: "wordnet-ell-eng"),
+        TestDictionary.Row(word: "σπίτι", normalized: "σπιτι", definition: "house, home", pos: "noun", source: "freedict-ell-eng"),
+        TestDictionary.Row(word: "house", definition: "a dwelling", pos: "noun", source: "wordnet"),
+    ]
+
+    static let metadata = [
+        TestDictionary.Metadata(source: "freedict-ell-eng", displayName: "El–En · FD", fromLang: "ell", toLang: "eng"),
+        TestDictionary.Metadata(source: "wordnet-ell-eng", displayName: "El–En · WN", fromLang: "ell", toLang: "eng"),
+        TestDictionary.Metadata(source: "wordnet", displayName: "WordNet"),
+    ]
+
+    override func setUp() async throws {
+        try await super.setUp()
+        await DictAppTests.waitForHostAppLaunch()
+        tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+    }
+
+    override func tearDown() async throws {
+        try? FileManager.default.removeItem(at: tempDir)
+        try await super.tearDown()
+    }
+
+    // MARK: Helpers
+
+    /// Opens the service on a fresh user database and `rows`; returns the
+    /// dictionary file.
+    @discardableResult
+    private func open() async throws -> URL {
+        let url = try TestDictionary.make(rows: Self.rows, metadata: Self.metadata,
+                                          at: tempDir.appendingPathComponent("dictionary.sqlite"))
+        try await db.setup(userPath: userPath, dictionaryURL: url)
+        return url
+    }
+
+    /// Runs `sql` on the user database's writer.
+    private func execute(_ sql: String, _ arguments: [String?] = []) async throws {
+        try await db.writeForTesting { conn in
+            try conn.execute(sql: sql, arguments: StatementArguments(arguments.map { $0 as (any DatabaseValueConvertible)? }))
+        }
+    }
+
+    /// The rows of `sql`, each as `a|b|c`, NULL as `∅`.
+    private func rows(_ sql: String) async throws -> [String] {
+        try await db.writeForTesting { conn in
+            try Row.fetchAll(conn, sql: sql).map { row in
+                row.databaseValues.map { value -> String in
+                    switch value.storage {
+                    case .null: return "∅"
+                    case .int64(let int): return String(int)
+                    case .double(let double): return String(double)
+                    case .string(let string): return string
+                    case .blob(let data): return data.base64EncodedString()
+                    }
+                }.joined(separator: "|")
+            }
+        }
+    }
+
+    private func count(_ sql: String) async throws -> Int {
+        try await db.writeForTesting { try Int.fetchOne($0, sql: sql) ?? 0 }
+    }
+
+    /// A word without a dictionary entry and its two new cards, due today.
+    private func insertWord(_ key: WordKey, addedAt: String) async throws {
+        try await execute("INSERT INTO learn_word(lang, word, term, added_at) VALUES (?, ?, ?, ?)",
+                          [key.lang, key.word, key.word, addedAt])
+        try await execute(LearningSQL.createWordCards, [key.lang, key.word, today.rawValue])
+    }
+
+    private func insertCard(_ key: WordKey, _ kind: CardKind, facet: String = "", step: Int, due: LearnDay,
+                            last: LearnDay?, suspended: Bool = false) async throws {
+        try await execute("""
+            INSERT INTO learn_card(lang, word, kind, facet, step, due_day, last_day, suspended)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """, [key.lang, key.word, kind.rawValue, facet, String(step), due.rawValue, last?.rawValue, suspended ? "1" : "0"])
+    }
+
+    @discardableResult
+    private func answer(_ word: WordKey, _ kind: CardKind = .recognition, _ outcome: Outcome = .right,
+                        on day: LearnDay? = nil, exercise: ExerciseKind = .recognition, mode: RunMode = .session,
+                        run: UUID = UUID(), facet: String = "", durationMs: Int = 0,
+                        detail: String? = nil) async throws -> CardState {
+        try await db.recordAnswer(AnswerRecord(card: CardKey(word: word, kind: kind, facet: facet), exercise: exercise,
+                                               mode: mode, runID: run, outcome: outcome, durationMs: durationMs,
+                                               detail: detail),
+                                  today: day ?? today)
+    }
+
+    private func state(_ key: WordKey, file: StaticString = #filePath, line: UInt = #line) async throws -> WordLearningState {
+        let state = try await db.learningState(of: key)
+        return try XCTUnwrap(state, "\(key) is in learning", file: file, line: line)
+    }
+
+    private func card(_ state: WordLearningState, _ kind: CardKind,
+                      file: StaticString = #filePath, line: UInt = #line) throws -> CardState {
+        try XCTUnwrap(state.cards.first { $0.key.kind == kind }, "\(kind) card", file: file, line: line)
+    }
+
+    // MARK: Words and cards
+
+    func testLearnWordCreatesTwoCards() async throws {
+        try await open()
+        try await db.learnWord(grafoFD, today: today)
+
+        let inMyWords = try await db.isInMyWords(grafoFD)
+        XCTAssertTrue(inMyWords, "Learn adds the entry to My words")
+        let learning = try await state(grafo)
+        XCTAssertEqual(learning.word.key, grafo)
+        XCTAssertEqual(learning.word.term, "γράφω")
+        XCTAssertEqual(learning.word.entry, grafoFD)
+        XCTAssertEqual(learning.word.translation, "", "the meaning comes from the pair's dictionary")
+        XCTAssertEqual(learning.word.translationLang, "")
+        XCTAssertNil(learning.word.listID, "a My words word has no list")
+        XCTAssertNil(learning.word.introducedDay, "not started until its first answer")
+        XCTAssertEqual(learning.cards.map(\.key.kind).sorted { $0.rawValue < $1.rawValue }, [.production, .recognition])
+        for card in learning.cards {
+            XCTAssertEqual(card.step, 0, "\(card.key.kind)")
+            XCTAssertEqual(card.dueDay, today, "\(card.key.kind)")
+            XCTAssertNil(card.lastDay, "\(card.key.kind) is new")
+            XCTAssertFalse(card.isSuspended)
+            XCTAssertEqual(card.key.facet, "")
+        }
+        XCTAssertEqual(WordStatus(learning).stage, .new)
+
+        // Again, and from the other Greek dictionary: one word, two cards,
+        // two My words rows, nothing reset.
+        try await db.learnWord(grafoFD, today: today.adding(days: 1))
+        try await db.learnWord(grafoWN, today: today.adding(days: 1))
+        let words = try await rows("SELECT lang, word, term, source, headword FROM learn_word")
+        XCTAssertEqual(words, ["ell|γράφω|γράφω|freedict-ell-eng|γράφω"], "the first entry stays the word's entry")
+        let cards = try await rows("SELECT kind, step, due_day FROM learn_card ORDER BY kind")
+        XCTAssertEqual(cards, ["production|0|2026-11-04", "recognition|0|2026-11-04"])
+        let myWords = try await rows("SELECT source, word FROM my_words ORDER BY source")
+        XCTAssertEqual(myWords, ["freedict-ell-eng|γράφω", "wordnet-ell-eng|γράφω"])
+
+        // An English word is a word of its own language.
+        try await db.learnWord(house, today: today)
+        let english = try await state(houseKey)
+        XCTAssertEqual(english.cards.count, 2)
+        let never = try await db.learningState(of: WordKey(lang: "ell", word: "νερό"))
+        XCTAssertNil(never, "a word never enrolled has no state")
+    }
+
+    func testAnswerMovesOnlyItsCard() async throws {
+        try await open()
+        try await db.learnWord(grafoFD, today: today)
+        try await db.learnWord(spiti, today: today)
+
+        let returned = try await answer(grafo, .recognition, .right)
+        XCTAssertEqual(returned.key, CardKey(word: grafo, kind: .recognition))
+        XCTAssertEqual(returned.step, 1)
+        XCTAssertEqual(returned.dueDay, today.adding(days: 1))
+        XCTAssertEqual(returned.lastDay, today)
+
+        var learning = try await state(grafo)
+        XCTAssertEqual(try card(learning, .recognition), returned, "the stored card is the returned one")
+        var production = try card(learning, .production)
+        XCTAssertEqual(production.step, 0)
+        XCTAssertEqual(production.dueDay, today)
+        XCTAssertNil(production.lastDay, "the production card is still new")
+
+        try await answer(grafo, .production, .wrong, exercise: .productionChoice)
+        learning = try await state(grafo)
+        XCTAssertEqual(try card(learning, .recognition), returned, "a wrong production leaves recognition alone")
+        production = try card(learning, .production)
+        XCTAssertEqual(production.step, 0)
+        XCTAssertEqual(production.lastDay, today)
+
+        // Tomorrow both are due and climb on their own schedules.
+        let tomorrow = today.adding(days: 1)
+        try await answer(grafo, .recognition, .right, on: tomorrow)
+        try await answer(grafo, .production, .right, on: tomorrow)
+        learning = try await state(grafo)
+        XCTAssertEqual(try card(learning, .recognition).step, 2)
+        XCTAssertEqual(try card(learning, .recognition).dueDay, tomorrow.adding(days: 3))
+        XCTAssertEqual(try card(learning, .production).step, 1)
+        XCTAssertEqual(try card(learning, .production).dueDay, tomorrow.adding(days: 1))
+
+        let other = try await state(spitiKey)
+        XCTAssertTrue(other.cards.allSatisfy { $0.isNew && $0.step == 0 }, "another word is untouched")
+    }
+
+    /// The card, the word's `introduced_day` and the log row are written
+    /// together: a failing log insert rolls the card back too.
+    func testRecordAnswerIsOneTransaction() async throws {
+        try await open()
+        try await db.learnWord(grafoFD, today: today)
+        try await execute("""
+            CREATE TRIGGER qa_log_fails BEFORE INSERT ON learn_review
+            BEGIN SELECT RAISE(ABORT, 'qa: the log write fails'); END
+            """)
+        do {
+            try await answer(grafo, .recognition, .right)
+            XCTFail("the log insert fails, so recordAnswer throws")
+        } catch let error as DatabaseError {
+            XCTAssertEqual(error.resultCode, .SQLITE_CONSTRAINT, "\(error)")
+        }
+        var learning = try await state(grafo)
+        XCTAssertEqual(try card(learning, .recognition).step, 0, "the card update rolled back")
+        XCTAssertNil(try card(learning, .recognition).lastDay)
+        XCTAssertNil(learning.word.introducedDay, "introduced_day rolled back")
+        var logged = try await count("SELECT COUNT(*) FROM learn_review")
+        XCTAssertEqual(logged, 0)
+
+        try await execute("DROP TRIGGER qa_log_fails")
+        try await answer(grafo, .recognition, .right)
+        learning = try await state(grafo)
+        XCTAssertEqual(try card(learning, .recognition).step, 1)
+        XCTAssertEqual(learning.word.introducedDay, today)
+        let log = try await rows("SELECT word, kind, step_before, step_after, introduced FROM learn_review")
+        XCTAssertEqual(log, ["γράφω|recognition|0|1|1"])
+
+        // A card that is not in learning: an error, and nothing written.
+        do {
+            try await answer(WordKey(lang: "ell", word: "νερό"))
+            XCTFail("no card, no answer")
+        } catch DatabaseService.DBError.cardMissing {}
+        logged = try await count("SELECT COUNT(*) FROM learn_review")
+        XCTAssertEqual(logged, 1)
+        let words = try await count("SELECT COUNT(*) FROM learn_word")
+        XCTAssertEqual(words, 1, "an answer never creates a word")
+    }
+
+    func testEveryAnswerIsLogged() async throws {
+        try await open()
+        try await db.learnWord(grafoFD, today: today)
+        try await db.learnWord(spiti, today: today)
+        let session = UUID(), trainer = UUID()
+
+        try await answer(grafo, .recognition, .right, exercise: .recognition, run: session, durationMs: 1200)
+        try await answer(grafo, .production, .accent, exercise: .productionTyped, run: session,
+                         durationMs: 4300, detail: "γραφω")
+        try await answer(spitiKey, .recognition, .wrong, run: session, durationMs: 800)
+        // Not due: logged, the card unchanged.
+        try await answer(grafo, .recognition, .right, exercise: .match, mode: .trainer, run: trainer)
+        try await answer(spitiKey, .production, .right, on: today.adding(days: 1), exercise: .productionChoice,
+                         mode: .mistakes, run: trainer, durationMs: 60000)
+
+        let log = try await rows("""
+            SELECT day, lang, word, kind, facet, exercise, mode, run_id, outcome,
+                   step_before, step_after, introduced, duration_ms, detail
+            FROM learn_review ORDER BY id
+            """)
+        let s = session.uuidString, t = trainer.uuidString
+        XCTAssertEqual(log, [
+            "2026-11-04|ell|γράφω|recognition||recognition|session|\(s)|right|0|1|1|1200|∅",
+            "2026-11-04|ell|γράφω|production||production_typed|session|\(s)|accent|0|1|0|4300|γραφω",
+            "2026-11-04|ell|σπίτι|recognition||recognition|session|\(s)|wrong|0|0|1|800|∅",
+            "2026-11-04|ell|γράφω|recognition||match|trainer|\(t)|right|1|1|0|0|∅",
+            "2026-11-05|ell|σπίτι|production||production_choice|mistakes|\(t)|right|0|1|0|60000|∅",
+        ])
+        let introducedPerWord = try await rows("SELECT word, SUM(introduced) FROM learn_review GROUP BY word ORDER BY word")
+        XCTAssertEqual(introducedPerWord, ["γράφω|1", "σπίτι|1"], "introduced exactly once per word")
+        let undated = try await count("""
+            SELECT COUNT(*) FROM learn_review
+            WHERE answered_at IS NULL OR datetime(answered_at) IS NULL OR answered_at != datetime(answered_at)
+            """)
+        XCTAssertEqual(undated, 0, "answered_at is a UTC datetime")
+        let summary = try await count("SELECT COUNT(*) FROM learn_review WHERE run_id = '\(s)'")
+        XCTAssertEqual(summary, 3, "a run's rows are found by run_id")
+    }
+
+    func testStartedTodayCountsWordsNotCards() async throws {
+        try await open()
+        try await db.learnWord(grafoFD, today: today)
+        try await db.learnWord(spiti, today: today)
+        func started(_ day: LearnDay, _ lang: String = "ell") async throws -> Int {
+            try await db.startedCount(on: day, lang: lang)
+        }
+
+        var n = try await started(today)
+        XCTAssertEqual(n, 0, "enrolled is not started")
+        try await answer(grafo, .recognition)
+        n = try await started(today)
+        XCTAssertEqual(n, 1)
+        try await answer(grafo, .production)
+        try await answer(grafo, .recognition) // not due: still an answer
+        n = try await started(today)
+        XCTAssertEqual(n, 1, "two cards and three answers are one started word")
+        try await answer(spitiKey, .recognition, .wrong)
+        n = try await started(today)
+        XCTAssertEqual(n, 2, "a wrong first answer starts the word too")
+
+        let tomorrow = today.adding(days: 1)
+        try await answer(grafo, .recognition, on: tomorrow)
+        n = try await started(tomorrow)
+        XCTAssertEqual(n, 0, "a word is started once, on its first day")
+        n = try await started(today)
+        XCTAssertEqual(n, 2)
+        let learning = try await state(grafo)
+        XCTAssertEqual(learning.word.introducedDay, today, "later answers keep introduced_day")
+        n = try await started(today, "eng")
+        XCTAssertEqual(n, 0)
+    }
+
+    // MARK: Storage
+
+    func testLearningTablesAreInTheUserDatabase() async throws {
+        let url = try await open()
+        let bytes = try Data(contentsOf: url)
+        try await db.learnWord(grafoFD, today: today)
+        try await answer(grafo, .recognition)
+
+        let (main, dictionary, files) = try await db.writeForTesting { conn in
+            (try String.fetchAll(conn, sql: "SELECT name FROM main.sqlite_master WHERE name LIKE 'learn%' ORDER BY name"),
+             try String.fetchAll(conn, sql: "SELECT name FROM dict.sqlite_master WHERE name LIKE 'learn%'"),
+             Dictionary(uniqueKeysWithValues: try Row.fetchAll(conn, sql: "PRAGMA database_list")
+                .map { ($0["name"] as String, $0["file"] as String) }))
+        }
+        XCTAssertEqual(main, ["learn_card", "learn_card_due", "learn_review", "learn_review_day",
+                              "learn_review_run", "learn_review_word", "learn_word"])
+        XCTAssertEqual(dictionary, [], "no learn_* name in the dictionary file")
+        XCTAssertEqual(files["main"].map { URL(fileURLWithPath: $0).resolvingSymlinksInPath().path },
+                       URL(fileURLWithPath: userPath).resolvingSymlinksInPath().path)
+
+        for sql in ["CREATE TABLE dict.learn_word(x)", "UPDATE dict.dict_metadata SET display_name = 'x'"] {
+            do {
+                try await db.writeForTesting { conn in try conn.execute(sql: sql) }
+                XCTFail("'\(sql)' must fail: the dictionary file is read-only")
+            } catch let error as DatabaseError {
+                XCTAssertEqual(error.resultCode, .SQLITE_READONLY, "'\(sql)': \(error)")
+            }
+        }
+        XCTAssertEqual(try Data(contentsOf: url), bytes, "learning leaves the dictionary file byte-identical")
+    }
+
+    /// The enrol statement's SQL key equals `wordKey(for:)` for every bundled
+    /// or catalog source, an import with a language, one without and an unknown source,
+    /// with only A–Z lowercased on both sides.
+    func testEnrolKeysEqualWordKeyFor() async throws {
+        try await db.setup(userPath: userPath, dictionaryURL: try TestDictionary.bundledURL())
+        let bundled = try await BundledDictionary().read { conn in
+            try Row.fetchAll(conn, sql: """
+                SELECT source, from_lang FROM dict_metadata UNION SELECT source, from_lang FROM catalog_source
+                """)
+                .map { ($0["source"] as String, $0["from_lang"] as String) }
+        }
+        XCTAssertGreaterThanOrEqual(bundled.count, 9, "precondition: the bundle's and the catalog's sources")
+        try await execute("INSERT INTO imported_sources(source, from_lang) VALUES ('qa-import-ell', 'ell'), ('qa-import-und', NULL)")
+        var expected = Dictionary(uniqueKeysWithValues: bundled)
+        expected["qa-import-ell"] = "ell"
+        expected["qa-import-und"] = "und"
+        expected["qa-gone"] = "und"
+        let words = ["House", "γράφω", "ÉCLAIR", "ΣΠΊΤΙ"]
+        for source in expected.keys {
+            for word in words {
+                try await execute("INSERT INTO my_words(source, word) VALUES (?, ?)", [source, word])
+            }
+        }
+
+        let sqlKeys = try await db.writeForTesting { conn in
+            try Row.fetchAll(conn, sql: "SELECT source, term, lang, word FROM (\(LearningSQL.myWordsKeys)) ORDER BY source, term")
+                .map { (source: $0["source"] as String, term: $0["term"] as String,
+                        lang: $0["lang"] as String, word: $0["word"] as String) }
+        }
+        XCTAssertEqual(sqlKeys.count, expected.count * words.count)
+        for row in sqlKeys {
+            let swiftKey = try await db.wordKey(for: EntryKey(source: row.source, word: row.term))
+            XCTAssertEqual(swiftKey, WordKey(lang: row.lang, word: row.word), "\(row.source)/\(row.term)")
+            XCTAssertEqual(row.lang, expected[row.source], "\(row.source)/\(row.term)")
+        }
+        let lowered = Set(sqlKeys.map(\.word))
+        XCTAssertEqual(lowered, ["house", "γράφω", "Éclair", "ΣΠΊΤΙ"], "only A–Z are lowercased")
+        XCTAssertEqual(WordKey(lang: "eng", word: "ÉCLAIR").word, "Éclair")
+    }
+
+    // MARK: Pairs
+
+    /// Until #241 the pairs come from the bundle's `dict_metadata`, in file
+    /// order, and from imports with both languages; Greek via Russian is
+    /// limited, with the Greek–English dictionaries.
+    func testLearningPairsComeFromTheBundleAndImports() async throws {
+        try await db.setup(userPath: userPath, dictionaryURL: try TestDictionary.bundledURL())
+        var pairs = try await db.learningPairs()
+        XCTAssertEqual(pairs, [
+            LearningPair(lang: "eng", via: "eng"): ["wordnet"],
+            LearningPair(lang: "rus", via: "eng"): ["openrussian"],
+            LearningPair(lang: "eng", via: "spa"): ["freedict-eng-spa"],
+            LearningPair(lang: "spa", via: "eng"): ["wordnet-spa-eng"],
+            LearningPair(lang: "arb", via: "eng"): ["wordnet-arb-eng"],
+            LearningPair(lang: "ell", via: "eng"): ["wordnet-ell-eng", "freedict-ell-eng"],
+            LearningPair(lang: "eng", via: "ell"): ["wordnet-eng-ell", "freedict-eng-ell"],
+            LearningPair(lang: "ell", via: "rus", meaningsLang: "eng"): ["wordnet-ell-eng", "freedict-ell-eng"],
+        ], "the bundle's nine dictionaries: seven pairs, and the limited one")
+
+        try await execute("""
+            INSERT INTO imported_sources(source, from_lang, to_lang) VALUES
+                ('qa-deu-eng', 'deu', 'eng'), ('qa-und', NULL, NULL), ('qa-half', 'deu', NULL),
+                ('qa-deu-eng-2', 'deu', 'eng'), ('wordnet', 'eng', 'deu')
+            """)
+        pairs = try await db.learningPairs()
+        XCTAssertEqual(pairs[LearningPair(lang: "deu", via: "eng")], ["qa-deu-eng", "qa-deu-eng-2"],
+                       "an import with both languages adds its pair, needing no pack")
+        XCTAssertEqual(pairs.count, 9, "imports without both languages add none")
+        XCTAssertNil(pairs[LearningPair(lang: "eng", via: "deu")], "a bundled source keeps its own languages")
+    }
+
+    // MARK: Enrolment
+
+    /// A user database as builds before #157 left it, with 3 My words: the
+    /// migration adds the tables and enrols nothing.
+    func testMigrationEnrolsNothing() async throws {
+        let queue = try DatabaseQueue(path: userPath)
+        try DatabaseService.migrator.migrate(queue, upTo: "129-1-core")
+        try await queue.write { conn in
+            try conn.execute(sql: """
+                INSERT INTO my_words(source, word, added_at) VALUES
+                    ('freedict-ell-eng', 'σπίτι', '2026-06-01 10:00:00'),
+                    ('wordnet-ell-eng', 'γράφω', '2026-06-01 11:00:00'),
+                    ('wordnet', 'house', '2026-06-01 12:00:00')
+                """)
+        }
+        let before = try await queue.read { try String.fetchAll($0, sql: "SELECT name FROM sqlite_master WHERE name LIKE 'learn%'") }
+        XCTAssertEqual(before, [], "precondition: no learning tables at 129-1-core")
+        try queue.close()
+
+        try await open()
+
+        let migrations = try await rows("SELECT identifier FROM grdb_migrations ORDER BY identifier")
+        XCTAssertEqual(migrations, ["129-1-core", "130-1-word-lists", "131-1-learning"])
+        for table in ["learn_word", "learn_card", "learn_review"] {
+            let n = try await count("SELECT COUNT(*) FROM \(table)")
+            XCTAssertEqual(n, 0, "\(table) is empty after the migration")
+        }
+        let myWords = try await count("SELECT COUNT(*) FROM my_words")
+        XCTAssertEqual(myWords, 3, "My words are kept")
+        let enrolled = try await db.enrolledKeys()
+        XCTAssertEqual(enrolled, [])
+        let pool = try await db.newPool(lang: "ell", limit: 10)
+        XCTAssertEqual(pool, [], "the bookmarks wait until Greek is chosen")
+    }
+
+    /// The 1.4.0 fixture moved, γράφω added from El–En · WN and then
+    /// El–En · FD, and Greek chosen: only the Greek words get cards, one word
+    /// per key from its oldest row, oldest first; choosing again adds nothing.
+    func testChoosingALanguageEnrolsItsMyWords() async throws {
+        let appSupport = tempDir.appendingPathComponent("DictApp")
+        try FileManager.default.createDirectory(at: appSupport, withIntermediateDirectories: true)
+        let legacyURL = appSupport.appendingPathComponent("dict.sqlite")
+        try FileManager.default.copyItem(
+            at: URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("legacy-1.4.0.sqlite"),
+            to: legacyURL)
+        try await db.setup(userPath: appSupport.appendingPathComponent("user.sqlite").path,
+                           dictionaryURL: try TestDictionary.bundledURL())
+        let started = await db.startLegacyMigration(legacyURL: legacyURL)
+        let move = try XCTUnwrap(started, "the 1.x file is found")
+        await move.value
+        let moved = try await count("SELECT COUNT(*) FROM my_words")
+        XCTAssertEqual(moved, 7, "precondition: the 7 bookmarks of 1.4.0 are in My words")
+        var enrolled = try await count("SELECT COUNT(*) FROM learn_word")
+        XCTAssertEqual(enrolled, 0, "the move enrols nothing")
+        try await execute("""
+            INSERT INTO my_words(source, word, added_at) VALUES
+                ('freedict-ell-eng', 'γράφω', '2026-06-03 08:00:00'),
+                ('wordnet-ell-eng', 'γράφω', '2026-06-02 08:00:00')
+            """)
+
+        try await db.enrolMyWords(lang: "ell", today: today)
+
+        let words = try await rows("""
+            SELECT lang, word, term, source, headword, added_at, list_id, introduced_day FROM learn_word ORDER BY added_at
+            """)
+        XCTAssertEqual(words, [
+            "ell|σπίτι|σπίτι|freedict-ell-eng|σπίτι|2026-06-01 13:00:00|∅|∅",
+            "ell|γράφω|γράφω|wordnet-ell-eng|γράφω|2026-06-02 08:00:00|∅|∅",
+        ], "the Greek bookmark and one γράφω, from its row added first")
+        let content = try await rows("SELECT DISTINCT translation, translation_lang FROM learn_word")
+        XCTAssertEqual(content, ["|"], "a My words word has no translation, in no language")
+        let cards = try await rows("SELECT word, kind, facet, step, due_day, last_day, suspended FROM learn_card ORDER BY word, kind")
+        XCTAssertEqual(cards, [
+            "γράφω|production||0|2026-11-04|∅|0", "γράφω|recognition||0|2026-11-04|∅|0",
+            "σπίτι|production||0|2026-11-04|∅|0", "σπίτι|recognition||0|2026-11-04|∅|0",
+        ])
+        var greek = try await db.newPool(lang: "ell", limit: 10)
+        XCTAssertEqual(greek.map(\.key), [spitiKey, grafo], "oldest My words first")
+        XCTAssertEqual(greek.last?.entry, grafoWN)
+        let keys = try await db.enrolledKeys()
+        XCTAssertEqual(keys, [spitiKey, grafo], "no other language is enrolled")
+
+        // Choosing Greek again adds nothing and keeps the progress.
+        try await answer(spitiKey, .recognition)
+        try await db.enrolMyWords(lang: "ell", today: today.adding(days: 1))
+        enrolled = try await count("SELECT COUNT(*) FROM learn_word")
+        XCTAssertEqual(enrolled, 2)
+        let cardCount = try await count("SELECT COUNT(*) FROM learn_card")
+        XCTAssertEqual(cardCount, 4)
+        let spitiState = try await state(spitiKey)
+        XCTAssertEqual(try card(spitiState, .recognition).step, 1)
+        XCTAssertEqual(try card(spitiState, .production).dueDay, today, "not re-dated")
+        greek = try await db.newPool(lang: "ell", limit: 10)
+        XCTAssertEqual(greek.map(\.key), [grafo], "a started word leaves the new pool")
+
+        // English later: its three bookmarks, oldest first. An import
+        // without a language is `und`.
+        try await db.enrolMyWords(lang: "eng", today: today)
+        let english = try await db.newPool(lang: "eng", limit: 10)
+        XCTAssertEqual(english.map(\.term), ["dog", "house", "dogsitter"])
+        try await db.enrolMyWords(lang: "und", today: today)
+        let other = try await db.newPool(lang: "und", limit: 10)
+        XCTAssertEqual(other.map(\.term), ["zorblat"])
+        let russian = try await db.newPool(lang: "rus", limit: 10)
+        XCTAssertEqual(russian, [], "Russian is not chosen")
+    }
+
+    /// γράφω in My words from El–En · FD and El–En · WN; Stop learning on
+    /// the WN entry removes both rows and pauses the cards with their
+    /// progress; Learn resumes them.
+    func testStopLearningRemovesEveryRowOfTheWord() async throws {
+        try await open()
+        try await db.learnWord(grafoFD, today: today)
+        try await db.addToMyWords(grafoWN)
+        try await db.learnWord(spiti, today: today)
+        try await answer(grafo, .recognition)
+        try await answer(grafo, .recognition, on: today.adding(days: 1))
+        try await answer(grafo, .production)
+        let before = try await state(grafo).cards
+
+        try await db.stopLearning(grafoWN)
+
+        let myWords = try await rows("SELECT source, word FROM my_words ORDER BY source, word")
+        XCTAssertEqual(myWords, ["freedict-ell-eng|σπίτι"], "no My words row of γράφω is left")
+        let paused = try await state(grafo)
+        XCTAssertTrue(paused.isPaused)
+        XCTAssertTrue(WordStatus(paused).isPaused)
+        XCTAssertEqual(paused.cards.map(\.step), before.map(\.step), "progress kept")
+        XCTAssertEqual(paused.cards.map(\.dueDay), before.map(\.dueDay))
+        XCTAssertEqual(paused.cards.map(\.lastDay), before.map(\.lastDay))
+        XCTAssertEqual(try card(paused, .recognition).step, 2)
+        XCTAssertEqual(try card(paused, .production).step, 1)
+        let other = try await state(spitiKey)
+        XCTAssertFalse(other.cards.contains(where: \.isSuspended), "another word stays in learning")
+
+        let keys = try await db.enrolledKeys()
+        XCTAssertTrue(keys.contains(grafo), "a paused word stays enrolled, so it never comes back as new")
+        let pool = try await db.newPool(lang: "ell", limit: 10)
+        XCTAssertEqual(pool.map(\.key), [spitiKey])
+        let due = try await db.dueCards(lang: "ell", today: today.adding(days: 30))
+        XCTAssertFalse(due.contains { $0.key.word == grafo }, "no session offers a paused card")
+
+        // Learn again resumes with the progress.
+        try await db.learnWord(grafoFD, today: today.adding(days: 2))
+        let resumed = try await state(grafo)
+        XCTAssertFalse(resumed.isPaused)
+        XCTAssertEqual(resumed.cards.map(\.step), before.map(\.step))
+        XCTAssertEqual(resumed.cards.map(\.dueDay), before.map(\.dueDay))
+        XCTAssertEqual(resumed.cards.map(\.isSuspended), [false, false])
+        let back = try await rows("SELECT source, word FROM my_words WHERE word = 'γράφω'")
+        XCTAssertEqual(back, ["freedict-ell-eng|γράφω"])
+
+        // "Remove from My words" for a word never in learning: no cards made.
+        try await db.addToMyWords(house)
+        try await db.stopLearning(house)
+        let houseInMyWords = try await db.isInMyWords(house)
+        XCTAssertFalse(houseInMyWords)
+        let houseState = try await db.learningState(of: houseKey)
+        XCTAssertNil(houseState)
+    }
+
+    // MARK: Per language
+
+    func testDueCardsOfOneLanguage() async throws {
+        try await open()
+        let nero = WordKey(lang: "ell", word: "νερό"), kalos = WordKey(lang: "ell", word: "καλός")
+        let eimai = WordKey(lang: "ell", word: "είμαι")
+        try await insertCard(grafo, .recognition, step: 2, due: today.adding(days: -3), last: today.adding(days: -6))
+        try await insertCard(grafo, .production, step: 1, due: today, last: today.adding(days: -1))
+        try await insertCard(spitiKey, .recognition, step: 3, due: today.adding(days: -3), last: today.adding(days: -10))
+        try await insertCard(spitiKey, .production, step: 0, due: today.adding(days: -5), last: nil) // new
+        try await insertCard(nero, .recognition, step: 1, due: today.adding(days: 1), last: today) // tomorrow
+        try await insertCard(kalos, .recognition, step: 2, due: today.adding(days: -15), last: today.adding(days: -18),
+                             suspended: true)
+        try await insertCard(eimai, .conjugation, facet: "aorist.active", step: 1, due: today.adding(days: -5),
+                             last: today.adding(days: -6))
+        try await insertCard(houseKey, .recognition, step: 1, due: today.adding(days: -5), last: today.adding(days: -6))
+
+        let greek = try await db.dueCards(lang: "ell", today: today)
+        XCTAssertEqual(greek.map(\.key), [
+            CardKey(word: grafo, kind: .recognition), CardKey(word: spitiKey, kind: .recognition),
+            CardKey(word: grafo, kind: .production),
+        ], "answered, unpaused, Greek, due: most overdue first, then the lower rung")
+        XCTAssertEqual(greek.first?.step, 2)
+        XCTAssertEqual(greek.first?.lastDay, today.adding(days: -6))
+        let limited = try await db.dueCards(lang: "ell", today: today, limit: 2)
+        XCTAssertEqual(limited.count, 2)
+        let none = try await db.dueCards(lang: "ell", today: today, limit: 0)
+        XCTAssertEqual(none, [])
+        let negative = try await db.dueCards(lang: "ell", today: today, limit: -1)
+        XCTAssertEqual(negative, [], "a limit below zero is no card, not every card")
+        let production = try await db.dueCards(lang: "ell", today: today, kinds: [.production])
+        XCTAssertEqual(production.map(\.key), [CardKey(word: grafo, kind: .production)])
+        let drill = try await db.dueCards(lang: "ell", today: today, kinds: [.conjugation])
+        XCTAssertEqual(drill.map(\.key), [CardKey(word: eimai, kind: .conjugation, facet: "aorist.active")])
+        let english = try await db.dueCards(lang: "eng", today: today)
+        XCTAssertEqual(english.map(\.key), [CardKey(word: houseKey, kind: .recognition)])
+        let tomorrow = try await db.dueCards(lang: "ell", today: today.adding(days: 1))
+        XCTAssertEqual(tomorrow.count, 4, "νερό is due tomorrow")
+        let spanish = try await db.dueCards(lang: "spa", today: today)
+        XCTAssertEqual(spanish, [])
+    }
+
+    /// A session closed between a new word's two cards: the unanswered
+    /// card is due from then on, and the word is not new again.
+    func testUnansweredCardOfAStartedWordIsDue() async throws {
+        try await open()
+        try await db.learnWord(spiti, today: today)
+        try await answer(spitiKey, .recognition)
+        let due = try await db.dueCards(lang: "ell", today: today)
+        XCTAssertEqual(due.map(\.key), [CardKey(word: spitiKey, kind: .production)])
+        let pool = try await db.newPool(lang: "ell", limit: 10)
+        XCTAssertEqual(pool.map(\.key), [], "a started word is not new again")
+        let drill = try await db.dueCards(lang: "ell", today: today, kinds: [.conjugation])
+        XCTAssertEqual(drill, [], "only word cards")
+    }
+
+    func testNewPoolOfOneLanguage() async throws {
+        try await open()
+        let agapi = WordKey(lang: "ell", word: "αγάπη"), vivlio = WordKey(lang: "ell", word: "βιβλίο")
+        let gata = WordKey(lang: "ell", word: "γάτα"), dentro = WordKey(lang: "ell", word: "δέντρο")
+        try await insertWord(agapi, addedAt: "2026-10-02 08:00:00")
+        try await insertWord(vivlio, addedAt: "2026-10-01 08:00:00")
+        try await insertWord(gata, addedAt: "2026-09-01 08:00:00")
+        try await insertWord(dentro, addedAt: "2026-08-01 08:00:00")
+        try await insertWord(houseKey, addedAt: "2026-07-01 08:00:00")
+        try await answer(gata, .recognition, .wrong) // started
+        try await execute("UPDATE learn_card SET suspended = 1 WHERE word = 'δέντρο'") // paused
+
+        let pool = try await db.newPool(lang: "ell", limit: 10)
+        XCTAssertEqual(pool.map(\.key), [vivlio, agapi], "unstarted, unpaused Greek words, oldest first")
+        XCTAssertEqual(pool.first?.term, "βιβλίο")
+        XCTAssertNil(pool.first?.entry, "a word without an entry")
+        XCTAssertNil(pool.first?.introducedDay)
+        let one = try await db.newPool(lang: "ell", limit: 1)
+        XCTAssertEqual(one.map(\.key), [vivlio])
+        let zero = try await db.newPool(lang: "ell", limit: 0)
+        XCTAssertEqual(zero, [])
+        let negative = try await db.newPool(lang: "ell", limit: 10 - 12)
+        XCTAssertEqual(negative, [], "more started than the limit (the setting lowered later) offers no word")
+        let english = try await db.newPool(lang: "eng", limit: 10)
+        XCTAssertEqual(english.map(\.key), [houseKey])
+        let spanish = try await db.newPool(lang: "spa", limit: 10)
+        XCTAssertEqual(spanish, [])
+    }
+
+    /// 10 Greek words started today: Greek offers no new word, English
+    /// still offers 10.
+    func testDailyLimitPerLanguage() async throws {
+        try await open()
+        let greek = (1...12).map { WordKey(lang: "ell", word: "λέξη\($0)") }
+        let english = (1...12).map { WordKey(lang: "eng", word: "word\($0)") }
+        for (index, key) in (greek + english).enumerated() {
+            try await insertWord(key, addedAt: String(format: "2026-10-01 08:%02d:00", index))
+        }
+        for key in greek.prefix(10) {
+            try await answer(key, .recognition)
+        }
+        try await answer(greek[10], .recognition, on: today.adding(days: -1))
+
+        let limit = SettingsService(store: InMemoryKeyValueStore()).learningNewPerDay
+        let startedGreek = try await db.startedCount(on: today, lang: "ell")
+        let startedEnglish = try await db.startedCount(on: today, lang: "eng")
+        let startedYesterday = try await db.startedCount(on: today.adding(days: -1), lang: "ell")
+        XCTAssertEqual(startedGreek, 10)
+        XCTAssertEqual(startedEnglish, 0)
+        XCTAssertEqual(startedYesterday, 1, "yesterday's start is not today's")
+        let greekNew = try await db.newPool(lang: "ell", limit: limit - startedGreek)
+        XCTAssertEqual(greekNew, [], "Greek's limit is reached")
+        let englishNew = try await db.newPool(lang: "eng", limit: limit - startedEnglish)
+        XCTAssertEqual(englishNew.map(\.key), Array(english.prefix(10)), "English still offers 10")
+
+        try await answer(english[0], .recognition)
+        let afterEnglish = try await db.startedCount(on: today, lang: "eng")
+        let greekAfter = try await db.startedCount(on: today, lang: "ell")
+        XCTAssertEqual(afterEnglish, 1)
+        XCTAssertEqual(greekAfter, 10)
+    }
+
+    func testMistakesOfOneLanguage() async throws {
+        try await open()
+        try await db.learnWord(grafoFD, today: today)
+        try await db.learnWord(house, today: today)
+        try await answer(grafo, .recognition, .wrong)
+        try await answer(houseKey, .recognition, .wrong)
+        try await answer(grafo, .production, .right)
+        let since = today.adding(days: -6)
+
+        let greek = try await db.mistakeCards(since: since, lang: "ell")
+        XCTAssertEqual(greek.map(\.key), [CardKey(word: grafo, kind: .recognition)])
+        let english = try await db.mistakeCards(since: since, lang: "eng")
+        XCTAssertEqual(english.map(\.key), [CardKey(word: houseKey, kind: .recognition)])
+        let spanish = try await db.mistakeCards(since: since, lang: "spa")
+        XCTAssertEqual(spanish, [])
+    }
+
+    /// Wrong today, 6 and 7 days ago: the first two only; a card answered
+    /// right (or with the accent) after its error and a paused word are
+    /// left out; the latest mistake first.
+    func testMistakesAreTheLastSevenDays() async throws {
+        try await open()
+        let words = ["α", "β", "γ", "δ", "ε", "ζ", "η"].map { WordKey(lang: "ell", word: $0) }
+        let (todayWrong, sixDays, sevenDays, fixed, paused, accent, againWrong) =
+            (words[0], words[1], words[2], words[3], words[4], words[5], words[6])
+        for key in words {
+            try await insertWord(key, addedAt: "2026-10-01 08:00:00")
+        }
+        func day(_ offset: Int) -> LearnDay { today.adding(days: offset) }
+        // In time order, as the app writes them.
+        try await answer(sevenDays, .recognition, .wrong, on: day(-7))
+        try await answer(sixDays, .recognition, .wrong, on: day(-6))
+        try await answer(againWrong, .recognition, .right, on: day(-5))
+        try await answer(againWrong, .recognition, .wrong, on: day(-4))
+        try await answer(paused, .recognition, .wrong, on: day(-3))
+        try await answer(fixed, .recognition, .wrong, on: day(-2))
+        try await answer(fixed, .recognition, .right, on: day(-1))
+        try await answer(accent, .production, .wrong, on: day(-1))
+        try await answer(accent, .production, .accent, on: day(0))
+        try await answer(todayWrong, .production, .wrong, on: day(0))
+        try await execute("UPDATE learn_card SET suspended = 1 WHERE word = 'ε'")
+
+        let mistakes = try await db.mistakeCards(since: day(-6), lang: "ell")
+        XCTAssertEqual(mistakes.map(\.key), [
+            CardKey(word: todayWrong, kind: .production), CardKey(word: againWrong, kind: .recognition),
+            CardKey(word: sixDays, kind: .recognition),
+        ])
+        XCTAssertTrue(mistakes.allSatisfy { $0.step == 0 && !$0.isSuspended })
+    }
+
+    func testAnsweredCountIsEveryLanguage() async throws {
+        try await open()
+        try await db.learnWord(grafoFD, today: today)
+        try await db.learnWord(spiti, today: today)
+        try await db.learnWord(house, today: today)
+        try await answer(grafo, .recognition)
+        try await answer(grafo, .production, .wrong)
+        try await answer(spitiKey, .recognition)
+        try await answer(houseKey, .recognition)
+        try await answer(houseKey, .production, .accent)
+        try await answer(spitiKey, .production, on: today.adding(days: -1))
+        try await insertCard(grafo, .conjugation, facet: "aorist.active", step: 0, due: today, last: nil)
+        try await answer(grafo, .conjugation, .right, exercise: .conjugation, mode: .drill, facet: "aorist.active",
+                         detail: "1sg")
+
+        let todayCount = try await db.answeredCount(on: today)
+        XCTAssertEqual(todayCount, 6, "Greek, English and drill answers, right or wrong")
+        let yesterday = try await db.answeredCount(on: today.adding(days: -1))
+        XCTAssertEqual(yesterday, 1)
+        let tomorrow = try await db.answeredCount(on: today.adding(days: 1))
+        XCTAssertEqual(tomorrow, 0)
+    }
+
+    /// E5's conjugation cards share the word's key; the word-level logic
+    /// leaves them out (as built: Stop learning, resume, started, the new
+    /// pool, mistakes and `learningState` touch word cards only).
+    func testWordLogicIgnoresOtherCardKinds() async throws {
+        try await open()
+        try await db.learnWord(grafoFD, today: today)
+        let facet = "aorist.active"
+        try await insertCard(grafo, .conjugation, facet: facet, step: 0, due: today, last: nil)
+
+        let drilled = try await answer(grafo, .conjugation, .right, exercise: .conjugation, mode: .drill,
+                                       facet: facet, detail: "1sg")
+        XCTAssertEqual(drilled.key, CardKey(word: grafo, kind: .conjugation, facet: facet))
+        XCTAssertEqual(drilled.step, 1, "the drill card climbs the same ladder")
+        var learning = try await state(grafo)
+        XCTAssertNil(learning.word.introducedDay, "a drill answer starts no word")
+        XCTAssertEqual(learning.cards.map(\.key.kind).sorted { $0.rawValue < $1.rawValue }, [.production, .recognition])
+        let started = try await db.startedCount(on: today, lang: "ell")
+        XCTAssertEqual(started, 0)
+        var pool = try await db.newPool(lang: "ell", limit: 10)
+        XCTAssertEqual(pool.map(\.key), [grafo], "still a new word")
+        let log = try await rows("SELECT kind, facet, exercise, mode, introduced, detail FROM learn_review")
+        XCTAssertEqual(log, ["conjugation|aorist.active|conjugation|drill|0|1sg"])
+
+        try await answer(grafo, .conjugation, .wrong, on: today.adding(days: 1), exercise: .conjugation, mode: .drill,
+                         facet: facet)
+        let mistakes = try await db.mistakeCards(since: today, lang: "ell")
+        XCTAssertEqual(mistakes, [], "mistakes practice asks word cards only")
+
+        try await db.stopLearning(grafoFD)
+        let suspension = try await rows("SELECT kind, suspended FROM learn_card ORDER BY kind")
+        XCTAssertEqual(suspension, ["conjugation|0", "production|1", "recognition|1"], "Stop learning pauses word cards")
+        pool = try await db.newPool(lang: "ell", limit: 10)
+        XCTAssertEqual(pool, [], "a paused word is not new")
+        try await execute("UPDATE learn_card SET suspended = 1 WHERE kind = 'conjugation'")
+        try await db.learnWord(grafoFD, today: today.adding(days: 2))
+        let resumed = try await rows("SELECT kind, suspended FROM learn_card ORDER BY kind")
+        XCTAssertEqual(resumed, ["conjugation|1", "production|0", "recognition|0"], "Learn resumes word cards only")
+        learning = try await state(grafo)
+        XCTAssertFalse(learning.isPaused)
+        let drillDue = try await db.dueCards(lang: "ell", today: today.adding(days: 1), kinds: [.conjugation])
+        XCTAssertEqual(drillDue, [], "E5 skips its own paused cards")
+    }
+
+    // MARK: List picks
+
+    /// A word of a list as E3 reads it.
+    private func listItem(_ term: String, headword: String?, translation: String = "", translationLang: String = "",
+                          endings: String = "", pos: String = "", list: WordListID = "ky-ell-a1",
+                          lang: String = "ell") -> WordListItem {
+        WordListItem(listID: list, key: WordKey(lang: lang, word: term), term: term, headword: headword,
+                     translation: translation, translationLang: translationLang, endings: endings, partOfSpeech: pos,
+                     tags: "", level: "A1", levelOrder: 1, rank: nil, seq: 0, sortKey: WordListItem.sortKey(of: term))
+    }
+
+    /// A picked list word keeps the list's text, its list and the entry
+    /// `sourceOrder` resolves (γράφω is in both Greek dictionaries: the
+    /// first in the order wins); a word without an entry has none. Each gets
+    /// two new cards, due today, and stays out of My words.
+    func testIntroduceStoresTheListContent() async throws {
+        try await open()
+        let giouvetsi = WordKey(lang: "ell", word: "γιουβέτσι")
+        try await db.introduce([
+            listItem("γράφω", headword: "γράφω", translation: "write", translationLang: "eng", pos: "verb"),
+            listItem("γιουβέτσι", headword: nil, translation: "baked orzo", translationLang: "eng", endings: "το"),
+        ], sourceOrder: ["wordnet-ell-eng", "freedict-ell-eng"], today: today)
+
+        let written = try await state(grafo)
+        XCTAssertEqual(written.word.term, "γράφω")
+        XCTAssertEqual(written.word.translation, "write")
+        XCTAssertEqual(written.word.partOfSpeech, "verb")
+        XCTAssertEqual(written.word.listID, "ky-ell-a1", "the list it came from")
+        XCTAssertEqual(written.word.entry, grafoWN, "the first dictionary of sourceOrder that has it")
+        XCTAssertNil(written.word.introducedDay, "not started until its first answer")
+        XCTAssertEqual(written.cards.map(\.key.kind).sorted { $0.rawValue < $1.rawValue }, [.production, .recognition])
+        for card in written.cards {
+            XCTAssertEqual(card.step, 0, "\(card.key.kind)")
+            XCTAssertEqual(card.dueDay, today, "\(card.key.kind)")
+            XCTAssertNil(card.lastDay, "\(card.key.kind)")
+        }
+        let standalone = try await state(giouvetsi)
+        XCTAssertNil(standalone.word.entry, "a list word without a dictionary entry")
+        XCTAssertEqual(standalone.word.endings, "το")
+        XCTAssertEqual(standalone.cards.count, 2)
+
+        let myWords = try await count("SELECT COUNT(*) FROM my_words")
+        XCTAssertEqual(myWords, 0, "a list pick is not added to My words")
+        let pool = try await db.newPool(lang: "ell", limit: 10)
+        XCTAssertEqual(Set(pool.map(\.key)), [grafo, giouvetsi], "unanswered picks come first next time")
+        let enrolled = try await db.enrolledKeys()
+        XCTAssertEqual(enrolled, [grafo, giouvetsi])
+    }
+
+    /// `translation_lang` is stored as the list gives it: `eng` for a
+    /// built-in list, `""` for an import, whose translations show in every
+    /// pair.
+    func testIntroduceStoresTheTranslationLanguage() async throws {
+        try await open()
+        try await db.introduce([
+            listItem("σπίτι", headword: "σπίτι", translation: "house", translationLang: "eng"),
+            listItem("θάλασσα", headword: nil, translation: "mer", list: "user-1"),
+        ], sourceOrder: [], today: today)
+        let words = try await rows("SELECT word, translation, translation_lang, list_id FROM learn_word ORDER BY word")
+        XCTAssertEqual(words, ["θάλασσα|mer||user-1", "σπίτι|house|eng|ky-ell-a1"])
+        let spiti = try await state(spitiKey)
+        XCTAssertEqual(spiti.word.translationLang, "eng")
+        XCTAssertEqual(spiti.word.entry, self.spiti, "the word's language's source, outside sourceOrder")
+    }
+
+    /// One transaction: a failure on the first word's second card leaves no
+    /// row of any word. Retry-safe: a second call keeps the stored content
+    /// and progress; a word with one card gets the other.
+    func testIntroduceIsAtomicAndRetrySafe() async throws {
+        try await open()
+        let items = [listItem("γράφω", headword: "γράφω", translation: "write", translationLang: "eng"),
+                     listItem("σπίτι", headword: "σπίτι", translation: "house", translationLang: "eng")]
+        try await execute("""
+            CREATE TRIGGER qa_card_fails BEFORE INSERT ON learn_card WHEN NEW.word = 'γράφω' AND NEW.kind = 'production'
+            BEGIN SELECT RAISE(ABORT, 'qa: the card write fails'); END
+            """)
+        do {
+            try await db.introduce(items, sourceOrder: [], today: today)
+            XCTFail("the card write fails, so introduce throws")
+        } catch let error as DatabaseError {
+            XCTAssertEqual(error.resultCode, .SQLITE_CONSTRAINT, "\(error)")
+        }
+        for table in ["learn_word", "learn_card"] {
+            let n = try await count("SELECT COUNT(*) FROM \(table)")
+            XCTAssertEqual(n, 0, "\(table): the whole call rolled back")
+        }
+        try await execute("DROP TRIGGER qa_card_fails")
+
+        try await db.introduce(items, sourceOrder: [], today: today)
+        try await answer(grafo, .recognition, .right)
+        try await execute("DELETE FROM learn_card WHERE word = 'σπίτι' AND kind = 'production'")
+        let changed = [listItem("γράφω", headword: nil, translation: "scribble", translationLang: "spa", list: "user-2"),
+                       items[1]]
+        try await db.introduce(changed, sourceOrder: [], today: today.adding(days: 1))
+
+        let written = try await state(grafo)
+        XCTAssertEqual(written.word.translation, "write", "the stored content stays")
+        XCTAssertEqual(written.word.translationLang, "eng")
+        XCTAssertEqual(written.word.listID, "ky-ell-a1")
+        XCTAssertEqual(written.word.entry, grafoFD)
+        XCTAssertEqual(try card(written, .recognition).step, 1, "its progress stays")
+        XCTAssertEqual(written.word.introducedDay, today)
+        let spiti = try await state(spitiKey)
+        let production = try card(spiti, .production)
+        XCTAssertEqual(production.step, 0, "the missing card is added, new")
+        XCTAssertEqual(production.dueDay, today.adding(days: 1))
+        XCTAssertEqual(try card(spiti, .recognition).dueDay, today, "the card it had stays")
+        let cards = try await count("SELECT COUNT(*) FROM learn_card")
+        XCTAssertEqual(cards, 4)
+    }
+
+    /// `-resetData`: every learning row goes; My words stay.
+    func testClearLearningEmptiesTheTables() async throws {
+        try await open()
+        try await db.learnWord(grafoFD, today: today)
+        try await answer(grafo, .recognition)
+        try await db.addToMyWords(house)
+
+        try await db.clearLearning()
+
+        for table in ["learn_word", "learn_card", "learn_review"] {
+            let n = try await count("SELECT COUNT(*) FROM \(table)")
+            XCTAssertEqual(n, 0, table)
+        }
+        let myWords = try await count("SELECT COUNT(*) FROM my_words")
+        XCTAssertEqual(myWords, 2)
+        let learning = try await db.learningState(of: grafo)
+        XCTAssertNil(learning)
     }
 }
