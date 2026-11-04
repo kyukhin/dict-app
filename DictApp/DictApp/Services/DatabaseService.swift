@@ -2039,18 +2039,316 @@ actor DatabaseService {
         }
     }
 
+    /// Practice for a trainer of `kind` (#159): the unpaused cards of `lang`
+    /// and `kind` of words already started, the lowest rung first, then the
+    /// oldest answer; a card never answered (its word was started by the
+    /// other card) counts as the oldest.
+    func practiceCards(lang: String, kind: CardKind, limit: Int) async throws -> [CardState] {
+        let pool = try await userPool()
+        return try await read(pool) { db in
+            try Row.fetchAll(db, sql: """
+                SELECT c.* FROM learn_card c
+                JOIN learn_word w ON w.lang = c.lang AND w.word = c.word
+                WHERE c.lang = ? AND c.kind = ? AND c.facet = '' AND c.suspended = 0
+                  AND w.introduced_day IS NOT NULL
+                ORDER BY c.step, c.last_day, c.word
+                LIMIT ?
+                """, arguments: [lang, kind.rawValue, max(limit, 0)]).map(Self.cardState)
+        }
+    }
+
+    /// The meaning of each word in the pair's meanings language (0131,
+    /// "Meanings"), chosen now, never stored: rule 1, the list translation
+    /// in that language (or an import's), in Swift; else rule 2, `Gloss.short`
+    /// of its `lookup` in the first of the pair's dictionaries (`lang` →
+    /// `meaningsLang`) in `sourceOrder` that has it, one read per file that
+    /// holds one (#237: the bundle or the dictionary's pack, through
+    /// `DictionarySchemas`; a pack that is not installed gives none).
+    /// `meaningsLang` nil (Other, no pair): rule 3, the translation, else
+    /// its own entry's first sense. A word with none is left out: the
+    /// planners skip it in this pair (rule 4).
+    func meanings(of words: [MeaningQuery], lang: String, meaningsLang: String?,
+                  sourceOrder: [String]) async throws -> [WordKey: String] {
+        let pool = try await userPool()
+        let schemas = schemas
+        return try await read(pool) { db in
+            try Self.meanings(of: words, lang: lang, meaningsLang: meaningsLang, sourceOrder: sourceOrder,
+                              schemas: schemas, in: db)
+                .mapValues(\.text)
+        }
+    }
+
+    /// The words of `lang` in learning, paused ones included, as questions
+    /// ask them and as options (#159): each with its meaning in
+    /// `meaningsLang` (`meanings(of:)`, with the dictionary that gave it)
+    /// and its part of speech (the list's, else its entry's).
+    func wordChoices(lang: String, meaningsLang: String?, sourceOrder: [String]) async throws -> [WordChoice] {
+        let pool = try await userPool()
+        let schemas = schemas
+        return try await read(pool) { db in
+            let rows = try Row.fetchAll(db, sql: Self.wordChoicesSQL, arguments: [lang])
+            let words = try rows.map(Self.learnWord)
+            let meanings = try Self.meanings(of: words.map(MeaningQuery.init), lang: lang, meaningsLang: meaningsLang,
+                                             sourceOrder: sourceOrder, schemas: schemas, in: db)
+            return zip(rows, words).map { row, word in
+                let entryPOS: String = row["entry_pos"]
+                return WordChoice(key: word.key, term: word.term, endings: word.endings,
+                                  meaning: meanings[word.key]?.text ?? "",
+                                  partOfSpeech: word.partOfSpeech.isEmpty ? entryPOS : word.partOfSpeech,
+                                  listID: word.listID, entry: word.entry, meaningSource: meanings[word.key]?.source)
+            }
+        }
+    }
+
+    /// `wordChoices`' words of a language, each with its entry's part of
+    /// speech: from the dictionary file of its source (#237: every file is
+    /// joined on the entries' word index, and only the source's own file
+    /// has the row; a pack that is not installed is the stub, with none),
+    /// else from the imports.
+    private static let wordChoicesSQL: String = {
+        let files = Array(DictionarySchemas.all.enumerated())
+        let joins = files.map { index, schema in
+            "LEFT JOIN \(schema).entries e\(index) ON e\(index).word = w.headword COLLATE NOCASE AND e\(index).source = w.source"
+        }
+        return """
+            SELECT w.*, COALESCE(\(files.map { "e\($0.offset).pos" }.joined(separator: ", ")), i.pos, '') AS entry_pos
+            FROM learn_word w
+            \(joins.joined(separator: "\n"))
+            LEFT JOIN imported_entries i ON i.word = w.headword COLLATE NOCASE AND i.source = w.source
+            WHERE w.lang = ?
+            ORDER BY w.word
+            """
+    }()
+
+    /// About `count` headwords of `lang` with the primary part of speech of
+    /// `pos` (any, when `pos` is empty) and a meaning: the distractors' last
+    /// resort (#159). With a pair, they come from `source`, the pair
+    /// dictionary that gave the word's meaning, else from the pair's first
+    /// dictionary (`lang` → `meaningsLang`) in `sourceOrder`, so their
+    /// meanings are in the meanings language; none when the pair has no
+    /// dictionary. Without (`meaningsLang` nil, Other), from `source`, the
+    /// word's own, else the first dictionary of `lang` in `sourceOrder`.
+    /// The headwords are random rows, drawn by `seed`, around `near` (the
+    /// word's headword or term): a shipped dictionary's rows are contiguous
+    /// in its file (the bundle or its pack, #237), so within its
+    /// `word_count` of the anchor about half of the draws are its own. A
+    /// dictionary whose pack is not installed gives none.
+    func distractorSample(lang: String, meaningsLang: String?, source: String?, sourceOrder: [String], pos: String,
+                          near: String, seed: UInt64, count: Int = 30) async throws -> [WordChoice] {
+        let pool = try await userPool()
+        let schemas = schemas
+        return try await read(pool) { db in
+            let chosen: String?
+            if let meaningsLang {
+                let pairSources = try Self.pairSources(lang: lang, meaningsLang: meaningsLang, order: sourceOrder, in: db)
+                chosen = source.flatMap { pairSources.contains($0) ? $0 : nil } ?? pairSources.first
+            } else {
+                chosen = try source ?? Self.firstSource(of: lang, order: sourceOrder, in: db)
+            }
+            guard let source = chosen else { return [] }
+            let isImported = try Bool.fetchOne(db, sql: "SELECT EXISTS (SELECT 1 FROM imported_sources WHERE source = ?)",
+                                               arguments: [source]) ?? false
+            // #237: a dictionary's rows are in the file of its source.
+            let file: String?
+            if isImported {
+                file = nil
+            } else {
+                guard let schema = schemas.schema(ofSource: source) else { return [] }
+                file = schema
+            }
+            let table = file.map { "\($0).entries" } ?? "imported_entries"
+            guard let anchor = try Int64.fetchOne(db, sql: """
+                    SELECT id FROM \(table) WHERE word >= ? COLLATE NOCASE AND source = ?
+                    ORDER BY word COLLATE NOCASE LIMIT 1
+                    """, arguments: [near, source])
+                    ?? Int64.fetchOne(db, sql: """
+                    SELECT id FROM \(table) WHERE word < ? COLLATE NOCASE AND source = ?
+                    ORDER BY word COLLATE NOCASE DESC LIMIT 1
+                    """, arguments: [near, source]) else { return [] }
+            let range: ClosedRange<Int64>
+            if let file {
+                let size = try Int64.fetchOne(db, sql: "SELECT word_count FROM \(file).dict_metadata WHERE source = ?",
+                                              arguments: [source]) ?? 0
+                let half = max(size, 1_000)
+                range = max(1, anchor - half)...(anchor + half)
+            } else {
+                let bounds = try Row.fetchOne(db, sql: "SELECT MIN(id) AS lo, MAX(id) AS hi FROM imported_entries WHERE source = ?",
+                                              arguments: [source])
+                let lo: Int64? = bounds?["lo"], hi: Int64? = bounds?["hi"]
+                range = (lo ?? anchor)...max(hi ?? anchor, lo ?? anchor)
+            }
+            var rng = SplitMix64(seed: seed)
+            var ids: [Int64] = []
+            var drawn = Set<Int64>()
+            for _ in 0..<(count * 20) {
+                let id = Int64.random(in: range, using: &rng)
+                if drawn.insert(id).inserted { ids.append(id) }
+            }
+            let rows = try Row.fetchAll(db, sql: """
+                SELECT id, word, pos, definition FROM \(table)
+                WHERE source = ? AND id IN (\(ids.map { _ in "?" }.joined(separator: ", ")))
+                """, arguments: [source] + StatementArguments(ids))
+            let byID = Dictionary(rows.map { row -> (Int64, Row) in (row["id"], row) }, uniquingKeysWith: { a, _ in a })
+            let wanted = DistractorPicker.primaryPOS(pos)
+            var sample: [WordChoice] = []
+            for id in ids {
+                guard sample.count < count, let row = byID[id] else { continue }
+                let word: String = row["word"], rowPOS: String = row["pos"]
+                guard wanted.isEmpty || DistractorPicker.primaryPOS(rowPOS) == wanted else { continue }
+                let meaning = Gloss.short(definition: row["definition"])
+                guard !meaning.isEmpty else { continue }
+                sample.append(WordChoice(key: WordKey(lang: lang, word: word), term: word, meaning: meaning,
+                                         partOfSpeech: rowPOS, entry: EntryKey(source: source, word: word),
+                                         isEnrolled: false, meaningSource: source))
+            }
+            return sample
+        }
+    }
+
+    /// The first dictionary of `lang` in `order`, else the first of `lang`
+    /// by source ID; nil when the app has none. Installed dictionaries only:
+    /// the `dict_metadata` of the bundle and of every pack (#237; a pack
+    /// that is not installed is the stub, with none), and the imports.
+    private static func firstSource(of lang: String, order: [String], in db: Database) throws -> String? {
+        let sources = Set(try String.fetchAll(db, sql: """
+            \(DictionarySchemas.union("dict_metadata", columns: "source", where: "from_lang = ?1"))
+            UNION
+            SELECT source FROM imported_sources WHERE from_lang = ?1
+            """, arguments: [lang]))
+        return order.first(where: sources.contains) ?? sources.sorted().first
+    }
+
+    /// The pair's installed dictionaries, from `lang` into `meaningsLang`:
+    /// in the bundle or an installed pack (#237: the `dict_metadata` of
+    /// every file; a pack that is not installed is the stub, with none), or
+    /// imported with both languages (#208). Those in `order` first, in its
+    /// order, then the others by source ID.
+    private static func pairSources(lang: String, meaningsLang: String, order: [String],
+                                    in db: Database) throws -> [String] {
+        let sources = Set(try String.fetchAll(db, sql: """
+            \(DictionarySchemas.union("dict_metadata", columns: "source", where: "from_lang = ?1 AND to_lang = ?2"))
+            UNION
+            SELECT source FROM imported_sources WHERE from_lang = ?1 AND to_lang = ?2
+            """, arguments: [lang, meaningsLang]))
+        return order.filter(sources.contains) + sources.subtracting(order).sorted()
+    }
+
+    /// `meanings(of:)` in one read: each word's meaning with the dictionary
+    /// that gave it (nil for a translation).
+    private static func meanings(of words: [MeaningQuery], lang: String, meaningsLang: String?, sourceOrder: [String],
+                                 schemas: DictionarySchemas, in db: Database) throws -> [WordKey: (text: String, source: String?)] {
+        var found: [WordKey: (text: String, source: String?)] = [:]
+        var rest: [MeaningQuery] = []
+        for word in words {
+            if let translation = Gloss.listMeaning(translation: word.translation, translationLang: word.translationLang,
+                                                   meaningsLang: meaningsLang) {
+                found[word.key] = (translation, nil)
+            } else {
+                rest.append(word)
+            }
+        }
+        func first(_ definitions: [String: String], in sources: [String]) -> (text: String, source: String?)? {
+            for source in sources {
+                if let definition = definitions[source] {
+                    let text = Gloss.short(definition: definition)
+                    if !text.isEmpty { return (text, source) }
+                }
+            }
+            return nil
+        }
+        if let meaningsLang {
+            let sources = try pairSources(lang: lang, meaningsLang: meaningsLang, order: sourceOrder, in: db)
+            let byWord = try Self.definitions(of: Set(rest.map(\.lookup)), in: sources, schemas: schemas, db: db)
+            for word in rest {
+                found[word.key] = first(byWord[foldedWord(word.lookup)] ?? [:], in: sources)
+            }
+        } else {
+            // Other: each word's own entry.
+            let owned = rest.compactMap { word in word.entry.map { (key: word.key, entry: $0) } }
+            for (source, group) in Dictionary(grouping: owned, by: { $0.entry.source }) {
+                let byWord = try Self.definitions(of: Set(group.map { $0.entry.word }), in: [source], schemas: schemas,
+                                                  db: db)
+                for word in group {
+                    found[word.key] = first(byWord[foldedWord(word.entry.word)] ?? [:], in: [source])
+                }
+            }
+        }
+        return found
+    }
+
+    /// The definitions of `words` in `sources`, by headword as `NOCASE`
+    /// folds it (`foldedWord`), then source: one `word IN (…)` read on the
+    /// entries' word index, in chunks of 500, per file that holds one of
+    /// `sources`: the bundle or a pack (#237, the file of each source
+    /// through `DictionarySchemas`; a source whose pack is not installed is
+    /// read nowhere), and the imports.
+    private static func definitions(of words: Set<String>, in sources: [String], schemas: DictionarySchemas,
+                                    db: Database) throws -> [String: [String: String]] {
+        var found: [String: [String: String]] = [:]
+        guard !words.isEmpty, !sources.isEmpty else { return found }
+        let imported = Set(try String.fetchAll(db, sql: "SELECT source FROM imported_sources"))
+        var inFiles: [String: [String]] = [:]
+        for source in sources where !imported.contains(source) {
+            if let schema = schemas.schema(ofSource: source) { inFiles[schema, default: []].append(source) }
+        }
+        let tables = DictionarySchemas.all.compactMap { schema in inFiles[schema].map { ("\(schema).entries", $0) } }
+            + [("imported_entries", sources.filter(imported.contains))].filter { !$0.1.isEmpty }
+        let words = Array(words)
+        for (table, tableSources) in tables {
+            for start in stride(from: 0, to: words.count, by: 500) {
+                let chunk = Array(words[start..<min(start + 500, words.count)])
+                let rows = try Row.fetchAll(db, sql: """
+                    SELECT word, source, definition FROM \(table)
+                    WHERE word COLLATE NOCASE IN (\(chunk.map { _ in "?" }.joined(separator: ", ")))
+                      AND source IN (\(tableSources.map { _ in "?" }.joined(separator: ", ")))
+                    """, arguments: StatementArguments(chunk) + StatementArguments(tableSources))
+                for row in rows {
+                    found[foldedWord(row["word"]), default: [:]][row["source"]] = row["definition"]
+                }
+            }
+        }
+        return found
+    }
+
+    /// A headword as SQLite's `NOCASE` compares it: only A–Z lowercased.
+    private static func foldedWord(_ word: String) -> String {
+        WordKey(lang: "", word: word).word
+    }
+
     #if DEBUG
     /// `-learningFixture <name>` (0131, Test seams), written after the reset
     /// relative to `today`. Returns the fixture's languages, nil for a name
     /// this build does not know. #158: `myWords5` (γράφω, σπίτι, νερό,
     /// καλός, είμαι in My words, new) and `bilingual` (γράφω and σπίτι due in
-    /// Greek, house and water in English, all in My words).
+    /// Greek, house and water in English, all in My words). #159: `due` (the
+    /// five words of `myWords5` due today on rungs 1, 2, 3, 1, 2, and βιβλίο
+    /// learned, due in 20 days).
     func writeLearningFixture(_ name: String, today: LearnDay) async throws -> [String]? {
         func greek(_ word: String) -> EntryKey { EntryKey(source: "freedict-ell-eng", word: word) }
+        let myWords5 = ["γράφω", "σπίτι", "νερό", "καλός", "είμαι"]
         switch name {
         case "myWords5":
-            for word in ["γράφω", "σπίτι", "νερό", "καλός", "είμαι"] {
+            for word in myWords5 {
                 try await learnWord(greek(word), today: today)
+            }
+            return ["ell"]
+        case "due":
+            for word in myWords5 + ["βιβλίο"] {
+                try await learnWord(greek(word), today: today)
+            }
+            // Each card answered right on its rung's last review, so it is due today.
+            let rungs = Array(zip(myWords5, [1, 2, 3, 1, 2])) + [("βιβλίο", 5)]
+            let pool = try await userPool()
+            try await pool.write { db in
+                for (word, step) in rungs {
+                    let interval = FixedLadder.interval(ofStep: step) ?? 1
+                    let dueDay = step == 5 ? today.adding(days: 20) : today
+                    let lastDay = dueDay.adding(days: -interval)
+                    try db.execute(sql: "UPDATE learn_card SET step = ?, last_day = ?, due_day = ? WHERE lang = 'ell' AND word = ?",
+                                   arguments: [step, lastDay.rawValue, dueDay.rawValue, word])
+                    try db.execute(sql: "UPDATE learn_word SET introduced_day = ? WHERE lang = 'ell' AND word = ?",
+                                   arguments: [today.adding(days: -60).rawValue, word])
+                }
             }
             return ["ell"]
         case "bilingual":

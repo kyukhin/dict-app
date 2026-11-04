@@ -3,6 +3,7 @@
 
 import XCTest
 @testable import DictApp
+import AVFoundation
 import GRDB
 import SQLite3
 import MessageUI
@@ -18729,5 +18730,1796 @@ final class MyWordsViewModelTests: LearnTabTestCase {
         await vm.load()
         XCTAssertEqual(vm.entries, [])
         XCTAssertNil(vm.errorMessage)
+    }
+}
+
+// MARK: - Exercises (0131, #159)
+//
+// 0131-learning.md, Test plan: the unit rows of #159. The pure parts
+// (`Gloss`, `AnswerChecker`, `DistractorPicker`, `QuestionBuilder`, the
+// trainer plan, the feedback) without a database; the store's reads for the
+// runs and `ExerciseRunViewModel` on a temp user database over
+// `ExerciseFixture`'s dictionary or the bundled file.
+
+/// What `FeedbackPlayer` would have played.
+@MainActor
+final class RecordingFeedbackSink: FeedbackSink {
+    private(set) var played: [FeedbackSound] = []
+
+    func play(_ sound: FeedbackSound) {
+        played.append(sound)
+    }
+}
+
+/// `Gloss.short`: the table in 0131's "Meanings", every shipped source
+/// (the bundle and the packs, #237), plain-text imports;
+/// `Gloss.listMeaning`: rule 1.
+final class GlossTests: XCTestCase {
+    /// 0131's table: (headword, source, meaning).
+    static let table: [(word: String, source: String, meaning: String)] = [
+        ("γράφω", "freedict-ell-eng", "write"),
+        ("σπίτι", "freedict-ell-eng", "house, home, habitation"),
+        ("γράφω", "wordnet-ell-eng", "read, say"),
+        ("house", "wordnet", "a dwelling that serves as living quarters for one or more families"),
+        ("house", "freedict-eng-spa", "casalicio, casa"),
+        ("house", "freedict-eng-ell", "σπίτι (το χτίριο), οίκος, στεγάζω"),
+        ("house", "wordnet-eng-ell", "οικογένεια"),
+        ("дом", "openrussian", "house, home, house-hold"),
+    ]
+
+    /// The table, on the shipped files' own definitions (the bundle and
+    /// the packs, #237), then the same rules on the shapes they stand for.
+    func testMeaningsTable() throws {
+        let definitions = try BundledDictionary.shipped().read { db in
+            try Self.table.map { row in
+                try String.fetchOne(db, sql: "SELECT definition FROM entries WHERE word = ? AND source = ?",
+                                    arguments: [row.word, row.source])
+            }
+        }
+        for (row, definition) in zip(Self.table, definitions) {
+            let definition = try XCTUnwrap(definition, "\(row.word) is in \(row.source)")
+            XCTAssertEqual(Gloss.short(definition: definition), row.meaning, "\(row.word) (\(row.source))")
+        }
+
+        XCTAssertEqual(Gloss.short(definition: "**verb**\n1. write"), "write", "the header line goes")
+        XCTAssertEqual(Gloss.short(definition: "**verb**\n1. read, say — have or contain a certain wording\n2. write — communicate"),
+                       "read, say", "a WordNet sense keeps the part before the dash")
+        XCTAssertEqual(Gloss.short(definition: "**noun**\n1. a dwelling  \n   *\"he has a house on Cape Cod\"*\n2. a firm"),
+                       "a dwelling", "the example line goes")
+        XCTAssertEqual(Gloss.short(definition: "**adjective**\n1. good\n\n**noun**\n1. darling, sweetheart"), "good",
+                       "the first sense of the first part of speech")
+        XCTAssertEqual(Gloss.short(definition: "**noun**\n1. a *big* house"), "a big house", "the remaining * stripped")
+        XCTAssertEqual(Gloss.short(definition: "house, home, house-hold"), "house, home, house-hold",
+                       "an unnumbered definition: its first line")
+    }
+
+    /// Every definition of every shipped source (the bundle and the packs,
+    /// #237) gives a meaning: not empty, at most 80 characters (and "…" when
+    /// cut), with no Markdown, no numbered sense and no WordNet gloss left.
+    func testEveryBundledSource() throws {
+        struct Tally {
+            var rows = 0, empty = 0, long = 0, markup = 0, gloss = 0, numbered = 0
+            var examples: [String] = []
+        }
+        // Read, then assert (BundledDictionary).
+        let tallies = try BundledDictionary.shipped().read { db -> [String: Tally] in
+            var tallies: [String: Tally] = [:]
+            let cursor = try Row.fetchCursor(db, sql: "SELECT word, source, definition FROM entries")
+            while let row = try cursor.next() {
+                let source: String = row["source"]
+                let meaning = Gloss.short(definition: row["definition"])
+                var tally = tallies[source, default: Tally()]
+                tally.rows += 1
+                var bad = false
+                if meaning.isEmpty { tally.empty += 1; bad = true }
+                if meaning.count > Gloss.maxLength + 1 || (meaning.count > Gloss.maxLength && !meaning.hasSuffix("…")) {
+                    tally.long += 1; bad = true
+                }
+                if meaning.contains("*") { tally.markup += 1; bad = true }
+                if meaning.contains(" — ") { tally.gloss += 1; bad = true }
+                if meaning.range(of: #"^\d+\. "#, options: .regularExpression) != nil { tally.numbered += 1; bad = true }
+                if bad, tally.examples.count < 3 { tally.examples.append("\(row["word"] as String): \(meaning)") }
+                tallies[source] = tally
+            }
+            return tallies
+        }
+        XCTAssertEqual(Set(tallies.keys), ["wordnet", "openrussian", "freedict-eng-spa", "wordnet-spa-eng", "wordnet-arb-eng",
+                                           "wordnet-ell-eng", "wordnet-eng-ell", "freedict-ell-eng", "freedict-eng-ell"],
+                       "the nine shipped sources")
+        for (source, tally) in tallies.sorted(by: { $0.key < $1.key }) {
+            XCTAssertGreaterThan(tally.rows, 10_000, source)
+            XCTAssertEqual(tally.empty, 0, "\(source): empty meanings \(tally.examples)")
+            XCTAssertEqual(tally.long, 0, "\(source): over 80 characters \(tally.examples)")
+            XCTAssertEqual(tally.markup, 0, "\(source): Markdown left \(tally.examples)")
+            XCTAssertEqual(tally.gloss, 0, "\(source): a WordNet gloss left \(tally.examples)")
+            XCTAssertEqual(tally.numbered, 0, "\(source): a sense number left \(tally.examples)")
+        }
+    }
+
+    /// An import's plain-text definitions: the first numbered sense, else
+    /// the first non-empty line, as written; nothing at all gives "".
+    func testPlainTextImport() {
+        XCTAssertEqual(Gloss.short(definition: "a small house"), "a small house")
+        XCTAssertEqual(Gloss.short(definition: "\n\n   a small house  \nsecond line"), "a small house")
+        XCTAssertEqual(Gloss.short(definition: "cabin\r\nhut"), "cabin", "Windows line ends")
+        XCTAssertEqual(Gloss.short(definition: "1. cabin\n2. hut"), "cabin")
+        XCTAssertEqual(Gloss.short(definition: "a note first\n1. cabin\n2. hut"), "cabin", "the first sense wins")
+        XCTAssertEqual(Gloss.short(definition: "cabin — a small house"), "cabin")
+        XCTAssertEqual(Gloss.short(definition: "Ελληνικά, με τόνους"), "Ελληνικά, με τόνους", "kept as written")
+
+        // Nothing to show: the planners skip such a word (rule 4).
+        XCTAssertEqual(Gloss.short(definition: ""), "")
+        XCTAssertEqual(Gloss.short(definition: "  \n\t\n "), "")
+        XCTAssertEqual(Gloss.short(definition: "**noun**"), "", "a header alone")
+        XCTAssertEqual(Gloss.short(definition: "*\"only an example\"*"), "", "an example alone")
+    }
+
+    /// Over 80 characters: cut at the last space or comma within 80, with
+    /// "…" and no dangling comma or semicolon; no space at all: 80
+    /// characters and "…". Characters, not bytes.
+    func testCutAtEightyCharacters() {
+        let eighty = String(repeating: "a", count: 80)
+        XCTAssertEqual(Gloss.short(definition: eighty), eighty, "80 characters stay whole")
+        XCTAssertEqual(Gloss.short(definition: eighty + "b"), eighty + "…", "no space: cut at 80")
+
+        let water = "binary compound that occurs at room temperature as a clear colorless odorless tasteless liquid; "
+            + "freezes into ice below 0 degrees centigrade"
+        XCTAssertEqual(Gloss.short(definition: "**noun**\n1. " + water),
+                       "binary compound that occurs at room temperature as a clear colorless odorless…", "WordNet's water")
+
+        let comma = String(repeating: "x", count: 70) + ", " + String(repeating: "y", count: 20)
+        XCTAssertEqual(Gloss.short(definition: comma), String(repeating: "x", count: 70) + "…", "no dangling comma")
+        let semicolon = String(repeating: "x", count: 75) + "; " + String(repeating: "y", count: 20)
+        XCTAssertEqual(Gloss.short(definition: semicolon), String(repeating: "x", count: 75) + "…", "no dangling semicolon")
+
+        let greek = String(repeating: "αβγδ ", count: 17)   // 85 characters, 170 UTF-8 bytes of letters
+        let cut = Gloss.short(definition: greek)
+        XCTAssertEqual(cut, String(repeating: "αβγδ ", count: 16).trimmingCharacters(in: .whitespaces) + "…")
+        XCTAssertLessThanOrEqual(cut.count, Gloss.maxLength + 1)
+        XCTAssertEqual(Gloss.maxLength, 80)
+    }
+
+    /// `listMeaning`: a translation in the meanings language or an import's
+    /// (`""`); another language's gives nil; no pair takes any.
+    func testListMeaningOnlyInTheMeaningsLanguage() {
+        XCTAssertEqual(Gloss.listMeaning(translation: "write", translationLang: "eng", meaningsLang: "eng"), "write")
+        XCTAssertNil(Gloss.listMeaning(translation: "write", translationLang: "eng", meaningsLang: "rus"),
+                     "Kirill's English never shows via Russian with Russian meanings")
+        XCTAssertNil(Gloss.listMeaning(translation: "писать", translationLang: "rus", meaningsLang: "eng"))
+        XCTAssertEqual(Gloss.listMeaning(translation: "joy", translationLang: "", meaningsLang: "rus"), "joy",
+                       "an import's translation shows in every pair")
+        XCTAssertEqual(Gloss.listMeaning(translation: "joy", translationLang: "", meaningsLang: "spa"), "joy")
+        XCTAssertEqual(Gloss.listMeaning(translation: "write", translationLang: "eng", meaningsLang: nil), "write",
+                       "Other has no pair: any translation")
+        XCTAssertEqual(Gloss.listMeaning(translation: "  write \n", translationLang: "eng", meaningsLang: "eng"), "write",
+                       "trimmed")
+        XCTAssertNil(Gloss.listMeaning(translation: "", translationLang: "eng", meaningsLang: "eng"), "empty: a dictionary's")
+        XCTAssertNil(Gloss.listMeaning(translation: " \t", translationLang: "", meaningsLang: nil), "blank: a dictionary's")
+    }
+}
+
+/// `AnswerChecker`: strict, lenient and the folding rules (0131, "Typed
+/// answers" and "Questions and answers").
+final class AnswerCheckerTests: XCTestCase {
+    private func check(_ typed: String, _ expected: String, lang: String = "ell", _ mode: AnswerMode) -> Outcome {
+        AnswerChecker.check(typed, expected: expected, lang: lang, mode: mode)
+    }
+
+    private func grade(_ typed: String, _ expected: String, lang: String = "ell", _ mode: AnswerMode) -> TypedGrade {
+        AnswerChecker.grade(typed, expected: expected, lang: lang, mode: mode)
+    }
+
+    private let rightGrade = TypedGrade(outcome: .right, mindTheAccent: false)
+    private let wrongGrade = TypedGrade(outcome: .wrong, mindTheAccent: false)
+    private let accentWrong = TypedGrade(outcome: .wrong, mindTheAccent: true)
+    private let accentRight = TypedGrade(outcome: .accent, mindTheAccent: true)
+
+    /// 0131's table, Strict accents: only the accents off is wrong, with
+    /// "Mind the accent".
+    func testStrictNeedsTheAccent() {
+        for typed in ["γράφω", "Γράφω", " γράφω "] {
+            XCTAssertEqual(grade(typed, "γράφω", .strict), rightGrade, typed)
+        }
+        XCTAssertEqual(grade("γραφω", "γράφω", .strict), accentWrong, "Mind the accent: γράφω")
+        XCTAssertEqual(grade("γραφώ", "γράφω", .strict), accentWrong, "an accent on the wrong vowel")
+        XCTAssertEqual(grade("προυπόθεση", "προϋπόθεση", .strict), accentWrong, "the dialytika is an accent")
+        XCTAssertEqual(grade("το σπίτι", "σπίτι", .strict), rightGrade)
+        XCTAssertEqual(grade("γράφεις", "γράφω", .strict), wrongGrade, "another form, no hint")
+    }
+
+    /// 0131's table, Lenient: the accents off is right (`accent`), with the
+    /// hint. Multiple choice grades a typed answer the same way.
+    func testLenientWarnsOnAccent() {
+        for typed in ["γράφω", "Γράφω", " γράφω "] {
+            XCTAssertEqual(grade(typed, "γράφω", .lenient), rightGrade, typed)
+        }
+        XCTAssertEqual(grade("γραφω", "γράφω", .lenient), accentRight, "right, with Mind the accent: γράφω")
+        XCTAssertTrue(Outcome.accent.isRight, "accent counts as right")
+        XCTAssertEqual(grade("το σπίτι", "σπίτι", .lenient), rightGrade)
+        XCTAssertEqual(grade("γράφεις", "γράφω", .lenient), wrongGrade)
+        XCTAssertEqual(grade("γραφεις", "γράφω", .lenient), wrongGrade, "folding does not make another form right")
+        XCTAssertEqual(grade("γραφω", "γράφω", .choice), accentRight, "Multiple choice falls back to lenient")
+    }
+
+    /// Case, extra spaces, trailing punctuation and the final sigma never
+    /// count, not even in Strict.
+    func testCaseSpacesAndFinalSigmaNeverCount() {
+        let right: [(typed: String, expected: String)] = [
+            ("ΓΡΆΦΩ", "γράφω"),
+            ("\tγράφω  \n", "γράφω"),
+            ("ένα    σωρό", "ένα σωρό"),
+            ("καλόσ", "καλός"),
+            ("ΚΑΛΌΣ", "καλός"),
+            ("καλός", "καλόσ"),
+            ("ςπίτι", "σπίτι"),
+            ("καλόσ καιρόσ", "καλός καιρός"),
+            ("γράφω.", "γράφω"),
+            ("γράφω!", "γράφω"),
+            ("γράφω?", "γράφω"),
+            ("γράφω;", "γράφω"),
+            ("γράφω\u{037E}", "γράφω"),
+            ("καλόσ.", "καλός"),
+            ("γρα\u{0301}φω", "γράφω"),
+        ]
+        for (typed, expected) in right {
+            XCTAssertEqual(check(typed, expected, .strict), .right, "\(typed) for \(expected)")
+        }
+        XCTAssertEqual(AnswerChecker.normalize("  ΚΑΛΌΣ   ΚΑΙΡΌΣ! ", lang: "ell"), "καλός καιρός")
+        XCTAssertEqual(check("γράφωω", "γράφω", .lenient), .wrong, "a typo is wrong: no typo tolerance")
+    }
+
+    /// One leading article of the word's language, followed by a word, is
+    /// dropped on both sides: ell ο, η, το, οι, τα; eng the, a, an, to; spa
+    /// el, la, los, las, un, una.
+    func testLeadingArticleIgnored() {
+        for article in ["ο", "η", "το", "οι", "τα", "Το"] {
+            XCTAssertEqual(check("\(article) σπίτι", "σπίτι", .strict), .right, article)
+        }
+        XCTAssertEqual(check("σπίτι", "το σπίτι", .strict), .right, "the term's own article too")
+        for (typed, expected) in [("the house", "house"), ("a house", "house"), ("an apple", "apple"),
+                                  ("to write", "write"), ("write", "to write"), ("The House", "house")] {
+            XCTAssertEqual(check(typed, expected, lang: "eng", .strict), .right, "\(typed) for \(expected)")
+        }
+        for article in ["el", "la", "los", "las", "un", "una"] {
+            XCTAssertEqual(check("\(article) casa", "casa", lang: "spa", .strict), .right, article)
+        }
+
+        XCTAssertEqual(check("the the house", "house", lang: "eng", .lenient), .wrong, "one article only")
+        XCTAssertEqual(check("la casa", "casa", lang: "eng", .lenient), .wrong, "only the word's language's articles")
+        XCTAssertEqual(check("το σπίτι", "σπίτι", lang: "spa", .lenient), .wrong)
+        XCTAssertEqual(check("house the", "house", lang: "eng", .lenient), .wrong, "only a leading article")
+        XCTAssertEqual(check("theater", "ater", lang: "eng", .lenient), .wrong, "an article is a whole word")
+    }
+
+    /// `(ένα) σωρό`: σωρό or ένα σωρό, anywhere in the term, several parts.
+    func testParenthesisedPartIsOptional() {
+        XCTAssertEqual(check("σωρό", "(ένα) σωρό", .strict), .right)
+        XCTAssertEqual(check("ένα σωρό", "(ένα) σωρό", .strict), .right)
+        XCTAssertEqual(check("ένα", "(ένα) σωρό", .lenient), .wrong, "the required part is required")
+        XCTAssertEqual(grade("σωρο", "(ένα) σωρό", .lenient), accentRight)
+        XCTAssertEqual(grade("ενα σωρο", "(ένα) σωρό", .strict), accentWrong)
+        XCTAssertEqual(check("κάνω λάθος", "κάνω (ένα) λάθος", .strict), .right, "in the middle")
+        XCTAssertEqual(check("κάνω ένα λάθος", "κάνω (ένα) λάθος", .strict), .right)
+        XCTAssertEqual(check("look", "look (at)", lang: "eng", .strict), .right, "at the end")
+        XCTAssertEqual(check("look at", "look (at)", lang: "eng", .strict), .right)
+
+        let forms = Set(AnswerChecker.expectedForms("(ξ) ψ (ω)").map { AnswerChecker.normalize($0, lang: "ell") })
+        XCTAssertEqual(forms, ["ξ ψ ω", "ξ ψ", "ψ ω", "ψ"], "each part optional on its own")
+        XCTAssertEqual(AnswerChecker.expectedForms("σωρό"), ["σωρό"])
+        XCTAssertEqual(AnswerChecker.expectedForms("a (b"), ["a (b"], "an unclosed parenthesis is text")
+    }
+
+    /// Arabic: harakat and the tatweel fold away, like Greek accents.
+    func testArabicHarakatFold() {
+        let vocalised = "كِتَاب", bare = "كتاب"
+        XCTAssertEqual(AnswerChecker.fold(vocalised, lang: "arb"), bare)
+        XCTAssertEqual(AnswerChecker.fold("كتـــاب", lang: "arb"), bare, "the tatweel goes")
+        XCTAssertEqual(AnswerChecker.fold("مُدَرِّس", lang: "arb"), "مدرس", "the shadda goes")
+        XCTAssertEqual(grade(vocalised, vocalised, lang: "arb", .strict), rightGrade)
+        XCTAssertEqual(grade(bare, vocalised, lang: "arb", .strict), accentWrong)
+        XCTAssertEqual(grade(bare, vocalised, lang: "arb", .lenient), accentRight)
+        XCTAssertEqual(grade(vocalised, bare, lang: "arb", .lenient), accentRight, "either way round")
+        XCTAssertEqual(grade("كتـــاب", bare, lang: "arb", .lenient), accentRight)
+        XCTAssertEqual(grade("قلم", bare, lang: "arb", .lenient), wrongGrade)
+    }
+
+    /// Spanish: acute accents, ñ and ü fold like Greek accents; NFD input
+    /// is the same word.
+    func testSpanishAccentsFold() {
+        XCTAssertEqual(grade("arbol", "árbol", lang: "spa", .strict), accentWrong)
+        XCTAssertEqual(grade("arbol", "árbol", lang: "spa", .lenient), accentRight)
+        XCTAssertEqual(grade("nino", "niño", lang: "spa", .lenient), accentRight)
+        XCTAssertEqual(grade("pinguino", "pingüino", lang: "spa", .lenient), accentRight)
+        XCTAssertEqual(grade("El Árbol", "árbol", lang: "spa", .strict), rightGrade)
+        XCTAssertEqual(grade("a\u{0301}rbol", "árbol", lang: "spa", .strict), rightGrade, "NFD is NFC")
+        XCTAssertEqual(grade("arboles", "árbol", lang: "spa", .lenient), wrongGrade)
+    }
+
+    /// An answer that is empty after trimming is wrong in every mode, also
+    /// when the expected word is an article.
+    func testEmptyIsWrong() {
+        for mode in AnswerMode.allCases {
+            for typed in ["", " ", "\n\t", ".", " ?! "] {
+                XCTAssertEqual(grade(typed, "γράφω", mode), wrongGrade, "\(mode) '\(typed)'")
+                XCTAssertEqual(grade(typed, "the", lang: "eng", mode), wrongGrade, "\(mode) '\(typed)' for the")
+                XCTAssertEqual(grade(typed, "το", mode), wrongGrade, "\(mode) '\(typed)' for το")
+            }
+        }
+        XCTAssertEqual(grade("γράφω", "", .lenient), wrongGrade, "nothing expected: never right")
+        XCTAssertEqual(grade("", "", .lenient), wrongGrade)
+    }
+
+    /// A lone article is a word: the list words `the`, `a`, `to` are typed
+    /// as written, and an article alone never answers another word.
+    func testLoneArticleIsAWord() {
+        XCTAssertEqual(check("the", "the", lang: "eng", .strict), .right)
+        XCTAssertEqual(check("The", "the", lang: "eng", .strict), .right)
+        XCTAssertEqual(check("a", "the", lang: "eng", .lenient), .wrong)
+        XCTAssertEqual(check("a", "a", lang: "eng", .strict), .right)
+        XCTAssertEqual(check("an", "a", lang: "eng", .lenient), .wrong)
+        XCTAssertEqual(check("to", "to", lang: "eng", .strict), .right)
+        XCTAssertEqual(check("το", "σπίτι", .lenient), .wrong, "an article for σπίτι")
+        XCTAssertEqual(check("το", "το", .strict), .right)
+        XCTAssertEqual(check("the house", "the", lang: "eng", .lenient), .wrong)
+    }
+}
+
+/// `DistractorPicker`: preference order and the drop rules.
+final class DistractorPickerTests: XCTestCase {
+    private let a1 = "ky-ell-a1"
+
+    private func choice(_ word: String, _ meaning: String, pos: String = "verb", list: String? = nil,
+                        enrolled: Bool = true, lang: String = "ell") -> WordChoice {
+        WordChoice(key: WordKey(lang: lang, word: word), term: word, meaning: meaning, partOfSpeech: pos, listID: list,
+                   isEnrolled: enrolled)
+    }
+
+    private func pick(_ word: WordChoice, _ candidates: [WordChoice], count: Int = 3, seed: UInt64) -> [WordChoice] {
+        var rng = SplitMix64(seed: seed)
+        return DistractorPicker.pick(for: word, candidates: candidates, count: count, rng: &rng)
+    }
+
+    /// The word's own list first, then the other enrolled words, then the
+    /// source sample; in each, the same primary part of speech first.
+    func testSameListAndPartOfSpeechFirst() {
+        let word = choice("γράφω", "write", list: a1)
+        let candidates = [
+            choice("τρώω", "eat", enrolled: false),                        // the sample, same POS
+            choice("πίνω", "drink"),                                        // enrolled, same POS
+            choice("νερό", "water", pos: "noun"),                           // enrolled, another POS
+            choice("σπίτι", "house", pos: "noun", list: a1),                // its list, another POS
+            choice("τρέχω", "run", list: a1),                               // its list, same POS
+            choice("διαβάζω", "read", pos: "Verb, noun", list: a1),         // its list, same primary POS
+            choice("ζω", "live", list: "ky-ell-a2"),                        // another list: enrolled, same POS
+            choice("όμορφος", "beautiful", pos: "adjective", enrolled: false), // the sample, another POS
+        ]
+        for seed in UInt64(0)..<40 {
+            XCTAssertEqual(Set(pick(word, candidates, seed: seed).map(\.term)), ["τρέχω", "διαβάζω", "σπίτι"], "seed \(seed)")
+            let all = pick(word, candidates, count: 8, seed: seed).map(\.term)
+            XCTAssertEqual(Set(all.prefix(2)), ["τρέχω", "διαβάζω"], "seed \(seed)")
+            XCTAssertEqual(all[2], "σπίτι")
+            XCTAssertEqual(Set(all[3...4]), ["πίνω", "ζω"])
+            XCTAssertEqual(Array(all.suffix(3)), ["νερό", "τρώω", "όμορφος"])
+        }
+        // A My words word has no list: the enrolled words come first.
+        let mine = choice("γράφω", "write")
+        for seed in UInt64(0)..<10 {
+            let picked = Set(pick(mine, candidates, seed: seed).map(\.term))
+            XCTAssertEqual(picked.count, 3)
+            XCTAssertTrue(picked.isSubset(of: ["πίνω", "ζω", "τρέχω", "διαβάζω"]), "enrolled verbs: \(picked)")
+        }
+
+        // Parts of speech as #144 maps them.
+        XCTAssertEqual(DistractorPicker.primaryPOS("adjective satellite, noun"), "adj")
+        XCTAssertEqual(DistractorPicker.primaryPOS("Adjective"), "adj")
+        XCTAssertEqual(DistractorPicker.primaryPOS("noun, verb"), "noun")
+        XCTAssertEqual(DistractorPicker.primaryPOS(" verb "), "verb")
+        XCTAssertEqual(DistractorPicker.primaryPOS(""), "")
+        XCTAssertEqual(DistractorPicker.primaryPOS("adverb"), "adverb", "an unmapped label compares as written")
+        let good = choice("καλός", "good", pos: "adjective")
+        let sample = [choice("τρέχω", "run", enrolled: false),
+                      choice("ωραίος", "nice", pos: "adjective satellite", enrolled: false)]
+        for seed in UInt64(0)..<10 {
+            XCTAssertEqual(pick(good, sample, count: 1, seed: seed).map(\.term), ["ωραίος"], "an adjective satellite is an adjective")
+        }
+    }
+
+    /// No two options fold alike: a candidate spelled like the word or like
+    /// an option taken, but for case and accents, is dropped, and so is the
+    /// word itself.
+    func testNoOptionFoldsLikeAnother() {
+        let word = choice("γράφω", "write")
+        let candidates = [
+            choice("γραφω", "scribble"), choice("ΓΡΑΦΩ", "inscribe"),   // the word, folded
+            choice("καλός", "good"), choice("καλος", "fine"),           // each other, folded
+            choice("νερό", "water"),
+            choice("γράφω", "write again"),                             // the word itself
+        ]
+        for seed in UInt64(0)..<40 {
+            let picked = pick(word, candidates, seed: seed)
+            let folded = picked.map { AnswerChecker.fold($0.term, lang: "ell") }
+            XCTAssertEqual(picked.count, 2, "νερό and one of καλός, καλος (seed \(seed))")
+            XCTAssertEqual(Set(folded), ["νερο", "καλοσ"])
+            XCTAssertFalse(picked.contains { $0.key == word.key })
+        }
+        // Meanings that fold alike: English via Greek, where meanings are Greek.
+        let house = choice("house", "σπίτι", pos: "noun", lang: "eng")
+        let options = pick(house, [choice("home", "Σπιτι", pos: "noun", lang: "eng"),
+                                   choice("water", "νερό", pos: "noun", lang: "eng"),
+                                   choice("sea", "ΝΕΡΟ.", pos: "noun", lang: "eng")], seed: 3)
+        XCTAssertEqual(options.count, 1, "σπίτι folds like the answer, ΝΕΡΟ. like νερό")
+        XCTAssertEqual(options.map { AnswerChecker.fold($0.meaning, lang: "") }, ["νερο"])
+    }
+
+    /// A candidate sharing a comma-separated part of its meaning with the
+    /// right meaning or an option taken is dropped: "house, home" and
+    /// "home, place" never stand side by side.
+    func testSharedMeaningPartIsExcluded() {
+        let word = choice("σπίτι", "house, home", pos: "noun")
+        let candidates = [
+            choice("κατοικία", "home, place", pos: "noun"),
+            choice("οίκος", " House ", pos: "noun"),
+            choice("νερό", "water", pos: "noun"),
+            choice("θάλασσα", "sea, Water", pos: "noun"),
+            choice("δρόμος", "road, street", pos: "noun"),
+            choice("πόλη", "city", pos: "noun"),
+            choice("χωρίς", "", pos: "noun"),
+        ]
+        for seed in UInt64(0)..<40 {
+            let picked = pick(word, candidates, seed: seed)
+            XCTAssertEqual(picked.count, 3, "seed \(seed)")
+            let terms = Set(picked.map(\.term))
+            XCTAssertTrue(terms.isDisjoint(with: ["κατοικία", "οίκος", "χωρίς"]), "\(terms)")
+            XCTAssertFalse(terms.isSuperset(of: ["νερό", "θάλασσα"]), "options never share a part")
+            let parts = ([word] + picked).map { DistractorPicker.meaningParts($0.meaning) }
+            for (i, a) in parts.enumerated() {
+                for b in parts[(i + 1)...] { XCTAssertTrue(a.isDisjoint(with: b), "\(a) and \(b)") }
+            }
+        }
+        XCTAssertEqual(DistractorPicker.meaningParts("house, Home ,  dwelling."), ["house", "home", "dwelling"])
+        XCTAssertEqual(DistractorPicker.meaningParts(" , "), [])
+        XCTAssertEqual(DistractorPicker.meaningParts(""), [])
+    }
+
+    /// Too few enrolled candidates: the source sample fills the options,
+    /// after every usable enrolled word.
+    func testFallsBackToTheSourceSample() {
+        let word = choice("γράφω", "write")
+        let enrolled = [choice("τρέχω", "run"), choice("πίνω", "drink, write")]   // πίνω shares "write"
+        let sample = (0..<10).map { choice("ρήμα\($0)", "verb \($0)", enrolled: false) }
+        for seed in UInt64(0)..<20 {
+            let picked = pick(word, enrolled + sample, seed: seed)
+            XCTAssertEqual(picked.count, 3)
+            XCTAssertEqual(picked.first?.term, "τρέχω", "the enrolled word first (seed \(seed))")
+            XCTAssertEqual(picked.filter { !$0.isEnrolled }.count, 2, "then the sample")
+        }
+        // Enough enrolled words: no sample.
+        let more = (0..<5).map { choice("λέξη\($0)", "word \($0)") }
+        XCTAssertTrue(pick(word, more + sample, seed: 9).allSatisfy(\.isEnrolled))
+    }
+
+    /// Fewer than 3 options left: the question shows what there is; none:
+    /// a production card is typed and a recognition card is skipped.
+    func testNoCandidatesTypesOrSkips() {
+        let today = LearningFixture.today
+        let word = choice("γράφω", "write")
+        let recognition = LearningFixture.card(.recognition, step: 2, due: today, last: today.adding(days: -3))
+        let newProduction = LearningFixture.card(.production)
+        func build(_ card: CardState, _ word: WordChoice, _ candidates: [WordChoice],
+                   mode: AnswerMode = .lenient) -> Question? {
+            var rng = SplitMix64(seed: 5)
+            return QuestionBuilder.build(card: card, word: word, candidates: candidates, mode: mode, meaningsLang: "eng",
+                                         rng: &rng)
+        }
+        XCTAssertNil(build(recognition, word, []), "no other option: the recognition card is skipped")
+        XCTAssertNil(build(recognition, word, [choice("γραφω", "scribble"), choice("πίνω", "write")]),
+                     "candidates that all drop are none")
+
+        for (card, mode) in [(newProduction, AnswerMode.lenient), (LearningFixture.card(.production, step: 3), .choice)] {
+            let typed = build(card, word, [])
+            XCTAssertEqual(typed?.input, .typed, "\(mode): no option, so a field")
+            XCTAssertEqual(typed?.options, [])
+            XCTAssertNil(typed?.rightIndex)
+            XCTAssertEqual(typed?.exercise, .productionTyped)
+        }
+
+        let two = build(recognition, word, [choice("νερό", "water")])
+        XCTAssertEqual(two?.input, .choice, "one other option: a choice of two")
+        XCTAssertEqual(two?.options.count, 2)
+
+        let plenty = (0..<6).map { choice("λέξη\($0)", "word \($0)") }
+        let noMeaning = choice("άγνωστο", "")
+        XCTAssertNil(build(recognition, noMeaning, plenty), "a word without a meaning is never asked")
+        XCTAssertNil(build(newProduction, noMeaning, plenty))
+        XCTAssertNil(build(LearningFixture.card(.conjugation), word, plenty), "a conjugation card is not E4's")
+    }
+
+    /// The seed fixes the options and their order (`-learningSeed`); the
+    /// generator is SplitMix64.
+    func testSameSeedSameOptions() {
+        var reference = SplitMix64(seed: 0)
+        XCTAssertEqual([reference.next(), reference.next(), reference.next()],
+                       [0xE220_A839_7B1D_CDAF, 0x6E78_9E6A_A1B9_65F4, 0x06C4_5D18_8009_454F], "SplitMix64's reference values")
+
+        let word = choice("γράφω", "write")
+        let candidates = (0..<12).map { choice("λ\($0)", "meaning \($0)") }
+        let card = LearningFixture.card(.recognition, step: 1, due: LearningFixture.today, last: LearningFixture.today)
+        func question(_ seed: UInt64) -> Question? {
+            var rng = SplitMix64(seed: seed)
+            return QuestionBuilder.build(card: card, word: word, candidates: candidates, mode: .lenient, meaningsLang: "eng",
+                                         rng: &rng)
+        }
+        XCTAssertNotNil(question(159))
+        XCTAssertEqual(question(159), question(159))
+        let variants = Set((UInt64(0)..<20).compactMap { question($0)?.options.map(\.text) })
+        XCTAssertGreaterThan(variants.count, 10, "other seeds, other options or orders")
+    }
+}
+
+/// `QuestionBuilder`: choice or typed by rung and answer mode.
+final class QuestionBuilderTests: XCTestCase {
+    private let today = LearningFixture.today
+    private let word = WordChoice(key: LearningFixture.grafo, term: "γράφω", endings: "-εις", meaning: "write",
+                                  partOfSpeech: "verb")
+    private let candidates = [("τρέχω", "run"), ("πίνω", "drink"), ("νερό", "water"), ("σπίτι", "house"), ("καλός", "good")]
+        .map { WordChoice(key: WordKey(lang: "ell", word: $0.0), term: $0.0, endings: "-ος", meaning: $0.1, partOfSpeech: "verb") }
+
+    private func card(_ kind: CardKind, step: Int, answered: Bool = true) -> CardState {
+        LearningFixture.card(kind, step: step, due: today, last: answered ? today.adding(days: -1) : nil)
+    }
+
+    private func build(_ card: CardState, mode: AnswerMode, seed: UInt64 = 1, meaningsLang: String? = "eng") -> Question? {
+        var rng = SplitMix64(seed: seed)
+        return QuestionBuilder.build(card: card, word: word, candidates: candidates, mode: mode, meaningsLang: meaningsLang,
+                                     rng: &rng)
+    }
+
+    /// Multiple choice: every card of both kinds on every rung is a choice
+    /// of four.
+    func testChoiceModeNeverTypes() throws {
+        for step in 0...6 {
+            for kind in CardKind.wordKinds {
+                let question = try XCTUnwrap(build(card(kind, step: step), mode: .choice), "\(kind) on rung \(step)")
+                XCTAssertTrue(QuestionBuilder.wantsChoice(question.card, mode: .choice))
+                XCTAssertEqual(question.input, .choice, "\(kind) on rung \(step)")
+                XCTAssertEqual(question.options.count, 4)
+                XCTAssertEqual(question.exercise, kind == .recognition ? .recognition : .productionChoice)
+            }
+        }
+    }
+
+    /// Production on rung 0, new or learning, is a choice in every mode;
+    /// the new card's question carries the "New word" badge.
+    func testNewProductionIsAChoice() throws {
+        for mode in AnswerMode.allCases {
+            let new = try XCTUnwrap(build(card(.production, step: 0, answered: false), mode: mode))
+            XCTAssertEqual(new.input, .choice, "\(mode)")
+            XCTAssertEqual(new.exercise, .productionChoice)
+            XCTAssertTrue(new.isNew, "the first question of a card: New word")
+            let learning = try XCTUnwrap(build(card(.production, step: 0), mode: mode))
+            XCTAssertEqual(learning.input, .choice, "\(mode): back to learning")
+            XCTAssertFalse(learning.isNew)
+        }
+    }
+
+    /// Strict and Lenient: production on rung 1 or higher is typed;
+    /// recognition stays a choice.
+    func testFamiliarProductionIsTypedInStrictAndLenient() throws {
+        for mode in [AnswerMode.strict, .lenient] {
+            for step in 1...6 {
+                let typed = try XCTUnwrap(build(card(.production, step: step), mode: mode))
+                XCTAssertFalse(QuestionBuilder.wantsChoice(typed.card, mode: mode))
+                XCTAssertEqual(typed.input, .typed, "\(mode), rung \(step)")
+                XCTAssertEqual(typed.options, [])
+                XCTAssertNil(typed.rightIndex)
+                XCTAssertEqual(typed.exercise, .productionTyped)
+                XCTAssertEqual(typed.prompt, "write")
+                XCTAssertEqual(typed.rightAnswer, "γράφω", "the word without its endings")
+                let recognition = try XCTUnwrap(build(card(.recognition, step: step), mode: mode))
+                XCTAssertEqual(recognition.input, .choice)
+                XCTAssertEqual(recognition.exercise, .recognition)
+            }
+        }
+    }
+
+    /// The right option is the meaning (recognition) or the word with its
+    /// endings (production), at every place in turn over the seeds.
+    func testRightIndexPointsAtTheAnswer() throws {
+        var places = Set<Int>()
+        for seed in UInt64(0)..<40 {
+            let recognition = try XCTUnwrap(build(card(.recognition, step: 2), mode: .lenient, seed: seed))
+            let right = try XCTUnwrap(recognition.rightIndex)
+            XCTAssertEqual(recognition.options[right], Question.Option(text: "write"), "seed \(seed)")
+            XCTAssertEqual(recognition.rightAnswer, "write")
+            XCTAssertEqual(Set(recognition.options.map(\.text)).count, 4, "four different options")
+            XCTAssertTrue(recognition.options.allSatisfy { $0.endings.isEmpty }, "meanings have no endings")
+            places.insert(right)
+
+            let production = try XCTUnwrap(build(card(.production, step: 0, answered: false), mode: .lenient, seed: seed))
+            let index = try XCTUnwrap(production.rightIndex)
+            XCTAssertEqual(production.options[index], Question.Option(text: "γράφω", endings: "-εις"))
+            XCTAssertEqual(production.rightAnswer, "γράφω")
+            XCTAssertTrue(production.options.allSatisfy { !$0.endings.isEmpty }, "words with their endings")
+        }
+        XCTAssertEqual(places, [0, 1, 2, 3], "the right option takes every place")
+    }
+
+    /// Recognition: options in the meanings language; production: the
+    /// prompt in it. Greek via Russian, limited: English; Other: none.
+    func testMeaningsAreInTheMeaningsLanguage() throws {
+        let recognition = try XCTUnwrap(build(card(.recognition, step: 1), mode: .lenient, meaningsLang: "spa"))
+        XCTAssertEqual(recognition.prompt, "γράφω")
+        XCTAssertEqual(recognition.promptEndings, "-εις")
+        XCTAssertEqual(recognition.promptLanguage, "ell")
+        XCTAssertEqual(recognition.optionLanguage, "spa")
+        XCTAssertEqual(recognition.meaningsLang, "spa")
+
+        let production = try XCTUnwrap(build(card(.production, step: 0), mode: .lenient, meaningsLang: "spa"))
+        XCTAssertEqual(production.prompt, "write")
+        XCTAssertEqual(production.promptEndings, "")
+        XCTAssertEqual(production.promptLanguage, "spa")
+        XCTAssertEqual(production.optionLanguage, "ell")
+
+        let limited = LearningPair(lang: "ell", via: "rus", meaningsLang: "eng")
+        let viaRussian = try XCTUnwrap(build(card(.recognition, step: 1), mode: .lenient, meaningsLang: limited.meaningsLang))
+        XCTAssertEqual(viaRussian.optionLanguage, "eng", "Greek via Russian: English meanings")
+
+        let other = try XCTUnwrap(build(card(.production, step: 0), mode: .lenient, meaningsLang: nil))
+        XCTAssertNil(other.promptLanguage, "Other: no pair, the UI language's voice")
+        XCTAssertNil(other.meaningsLang)
+    }
+}
+
+/// `SessionPlanner.trainer` and `requeue`.
+final class TrainerPlannerTests: XCTestCase {
+    private let today = LearningFixture.today
+
+    private func key(_ word: String) -> WordKey { WordKey(lang: "ell", word: word) }
+
+    private func card(_ word: String, _ kind: CardKind = .recognition, step: Int, suspended: Bool = false) -> CardState {
+        LearningFixture.card(kind, word: key(word), step: step, due: today, last: today.adding(days: -1),
+                             suspended: suspended)
+    }
+
+    private func newWord(_ word: String) -> LearnWord {
+        LearnWord(key: key(word), term: word, endings: "", partOfSpeech: "", translation: "", translationLang: "",
+                  entry: nil, listID: nil, introducedDay: nil)
+    }
+
+    /// Due cards, then the new words' cards (new, due today), then
+    /// practice; each card once; paused cards never.
+    func testDueThenNewThenPractice() {
+        let due = [card("α", step: 2), card("β", step: 1)]
+        let practice = [card("γ", step: 0), card("α", step: 2), card("δ", step: 3, suspended: true), card("ε", step: 4)]
+        let plan = SessionPlanner.trainer(kind: .recognition, due: due, newWords: [newWord("ν")], practice: practice,
+                                          today: today)
+        XCTAssertEqual(plan.map(\.card.key.word.word), ["α", "β", "ν", "γ", "ε"], "α once; the paused δ never")
+        XCTAssertEqual(plan[2].card, CardState(key: CardKey(word: key("ν"), kind: .recognition), step: 0, dueDay: today,
+                                               lastDay: nil))
+        XCTAssertTrue(plan[2].card.isNew, "a new word's card is new")
+        XCTAssertTrue(plan.allSatisfy { !$0.isRetry })
+        XCTAssertEqual(Array(plan.prefix(2).map(\.card)), due, "due cards as read, first")
+
+        XCTAssertEqual(SessionPlanner.trainer(kind: .production, due: [], newWords: [], practice: [], today: today), [],
+                       "nothing to ask: an empty plan")
+    }
+
+    /// At most 10 items, all of the trainer's own kind.
+    func testTenItemsOfOneKind() {
+        XCTAssertEqual(SessionPlanner.trainerLength, 10)
+        let words = (0..<12).map { "w\($0)" }
+        let due = words.flatMap { [card($0, .recognition, step: 1), card($0, .production, step: 1)] }
+            + [LearningFixture.card(.conjugation, word: key("w0"), step: 1, due: today, last: today)]
+        for kind in CardKind.wordKinds {
+            let plan = SessionPlanner.trainer(kind: kind, due: due, newWords: words.map(newWord), practice: due, today: today)
+            XCTAssertEqual(plan.count, 10, "\(kind)")
+            XCTAssertTrue(plan.allSatisfy { $0.card.key.kind == kind }, "\(kind) only")
+            XCTAssertEqual(plan.map(\.card.key.word.word), Array(words.prefix(10)))
+            XCTAssertEqual(Set(plan.map(\.card.key)).count, 10, "each card once")
+        }
+        let few = SessionPlanner.trainer(kind: .production, due: Array(due.prefix(6)), newWords: [], practice: [], today: today)
+        XCTAssertEqual(few.map(\.card.key.word.word), ["w0", "w1", "w2"], "fewer than 10: all of them")
+        XCTAssertEqual(SessionPlanner.trainer(kind: .recognition, due: due, newWords: [], practice: [], today: today,
+                                              count: 4).count, 4)
+    }
+
+    /// A wrong item comes back once, at the end, as the answer left it.
+    func testWrongItemComesBackOnce() {
+        let plan = SessionPlanner.trainer(kind: .recognition, due: [card("α", step: 2), card("β", step: 1), card("γ", step: 3)],
+                                          newWords: [], practice: [], today: today)
+        let after = CardState(key: plan[1].card.key, step: 0, dueDay: today, lastDay: today)
+        let requeued = SessionPlanner.requeue(plan, wrongAt: 1, card: after)
+        XCTAssertEqual(requeued.count, 4)
+        XCTAssertEqual(Array(requeued.prefix(3)), plan, "the plan so far stays")
+        XCTAssertEqual(requeued[3], PlannedItem(card: after, isRetry: true))
+        XCTAssertEqual(SessionPlanner.requeue(requeued, wrongAt: 3, card: after), requeued, "wrong again: not a third time")
+        XCTAssertEqual(SessionPlanner.requeue(plan, wrongAt: 7, card: after), plan)
+        XCTAssertEqual(SessionPlanner.requeue(plan, wrongAt: -1, card: after), plan)
+    }
+}
+
+/// `FeedbackPlayer` follows the Sounds and Haptics settings; `TonePlayer`'s
+/// tones are valid WAV data.
+@MainActor
+final class FeedbackPlayerTests: XCTestCase {
+    func testSoundAndHapticsFollowTheSettings() {
+        let settings = SettingsService(store: InMemoryKeyValueStore())
+        let sink = RecordingFeedbackSink()
+        let player = FeedbackPlayer(settings: settings, sink: sink)
+        XCTAssertTrue(settings.learningSounds, "on by default")
+        XCTAssertTrue(settings.learningHaptics, "on by default")
+
+        player.play(.right)
+        player.play(.accent)
+        player.play(.wrong)
+        XCTAssertEqual(sink.played, [.right, .right, .wrong], "an accent answer sounds right")
+        XCTAssertEqual(player.haptic(for: .right), .success)
+        XCTAssertEqual(player.haptic(for: .accent), .success)
+        XCTAssertEqual(player.haptic(for: .wrong), .error)
+
+        settings.learningSounds = false
+        player.play(.right)
+        player.play(.wrong)
+        XCTAssertEqual(sink.played, [.right, .right, .wrong], "Sounds off: nothing plays")
+        XCTAssertEqual(player.haptic(for: .wrong), .error, "Haptics are a separate setting")
+
+        settings.learningHaptics = false
+        XCTAssertNil(player.haptic(for: .right), "Haptics off")
+        XCTAssertNil(player.haptic(for: .wrong))
+        settings.learningSounds = true
+        player.play(.wrong)
+        XCTAssertEqual(sink.played, [.right, .right, .wrong, .wrong], "Sounds on again")
+    }
+
+    /// 16-bit mono PCM at 44.1 kHz, 0.2 s each: right two rising notes,
+    /// wrong one low note; no click at the start; AVAudioPlayer reads them.
+    func testToneIsAValidWAV() throws {
+        func zeroCrossings(_ samples: ArraySlice<Int16>) -> Int {
+            var count = 0, last: Int16 = 0
+            for sample in samples where sample != 0 {
+                if last != 0, (sample > 0) != (last > 0) { count += 1 }
+                last = sample
+            }
+            return count
+        }
+        var crossings: [FeedbackSound: [Int]] = [:]
+        for sound in FeedbackSound.allCases {
+            let bytes = [UInt8](TonePlayer.wav(sound))
+            func u16(_ at: Int) -> UInt16 { UInt16(bytes[at]) | UInt16(bytes[at + 1]) << 8 }
+            func u32(_ at: Int) -> UInt32 { UInt32(u16(at)) | UInt32(u16(at + 2)) << 16 }
+            func text(_ range: Range<Int>) -> String { String(decoding: bytes[range], as: UTF8.self) }
+            XCTAssertEqual(text(0..<4), "RIFF")
+            XCTAssertEqual(Int(u32(4)), bytes.count - 8)
+            XCTAssertEqual(text(8..<16), "WAVEfmt ")
+            XCTAssertEqual(u32(16), 16)
+            XCTAssertEqual(u16(20), 1, "PCM")
+            XCTAssertEqual(u16(22), 1, "mono")
+            XCTAssertEqual(u32(24), 44_100)
+            XCTAssertEqual(u32(28), 88_200, "bytes per second")
+            XCTAssertEqual(u16(32), 2, "block align")
+            XCTAssertEqual(u16(34), 16, "bits per sample")
+            XCTAssertEqual(text(36..<40), "data")
+            XCTAssertEqual(Int(u32(40)), bytes.count - 44)
+
+            let samples = stride(from: 44, to: bytes.count, by: 2).map { Int16(bitPattern: u16($0)) }
+            XCTAssertEqual(samples.count, 8_820, "\(sound): 0.2 s")
+            let peak = samples.map { abs(Int($0)) }.max() ?? 0
+            XCTAssertGreaterThan(peak, 3_000, "\(sound) is audible")
+            XCTAssertLessThanOrEqual(peak, Int(0.3 * Double(Int16.max)) + 1, "\(sound): at 30 % volume")
+            XCTAssertLessThan(abs(Int(samples[0])), 50, "\(sound) starts silent: no click")
+            crossings[sound] = [zeroCrossings(samples[..<4_410]), zeroCrossings(samples[4_410...])]
+
+            let player = try AVAudioPlayer(data: TonePlayer.wav(sound))
+            XCTAssertEqual(player.duration, 0.2, accuracy: 0.01, "\(sound)")
+        }
+        let right = try XCTUnwrap(crossings[.right]), wrong = try XCTUnwrap(crossings[.wrong])
+        XCTAssertGreaterThan(right[1], right[0], "right: the second note is higher")
+        XCTAssertLessThan(wrong[0] + wrong[1], right[0], "wrong: one note, lower than right's first")
+        XCTAssertEqual(Double(wrong[0] + wrong[1]), 2 * 220 * 0.2, accuracy: 6, "wrong is an A3")
+    }
+}
+
+// MARK: Exercises on a database
+
+/// `ExerciseTestCase`'s dictionary: the six words of `-learningFixture due`
+/// in El–En · FD, as the bundled file writes them, γράφω in El–En · WN,
+/// house and water in the English dictionaries, and filler verbs and nouns
+/// for the source samples.
+enum ExerciseFixture {
+    static let fd = "freedict-ell-eng", wn = "wordnet-ell-eng", enEs = "freedict-eng-spa"
+    static let enEl = "freedict-eng-ell", wnEnEl = "wordnet-eng-ell", wordnet = "wordnet"
+    static let water = "binary compound that occurs at room temperature as a clear colorless odorless tasteless liquid"
+
+    static let rows: [TestDictionary.Row] = {
+        typealias R = TestDictionary.Row
+        var rows = [
+            R(word: "γράφω", normalized: "γραφω", definition: "**verb**\n1. write", pos: "verb", source: fd),
+            R(word: "σπίτι", normalized: "σπιτι", definition: "**noun**\n1. house, home, habitation\n2. home sweet home",
+              pos: "noun", source: fd),
+            R(word: "νερό", normalized: "νερο", definition: "**noun**\n1. water", pos: "noun", source: fd),
+            R(word: "καλός", normalized: "καλος", definition: "**adjective**\n1. good\n\n**noun**\n1. darling, sweetheart",
+              pos: "adjective, noun", source: fd),
+            R(word: "είμαι", normalized: "ειμαι", definition: "**verb**\n1. be, exist", pos: "verb", source: fd),
+            R(word: "βιβλίο", normalized: "βιβλιο", definition: "**noun**\n1. book", pos: "noun", source: fd),
+            R(word: "κενό", normalized: "κενο", definition: "**noun**", pos: "noun", source: fd),
+        ]
+        rows += (0..<24).map { R(word: "ρήμα\($0)", definition: "**verb**\n1. fdverb \($0)", pos: "verb", source: fd) }
+        rows += (0..<24).map { R(word: "ουσία\($0)", definition: "**noun**\n1. fdnoun \($0)", pos: "noun", source: fd) }
+        rows.append(R(word: "γράφω", normalized: "γραφω",
+                      definition: "**verb**\n1. read, say — have or contain a certain wording or form\n2. write — communicate",
+                      pos: "verb", source: wn))
+        rows += (0..<24).map { R(word: "wnρήμα\($0)", definition: "**verb**\n1. wnverb \($0) — a gloss", pos: "verb", source: wn) }
+        rows += [
+            R(word: "house", definition: "**noun**\n1. casalicio, casa\n2. casa", pos: "noun", source: enEs),
+            R(word: "water", definition: "**noun**\n1. agua, aguacha, linfa, wata", pos: "noun", source: enEs),
+        ]
+        rows += (0..<24).map { R(word: "esnoun\($0)", definition: "**noun**\n1. sustantivo \($0)", pos: "noun", source: enEs) }
+        rows += [
+            R(word: "house", definition: "1. σπίτι (το χτίριο), οίκος, στεγάζω", source: enEl),
+            R(word: "house", definition: "**noun**\n1. οικογένεια — a social unit living together", pos: "noun, verb", source: wnEnEl),
+            R(word: "house", definition: "**noun**\n1. a dwelling that serves as living quarters for one or more families  \n"
+              + "   *\"he has a house on Cape Cod\"*", pos: "noun, verb", source: wordnet),
+            R(word: "water", definition: "**noun**\n1. \(water)", pos: "noun, verb", source: wordnet),
+        ]
+        rows += (0..<24).map { R(word: "ennoun\($0)", definition: "**noun**\n1. a thing \($0)", pos: "noun", source: wordnet) }
+        return rows
+    }()
+
+    static let metadata = [
+        TestDictionary.Metadata(source: fd, displayName: "El–En · FD", fromLang: "ell", toLang: "eng"),
+        TestDictionary.Metadata(source: wn, displayName: "El–En · WN", fromLang: "ell", toLang: "eng"),
+        TestDictionary.Metadata(source: enEs, displayName: "En–Es · FD", fromLang: "eng", toLang: "spa"),
+        TestDictionary.Metadata(source: enEl, displayName: "En–El · FD", fromLang: "eng", toLang: "ell"),
+        TestDictionary.Metadata(source: wnEnEl, displayName: "En–El · WN", fromLang: "eng", toLang: "ell"),
+        TestDictionary.Metadata(source: wordnet, displayName: "WordNet"),
+    ]
+
+    /// Each fixture word's meaning in `source`, as `Gloss.short` gives it.
+    static func meanings(in source: String) -> [String: String] {
+        Dictionary(rows.filter { $0.source == source }.map { ($0.word, Gloss.short(definition: $0.definition)) },
+                   uniquingKeysWith: { a, _ in a })
+    }
+
+    /// Writes the dictionary at `url`.
+    static func make(at url: URL) throws -> URL {
+        try TestDictionary.make(rows: rows, metadata: metadata, at: url)
+    }
+}
+
+/// A clock a test moves by hand, in UTC, so a learning day does not depend
+/// on the simulator's time zone.
+final class TestClock: @unchecked Sendable {
+    private let lock = NSLock()
+    private var current: Date
+
+    init(_ iso: String) {
+        current = Self.date(iso)
+    }
+
+    var date: Date {
+        get { lock.withLock { current } }
+        set { lock.withLock { current = newValue } }
+    }
+
+    func set(_ iso: String) { date = Self.date(iso) }
+
+    func advance(_ seconds: TimeInterval) { date = date.addingTimeInterval(seconds) }
+
+    var clock: LearningClock {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "UTC")!
+        return LearningClock(now: { [self] in date }, calendar: calendar)
+    }
+
+    static func date(_ iso: String) -> Date {
+        ISO8601DateFormatter().date(from: iso)!
+    }
+}
+
+/// A temp user database on `ExerciseFixture`'s dictionary; the settings on
+/// an in-memory store; the language services in an English UI.
+@MainActor
+class ExerciseTestCase: XCTestCase {
+    var tempDir: URL!
+    var db: DatabaseService { .shared }
+    var settings: SettingsService!
+    var packs: FakePairPacks!
+    var languages: LearningLanguageService!
+    let today = LearningFixture.today
+    let fd = ExerciseFixture.fd, wn = ExerciseFixture.wn, enEs = ExerciseFixture.enEs
+    let enEl = ExerciseFixture.enEl, wnEnEl = ExerciseFixture.wnEnEl, wordnet = ExerciseFixture.wordnet
+
+    override func setUp() async throws {
+        try await super.setUp()
+        await DictAppTests.waitForHostAppLaunch()
+        tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        let url = try ExerciseFixture.make(at: tempDir.appendingPathComponent("dictionary.sqlite"))
+        try await db.setup(userPath: tempDir.appendingPathComponent("user.sqlite").path, dictionaryURL: url)
+        settings = SettingsService(store: InMemoryKeyValueStore())
+        packs = FakePairPacks(languagesWithLists: ["ell", "eng"])
+        languages = LearningLanguageService(settings: settings, packs: packs, uiLanguage: { "en" })
+    }
+
+    override func tearDown() async throws {
+        try? FileManager.default.removeItem(at: tempDir)
+        try await super.tearDown()
+    }
+
+    func execute(_ sql: String, _ arguments: [String?] = []) async throws {
+        try await db.writeForTesting { conn in
+            try conn.execute(sql: sql, arguments: StatementArguments(arguments.map { $0 as (any DatabaseValueConvertible)? }))
+        }
+    }
+
+    /// The rows of `sql`, each as `a|b|c`, NULL as `∅`.
+    func rows(_ sql: String) async throws -> [String] {
+        try await db.writeForTesting { conn in
+            try Row.fetchAll(conn, sql: sql).map { row in
+                row.databaseValues.map { value -> String in
+                    switch value.storage {
+                    case .null: return "∅"
+                    case .int64(let int): return String(int)
+                    case .double(let double): return String(double)
+                    case .string(let string): return string
+                    case .blob(let data): return data.base64EncodedString()
+                    }
+                }.joined(separator: "|")
+            }
+        }
+    }
+
+    func greek(_ word: String) -> EntryKey { EntryKey(source: fd, word: word) }
+
+    /// A word picked from a list (`introduce` is #161's): its content, its
+    /// entry if any, and two new cards due today.
+    func insertListWord(_ word: String, lang: String = "ell", endings: String = "", pos: String = "",
+                        translation: String, translationLang: String, list: String? = "ky-ell-a1",
+                        entry: EntryKey? = nil, addedAt: String = "2026-11-01 10:00:00") async throws {
+        let key = WordKey(lang: lang, word: word)
+        try await execute("""
+            INSERT INTO learn_word(lang, word, term, endings, pos, translation, translation_lang, source, headword,
+                                   list_id, added_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, [lang, key.word, word, endings, pos, translation, translationLang, entry?.source, entry?.word, list, addedAt])
+        try await execute(LearningSQL.createWordCards, [lang, key.word, today.rawValue])
+    }
+
+    /// Sets a word card's rung and days, and marks its word started.
+    func setCard(_ word: WordKey, _ kind: CardKind, step: Int, due: LearnDay, last: LearnDay?,
+                 introduced: LearnDay? = nil) async throws {
+        try await execute("UPDATE learn_card SET step = ?, due_day = ?, last_day = ? WHERE lang = ? AND word = ? AND kind = ?",
+                          [String(step), due.rawValue, last?.rawValue, word.lang, word.word, kind.rawValue])
+        if let introduced = introduced ?? last {
+            try await execute("UPDATE learn_word SET introduced_day = ? WHERE lang = ? AND word = ?",
+                              [introduced.rawValue, word.lang, word.word])
+        }
+    }
+
+    /// Imports `entries` as the dictionary `source`, with its languages
+    /// when given (#208 records them).
+    func importDictionary(_ source: String, _ entries: [[String: String]], from: String? = nil, to: String? = nil) async throws {
+        let file = tempDir.appendingPathComponent("\(source).json")
+        try JSONSerialization.data(withJSONObject: entries).write(to: file)
+        _ = try await db.importJSON(at: file, source: source)
+        if from != nil || to != nil {
+            try await execute("UPDATE imported_sources SET from_lang = ?, to_lang = ? WHERE source = ?", [from, to, source])
+        }
+    }
+}
+
+/// The store's reads for the runs: `wordChoices`, `distractorSample`,
+/// `practiceCards`, and `LearningLanguageService.sourceOrder`.
+final class ExerciseStoreTests: ExerciseTestCase {
+    /// Each Greek word with its meaning in the meanings language: the
+    /// list's translation in it, else the first pair dictionary in the
+    /// source order that has it; its part of speech the list's, else the
+    /// entry's. Paused words are options too; other languages never.
+    func testWordChoicesTakeTheTranslationThenThePairDictionary() async throws {
+        try await db.learnWord(greek("γράφω"), today: today)
+        try await db.learnWord(greek("σπίτι"), today: today)
+        try await insertListWord("γιουβέτσι", pos: "noun", translation: "giouvetsi, a baked dish", translationLang: "eng")
+        try await insertListWord("νερό", translation: "вода", translationLang: "rus", entry: greek("νερό"))
+        try await insertListWord("άγνωστο", pos: "adjective", translation: "", translationLang: "", list: nil)
+        try await db.learnWord(EntryKey(source: wordnet, word: "house"), today: today)
+        try await db.stopLearning(greek("σπίτι"))
+
+        let choices = try await db.wordChoices(lang: "ell", meaningsLang: "eng", sourceOrder: [fd, wn, wordnet])
+        let byWord = Dictionary(uniqueKeysWithValues: choices.map { ($0.key.word, $0) })
+        XCTAssertEqual(Set(byWord.keys), ["γράφω", "σπίτι", "γιουβέτσι", "νερό", "άγνωστο"], "Greek words, the paused σπίτι too")
+
+        let grafo = try XCTUnwrap(byWord["γράφω"])
+        XCTAssertEqual(grafo.meaning, "write")
+        XCTAssertEqual(grafo.meaningSource, fd)
+        XCTAssertEqual(grafo.partOfSpeech, "verb", "the entry's")
+        XCTAssertEqual(grafo.entry, greek("γράφω"))
+        XCTAssertNil(grafo.listID)
+        XCTAssertTrue(grafo.isEnrolled)
+        XCTAssertEqual(byWord["σπίτι"]?.meaning, "house, home, habitation")
+        let giouvetsi = try XCTUnwrap(byWord["γιουβέτσι"])
+        XCTAssertEqual(giouvetsi.meaning, "giouvetsi, a baked dish", "the list's English")
+        XCTAssertNil(giouvetsi.meaningSource, "a translation has no source")
+        XCTAssertNil(giouvetsi.entry)
+        XCTAssertEqual(giouvetsi.listID, "ky-ell-a1")
+        XCTAssertEqual(giouvetsi.partOfSpeech, "noun")
+        XCTAssertEqual(byWord["νερό"]?.meaning, "water", "a Russian translation is not an English meaning")
+        XCTAssertEqual(byWord["νερό"]?.meaningSource, fd)
+        XCTAssertEqual(byWord["νερό"]?.partOfSpeech, "noun", "no list POS: the entry's")
+        XCTAssertEqual(byWord["άγνωστο"]?.meaning, "", "no meaning anywhere (rule 4)")
+        XCTAssertEqual(byWord["άγνωστο"]?.partOfSpeech, "adjective")
+
+        let wnFirst = try await db.wordChoices(lang: "ell", meaningsLang: "eng", sourceOrder: [wn, fd])
+        XCTAssertEqual(wnFirst.first { $0.key.word == "γράφω" }?.meaning, "read, say", "El–En · WN first")
+        XCTAssertEqual(wnFirst.first { $0.key.word == "γράφω" }?.meaningSource, wn)
+        XCTAssertEqual(wnFirst.first { $0.key.word == "σπίτι" }?.meaning, "house, home, habitation", "WN lacks it: FD")
+
+        let russian = try await db.wordChoices(lang: "ell", meaningsLang: "rus", sourceOrder: [fd, wn])
+        XCTAssertEqual(russian.first { $0.key.word == "νερό" }?.meaning, "вода", "the Russian translation, via Russian")
+        XCTAssertEqual(russian.first { $0.key.word == "γράφω" }?.meaning, "", "no Greek–Russian dictionary")
+        XCTAssertEqual(russian.first { $0.key.word == "γιουβέτσι" }?.meaning, "")
+
+        let english = try await db.wordChoices(lang: "eng", meaningsLang: "eng", sourceOrder: [wordnet])
+        XCTAssertEqual(english.map(\.meaning), ["a dwelling that serves as living quarters for one or more families"])
+    }
+
+    /// The source sample: headwords of the language with the primary part
+    /// of speech asked (any for ""), each with its meaning, never enrolled,
+    /// at most `count`; the seed fixes it; words without a meaning never.
+    func testSampleHasThePartOfSpeechAndTheLanguage() async throws {
+        let fdMeanings = ExerciseFixture.meanings(in: fd)
+        let verbs = try await db.distractorSample(lang: "ell", meaningsLang: "eng", source: fd, sourceOrder: [fd, wn],
+                                                  pos: "verb", near: "γράφω", seed: 7)
+        XCTAssertGreaterThanOrEqual(verbs.count, 5)
+        XCTAssertLessThanOrEqual(verbs.count, 30)
+        for choice in verbs {
+            XCTAssertEqual(choice.key, WordKey(lang: "ell", word: choice.term))
+            XCTAssertEqual(DistractorPicker.primaryPOS(choice.partOfSpeech), "verb", choice.term)
+            XCTAssertEqual(choice.meaning, fdMeanings[choice.term], choice.term)
+            XCTAssertEqual(choice.entry, greek(choice.term))
+            XCTAssertEqual(choice.meaningSource, fd)
+            XCTAssertFalse(choice.isEnrolled)
+            XCTAssertNil(choice.listID)
+        }
+        XCTAssertEqual(Set(verbs.map(\.term)).count, verbs.count, "each headword once")
+        let again = try await db.distractorSample(lang: "ell", meaningsLang: "eng", source: fd, sourceOrder: [fd, wn],
+                                                  pos: "verb", near: "γράφω", seed: 7)
+        XCTAssertEqual(again, verbs, "the seed fixes the sample")
+
+        let nouns = try await db.distractorSample(lang: "ell", meaningsLang: "eng", source: fd, sourceOrder: [fd, wn],
+                                                  pos: "noun, verb", near: "σπίτι", seed: 8)
+        XCTAssertFalse(nouns.isEmpty)
+        XCTAssertTrue(nouns.allSatisfy { DistractorPicker.primaryPOS($0.partOfSpeech) == "noun" })
+        XCTAssertFalse(nouns.contains { $0.term == "κενό" }, "no meaning: never a distractor")
+        XCTAssertFalse(nouns.contains { $0.term == "καλός" }, "an adjective first")
+
+        let any = try await db.distractorSample(lang: "ell", meaningsLang: "eng", source: fd, sourceOrder: [fd, wn],
+                                                pos: "", near: "γράφω", seed: 9)
+        XCTAssertGreaterThan(Set(any.map { DistractorPicker.primaryPOS($0.partOfSpeech) }).count, 1, "any part of speech")
+        XCTAssertTrue(any.allSatisfy { !$0.meaning.isEmpty })
+
+        let five = try await db.distractorSample(lang: "ell", meaningsLang: "eng", source: fd, sourceOrder: [fd, wn],
+                                                 pos: "", near: "γράφω", seed: 9, count: 5)
+        XCTAssertFalse(five.isEmpty)
+        XCTAssertLessThanOrEqual(five.count, 5, "at most count")
+        XCTAssertEqual(five, Array(any.prefix(five.count)), "the same draws, fewer of them")
+    }
+
+    /// A word without an entry (`source` nil): the pair's first dictionary
+    /// in the source order; one missing from the order still counts, after
+    /// those in it.
+    func testSampleOfAWordWithoutAnEntryUsesDictionaryOrder() async throws {
+        for (order, expected) in [([wn, fd, wordnet], wn), ([fd, wn], fd), ([wordnet, enEs], fd)] {
+            let sample = try await db.distractorSample(lang: "ell", meaningsLang: "eng", source: nil, sourceOrder: order,
+                                                       pos: "verb", near: "γιουβέτσι", seed: 3)
+            XCTAssertFalse(sample.isEmpty, "\(order)")
+            XCTAssertTrue(sample.allSatisfy { $0.entry?.source == expected && $0.meaningSource == expected }, "\(order)")
+        }
+        // Other: the language's first dictionary in the order.
+        let other = try await db.distractorSample(lang: "ell", meaningsLang: nil, source: nil, sourceOrder: [wordnet, wn, fd],
+                                                  pos: "verb", near: "γιουβέτσι", seed: 3)
+        XCTAssertFalse(other.isEmpty)
+        XCTAssertTrue(other.allSatisfy { $0.entry?.source == wn })
+    }
+
+    /// Practice: started, unpaused cards of the language and kind, the
+    /// lowest rung first, then the oldest answer; a card never answered of
+    /// a started word counts as the oldest.
+    func testPracticeIsLowestRungFirst() async throws {
+        func word(_ text: String, lang: String = "ell") -> WordKey { WordKey(lang: lang, word: text) }
+        for text in ["α", "β", "γ", "δ", "ε", "ζ", "η"] {
+            try await insertListWord(text, translation: text + "-meaning", translationLang: "eng")
+        }
+        try await insertListWord("eng-word", lang: "eng", translation: "", translationLang: "", list: nil)
+        let d = today
+        try await setCard(word("α"), .recognition, step: 3, due: d.adding(days: 2), last: d.adding(days: -5))
+        try await setCard(word("β"), .recognition, step: 1, due: d, last: d.adding(days: -1))
+        try await setCard(word("γ"), .recognition, step: 1, due: d.adding(days: -2), last: d.adding(days: -3))
+        try await setCard(word("δ"), .recognition, step: 0, due: d, last: d)
+        try await setCard(word("ε"), .recognition, step: 2, due: d, last: d.adding(days: -9))
+        try await execute("UPDATE learn_card SET suspended = 1 WHERE word = 'ε'")
+        // ζ: not started. η: started by its production card only.
+        try await setCard(word("η"), .production, step: 1, due: d, last: d.adding(days: -1))
+        try await setCard(word("eng-word", lang: "eng"), .recognition, step: 0, due: d, last: d)
+        try await execute("""
+            INSERT INTO learn_card(lang, word, kind, facet, step, due_day, last_day)
+            VALUES ('ell', 'α', 'conjugation', 'aorist.active', 0, ?, ?)
+            """, [d.rawValue, d.rawValue])
+
+        let recognition = try await db.practiceCards(lang: "ell", kind: .recognition, limit: 20)
+        XCTAssertEqual(recognition.map(\.key.word.word), ["η", "δ", "γ", "β", "α"],
+                       "rung 0 (never answered first), rung 1 oldest first, rung 3; ε paused, ζ not started")
+        XCTAssertTrue(recognition.allSatisfy { $0.key.kind == .recognition && $0.key.facet.isEmpty && !$0.isSuspended })
+        XCTAssertNil(recognition.first?.lastDay, "η's recognition card was never answered")
+
+        let production = try await db.practiceCards(lang: "ell", kind: .production, limit: 20)
+        XCTAssertEqual(production.map(\.key.word.word), ["α", "β", "γ", "δ", "η"],
+                       "the never answered production cards of started words first, then η's on rung 1")
+        XCTAssertTrue(production.allSatisfy { $0.key.kind == .production })
+
+        let two = try await db.practiceCards(lang: "ell", kind: .recognition, limit: 2)
+        XCTAssertEqual(two.map(\.key.word.word), ["η", "δ"])
+        let none = try await db.practiceCards(lang: "ell", kind: .recognition, limit: 0)
+        XCTAssertEqual(none, [])
+        let negative = try await db.practiceCards(lang: "ell", kind: .recognition, limit: -1)
+        XCTAssertEqual(negative, [], "a negative limit gives none, not every card")
+    }
+
+    /// With a pair, the sample comes from the pair dictionary that gave the
+    /// word's meaning, an import with both languages included; from another
+    /// source, the pair's first; none without a pair dictionary.
+    func testSampleComesFromThePairDictionary() async throws {
+        for source in [wn, fd] {
+            let sample = try await db.distractorSample(lang: "ell", meaningsLang: "eng", source: source,
+                                                       sourceOrder: [fd, wn], pos: "verb", near: "γράφω", seed: 11)
+            XCTAssertFalse(sample.isEmpty, source)
+            XCTAssertTrue(sample.allSatisfy { $0.entry?.source == source && $0.meaningSource == source }, source)
+        }
+        let notAPairDictionary = try await db.distractorSample(lang: "ell", meaningsLang: "eng", source: wordnet,
+                                                               sourceOrder: [wn, fd], pos: "verb", near: "γράφω", seed: 11)
+        XCTAssertFalse(notAPairDictionary.isEmpty)
+        XCTAssertTrue(notAPairDictionary.allSatisfy { $0.entry?.source == wn }, "WordNet is English: the pair's first")
+
+        let entries = (0..<30).map { ["word": "imported\($0)", "definition": "imported verb \($0)", "pos": "verb"] }
+        try await importDictionary("my-ell-eng", entries, from: "ell", to: "eng")
+        let imported = try await db.distractorSample(lang: "ell", meaningsLang: "eng", source: "my-ell-eng",
+                                                     sourceOrder: [fd, wn], pos: "verb", near: "imported1", seed: 12)
+        XCTAssertGreaterThanOrEqual(imported.count, 5)
+        for choice in imported {
+            XCTAssertEqual(choice.entry, EntryKey(source: "my-ell-eng", word: choice.term))
+            XCTAssertTrue(choice.meaning.hasPrefix("imported verb "), choice.meaning)
+            XCTAssertEqual(choice.key.lang, "ell")
+        }
+
+        let viaRussian = try await db.distractorSample(lang: "ell", meaningsLang: "rus", source: fd, sourceOrder: [fd, wn],
+                                                       pos: "verb", near: "γράφω", seed: 13)
+        XCTAssertEqual(viaRussian, [], "no Greek–Russian dictionary: no sample, never English options via Russian")
+    }
+
+    /// Other (no pair): the translation in any language, else the word's
+    /// own entry's first sense; its sample from its own source.
+    func testOtherUsesItsOwnEntry() async throws {
+        var entries = [["word": "zorba", "definition": "1. a dance\n2. a novel", "pos": "noun"],
+                       ["word": "kefi", "definition": "joy, high spirits", "pos": "noun"]]
+        entries += (0..<30).map { ["word": "note\($0)", "definition": "note meaning \($0)", "pos": "noun"] }
+        try await importDictionary("my-notes", entries)
+        try await db.learnWord(EntryKey(source: "my-notes", word: "zorba"), today: today)
+        try await db.learnWord(EntryKey(source: "my-notes", word: "kefi"), today: today)
+        try await insertListWord("μεράκι", lang: "und", translation: "passion", translationLang: "eng", list: "my-list")
+        try await insertListWord("ούζο", lang: "und", translation: "", translationLang: "", list: "my-list")
+
+        let state = try await db.learningState(of: WordKey(lang: "und", word: "zorba"))
+        XCTAssertNotNil(state, "an import without languages is learned in Other")
+        let words = [WordKey(lang: "und", word: "zorba"), WordKey(lang: "und", word: "kefi"),
+                     WordKey(lang: "und", word: "μεράκι"), WordKey(lang: "und", word: "ούζο")]
+        var queries: [MeaningQuery] = []
+        for key in words {
+            let learning = try await db.learningState(of: key)
+            queries.append(MeaningQuery(try XCTUnwrap(learning?.word, "\(key)")))
+        }
+        let meanings = try await db.meanings(of: queries, lang: "und", meaningsLang: nil, sourceOrder: [fd, wn])
+        XCTAssertEqual(meanings[words[0]], "a dance", "its own entry's first sense")
+        XCTAssertEqual(meanings[words[1]], "joy, high spirits")
+        XCTAssertEqual(meanings[words[2]], "passion", "a translation in any language")
+        XCTAssertNil(meanings[words[3]], "nothing: none")
+
+        let choices = try await db.wordChoices(lang: "und", meaningsLang: nil, sourceOrder: [])
+        XCTAssertEqual(choices.first { $0.key.word == "zorba" }?.meaningSource, "my-notes")
+        XCTAssertEqual(choices.first { $0.key.word == "zorba" }?.partOfSpeech, "noun")
+
+        let sample = try await db.distractorSample(lang: "und", meaningsLang: nil, source: "my-notes", sourceOrder: [],
+                                                   pos: "noun", near: "zorba", seed: 1)
+        XCTAssertGreaterThanOrEqual(sample.count, 5)
+        XCTAssertTrue(sample.allSatisfy { $0.key.lang == "und" && $0.entry?.source == "my-notes" && !$0.isEnrolled })
+        XCTAssertTrue(sample.allSatisfy { !$0.meaning.isEmpty })
+    }
+
+    /// `LearningLanguageService.sourceOrder`: the pair's dictionaries
+    /// first, in Dictionary Order, enabled ones first in each part; a
+    /// limited pair's are its (lang, meanings) pair's; Other: Dictionary
+    /// Order, enabled first; no order stored: the Settings default.
+    func testSourceOrderPutsThePairFirst() async throws {
+        settings.dictionaryOrder = [wordnet, enEs, enEl, wnEnEl, wn, fd]
+        let greek = try await languages.sourceOrder(lang: "ell", meaningsLang: "eng")
+        XCTAssertEqual(greek, [wn, fd, wordnet, enEs, enEl, wnEnEl])
+        let englishViaGreek = try await languages.sourceOrder(lang: "eng", meaningsLang: "ell")
+        XCTAssertEqual(englishViaGreek, [enEl, wnEnEl, wordnet, enEs, wn, fd])
+        let englishViaSpanish = try await languages.sourceOrder(lang: "eng", meaningsLang: "spa")
+        XCTAssertEqual(englishViaSpanish, [enEs, wordnet, enEl, wnEnEl, wn, fd])
+
+        settings.learningLanguages = ["ell"]
+        settings.learningVia = ["ell": "rus"]
+        let limited = try await languages.pair(for: "ell")
+        XCTAssertEqual(limited, LearningPair(lang: "ell", via: "rus", meaningsLang: "eng"))
+        let viaRussian = try await languages.sourceOrder(lang: "ell", meaningsLang: limited?.meaningsLang)
+        XCTAssertEqual(viaRussian, greek, "Greek via Russian looks up the Greek–English dictionaries")
+
+        settings.enabledSources = Set([wordnet, enEs, enEl, wnEnEl, fd])
+        let enabledFirst = try await languages.sourceOrder(lang: "ell", meaningsLang: "eng")
+        XCTAssertEqual(enabledFirst, [fd, wn, wordnet, enEs, enEl, wnEnEl], "the disabled El–En · WN after FD")
+        let other = try await languages.sourceOrder(lang: "und", meaningsLang: nil)
+        XCTAssertEqual(other, [wordnet, enEs, enEl, wnEnEl, fd, wn], "Other: Dictionary Order, enabled first")
+
+        settings.dictionaryOrder = nil
+        settings.enabledSources = nil
+        let byDefault = try await languages.sourceOrder(lang: "ell", meaningsLang: "eng")
+        XCTAssertEqual(Set(byDefault.prefix(2)), [fd, wn], "no order stored: the pair still first")
+        XCTAssertEqual(Set(byDefault), Set([fd, wn, enEs, enEl, wnEnEl, wordnet]))
+    }
+}
+
+/// 0131's meanings tests for #159, on `LearningStoreTests`' database.
+extension LearningStoreTests {
+    /// Opens the service on `ExerciseFixture`'s dictionary, or `url` with
+    /// `packFiles` attached (#237).
+    private func openExercises(_ url: URL? = nil, packFiles: [PackID: URL] = [:]) async throws {
+        let url = try url ?? ExerciseFixture.make(at: tempDir.appendingPathComponent("exercises.sqlite"))
+        try await db.setup(userPath: userPath, dictionaryURL: url, packFiles: packFiles)
+    }
+
+    /// Opens the service on the bundle with every pack installed from the
+    /// committed assets (#237), as on a device that downloaded them.
+    private func openShipped() async throws {
+        try await openExercises(try TestDictionary.bundledURL(), packFiles: try PackFixtures.all())
+    }
+
+    private func insertListWord(_ word: String, lang: String = "ell", translation: String, translationLang: String,
+                                entry: EntryKey? = nil, list: String = "ky-ell-a1") async throws {
+        let key = WordKey(lang: lang, word: word)
+        try await execute("""
+            INSERT INTO learn_word(lang, word, term, translation, translation_lang, source, headword, list_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """, [lang, key.word, word, translation, translationLang, entry?.source, entry?.word, list])
+        try await execute(LearningSQL.createWordCards, [lang, key.word, today.rawValue])
+    }
+
+    private func meaning(of key: WordKey, meaningsLang: String?, order: [String]) async throws -> String? {
+        let learning = try await state(key)
+        return try await db.meanings(of: [MeaningQuery(learning.word)], lang: key.lang, meaningsLang: meaningsLang,
+                                     sourceOrder: order)[key]
+    }
+
+    /// The table in "Meanings", on the bundle and the packs (#237): house
+    /// via Spanish, via Greek (FD or WN first) and via English; Kirill's
+    /// γράφω in English via English and via Russian. A via change changes no
+    /// card and no log row.
+    func testMeaningFollowsTheVia() async throws {
+        try await openShipped()
+        try await insertListWord("house", lang: "eng", translation: "", translationLang: "", entry: house, list: "ky-eng-a1")
+        try await insertListWord("γράφω", translation: "to write", translationLang: "eng", entry: grafoFD)
+        try await answer(houseKey)
+        try await answer(grafo, .production, .wrong)
+        let cards = try await rows("SELECT * FROM learn_card ORDER BY lang, word, kind")
+        let log = try await rows("SELECT * FROM learn_review ORDER BY id")
+
+        let pairs = try await db.learningPairs()
+        let order = ["wordnet", "freedict-eng-ell", "wordnet-eng-ell", "freedict-eng-spa", "freedict-ell-eng",
+                     "wordnet-ell-eng", "openrussian", "wordnet-spa-eng", "wordnet-arb-eng"]
+        func sources(_ lang: String, _ via: String, _ dictionaryOrder: [String] = order) -> [String] {
+            LearningPairs.sourceOrder(pair: LearningPair(lang: lang, via: via), pairSources: pairs,
+                                      dictionaryOrder: dictionaryOrder)
+        }
+        let viaSpanish = try await meaning(of: houseKey, meaningsLang: "spa", order: sources("eng", "spa"))
+        XCTAssertEqual(viaSpanish, "casalicio, casa")
+        let viaGreek = try await meaning(of: houseKey, meaningsLang: "ell", order: sources("eng", "ell"))
+        XCTAssertEqual(viaGreek, "σπίτι (το χτίριο), οίκος, στεγάζω", "En–El · FD first")
+        let wnFirst = ["wordnet-eng-ell"] + order.filter { $0 != "wordnet-eng-ell" }
+        let viaGreekWN = try await meaning(of: houseKey, meaningsLang: "ell", order: sources("eng", "ell", wnFirst))
+        XCTAssertEqual(viaGreekWN, "οικογένεια", "En–El · WN first")
+        let viaEnglish = try await meaning(of: houseKey, meaningsLang: "eng", order: sources("eng", "eng"))
+        XCTAssertEqual(viaEnglish, "a dwelling that serves as living quarters for one or more families")
+
+        let greekViaEnglish = try await meaning(of: grafo, meaningsLang: "eng", order: sources("ell", "eng"))
+        XCTAssertEqual(greekViaEnglish, "to write", "Kirill's English translation")
+        let limited = try XCTUnwrap(pairs.keys.first { $0.lang == "ell" && $0.via == "rus" })
+        XCTAssertTrue(limited.isLimited)
+        let greekViaRussian = try await meaning(of: grafo, meaningsLang: limited.meaningsLang, order: sources("ell", "eng"))
+        XCTAssertEqual(greekViaRussian, "to write", "the limited pair's meanings are English")
+
+        let cardsAfter = try await rows("SELECT * FROM learn_card ORDER BY lang, word, kind")
+        let logAfter = try await rows("SELECT * FROM learn_review ORDER BY id")
+        XCTAssertEqual(cardsAfter, cards, "a via change touches no card")
+        XCTAssertEqual(logAfter, log, "nor the log")
+    }
+
+    /// #237: a word's meaning, its entry's part of speech and the
+    /// distractor sample come from the pack that holds the pair's
+    /// dictionaries. Greek via English on the bundle alone: γράφω has no
+    /// meaning and no sample (the runs skip it). With the Greek pack
+    /// installed: El–En · FD's "write", its verb, and a sample from El–En ·
+    /// FD; no card changed.
+    func testMeaningsComeFromTheInstalledPack() async throws {
+        try await openExercises(try TestDictionary.bundledURL())
+        try await db.learnWord(grafoFD, today: today)
+        let order = ["freedict-ell-eng", "wordnet-ell-eng"]
+        let withoutPack = try await db.wordChoices(lang: "ell", meaningsLang: "eng", sourceOrder: order)
+        XCTAssertEqual(withoutPack.map(\.meaning), [""], "no Greek pack: no meaning")
+        let noSample = try await db.distractorSample(lang: "ell", meaningsLang: "eng", source: nil, sourceOrder: order,
+                                                     pos: "verb", near: "γράφω", seed: 1)
+        XCTAssertTrue(noSample.isEmpty, "nor a sample")
+        let cards = try await rows("SELECT * FROM learn_card ORDER BY word, kind")
+
+        try await openShipped()
+        let withPack = try await db.wordChoices(lang: "ell", meaningsLang: "eng", sourceOrder: order)
+        let grafoChoice = try XCTUnwrap(withPack.first { $0.key == grafo })
+        XCTAssertEqual(grafoChoice.meaning, "write")
+        XCTAssertEqual(grafoChoice.meaningSource, "freedict-ell-eng")
+        XCTAssertEqual(grafoChoice.partOfSpeech, "verb", "the entry's part of speech, from the pack")
+        let sample = try await db.distractorSample(lang: "ell", meaningsLang: "eng", source: grafoChoice.meaningSource,
+                                                   sourceOrder: order, pos: grafoChoice.partOfSpeech, near: "γράφω",
+                                                   seed: 1)
+        XCTAssertFalse(sample.isEmpty, "a sample from the pack")
+        XCTAssertTrue(sample.allSatisfy { $0.entry?.source == "freedict-ell-eng" && !$0.meaning.isEmpty },
+                      "\(sample.map(\.term))")
+        let cardsAfter = try await rows("SELECT * FROM learn_card ORDER BY word, kind")
+        XCTAssertEqual(cardsAfter, cards, "no card changes")
+    }
+
+    /// A test pack with an `ell` → `rus` dictionary: Greek via Russian is a
+    /// full pair; its meaning is the Russian one, never Kirill's English; a
+    /// word without one has none in that pair (the run skips it) and stays
+    /// in learning.
+    func testListTranslationOnlyInItsLanguage() async throws {
+        let url = try TestDictionary.make(
+            rows: Self.rows + [TestDictionary.Row(word: "γράφω", normalized: "γραφω", definition: "**verb**\n1. писать",
+                                                  pos: "verb", source: "test-ell-rus")],
+            metadata: Self.metadata + [TestDictionary.Metadata(source: "test-ell-rus", displayName: "El–Ru · Test",
+                                                               fromLang: "ell", toLang: "rus")],
+            at: tempDir.appendingPathComponent("ell-rus.sqlite"))
+        try await openExercises(url)
+        try await insertListWord("γράφω", translation: "to write", translationLang: "eng", entry: grafoFD)
+        try await insertListWord("σπίτι", translation: "house", translationLang: "eng", entry: spiti)
+
+        let pairs = try await db.learningPairs()
+        XCTAssertEqual(pairs[LearningPair(lang: "ell", via: "rus")], ["test-ell-rus"], "a full pair now")
+        XCTAssertNil(pairs[LearningPair(lang: "ell", via: "rus", meaningsLang: "eng")], "the limited pair is replaced")
+
+        let order = ["test-ell-rus", "freedict-ell-eng", "wordnet-ell-eng", "wordnet"]
+        let grafoRussian = try await meaning(of: grafo, meaningsLang: "rus", order: order)
+        XCTAssertEqual(grafoRussian, "писать", "the Russian meaning, never Kirill's English")
+        let spitiRussian = try await meaning(of: spitiKey, meaningsLang: "rus", order: order)
+        XCTAssertNil(spitiRussian, "no Russian meaning: none")
+        let grafoEnglish = try await meaning(of: grafo, meaningsLang: "eng", order: order)
+        XCTAssertEqual(grafoEnglish, "to write")
+
+        let choices = try await db.wordChoices(lang: "ell", meaningsLang: "rus", sourceOrder: order)
+        XCTAssertEqual(choices.first { $0.key == spitiKey }?.meaning, "", "skipped in this pair")
+        let kept = try await state(spitiKey)
+        XCTAssertFalse(kept.isPaused, "kept in learning, never deleted")
+        let pool = try await db.newPool(lang: "ell", limit: 10)
+        XCTAssertTrue(pool.contains { $0.key == spitiKey }, "it comes back when the via changes")
+    }
+
+    /// An import's translation (`translation_lang` '') shows in every pair
+    /// and in Other.
+    func testImportedTranslationShowsInEveryPair() async throws {
+        try await open()
+        try await insertListWord("κέφι", translation: "joy, high spirits", translationLang: "", list: "my-greek-list")
+        try await insertListWord("γράφω", translation: "to write", translationLang: "eng", entry: grafoFD)
+        for meaningsLang in ["eng", "rus", "spa", nil] {
+            let kefi = try await meaning(of: WordKey(lang: "ell", word: "κέφι"), meaningsLang: meaningsLang, order: [])
+            XCTAssertEqual(kefi, "joy, high spirits", "\(meaningsLang ?? "Other")")
+        }
+        let viaRussian = try await meaning(of: grafo, meaningsLang: "rus", order: ["freedict-ell-eng"])
+        XCTAssertNil(viaRussian, "an English list translation is not shown via Russian")
+    }
+
+    /// English via Spanish: the word's meaning, the enrolled options and
+    /// the source sample are all Spanish, so the four options are.
+    func testDistractorsAreInTheVia() async throws {
+        try await openExercises()
+        try await db.learnWord(house, today: today)
+        try await db.learnWord(EntryKey(source: "wordnet", word: "water"), today: today)
+        let pairs = try await db.learningPairs()
+        let order = LearningPairs.sourceOrder(pair: LearningPair(lang: "eng", via: "spa"), pairSources: pairs,
+                                              dictionaryOrder: ["wordnet", "freedict-eng-ell", "wordnet-eng-ell",
+                                                                "freedict-eng-spa", "freedict-ell-eng", "wordnet-ell-eng"])
+        XCTAssertEqual(order.first, "freedict-eng-spa")
+        let words = try await db.wordChoices(lang: "eng", meaningsLang: "spa", sourceOrder: order)
+        let houseChoice = try XCTUnwrap(words.first { $0.key == houseKey })
+        XCTAssertEqual(houseChoice.meaning, "casalicio, casa")
+        XCTAssertEqual(houseChoice.meaningSource, "freedict-eng-spa")
+        XCTAssertEqual(words.first { $0.key.word == "water" }?.meaning, "agua, aguacha, linfa, wata")
+
+        let sample = try await db.distractorSample(lang: "eng", meaningsLang: "spa", source: houseChoice.meaningSource,
+                                                   sourceOrder: order, pos: houseChoice.partOfSpeech, near: "house", seed: 1)
+        XCTAssertFalse(sample.isEmpty)
+        let spanish = Set(ExerciseFixture.meanings(in: "freedict-eng-spa").values)
+        XCTAssertTrue(sample.allSatisfy { spanish.contains($0.meaning) }, "the sample's meanings are En–Es · FD's")
+
+        for seed in UInt64(0)..<10 {
+            var rng = SplitMix64(seed: seed)
+            let question = try XCTUnwrap(QuestionBuilder.build(
+                card: LearningFixture.card(.recognition, word: houseKey, step: 1, due: today, last: today.adding(days: -1)),
+                word: houseChoice, candidates: words + sample, mode: .lenient, meaningsLang: "spa", rng: &rng))
+            XCTAssertEqual(question.options.count, 4)
+            XCTAssertEqual(question.optionLanguage, "spa")
+            XCTAssertTrue(question.options.allSatisfy { spanish.contains($0.text) }, "\(question.options.map(\.text))")
+        }
+    }
+
+    /// Greek via Russian, limited: γράφω's meaning and its three
+    /// distractors are English, as via English; switching between the two
+    /// vias changes no meaning and no card.
+    func testLimitedPairMeaningsAreInTheMeaningsLanguage() async throws {
+        try await openExercises()
+        _ = try await db.writeLearningFixture("due", today: today)
+        let settings = SettingsService(store: InMemoryKeyValueStore())
+        let languages = LearningLanguageService(settings: settings, packs: FakePairPacks(languagesWithLists: ["ell"]),
+                                                uiLanguage: { "ru" })
+        settings.learningLanguages = ["ell"]
+        let cards = try await rows("SELECT * FROM learn_card ORDER BY word, kind")
+
+        func choices() async throws -> (LearningPair, [WordChoice]) {
+            let pair = try await languages.pair(for: "ell")
+            let unwrapped = try XCTUnwrap(pair)
+            let order = try await languages.sourceOrder(lang: "ell", meaningsLang: unwrapped.meaningsLang)
+            return (unwrapped, try await db.wordChoices(lang: "ell", meaningsLang: unwrapped.meaningsLang, sourceOrder: order))
+        }
+        let (limited, viaRussian) = try await choices()
+        XCTAssertEqual(limited, LearningPair(lang: "ell", via: "rus", meaningsLang: "eng"), "a Russian UI's default for Greek")
+        let english = Set(ExerciseFixture.meanings(in: "freedict-ell-eng").values)
+            .union(ExerciseFixture.meanings(in: "wordnet-ell-eng").values)
+        let grafoChoice = try XCTUnwrap(viaRussian.first { $0.key == grafo })
+        XCTAssertTrue(english.contains(grafoChoice.meaning), grafoChoice.meaning)
+        let sample = try await db.distractorSample(lang: "ell", meaningsLang: limited.meaningsLang,
+                                                   source: grafoChoice.meaningSource, sourceOrder: [], pos: "verb",
+                                                   near: "γράφω", seed: 2)
+        var rng = SplitMix64(seed: 2)
+        let question = try XCTUnwrap(QuestionBuilder.build(
+            card: LearningFixture.card(.recognition, step: 1, due: today, last: today.adding(days: -1)),
+            word: grafoChoice, candidates: viaRussian + sample, mode: .lenient, meaningsLang: limited.meaningsLang, rng: &rng))
+        XCTAssertEqual(question.options.count, 4)
+        XCTAssertEqual(question.optionLanguage, "eng")
+        XCTAssertTrue(question.options.allSatisfy { english.contains($0.text) }, "\(question.options.map(\.text))")
+
+        settings.learningVia = ["ell": "eng"]
+        let (full, viaEnglish) = try await choices()
+        XCTAssertEqual(full, LearningPair(lang: "ell", via: "eng"))
+        XCTAssertEqual(viaEnglish, viaRussian, "the same English meanings")
+        let cardsAfter = try await rows("SELECT * FROM learn_card ORDER BY word, kind")
+        XCTAssertEqual(cardsAfter, cards, "no card changes")
+    }
+
+    /// A list word without an entry: the list's meaning; its distractors
+    /// come from the language's first pair dictionary.
+    func testStandaloneWordUsesItsTranslation() async throws {
+        try await openExercises()
+        try await insertListWord("γιουβέτσι", translation: "giouvetsi, a baked dish", translationLang: "eng")
+        try await execute("UPDATE learn_word SET pos = 'noun' WHERE word = 'γιουβέτσι'")
+        for word in ["γράφω", "σπίτι"] { try await db.learnWord(EntryKey(source: "freedict-ell-eng", word: word), today: today) }
+        let order = ["freedict-ell-eng", "wordnet-ell-eng"]
+        let words = try await db.wordChoices(lang: "ell", meaningsLang: "eng", sourceOrder: order)
+        let standalone = try XCTUnwrap(words.first { $0.key.word == "γιουβέτσι" })
+        XCTAssertEqual(standalone.meaning, "giouvetsi, a baked dish")
+        XCTAssertNil(standalone.entry)
+        XCTAssertNil(standalone.meaningSource)
+
+        let sample = try await db.distractorSample(lang: "ell", meaningsLang: "eng", source: standalone.meaningSource,
+                                                   sourceOrder: order, pos: standalone.partOfSpeech, near: standalone.term,
+                                                   seed: 4)
+        XCTAssertFalse(sample.isEmpty)
+        XCTAssertTrue(sample.allSatisfy { $0.entry?.source == "freedict-ell-eng" && $0.partOfSpeech == "noun" })
+        var rng = SplitMix64(seed: 4)
+        let question = try XCTUnwrap(QuestionBuilder.build(
+            card: LearningFixture.card(.recognition, word: standalone.key, step: 1, due: today, last: today.adding(days: -1)),
+            word: standalone, candidates: words + sample, mode: .lenient, meaningsLang: "eng", rng: &rng))
+        XCTAssertEqual(question.options.count, 4)
+        XCTAssertEqual(question.options[try XCTUnwrap(question.rightIndex)].text, "giouvetsi, a baked dish")
+    }
+}
+
+/// `ExerciseRunViewModel` on a temp user database: the trainers grade only
+/// their own cards, write each answer at once, and skip what has no
+/// meaning; each answer takes the learning day of its own moment.
+final class ExerciseRunViewModelTests: ExerciseTestCase {
+    private func run(_ kind: CardKind, lang: String = "ell", meaningsLang: String? = "eng",
+                     clock: TestClock = TestClock("2026-11-04T12:00:00Z"),
+                     sink: RecordingFeedbackSink? = nil) -> ExerciseRunViewModel {
+        ExerciseRunViewModel(run: .trainer(kind), lang: lang, meaningsLang: meaningsLang, db: db, settings: settings,
+                             languages: languages, clock: clock.clock,
+                             player: FeedbackPlayer(settings: settings, sink: sink ?? RecordingFeedbackSink()),
+                             seed: 159, answerHints: true)
+    }
+
+    /// Answers every question, right unless `wrong` says otherwise, until
+    /// the summary; returns the questions asked.
+    @discardableResult
+    private func answerAll(_ vm: ExerciseRunViewModel, wrong: (Question) -> Bool = { _ in false }) async throws -> [Question] {
+        var asked: [Question] = []
+        while vm.phase == .question, let question = vm.question {
+            guard asked.count < 30 else { XCTFail("the run does not end"); break }
+            asked.append(question)
+            if question.input == .choice {
+                let right = try XCTUnwrap(question.rightIndex)
+                await vm.choose(wrong(question) ? (right + 1) % question.options.count : right)
+            } else {
+                vm.typed = wrong(question) ? "λάθος" : question.word.term
+                await vm.check()
+            }
+            XCTAssertNotNil(vm.feedback)
+            await vm.next()
+        }
+        return asked
+    }
+
+    private func unaccented(_ text: String) -> String {
+        text.folding(options: .diacriticInsensitive, locale: nil)
+    }
+
+    /// `-learningFixture due`: the Recognition trainer asks the five due
+    /// recognition cards, then βιβλίο as practice, and logs only
+    /// recognition answers; the production cards stay. Then the Production
+    /// trainer (Lenient: typed on rung 1 and up) logs only production.
+    func testTrainerGradesOnlyItsKind() async throws {
+        _ = try await db.writeLearningFixture("due", today: today)
+        let production = try await rows("SELECT * FROM learn_card WHERE kind = 'production' ORDER BY word")
+
+        let recognition = run(.recognition)
+        await recognition.start()
+        XCTAssertNil(recognition.errorMessage)
+        XCTAssertEqual(recognition.total, 6, "5 due cards, then βιβλίο as practice")
+        XCTAssertEqual(recognition.position, 1)
+        let asked = try await answerAll(recognition)
+        XCTAssertEqual(recognition.phase, .summary)
+        XCTAssertEqual(Set(asked.prefix(5).map(\.card.key.word.word)), ["γράφω", "σπίτι", "νερό", "καλός", "είμαι"])
+        XCTAssertEqual(asked.last?.card.key.word.word, "βιβλίο", "practice after the due cards")
+        XCTAssertTrue(asked.allSatisfy { $0.card.key.kind == .recognition && $0.input == .choice && $0.options.count == 4 })
+        let log = try await rows("SELECT kind, exercise, mode, run_id, outcome FROM learn_review")
+        XCTAssertEqual(log, Array(repeating: "recognition|recognition|trainer|\(recognition.runID.uuidString)|right", count: 6))
+        let productionAfter = try await rows("SELECT * FROM learn_card WHERE kind = 'production' ORDER BY word")
+        XCTAssertEqual(productionAfter, production, "the production cards are untouched")
+        let moved = try await rows("SELECT word, step, due_day FROM learn_card WHERE kind = 'recognition' AND word IN ('γράφω', 'βιβλίο') ORDER BY word")
+        XCTAssertEqual(moved, ["βιβλίο|5|2026-11-24", "γράφω|2|2026-11-07"],
+                       "the due γράφω climbs to 3 days; βιβλίο, not due, stays")
+        XCTAssertEqual(recognition.answered, 6)
+        XCTAssertEqual(recognition.summary?.exercises, 6)
+        XCTAssertEqual(recognition.summary?.accuracy, 1)
+        XCTAssertEqual(recognition.summary?.newWords, 0)
+        XCTAssertEqual(recognition.summary?.reviewedWords, 6)
+
+        let productionRun = run(.production)
+        await productionRun.start()
+        let typed = try await answerAll(productionRun)
+        XCTAssertEqual(typed.count, 6)
+        XCTAssertTrue(typed.allSatisfy { $0.card.key.kind == .production && $0.input == .typed })
+        let productionLog = try await rows("SELECT kind, exercise, outcome FROM learn_review WHERE run_id = '\(productionRun.runID.uuidString)'")
+        XCTAssertEqual(productionLog, Array(repeating: "production|production_typed|right", count: 6))
+        let recognitionRows = try await rows("SELECT COUNT(*) FROM learn_review WHERE kind = 'recognition'")
+        XCTAssertEqual(recognitionRows, ["6"], "the production run adds no recognition answer")
+    }
+
+    /// Each answer is graded and written the moment it is given, with its
+    /// sound, before Continue: closing the run then loses nothing. A second
+    /// tap changes nothing. A wrong card comes back at the end; the time is
+    /// capped at 60 s.
+    func testEveryAnswerIsWrittenAtOnce() async throws {
+        _ = try await db.writeLearningFixture("due", today: today)
+        let clock = TestClock("2026-11-04T12:00:00Z")
+        let sink = RecordingFeedbackSink()
+        let vm = run(.recognition, clock: clock, sink: sink)
+        await vm.start()
+        let first = try XCTUnwrap(vm.question)
+        clock.advance(2.5)
+        await vm.choose(try XCTUnwrap(first.rightIndex))
+        XCTAssertEqual(vm.feedback, AnswerFeedback(outcome: .right, chosenIndex: first.rightIndex, mindTheAccent: false,
+                                                   rightAnswer: first.word.meaning))
+        let written = try await rows("SELECT word, kind, outcome, duration_ms, step_before, step_after FROM learn_review")
+        XCTAssertEqual(written, ["\(first.card.key.word.word)|recognition|right|2500|\(first.card.step)|\(first.card.step + 1)"],
+                       "written before Continue")
+        let card = try await db.learningState(of: first.card.key.word)
+        XCTAssertEqual(card?.cards.first { $0.key.kind == .recognition }?.step, first.card.step + 1)
+        XCTAssertEqual(sink.played, [.right])
+
+        await vm.choose(0)
+        await vm.dontKnow()
+        let stillOne = try await rows("SELECT COUNT(*) FROM learn_review")
+        XCTAssertEqual(stillOne, ["1"], "answered: further taps change nothing")
+        XCTAssertEqual(sink.played, [.right])
+
+        await vm.next()
+        let second = try XCTUnwrap(vm.question)
+        XCTAssertNotEqual(second.card.key, first.card.key)
+        XCTAssertEqual(vm.position, 2)
+        clock.advance(90)
+        let right = try XCTUnwrap(second.rightIndex)
+        let tapped = (right + 1) % second.options.count
+        await vm.choose(tapped)
+        XCTAssertEqual(vm.feedback, AnswerFeedback(outcome: .wrong, chosenIndex: tapped, mindTheAccent: false,
+                                                   rightAnswer: second.word.meaning))
+        XCTAssertEqual(sink.played, [.right, .wrong])
+        XCTAssertEqual(vm.total, 7, "the wrong card comes back at the end")
+        let both = try await rows("SELECT word, outcome, duration_ms, step_after FROM learn_review ORDER BY id")
+        XCTAssertEqual(both.last, "\(second.card.key.word.word)|wrong|60000|0", "back to learning; the time capped at 60 s")
+        let relearn = try await db.learningState(of: second.card.key.word)
+        let relearnCard = relearn?.cards.first { $0.key.kind == .recognition }
+        XCTAssertEqual(relearnCard?.step, 0)
+        XCTAssertEqual(relearnCard?.dueDay, today)
+
+        // The rest right: the retry is the last question, the same card.
+        await vm.next()
+        let rest = try await answerAll(vm)
+        XCTAssertEqual(rest.last?.card.key, second.card.key, "asked again at the end")
+        XCTAssertEqual(rest.last?.card.step, 0, "as the wrong answer left it")
+        let total = try await rows("SELECT COUNT(*) FROM learn_review")
+        XCTAssertEqual(total, ["7"], "6 cards and the retry, and nothing written twice")
+        XCTAssertEqual(vm.summary?.exercises, 7)
+    }
+
+    /// "Don't know" counts as wrong; Check grades by the answer mode, read
+    /// at each question: Lenient accent right, Strict accent wrong, and
+    /// Multiple choice makes the next familiar card a choice.
+    func testDontKnowIsWrong() async throws {
+        _ = try await db.writeLearningFixture("due", today: today)
+        let vm = run(.production)
+        await vm.start()
+        let first = try XCTUnwrap(vm.question)
+        XCTAssertEqual(first.input, .typed, "rung 1 or higher, Lenient: typed")
+        await vm.dontKnow()
+        XCTAssertEqual(vm.feedback, AnswerFeedback(outcome: .wrong, chosenIndex: nil, mindTheAccent: false,
+                                                   rightAnswer: first.word.term))
+        let log = try await rows("SELECT word, kind, exercise, outcome, step_after FROM learn_review")
+        XCTAssertEqual(log, ["\(first.card.key.word.word)|production|production_typed|wrong|0"])
+        XCTAssertEqual(vm.total, 7, "requeued")
+        vm.typed = first.word.term
+        await vm.check()
+        let stillOne = try await rows("SELECT COUNT(*) FROM learn_review")
+        XCTAssertEqual(stillOne, ["1"], "no Check after Don't know")
+
+        await vm.next()
+        let second = try XCTUnwrap(vm.question)
+        vm.typed = unaccented(second.word.term)
+        XCTAssertNotEqual(vm.typed, second.word.term)
+        await vm.check()
+        XCTAssertEqual(vm.feedback, AnswerFeedback(outcome: .accent, chosenIndex: nil, mindTheAccent: true,
+                                                   rightAnswer: second.word.term), "Lenient: right, Mind the accent")
+
+        settings.learningAnswerMode = .strict
+        await vm.next()
+        let third = try XCTUnwrap(vm.question)
+        XCTAssertEqual(third.input, .typed)
+        vm.typed = unaccented(third.word.term)
+        await vm.check()
+        XCTAssertEqual(vm.feedback?.outcome, .wrong, "Strict: the accent counts")
+        XCTAssertEqual(vm.feedback?.mindTheAccent, true)
+
+        settings.learningAnswerMode = .choice
+        await vm.next()
+        let fourth = try XCTUnwrap(vm.question)
+        XCTAssertEqual(fourth.input, .choice, "Multiple choice, from the next question")
+        XCTAssertEqual(fourth.exercise, .productionChoice)
+
+        let outcomes = try await rows("SELECT exercise, outcome FROM learn_review ORDER BY id")
+        XCTAssertEqual(outcomes, ["production_typed|wrong", "production_typed|accent", "production_typed|wrong"])
+    }
+
+    /// A word with no meaning in the pair is never asked and never logged,
+    /// due or new, and stays in learning; the new words left for today are
+    /// those with a meaning. A recognition card with no other option is
+    /// skipped too, while a production card is typed.
+    func testWordWithoutMeaningIsSkippedWithoutALogRow() async throws {
+        _ = try await db.writeLearningFixture("due", today: today)
+        let unknown = WordKey(lang: "ell", word: "άγνωστο")
+        try await insertListWord("άγνωστο", translation: "", translationLang: "", list: nil, addedAt: "2026-10-01 10:00:00")
+        try await setCard(unknown, .recognition, step: 1, due: today, last: today.adding(days: -1))
+        try await insertListWord("λέξη", translation: "λέξη in Russian", translationLang: "rus", addedAt: "2026-10-02 10:00:00")
+        try await insertListWord("μήλο", translation: "apple", translationLang: "eng", addedAt: "2026-10-03 10:00:00")
+        settings.learningNewPerDay = 1
+        let unknownCards = try await rows("SELECT * FROM learn_card WHERE word IN ('άγνωστο', 'λέξη') ORDER BY word, kind")
+
+        let vm = run(.recognition)
+        await vm.start()
+        XCTAssertEqual(vm.total, 7, "5 due cards, μήλο (the only new word with a meaning), βιβλίο")
+        let asked = try await answerAll(vm)
+        let words = asked.map(\.card.key.word.word)
+        XCTAssertFalse(words.contains("άγνωστο"), "due, but no meaning")
+        XCTAssertFalse(words.contains("λέξη"), "new, but no English meaning")
+        XCTAssertTrue(words.contains("μήλο"), "the next new word with a meaning, within the limit of 1")
+        let logged = try await rows("SELECT COUNT(*) FROM learn_review WHERE word IN ('άγνωστο', 'λέξη')")
+        XCTAssertEqual(logged, ["0"])
+        let unknownAfter = try await rows("SELECT * FROM learn_card WHERE word IN ('άγνωστο', 'λέξη') ORDER BY word, kind")
+        XCTAssertEqual(unknownAfter, unknownCards, "kept, untouched")
+        XCTAssertEqual(vm.summary?.newWords, 1)
+        let introduced = try await rows("SELECT word FROM learn_word WHERE introduced_day = '\(today.rawValue)'")
+        XCTAssertEqual(introduced, ["μήλο"])
+
+        // Other: one word, its translation only, no other option.
+        try await insertListWord("μεράκι", lang: "und", translation: "passion", translationLang: "eng", list: "my-list")
+        try await setCard(WordKey(lang: "und", word: "μεράκι"), .recognition, step: 1, due: today, last: today.adding(days: -1))
+        try await setCard(WordKey(lang: "und", word: "μεράκι"), .production, step: 1, due: today, last: today.adding(days: -1))
+        let alone = run(.recognition, lang: "und", meaningsLang: nil)
+        await alone.start()
+        XCTAssertEqual(alone.phase, .empty, "a recognition card with no other option is skipped")
+        let typedAlone = run(.production, lang: "und", meaningsLang: nil)
+        await typedAlone.start()
+        XCTAssertEqual(typedAlone.question?.input, .typed, "a production card is typed")
+        let otherRows = try await rows("SELECT COUNT(*) FROM learn_review WHERE lang = 'und'")
+        XCTAssertEqual(otherRows, ["0"])
+    }
+
+    /// A fake clock moves from 03:59 to 04:01 between two answers: the two
+    /// log rows carry the two days, and a word first answered after 04:00
+    /// gets the new `introduced_day`. The plan made at the start stays.
+    func testRunAcrossFourAMUsesEachAnswersDay() async throws {
+        for word in ["γράφω", "σπίτι", "νερό", "καλός", "είμαι"] {
+            try await db.learnWord(greek(word), today: today)
+        }
+        for word in ["νερό", "καλός", "είμαι"] { try await db.stopLearning(greek(word)) }   // options only
+        try await setCard(LearningFixture.grafo, .recognition, step: 1, due: today, last: today.adding(days: -1))
+
+        let clock = TestClock("2026-11-05T03:58:00Z")
+        let vm = run(.recognition, clock: clock)
+        await vm.start()
+        XCTAssertEqual(vm.total, 2, "γράφω due, then σπίτι new")
+        clock.set("2026-11-05T03:59:00Z")
+        let first = try XCTUnwrap(vm.question)
+        XCTAssertEqual(first.card.key.word, LearningFixture.grafo)
+        await vm.choose(try XCTUnwrap(first.rightIndex))
+        await vm.next()
+        clock.set("2026-11-05T04:01:00Z")
+        let second = try XCTUnwrap(vm.question)
+        XCTAssertEqual(second.card.key.word.word, "σπίτι")
+        XCTAssertTrue(second.isNew)
+        await vm.choose(try XCTUnwrap(second.rightIndex))
+        await vm.next()
+        XCTAssertEqual(vm.phase, .summary)
+        XCTAssertEqual(vm.total, 2, "the plan made at the start stays")
+
+        let log = try await rows("SELECT word, day, introduced FROM learn_review ORDER BY id")
+        XCTAssertEqual(log, ["γράφω|2026-11-04|0", "σπίτι|2026-11-05|1"], "each answer on its own learning day")
+        let words = try await rows("SELECT word, introduced_day FROM learn_word WHERE word IN ('γράφω', 'σπίτι') ORDER BY word")
+        XCTAssertEqual(words, ["γράφω|2026-11-03", "σπίτι|2026-11-05"])
+        let cards = try await rows("SELECT word, step, due_day, last_day FROM learn_card WHERE kind = 'recognition' AND word IN ('γράφω', 'σπίτι') ORDER BY word")
+        XCTAssertEqual(cards, ["γράφω|2|2026-11-07|2026-11-04", "σπίτι|1|2026-11-06|2026-11-05"])
+    }
+}
+
+/// #159 on the Learn home: the trainers need a word in learning.
+extension LearnViewModelTests {
+    /// Nothing in learning: the trainers are disabled ("Learn a few words
+    /// first"); a word in learning enables them, also when all is done for
+    /// today; stopping it disables them again.
+    func testTrainersNeedAWordInLearning() async throws {
+        settings.learningLanguages = ["ell", "eng"]
+        let vm = home()
+        await vm.load(locale: Locale(identifier: "en"))
+        XCTAssertEqual(vm.today, .chooseLists)
+        XCTAssertFalse(vm.canTrain)
+        await vm.select("eng")
+        XCTAssertEqual(vm.today, .addWords)
+        XCTAssertFalse(vm.canTrain)
+
+        try await db.learnWord(house, today: today)
+        await vm.load(locale: Locale(identifier: "en"))
+        XCTAssertEqual(vm.today, .counts(due: 0, newLeft: 1))
+        XCTAssertTrue(vm.canTrain)
+        settings.learningNewPerDay = 0
+        await vm.load(locale: Locale(identifier: "en"))
+        XCTAssertEqual(vm.today, .allDone)
+        XCTAssertTrue(vm.canTrain, "all done for today: the trainers stay")
+
+        try await db.stopLearning(house)
+        await vm.load(locale: Locale(identifier: "en"))
+        XCTAssertEqual(vm.today, .addWords)
+        XCTAssertFalse(vm.canTrain, "a paused word is not in learning")
     }
 }

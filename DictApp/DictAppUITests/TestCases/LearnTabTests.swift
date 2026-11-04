@@ -8,8 +8,10 @@ import XCTest
 /// From the test plan, `testChooseGreekOffersItsLists` waits for 0237's
 /// install of the Greek lists and E3's "Choose lists" (#154): here Greek only
 /// shows its empty state. The download sizes under the rows wait for #241's
-/// packs, the Recognition trainers of `testPickerOffersPairs`,
-/// `testLimitedPairShowsItsWarning` and `testLanguageSwitch` for #159.
+/// packs. The Recognition trainers of `testPickerOffersPairs`,
+/// `testLimitedPairShowsItsWarning` and `testLanguageSwitch` (#159) are in
+/// `ExerciseFlowTests`: a pair chosen in the picker has no word in learning
+/// yet, so its trainers are disabled; the fixtures give them words.
 final class LearnTabTests: XCTestCase {
 
     var app: XCUIApplication!
@@ -140,7 +142,7 @@ final class LearnTabTests: XCTestCase {
     }
 
     /// Choosing Greek via English, Greek having lists: the home, "Choose
-    /// lists or tap Learn on a word", no switch.
+    /// lists or tap Learn on a word", no switch, the trainers off.
     func testChooseGreekShowsItsHome() throws {
         let learnPage = tabBarPage.tapLearnTab()
         XCTAssertTrue(learnPage.waitForPicker())
@@ -149,6 +151,11 @@ final class LearnTabTests: XCTestCase {
         XCTAssertFalse(learnPage.importList.exists, "Greek has lists: no Import a list")
         XCTAssertFalse(learnPage.languageSwitch.exists, "one language: no switch")
         XCTAssertTrue(learnPage.myWordsRow.exists)
+        // #159: nothing in learning, so the trainers are off, with the reason.
+        XCTAssertTrue(learnPage.trainerRecognition.waitForExistence(timeout: TestData.Timeouts.medium))
+        XCTAssertFalse(learnPage.trainerRecognition.isEnabled, "Recognition is off")
+        XCTAssertFalse(learnPage.trainerProduction.isEnabled, "Production is off")
+        XCTAssertTrue(app.staticTexts["Learn a few words first"].exists)
     }
 
     /// Spanish via English, Spanish having no lists: "Import a list" and

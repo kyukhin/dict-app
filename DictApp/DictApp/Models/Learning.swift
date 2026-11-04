@@ -783,3 +783,413 @@ enum Forecast: Hashable, Sendable {
         return .days(max(newDays, learning ?? 0))
     }
 }
+
+// MARK: - Exercises (#159)
+//
+// Meanings, answer checking, distractors and questions: pure, tested
+// without a database (0131, "Meanings" and "Questions and answers").
+
+/// A seeded generator for the option order and the distractors, so a run
+/// can be replayed (`-learningSeed`). SplitMix64.
+struct SplitMix64: RandomNumberGenerator, Sendable {
+    private var state: UInt64
+
+    init(seed: UInt64) {
+        state = seed
+    }
+
+    mutating func next() -> UInt64 {
+        state &+= 0x9E37_79B9_7F4A_7C15
+        var z = state
+        z = (z ^ (z >> 30)) &* 0xBF58_476D_1CE4_E5B9
+        z = (z ^ (z >> 27)) &* 0x94D0_49BB_1331_11EB
+        return z ^ (z >> 31)
+    }
+}
+
+/// The meaning shown in exercises, in the meanings language of the word's
+/// pair (0131, "Meanings"): the list's translation when it is in that
+/// language, else the first sense of the word in the pair's dictionaries,
+/// shortened. Never translated into the UI language.
+enum Gloss {
+    /// A meaning is cut at this many characters.
+    static let maxLength = 80
+
+    /// Rule 1: the stored `translation` when it is not empty and in
+    /// `meaningsLang`, or an import's (`translationLang` `""`), which shows
+    /// in every pair. With no pair (`meaningsLang` nil: Other, rule 3), any
+    /// translation. nil: the meaning comes from a dictionary.
+    static func listMeaning(translation: String, translationLang: String, meaningsLang: String?) -> String? {
+        let translation = translation.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !translation.isEmpty else { return nil }
+        guard let meaningsLang, !translationLang.isEmpty else { return translation }
+        return translationLang == meaningsLang ? translation : nil
+    }
+
+    /// The first sense of a definition:
+    /// 1. part-of-speech header lines (`**verb**`) and example lines
+    ///    (`*"…"*`) dropped, then the remaining `*` stripped;
+    /// 2. the text after `1. `, or else the first non-empty line;
+    /// 3. a WordNet-style sense `X — Y` keeps X;
+    /// 4. cut at 80 characters, at a space or comma, with "…".
+    static func short(definition: String) -> String {
+        var lines: [String] = []
+        for raw in definition.split(whereSeparator: \.isNewline) {
+            let line = raw.trimmingCharacters(in: .whitespaces)
+            guard !isHeader(line), !isExample(line) else { continue }
+            let text = line.replacingOccurrences(of: "*", with: "").trimmingCharacters(in: .whitespaces)
+            if !text.isEmpty { lines.append(text) }
+        }
+        var sense = lines.first { $0.hasPrefix("1. ") }.map { String($0.dropFirst(3)) } ?? lines.first ?? ""
+        sense = sense.trimmingCharacters(in: .whitespaces)
+        if let dash = sense.range(of: " — ") {
+            let head = sense[..<dash.lowerBound].trimmingCharacters(in: .whitespaces)
+            if !head.isEmpty { sense = head }
+        }
+        return cut(sense)
+    }
+
+    /// `**verb**`: a part-of-speech header.
+    private static func isHeader(_ line: String) -> Bool {
+        line.count > 4 && line.hasPrefix("**") && line.hasSuffix("**")
+    }
+
+    /// `*"…"*`: an example line, in italics.
+    private static func isExample(_ line: String) -> Bool {
+        line.count > 2 && line.hasPrefix("*") && !line.hasPrefix("**") && line.hasSuffix("*")
+    }
+
+    private static func cut(_ text: String) -> String {
+        guard text.count > maxLength else { return text }
+        let prefix = text.prefix(maxLength)
+        let end = prefix.lastIndex { $0 == " " || $0 == "," } ?? prefix.endIndex
+        let head = prefix[..<end].trimmingCharacters(in: CharacterSet(charactersIn: " ,;"))
+        return (head.isEmpty ? String(prefix) : head) + "…"
+    }
+}
+
+/// A typed answer, graded.
+struct TypedGrade: Hashable, Sendable {
+    let outcome: Outcome
+    /// Only the accents were off: "Mind the accent". The answer is wrong in
+    /// Strict mode and right (`accent`) in Lenient mode.
+    let mindTheAccent: Bool
+}
+
+/// Grades typed answers (0131, "Questions and answers"). Case, extra
+/// spaces, a final σ typed as σ and one leading article never count; a
+/// part of the expected term in parentheses is optional.
+enum AnswerChecker {
+    /// The articles dropped at the start of an answer and of the term.
+    static let articles: [String: Set<String>] = [
+        "ell": ["ο", "η", "το", "οι", "τα"],
+        "eng": ["the", "a", "an", "to"],
+        "spa": ["el", "la", "los", "las", "un", "una"],
+    ]
+
+    /// Strict: equal after `normalize` is right; equal only after `fold`
+    /// is wrong, with the accent hint. Lenient (and Multiple choice, should
+    /// a choice question fall back to a field): equal after `fold` is
+    /// `accent`, which counts as right. Anything else, an empty answer
+    /// included, is wrong.
+    static func check(_ typed: String, expected: String, lang: String, mode: AnswerMode) -> Outcome {
+        grade(typed, expected: expected, lang: lang, mode: mode).outcome
+    }
+
+    static func grade(_ typed: String, expected: String, lang: String, mode: AnswerMode) -> TypedGrade {
+        let answer = normalize(typed, lang: lang)
+        let forms = Set(expectedForms(expected).map { normalize($0, lang: lang) }).subtracting([""])
+        guard !answer.isEmpty, !forms.isEmpty else { return TypedGrade(outcome: .wrong, mindTheAccent: false) }
+        if forms.contains(answer) { return TypedGrade(outcome: .right, mindTheAccent: false) }
+        guard Set(forms.map(foldNormalized)).contains(foldNormalized(answer)) else {
+            return TypedGrade(outcome: .wrong, mindTheAccent: false)
+        }
+        return TypedGrade(outcome: mode == .strict ? .wrong : .accent, mindTheAccent: true)
+    }
+
+    /// NFC, trimmed, inner spaces collapsed, lowercased; trailing `. ! ? ;`
+    /// and the Greek question mark dropped; σ at a word end written ς and ς
+    /// inside a word σ; one leading article of `lang` dropped.
+    static func normalize(_ text: String, lang: String) -> String {
+        var text = text.precomposedStringWithCanonicalMapping.lowercased()
+            .split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        while let last = text.last, ".!?;\u{037E}".contains(last) || last == " " {
+            text.removeLast()
+        }
+        var characters = Array(text)
+        for index in characters.indices where characters[index] == "σ" || characters[index] == "ς" {
+            let atWordEnd = index + 1 == characters.count || !characters[index + 1].isLetter
+            characters[index] = atWordEnd ? "ς" : "σ"
+        }
+        text = String(characters)
+        if let articles = articles[lang], let space = text.firstIndex(of: " "),
+           articles.contains(String(text[..<space])) {
+            text = String(text[text.index(after: space)...])
+        }
+        return text
+    }
+
+    /// `normalize`, then without combining marks (accents, Greek
+    /// dialytika, Arabic harakat) and the Arabic tatweel, with ς as σ, NFC.
+    static func fold(_ text: String, lang: String) -> String {
+        foldNormalized(normalize(text, lang: lang))
+    }
+
+    private static func foldNormalized(_ text: String) -> String {
+        let scalars = text.decomposedStringWithCanonicalMapping.unicodeScalars.filter { scalar in
+            switch scalar.properties.generalCategory {
+            case .nonspacingMark, .enclosingMark: return false
+            default: return scalar != "\u{0640}"
+            }
+        }
+        return String(String.UnicodeScalarView(scalars))
+            .replacingOccurrences(of: "ς", with: "σ")
+            .precomposedStringWithCanonicalMapping
+    }
+
+    /// The term with and without each part in parentheses: `(ένα) σωρό`
+    /// gives `ένα σωρό` and `σωρό`. At most four parts are optional.
+    static func expectedForms(_ term: String) -> [String] {
+        var forms = [""]
+        var rest = Substring(term)
+        var optional = 0
+        while optional < 4, let open = rest.firstIndex(of: "("),
+              let close = rest[open...].firstIndex(of: ")") {
+            let before = rest[..<open]
+            let inner = rest[rest.index(after: open)..<close]
+            forms = forms.flatMap { [$0 + before + inner, $0 + before + " "] }
+            rest = rest[rest.index(after: close)...]
+            optional += 1
+        }
+        return forms.map { $0 + rest }
+    }
+}
+
+/// A word whose meaning `DatabaseService.meanings` looks up (0131,
+/// "Meanings").
+struct MeaningQuery: Hashable, Sendable {
+    let key: WordKey
+    /// Looked up in the pair's dictionaries: the headword, else the term.
+    let lookup: String
+    /// The list's; `""` = none.
+    let translation: String
+    /// Its language; `""` = an import's, shown in every pair.
+    let translationLang: String
+    /// The word's own entry: its meaning without a pair (Other, rule 3).
+    var entry: EntryKey?
+
+    init(key: WordKey, lookup: String, translation: String = "", translationLang: String = "", entry: EntryKey? = nil) {
+        self.key = key
+        self.lookup = lookup
+        self.translation = translation
+        self.translationLang = translationLang
+        self.entry = entry
+    }
+
+    init(_ word: LearnWord) {
+        self.init(key: word.key, lookup: word.entry?.word ?? word.term, translation: word.translation,
+                  translationLang: word.translationLang, entry: word.entry)
+    }
+}
+
+/// A word as a question asks it, or as another option next to it.
+struct WordChoice: Hashable, Sendable {
+    let key: WordKey
+    /// Shown and expected, without its endings.
+    let term: String
+    var endings = ""
+    /// In the pair's meanings language (`DatabaseService.meanings`); `""` =
+    /// none in this pair: never asked, never an option.
+    let meaning: String
+    /// The list's or the entry's part of speech.
+    var partOfSpeech = ""
+    /// The E3 list it was picked from.
+    var listID: String?
+    /// Its dictionary entry; nil for a list word without one.
+    var entry: EntryKey?
+    /// In learning; false for a headword of the source sample.
+    var isEnrolled = true
+    /// The pair dictionary that gave `meaning`, where the source sample is
+    /// drawn from; nil for a list translation.
+    var meaningSource: String?
+}
+
+/// Chooses the other options of a question (0131, "Questions and answers").
+enum DistractorPicker {
+    /// A choice question shows the right option and up to 3 others.
+    static let defaultCount = 3
+
+    /// The first label of a part of speech, mapped as the inflection tables
+    /// map it (#144: adjective satellite → adj); `""` for none.
+    static func primaryPOS(_ pos: String) -> String {
+        guard let first = pos.split(separator: ",").first?.trimmingCharacters(in: .whitespaces).lowercased(),
+              !first.isEmpty else { return "" }
+        return InflectionLookup.lemmaPOS(forEntryPOS: first).first ?? first
+    }
+
+    /// Up to `count` options besides `word`. Candidates come in order of
+    /// preference: the word's own list, then the enrolled words, then the
+    /// source sample; within each, the same primary part of speech first,
+    /// in an order shuffled by `rng`. A candidate is dropped if it is the
+    /// word itself, has no meaning, folds like an option already taken
+    /// (term or meaning), or shares a comma-separated part of its meaning
+    /// with one: no two options read alike. The caller gives every
+    /// candidate its meaning in the word's meanings language, so the four
+    /// options are in one language.
+    static func pick(for word: WordChoice, candidates: [WordChoice], count: Int = defaultCount,
+                     rng: inout some RandomNumberGenerator) -> [WordChoice] {
+        let pos = primaryPOS(word.partOfSpeech)
+        func rank(_ candidate: WordChoice) -> Int {
+            let origin = word.listID != nil && candidate.listID == word.listID ? 0 : candidate.isEnrolled ? 1 : 2
+            let samePOS = !pos.isEmpty && primaryPOS(candidate.partOfSpeech) == pos
+            return origin * 2 + (samePOS ? 0 : 1)
+        }
+        let groups = Dictionary(grouping: candidates, by: rank)
+        var taken: [WordChoice] = []
+        var terms: Set<String> = [AnswerChecker.fold(word.term, lang: word.key.lang)]
+        var parts = meaningParts(word.meaning)
+        for group in groups.keys.sorted() {
+            for candidate in groups[group, default: []].shuffled(using: &rng) {
+                guard taken.count < count else { return taken }
+                guard candidate.key != word.key else { continue }
+                let candidateParts = meaningParts(candidate.meaning)
+                let term = AnswerChecker.fold(candidate.term, lang: candidate.key.lang)
+                guard !candidateParts.isEmpty, candidateParts.isDisjoint(with: parts), !terms.contains(term) else { continue }
+                taken.append(candidate)
+                terms.insert(term)
+                parts.formUnion(candidateParts)
+            }
+        }
+        return taken
+    }
+
+    /// The comma-separated parts of a meaning, folded; a whole meaning
+    /// folds to the union of its parts.
+    static func meaningParts(_ meaning: String) -> Set<String> {
+        Set(meaning.split(separator: ",").map { AnswerChecker.fold(String($0), lang: "") }.filter { !$0.isEmpty })
+    }
+}
+
+/// One question of a run.
+struct Question: Hashable, Sendable {
+    enum Input: Hashable, Sendable {
+        /// Up to 4 options.
+        case choice
+        /// A text field, Check and "Don't know".
+        case typed
+    }
+
+    struct Option: Hashable, Sendable {
+        let text: String
+        /// A word's endings, shown in the secondary colour.
+        var endings = ""
+    }
+
+    /// The card asked, as it was when the question was built.
+    let card: CardState
+    let word: WordChoice
+    /// The language of every meaning, as prompt or option: the pair's
+    /// meanings language; nil without a pair (Other).
+    let meaningsLang: String?
+    let input: Input
+    /// Empty for a typed question.
+    let options: [Option]
+    /// nil for a typed question.
+    let rightIndex: Int?
+
+    var isRecognition: Bool { card.key.kind == .recognition }
+    /// A card's first question carries the "New word" badge.
+    var isNew: Bool { card.isNew }
+    /// The word (recognition) or its meaning (production).
+    var prompt: String { isRecognition ? word.term : word.meaning }
+    var promptEndings: String { isRecognition ? word.endings : "" }
+    /// The word's language for a recognition prompt, the meanings language
+    /// for a production one.
+    var promptLanguage: String? { isRecognition ? word.key.lang : meaningsLang }
+    /// The options' language: meanings for recognition, words for production.
+    var optionLanguage: String? { isRecognition ? meaningsLang : word.key.lang }
+    /// The option or the word that answers it.
+    var rightAnswer: String { isRecognition ? word.meaning : word.term }
+
+    var exercise: ExerciseKind {
+        if isRecognition { return .recognition }
+        return input == .typed ? .productionTyped : .productionChoice
+    }
+}
+
+/// Builds a question from a card (0131, "Questions and answers").
+enum QuestionBuilder {
+    /// Recognition is always a choice. Production on rung 0 (new or
+    /// learning) is a choice; on rung 1 or higher it is typed, unless the
+    /// mode is Multiple choice.
+    static func wantsChoice(_ card: CardState, mode: AnswerMode) -> Bool {
+        card.key.kind == .recognition || card.step == 0 || mode == .choice
+    }
+
+    /// The question for `card` of `word`, its options shuffled by `rng`.
+    /// `word` and `candidates` carry their meanings in `meaningsLang`, the
+    /// pair's. nil, so the run skips the card without a log row, for a word
+    /// without a meaning, a card that is not a word card, and a recognition
+    /// card without any other option. A production card without one is typed.
+    static func build(card: CardState, word: WordChoice, candidates: [WordChoice], mode: AnswerMode,
+                      meaningsLang: String?, rng: inout some RandomNumberGenerator) -> Question? {
+        guard CardKind.wordKinds.contains(card.key.kind), !word.meaning.isEmpty else { return nil }
+        let isRecognition = card.key.kind == .recognition
+        if wantsChoice(card, mode: mode) {
+            let others = DistractorPicker.pick(for: word, candidates: candidates, rng: &rng)
+            if !others.isEmpty {
+                func option(_ choice: WordChoice) -> Question.Option {
+                    isRecognition ? Question.Option(text: choice.meaning) : Question.Option(text: choice.term, endings: choice.endings)
+                }
+                var options = others.map(option)
+                let rightIndex = Int.random(in: 0...options.count, using: &rng)
+                options.insert(option(word), at: rightIndex)
+                return Question(card: card, word: word, meaningsLang: meaningsLang, input: .choice, options: options,
+                                rightIndex: rightIndex)
+            }
+            if isRecognition { return nil }
+        }
+        return Question(card: card, word: word, meaningsLang: meaningsLang, input: .typed, options: [], rightIndex: nil)
+    }
+}
+
+// MARK: - Runs (#159; the session and mistakes in #161)
+//
+// A run's summary is `ReviewSummary` over its log rows (#163,
+// `reviewRows(run:)`), the same function as Today's numbers.
+
+/// One item of a run's plan.
+struct PlannedItem: Hashable, Sendable {
+    /// The card as it was when planned, or after the answer that requeued it.
+    var card: CardState
+    /// Requeued after a wrong answer: it does not come back again.
+    var isRetry = false
+}
+
+/// Plans the runs (0131, "Runs"). Pure.
+enum SessionPlanner {
+    /// The items of a trainer.
+    static let trainerLength = 10
+
+    /// A trainer of `kind`: due cards first, then the new words' cards,
+    /// then practice, the lowest rungs first; at most 10, each card once.
+    /// `newWords` come within the daily limit; their cards are new, as
+    /// created.
+    static func trainer(kind: CardKind, due: [CardState], newWords: [LearnWord], practice: [CardState],
+                        today: LearnDay, count: Int = trainerLength) -> [PlannedItem] {
+        let new = newWords.map { CardState(key: CardKey(word: $0.key, kind: kind), step: 0, dueDay: today) }
+        var seen = Set<CardKey>()
+        var items: [PlannedItem] = []
+        for card in due + new + practice where items.count < count && card.key.kind == kind && !card.isSuspended {
+            if seen.insert(card.key).inserted { items.append(PlannedItem(card: card)) }
+        }
+        return items
+    }
+
+    /// A wrong answer to the item at `index`: the card, as it is after the
+    /// answer, goes to the end once.
+    static func requeue(_ plan: [PlannedItem], wrongAt index: Int, card: CardState) -> [PlannedItem] {
+        guard plan.indices.contains(index), !plan[index].isRetry else { return plan }
+        return plan + [PlannedItem(card: card, isRetry: true)]
+    }
+}

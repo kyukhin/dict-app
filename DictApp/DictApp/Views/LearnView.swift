@@ -8,10 +8,22 @@ import SwiftUI
 struct LearnView: View {
     @StateObject private var vm = LearnViewModel()
     @Environment(\.locale) private var locale
+    @Environment(\.layoutDirection) private var layoutDirection
+    /// The trainer running in the full-screen cover.
+    @State private var trainer: Trainer?
 
     /// The screens the home pushes.
     enum Route: Hashable {
         case myWords
+    }
+
+    /// A trainer run of `kind` in `lang`, the chosen language, with its
+    /// pair's meanings language (nil without a pair).
+    struct Trainer: Identifiable {
+        let id = UUID()
+        let kind: CardKind
+        let lang: String
+        let meaningsLang: String?
     }
 
     var body: some View {
@@ -40,6 +52,13 @@ struct LearnView: View {
             .task {
                 await vm.load(locale: locale)
             }
+            .fullScreenCover(item: $trainer, onDismiss: {
+                Task { await vm.load(locale: locale) }
+            }) { trainer in
+                ExerciseRunView(run: .trainer(trainer.kind), lang: trainer.lang, meaningsLang: trainer.meaningsLang)
+                    .environment(\.locale, locale)
+                    .environment(\.layoutDirection, layoutDirection)
+            }
         }
     }
 
@@ -57,7 +76,21 @@ struct LearnView: View {
                 // #164 adds the daily goal ring and the streak here, #161 Start.
                 today
             }
-            // #161 adds Practise mistakes, #159 and #160 the Trainers, E3 #154 the Lists.
+            // #161 adds Practise mistakes here.
+            Section {
+                trainerRow(.recognition, title: "learn.trainer.recognition", symbol: "eye",
+                           id: "learn_trainer_recognition")
+                trainerRow(.production, title: "learn.trainer.production", symbol: "pencil",
+                           id: "learn_trainer_production")
+                // #160 adds Match the pairs, E5 Conjugation.
+            } header: {
+                Text("learn.trainers")
+            } footer: {
+                if !vm.canTrain {
+                    Text("learn.trainers.disabled")
+                }
+            }
+            // E3 #154 adds the Lists.
             Section {
                 NavigationLink(value: Route.myWords) {
                     LabeledContent("learn.myWords") {
@@ -106,6 +139,19 @@ struct LearnView: View {
         case nil:
             ProgressView()
         }
+    }
+
+    /// A trainer: 10 items of its own direction in the chosen language.
+    private func trainerRow(_ kind: CardKind, title: LocalizedStringKey, symbol: String, id: String) -> some View {
+        Button {
+            if let language = vm.language {
+                trainer = Trainer(kind: kind, lang: language, meaningsLang: vm.pair?.meaningsLang)
+            }
+        } label: {
+            Label(title, systemImage: symbol)
+        }
+        .disabled(!vm.canTrain)
+        .accessibilityIdentifier(id)
     }
 
     private func dueText(_ count: Int) -> some View {

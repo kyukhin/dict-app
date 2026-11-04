@@ -143,6 +143,30 @@ struct AccessibilityIdentifiers {
         static func languagePickerSize(_ lang: String, via: String) -> String {
             return "language_picker_size_\(lang)-\(via)"
         }
+        /// The Trainers section (#159).
+        static let trainerRecognition = "learn_trainer_recognition"
+        static let trainerProduction = "learn_trainer_production"
+    }
+
+    // MARK: - Exercises (0131, #159)
+    struct Exercise {
+        static let view = "exercise_view"
+        static let close = "exercise_close"
+        static let progress = "exercise_progress"
+        static let prompt = "exercise_prompt"
+        static let newBadge = "exercise_new_badge"
+        /// `exercise_option_0` … `exercise_option_3`.
+        static func option(_ index: Int) -> String {
+            return "exercise_option_\(index)"
+        }
+        static let answerField = "exercise_answer_field"
+        static let check = "exercise_check"
+        static let dontKnow = "exercise_dont_know"
+        /// Its value is the outcome: `right`, `accent` or `wrong`.
+        static let feedback = "exercise_feedback"
+        static let continueButton = "exercise_continue"
+        static let summary = "run_summary"
+        static let summaryDone = "run_summary_done"
     }
 
     // MARK: - My words (0131, #158: the former Bookmarks list)

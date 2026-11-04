@@ -1,7 +1,7 @@
 # Learning words with spaced repetition
 
 > Spec written by Claude (AI) for LibreDict.
-> Status: Approved by Kirill on 2026-11-04 · Epic: #131 · Tickets: #157 (done), #158 (done), #159, #160, #161, #162 · Updated: 2026-11-06
+> Status: Approved by Kirill on 2026-11-04 · Epic: #131 · Tickets: #157 (done), #158 (done), #159 (done), #160, #161, #162 · Updated: 2026-11-06
 
 Read [0000-overview.md](0000-overview.md) and [0129-dictionary-file.md](0129-dictionary-file.md) first. This epic is designed together with [0166-learning-statistics.md](0166-learning-statistics.md) (E10, #166), which computes the daily goal, the streak and every number from this epic's answer log. Word lists are E3 (#130, [0130-word-lists.md](0130-word-lists.md), drafted at the same time). This spec follows E3's interface ("For E4 and E10" there); "Depends on E3" records how, and the three points where it differs. The conjugation drill (E5, #132) reuses the cards, the scheduler and the log ("For E5").
 
@@ -795,3 +795,11 @@ Unit classes go in `DictAppTests.swift`. Async tests, and classes that are mostl
 - 2026-11-06: #158: the Russian limited-pair warning reads "Слова тренируются с переводом на английский.", with the meanings language as a name in the sentence.
 - 2026-11-06: #158: in Russian, Greek and Spanish a language name inside a sentence ("Learn %@ via %@?", a pair's row, the warning) is lowercase, as those languages write it; English capitalises it.
 - 2026-11-06: #158: until #241 and #242, `PendingPairPacks` stands in for 0237's catalog and install: Greek and English have lists, and nothing downloads.
+- 2026-11-06: #159: `distractorCandidates` is two reads: `wordChoices(lang:meaningsLang:sourceOrder:)`, every enrolled word of the language with its meaning and part of speech, once per run, and `distractorSample(lang:meaningsLang:source:sourceOrder:pos:near:seed:count:)`, about 30 random headwords near the word's, only when the enrolled words leave a choice short.
+- 2026-11-06: #159: `MeaningQuery` also carries the word's `entry`, which Other's rule 3 reads.
+- 2026-11-06: #159: the `due` fixture gives a trainer 6 items, not 10: its five due words, then the learned βιβλίο as practice.
+- 2026-11-06: #159: until #162's Settings, the UI tests set the answer mode through the `learning_answer_mode` launch default.
+- 2026-11-06: #159: trainer practice also takes the unanswered card of a started word (its other card was answered), as the oldest.
+- 2026-11-06: #159: a run reads the due cards, the new pool and practice whole, drops the cards of words without a meaning in the pair, then takes its 10, instead of reading in pages.
+- 2026-11-06: #159: the feedback texts isolate the word or meaning with FSI…PDI, so a Greek word keeps left to right in Arabic.
+- 2026-11-07: #159, merged after #163: the run summary is `ReviewSummary.of(reviewRows(run:))` over the run's log rows, and each answer passes the daily goal to `recordAnswer`.
