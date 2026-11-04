@@ -1,9 +1,9 @@
 # Word forms
 
 > Spec written by Claude (AI) for LibreDict.
-> Status: Implemented (approved by Kirill on 2026-10-28, the #144 change on 2026-10-31) · Epic: #136 · Tickets: #141, #142, #143, #144 · Updated: 2026-11-02
+> Status: Implemented (approved by Kirill on 2026-10-28, the #144 change on 2026-10-31) · Epic: #136 · Tickets: #141, #142, #143, #144 · Updated: 2026-11-05
 
-Read [0000-overview.md](0000-overview.md) and [0129-dictionary-file.md](0129-dictionary-file.md) first. This epic builds on #129's read-only `dictionaries.sqlite`. Numbers marked "measured" come from a prototype of the pipeline, run on 2026-10-27 against the 2026-10-01 Wiktionary snapshot and the 1.4.0 seed.
+Read [0000-overview.md](0000-overview.md) and [0129-dictionary-file.md](0129-dictionary-file.md) first. This epic builds on #129's read-only `dictionaries.sqlite`. #237 ([0237-downloads.md](0237-downloads.md), Approved) moves the Greek tables (`lemma`, `tagset`, `paradigm`, `form_lookup`, `form_link`) and their `data_source` row into the Greek pack, attached as `ell`: from T2 (#241) their SQL says `ell.` where this spec says `dict.`, and without the Greek pack `ell` is the empty stub: the same tables with no rows, so the queries return nothing and need no special code. `morphy_exception` and `morphy_lemma` stay in the bundle as `dict.`. Until T2 lands, this spec describes the code as shipped. Numbers marked "measured" come from a prototype of the pipeline, run on 2026-10-27 against the 2026-10-01 Wiktionary snapshot and the 1.4.0 seed.
 
 ## Why
 
@@ -110,7 +110,7 @@ E2 follows #129's rules for static data ("Adding static data" in [0129](0129-dic
 |---|---|
 | `dictionaries.sqlite`, built by `Scripts/build_dictionaries.py` | Every E2 table lives in this file. E2 adds no user-database table and no migration |
 | `STEPS` in `build_dictionaries.py`; a step is `Scripts/build_<area>.py` with `SCHEMA` and `build(conn, cache_dir)`, run after the dictionaries | Two steps: `build_forms.py` (#141) and `build_morphy.py` (#143). They create and fill only their own tables, plus the forms' `data_source` row, and only read `entries`. They never touch the FTS index or `dict_metadata` |
-| The file is attached read-only and immutable as `dict` on the user-database pool | All E2 SQL says `dict.lemma`, `dict.form_lookup`, `dict.form_link`, `dict.paradigm`, `dict.tagset`, `dict.morphy_exception`, `dict.morphy_lemma`, `dict.data_source` |
+| The file is attached read-only and immutable as `dict` on the user-database pool | All E2 SQL says `dict.lemma`, `dict.form_lookup`, `dict.form_link`, `dict.paradigm`, `dict.tagset`, `dict.morphy_exception`, `dict.morphy_lemma`, `dict.data_source`. #237: `ell.` for the five Greek tables (above) |
 | `data_source` (`id`, `kind`, `display_name`, `version`, `license`, `url`) | One row: the Wiktionary forms. Never a `dict_metadata` row, which would appear as a dictionary in Dictionary Order |
 | `Scripts/inputs.json` (immutable URL and sha256 of every input, verified before use) | The Greek snapshot and the frequency list are pinned there. WordNet's pin comes from #140 |
 | `user_version` and `DictionaryFile.formatVersion` | The PR that registers the E2 steps bumps both |
@@ -298,7 +298,7 @@ The change goes into `DatabaseService.search` and `searchPreferred` as #138 leav
 
 The app target lists its files explicitly, so a new Swift file needs Kirill's step in the Xcode GUI; the developer never edits `project.pbxproj` by text. #143 and #144 add none: `Morphy` and #144's model are in `Models.swift`, #144's views in `DefinitionView.swift`.
 
-Layering: SQL stays in `DatabaseService` and always qualifies `dict.`. Morphy, captions, slots and generated forms are pure and unit-tested without a database. Views only render the `InflectionTable` and `SearchResult` they are given.
+Layering: SQL stays in `DatabaseService` and always qualifies `dict.` (`ell.` for the Greek tables under #237). Morphy, captions, slots and generated forms are pure and unit-tested without a database. Views only render the `InflectionTable` and `SearchResult` they are given.
 
 ## Test plan
 
@@ -383,3 +383,5 @@ None.
 - 2026-11-02: #143, Kirill's three decisions on QA's questions (Decisions on record). English lemma rows read only the enabled dictionaries whose headwords are English (`Search.englishLemmaSources`, `DatabaseService.englishHeadwordSourcesSQL`); imports leave `imported_sources.from_lang` NULL until #208, so a custom import gets no English rows unless it is named like a bundled English source. Morphy takes the first rule hit per part of speech. On the English top 5,000 with the app's code: all 77 tokens with a Spanish WordNet lemma row lose it, exactly the 16 bases Kirill listed go (scared → scar … tapes → tap), 1,343 tokens keep lemma rows, and no other row, caption or order changes. QA's matrix test now expects axes → ax as "plural of ax" (noun.exc), as the verb stops at s → axe.
 - 2026-11-02: #143 results after the decisions, on the iPhone 15 Pro simulator, iOS 17.5: 358 unit tests (3 skips) and `WordFormsSearchFlowTests` (4) pass, with no compiler warning. The dictionary file is unchanged.
 - 2026-11-02 (QA): #143 recheck of Kirill's decisions. A Python twin of the English step with both rules gives, for the English top 5,000, the app's lemma rows byte for byte, before and after the change (4,927 tokens each). 91 tokens change and nothing else does: 77 lose their Spanish WordNet rows, 16 lose the base of a later rule (hoping → hop, planes → plan, scared → scar, …), and planes and cookies do both. doing, ideas and doctors show no Es–En row, and with only Spanish WordNet on no English lemma row shows. planes, typed as Spanish with the Spanish – English pair only, shows En–Es · FD's plane, "form of plane", first; in preferred mode with that pair first it leads the Spanish bucket (`testSpanishLookingQueryKeepsItsEnglishRows`, 359 unit tests). Probe timing on the iPhone 15 Pro (iOS 17.5), 3 runs of 3 rounds alternated with `b172f3f`: 1.010× 1.4.0 (1.010×, 1.017×, 0.978×) against 1.053×; went and mice take 0.5 and 0.3 ms more, the 15 English-letter probes 201.8 ms against 206.5 ms. The unit suite passed three times in a row on the iPhone 15 Pro (2 local-only skips and the known WAL skip); an earlier third run hung in `LegacyMigrationTests.testNoLegacyDatabaseStartsNoMove` (#139) for 18 minutes with no thread at work, and did not hang again in 3 full runs and 8 runs of its class. `WordFormsSearchFlowTests` (4), `SearchFlowTests` (7), `ArabicLocalizationTests` (8) and `GreekLocalizationTests` (8) passed on the iPhone 17 (iOS 26.4) and the iPad M4 (iOS 17.5), one `xcodebuild` per suite with the app uninstalled before it, with no compiler warning.
+- 2026-11-04: #237 (0237, Approved) marked: the Greek form tables move to the Greek pack and are read as `ell.` from T2 (#241); morphy stays in the bundle as `dict.`. Updated the intro, Depends on #129 and Layering.
+- 2026-11-05: Review fix: without the Greek pack, `ell` is a stub with the same tables and no rows, as 0237 defines it.

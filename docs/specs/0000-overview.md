@@ -1,20 +1,20 @@
 # LibreDict overview
 
 > Spec written by Claude (AI) for LibreDict.
-> Status: Approved by Kirill on 2026-10-27 · Epic: — · Tickets: — · Updated: 2026-11-03
+> Status: Approved by Kirill on 2026-10-27 · Epic: — · Tickets: — · Updated: 2026-11-04
 
 This spec describes the app as shipped in 1.4.0 (tag `v1.4.0`, master `f0f806e`), plus the v2.0.0 changes merged since (see History). Read it before any design, development, testing or review task, then read the spec of your epic. It describes the code as it is now. The last sections list what v2.0.0 will change. Paths are relative to the repo root. Links work from this folder.
 
 ## Why
 
-LibreDict is a free offline dictionary for iPhone and iPad. It has no account, no ads and no analytics. The app makes no network calls of its own: only the user-initiated mail and App Store links leave the device. The code is MIT ([LICENSE](../../LICENSE)), and each dictionary keeps its own license.
+LibreDict is a free offline dictionary for iPhone and iPad. It has no account, no ads and no analytics. The app makes no network calls of its own: only the user-initiated mail and App Store links leave the device. #237 ([0237](0237-downloads.md), Approved) adds one kind: a language download the user starts, from GitHub Releases. The code is MIT ([LICENSE](../../LICENSE)), and each dictionary keeps its own license.
 
 | | |
 |---|---|
 | Platforms | iPhone and iPad (`TARGETED_DEVICE_FAMILY = 1,2`), iOS/iPadOS 17.0+ on every target. iPadOS 26 has its own layout rules (see below) |
 | Stack | SwiftUI, Swift 5 language mode, [GRDB](https://github.com/groue/GRDB.swift) 6.24+ (the only dependency, an SPM package in the Xcode project), SQLite FTS5, XCTest and XCUITest |
 | Interface languages | en (source), ru, es, ar (right to left), el |
-| Dictionaries | 9 bundled sources in 5 language pairs, 416,946 entries in total. Users can import more |
+| Dictionaries | 9 bundled sources in 5 language pairs, 416,946 entries in total. Users can import more. #237 keeps only WordNet in the bundle; the other 8 become downloadable language packs |
 | Identity | The display name "LibreDict" comes from the build setting `INFOPLIST_KEY_CFBundleDisplayName`. The partial [Info.plist](../../DictApp/DictApp/Info.plist) holds only `GIT_DESCRIBE`. Bundle id `com.kyukhin.DictApp`, version 1.4.0 (build 4). The project, target and scheme are still named `DictApp` |
 | Store | App Store id 6763217128. Listings are in [metadata/](../../metadata), screenshots in [Screenshots/](../../Screenshots), the release log in [CHANGELOG.md](../../CHANGELOG.md) |
 
@@ -91,6 +91,7 @@ Layering: views hold no SQL and no business rules. Pure logic lives in caseless 
 
 ### Bundled data: `dictionaries.sqlite`
 
+- #237 ([0237](0237-downloads.md), Approved) will cut this file into an English bundle (WordNet and morphy, 56.1 MB) and four language packs (Spanish, Russian, Arabic, Greek with its forms and lists), downloaded at setup, plus an English lists pack, downloaded when the user chooses to learn English; all attached like `dict`. Until it is implemented, this section describes the bundle as shipped.
 - The dictionary file is [`DictApp/DictApp/Resources/dictionaries.sqlite`](../../DictApp/DictApp/Resources), 151,674,880 bytes (~145 MiB), stored in Git LFS (`*.sqlite` in `.gitattributes`). Without `git lfs pull` it is a pointer file and the app fails at launch. Its format and build rules are in [0129-dictionary-file.md](0129-dictionary-file.md) (#140).
 - Tables: `entries` (no `created_at`), `entries_fts` (FTS5 with external content, no triggers), `dict_metadata` (one row per dictionary, with `from_lang` and `to_lang` in ISO 639-3, no `built_at`) `data_source` (credits for non-dictionary data: one row, the Wiktionary word forms), the Greek word-form tables `lemma`, `tagset`, `paradigm`, `form_lookup` and `form_link` (24 MB, #141, #143, see [0136-word-forms.md](0136-word-forms.md)), and WordNet's morphy tables `morphy_exception` and `morphy_lemma` (1.3 MB, #143). `PRAGMA user_version` is the format version, 3, and must equal `DictionaryFile.formatVersion`. Rollback-journal mode, no `ANALYZE`.
 - [`Scripts/build_dictionaries.py`](../../Scripts/build_dictionaries.py) builds it and needs `pip install -r Scripts/requirements.txt` (NLTK 3.10.4, regex, defusedxml). Every input is pinned in [`Scripts/inputs.json`](../../Scripts/inputs.json) (an immutable URL or a file committed in Git LFS, and its sha256) and verified before use by `Scripts/inputs.py`; downloads are cached in `Scripts/.cache/` (`--cache-dir`). The script writes the schema, runs each builder, runs the static data steps (`STEPS`: `build_forms.py`, the Greek word forms from a Wiktionary subset pinned in `Scripts/data/`, with its QA gates and the report `Scripts/reports/forms-qa.md`, then `build_morphy.py`, WordNet's morphy exceptions and lemmas from the pinned `wordnet.zip`), rebuilds FTS, runs the checks that fail the build, then `VACUUM`. It prints the rows each builder dropped as repeated headwords and the size of every table (`dbstat`). `--verify` rebuilds into a temp file and compares its sha256 with the committed file: the same inputs and SQLite version give a byte-identical file.
@@ -272,13 +273,14 @@ The unit tests do not run in parallel, and test timeouts are on (see [DictApp.xc
 - The back button carries the previous screen's title, not "Back". Tap the leading navigation-bar button by index.
 - On iOS 26 a horizontal `ScrollView` right under the navigation bar reports a frame that starts at the top of the screen (it extends into the top safe area), and an accessibility container around it takes that frame. Put the container inside the scroll view, as the Search chips do (#145).
 
-## Upcoming changes (v2.0.0, due 2026-11-27)
+## Upcoming changes (v2.0.0, due 2026-12-04)
 
 The specs of these epics will replace parts of this overview:
 
 - #129 Dictionaries as one read-only file ([0129-dictionary-file.md](0129-dictionary-file.md)): #138 attaches the bundled file and moves user data to the user database, #139 moves a 1.x database into it (Database, Launch, Imported dictionaries above), #140 builds `dictionaries.sqlite` from pinned inputs (Bundled data), and #213 reopens the dictionary file when the system invalidates it (Database).
 - #131 Learning with spaced repetition: a Learn tab replaces Bookmarks, giving the tabs Search · Learn · History · Settings. Bookmarks migrate into a "My words" list, and the Definition bookmark becomes "Learn".
 - #136 Word forms: search by any inflected form (Greek from Wiktionary since #142, English through WordNet morphy since #143) and inflection tables on Definition. Affects Search, Definition and the dictionary build.
+- #237 Download dictionaries and word lists at setup ([0237-downloads.md](0237-downloads.md)): the bundle holds English only; the other languages, their word forms and the word lists are packs on GitHub Releases, offered at first launch, in Settings → Dictionaries → Languages and when the user chooses a language to learn, and attached like `dict`. Affects Why, Screens, Bundled data, Database, Launch, Preferences and the UI test launch arguments.
 - #130 Word lists by level and list import · #166 Learning statistics · #132 Greek conjugation drill · #133 Grammar reference · #134 Example sentences.
 - Elsewhere: #196 archive guard (v1.4.1); #73 iCloud preference sync (v2.1.0).
 
@@ -305,3 +307,5 @@ The specs of these epics will replace parts of this overview:
 - 2026-11-02: #143: a one-word query of 2+ letters a–z also lists the dictionary words it is a form of, through a port of WordNet morphy and two new tables (`user_version` 3), captioned "form of go". The forms step keeps each link page's own spelling (`form_link`), which the table links now check, and reads no synonym gloss as a link. Updated Screens, Rules, Code map, Bundled data, Database, Search, Localization, the test sections and Upcoming changes.
 - 2026-11-02: #229: every async unit test runs on the main actor, so XCTest records each failing assertion, and test timeouts are on, so a hung test fails instead of stalling the run. Updated the unit-test section and Known gotchas.
 - 2026-11-03 (Kirill): the first 2.0 TestFlight build is an alpha, tagged `v2.0.0-alpha.1`; the archive guard accepts `-alpha.N`, `-beta.N` and `-rc.N` tags of the version. Updated Release order.
+- 2026-11-04: #237 drafted ([0237](0237-downloads.md)): pointers in Why, the Dictionaries row, Bundled data and Upcoming changes. The rest describes the app as shipped until #237 is implemented.
+- 2026-11-04 (Kirill): v2.0.0 moves to 2026-12-04 for #237; code complete 11-27.
