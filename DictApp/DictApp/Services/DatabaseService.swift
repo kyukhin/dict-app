@@ -1329,6 +1329,162 @@ actor DatabaseService {
         }
     }
 
+    // MARK: - Conjugation drill (0132, #167)
+    //
+    // The drill's verbs: the verbs of the checked Greek lists that have a
+    // conjugation table, read in one read from the Greek pack (0237): the
+    // lists through `DictionarySchemas.listsSchema(for: "ell")`, the forms
+    // under `PackID.ell.schema`, as `inflection(for:)` reads them. Without
+    // the pack, `ell` is the empty stub and the pool is empty. Every query
+    // goes through a primary key or the `lemma (lang, word, pos)` index.
+
+    /// The checked lists of the series in the lists schema `schema`, for
+    /// their `level_ord` and `translation_lang`: `wordlist` by primary key.
+    static func drillListLevelsSQL(schema: String, count: Int) -> String {
+        "SELECT level_ord, translation_lang FROM \(schema).wordlist WHERE id IN (\(placeholders(count))) AND series = ?"
+    }
+
+    /// The items of `levelCount` levels of a series in the lists schema
+    /// `lists`, each with the Greek verb lemma of its word (the linked
+    /// headword, else the term) in the forms schema `forms`, if any, and
+    /// whether that lemma has cells of its own: the `wordlist_item`
+    /// primary-key prefix, then the `lemma` unique index. A word with no
+    /// verb lemma stays for the link rule (αγαπώ → αγαπάω). Arguments: the
+    /// series, the levels.
+    static func drillItemsSQL(lists: String, forms: String, levelCount: Int) -> String {
+        """
+        SELECT COALESCE(i.headword, i.term) AS word, i.translation, i.level_ord, i.rank, i.seq,
+               l.id AS lemma_id, l.word AS lemma_word,
+               EXISTS (SELECT 1 FROM \(forms).paradigm p WHERE p.lemma_id = l.id) AS has_cells
+        FROM \(lists).wordlist_item i
+        LEFT JOIN \(forms).lemma l ON l.lang = 'ell' AND l.word = COALESCE(i.headword, i.term) AND l.pos = 'verb'
+        WHERE i.series = ? AND i.level_ord IN (\(placeholders(levelCount)))
+        """
+    }
+
+    /// The cells of `count` lemmas of the forms schema `schema` in table
+    /// order, by the `paradigm` primary key.
+    static func drillCellsSQL(schema: String, count: Int) -> String {
+        """
+        SELECT p.lemma_id, p.form, t.tags FROM \(schema).paradigm p
+        JOIN \(schema).tagset t ON t.id = p.tagset_id
+        WHERE p.lemma_id IN (\(placeholders(count))) ORDER BY p.lemma_id, p.ord
+        """
+    }
+
+    private static func placeholders(_ count: Int) -> String {
+        Array(repeating: "?", count: count).joined(separator: ", ")
+    }
+
+    /// The drill's verbs from `lists`, the checked built-in Greek lists
+    /// (`DrillScope.greekLists`), in list level, frequency (unranked last)
+    /// and list order. Each list word takes its table by the Definition rule
+    /// for a verb: its verb lemma's own cells, else its single link
+    /// (`linkedLemmasSQL`, `chooseLink`, `linkFits`), as `inflection(for:)`
+    /// does, also for a word with no verb lemma; then `DrillVerb.make`. Two
+    /// words with one verb are one: the lowest level, then the best rank,
+    /// wins. No list: no verb, and nothing is read.
+    ///
+    /// `meaningsLang` is the meanings language of Greek's pair
+    /// (`LearningPair.meaningsLang`, 0131: English for Greek via English and
+    /// the limited Greek via Russian). A list's translation is kept when the
+    /// list's `translation_lang` is that language, or '' (0131's meaning
+    /// rule 1); otherwise the verb's translation is empty, until
+    /// 0131's `meanings` (#159) gives the pair's dictionary sense. Never the
+    /// case in 2.0.
+    func drillVerbs(lists: [WordListID], meaningsLang: String) async throws -> [DrillVerb] {
+        guard !lists.isEmpty, let listsSchema = DictionarySchemas.listsSchema(for: "ell") else { return [] }
+        guard let pool = dbPool else { throw DBError.notConnected }
+        return try await read(pool) { db in
+            try Self.drillVerbs(lists: lists, meaningsLang: meaningsLang, listsSchema: listsSchema,
+                                formsSchema: PackID.ell.schema, in: db)
+        }
+    }
+
+    private static func drillVerbs(lists: [WordListID], meaningsLang: String, listsSchema: String,
+                                   formsSchema: String, in db: Database) throws -> [DrillVerb] {
+        // Each checked level, and whether its translations are in the
+        // meanings language.
+        var keepsTranslation: [Int: Bool] = [:]
+        for row in try Row.fetchAll(db, sql: drillListLevelsSQL(schema: listsSchema, count: lists.count),
+                                    arguments: StatementArguments(lists.map(\.rawValue) + [DrillScope.series])) {
+            let translationLang: String = row["translation_lang"]
+            keepsTranslation[row["level_ord"]] = translationLang.isEmpty || translationLang == meaningsLang
+        }
+        let levels = keepsTranslation.keys.sorted()
+        guard !levels.isEmpty else { return [] }
+
+        // 1. The list items, each with its verb lemma, if any.
+        struct Item {
+            let word: String
+            let lemma: InflectionLookup.Lemma?
+            let hasCells: Bool
+            let translation: String
+            let level: Int
+            let rank: Int?
+            let seq: Int
+        }
+        let items = try Row.fetchAll(db, sql: drillItemsSQL(lists: listsSchema, forms: formsSchema,
+                                                            levelCount: levels.count),
+                                     arguments: StatementArguments([DrillScope.series]) + StatementArguments(levels))
+            .map { (row: Row) -> Item in
+                let level: Int = row["level_ord"]
+                let translation: String = keepsTranslation[level] == true ? row["translation"] : ""
+                let lemmaID: Int64? = row["lemma_id"]
+                return Item(word: row["word"],
+                            lemma: lemmaID.map { InflectionLookup.Lemma(id: $0, word: row["lemma_word"], pos: "verb") },
+                            hasCells: row["has_cells"], translation: translation, level: level,
+                            rank: row["rank"], seq: row["seq"])
+            }
+            .sorted { a, b in (a.level, a.rank ?? .max, a.seq) < (b.level, b.rank ?? .max, b.seq) }
+
+        // 2. Each word's table: its verb lemma's own, else its single link.
+        var tables: [String: (lemma: InflectionLookup.Lemma, isLinked: Bool)] = [:]
+        var looked = Set<String>()
+        for item in items where looked.insert(item.word).inserted {
+            if let lemma = item.lemma, item.hasCells {
+                tables[item.word] = (lemma, false)
+                continue
+            }
+            let word = item.word
+            let links = try Row.fetchAll(db, sql: linkedLemmasSQL,
+                                         arguments: [word, word, Search.foldGreek(word), item.lemma?.id ?? -1, "verb"])
+                .map { row in
+                    InflectionLookup.Link(lemma: InflectionLookup.Lemma(id: row["id"], word: row["word"], pos: row["pos"]),
+                                          holdsHeadword: row["holds_headword"])
+                }
+            if let linked = InflectionLookup.chooseLink(links) { tables[item.word] = (linked, true) }
+        }
+
+        // 3. The cells of every table.
+        var cells: [Int64: [ParadigmCell]] = [:]
+        let ids = Array(Set(tables.values.map(\.lemma.id))).sorted()
+        for start in stride(from: 0, to: ids.count, by: 500) {
+            let chunk = Array(ids[start..<min(start + 500, ids.count)])
+            for row in try Row.fetchAll(db, sql: drillCellsSQL(schema: formsSchema, count: chunk.count),
+                                        arguments: StatementArguments(chunk)) {
+                cells[row["lemma_id"], default: []].append(ParadigmCell(form: row["form"], tags: row["tags"] as String))
+            }
+        }
+
+        // 4. The verbs, each word once: the items are in level, rank and
+        // list order, so the first item of a word wins.
+        var verbs: [DrillVerb] = []
+        var words = Set<String>()
+        for item in items {
+            guard let table = tables[item.word], let tableCells = cells[table.lemma.id] else { continue }
+            if table.isLinked,
+               !InflectionLookup.linkFits(word: item.word, pos: table.lemma.pos, cells: tableCells) { continue }
+            let paradigm = LemmaParadigm(word: table.lemma.word, pos: table.lemma.pos, cells: tableCells,
+                                         isLinked: table.isLinked)
+            guard let verb = DrillVerb.make(word: item.word, paradigm: paradigm, translation: item.translation,
+                                            listLevel: item.level, rank: item.rank, seq: item.seq),
+                  words.insert(verb.word).inserted else { continue }
+            verbs.append(verb)
+        }
+        return verbs
+    }
+
     // MARK: - History
 
     /// Records a viewed word with the `source` of the entry that was viewed
