@@ -475,6 +475,106 @@ struct DictionarySchemas: Equatable, Sendable {
         """
 }
 
+// MARK: - The first-launch offer (Issue #244)
+
+/// Whether launch shows the first-launch sheet, as which kind, and which
+/// packs it checks (0237, "Launch"). Pure: launch gathers the `Signals`
+/// (`PackOffer.atLaunch`), `ContentView` shows the sheet.
+enum PackOffer {
+    enum Kind: Equatable, Sendable {
+        /// A fresh install: the UI language's and the device languages' packs.
+        case fresh
+        /// An update from 1.x or the 2.0 alpha: the packs of the
+        /// dictionaries that were enabled.
+        case upgrade
+        /// Packs the user installed that are gone or of another format (a
+        /// restore from backup, a format bump): those packs.
+        case missing
+    }
+
+    struct Sheet: Equatable, Sendable {
+        let kind: Kind
+        /// Checked at first, in catalog order.
+        let checked: [PackID]
+    }
+
+    /// What launch knows when it decides.
+    struct Signals: Equatable, Sendable {
+        /// `packs_offered`: the sheet's Download or Not now ran.
+        var packsOffered = false
+        /// `packs_installed`.
+        var packsInstalled: Set<PackID> = []
+        /// The packs attached to a usable file.
+        var usable: Set<PackID> = []
+        /// A 1.x `dict.sqlite` found at this launch, before the move.
+        var legacyDatabaseFound = false
+        /// The `user_meta.legacy_migration` marker of an earlier move.
+        var legacyMarker = false
+        /// `dictionary_order`.
+        var storedOrder: [String]?
+        /// Any History, My words or imported row (the 2.0 alpha).
+        var userRows = false
+        /// `enabled_sources`; `nil`: every dictionary was on.
+        var enabledSources: Set<String>?
+        /// The UI language (`UILanguage.code`) and `Locale.preferredLanguages`.
+        var uiLanguageCode = "en"
+        var preferredLanguages: [String] = []
+    }
+
+    /// The sheet launch shows, if any:
+    /// - **missing** when `packs_installed` names packs without a usable
+    ///   file, whatever `packs_offered` says;
+    /// - otherwise none once `packs_offered` is set;
+    /// - **upgrade** on a sign of an earlier install: a 1.x file, the move's
+    ///   marker, user rows, or a stored order that holds a pack's dictionary
+    ///   (a fresh 2.0 install stores only installed ones, and installs only
+    ///   after the sheet's answer);
+    /// - **fresh** otherwise.
+    static func decide(_ signals: Signals, catalog: PackCatalog) -> Sheet? {
+        let missing = catalog.packs.map(\.id).filter {
+            signals.packsInstalled.contains($0) && !signals.usable.contains($0)
+        }
+        if !missing.isEmpty {
+            return Sheet(kind: .missing, checked: missing)
+        }
+        guard !signals.packsOffered else { return nil }
+        let packSources = Set(catalog.sources.map(\.source))
+        let earlierInstall = signals.legacyDatabaseFound || signals.legacyMarker || signals.userRows
+            || (signals.storedOrder ?? []).contains(where: packSources.contains)
+        // The language packs (not the English lists) holding a wanted dictionary.
+        func languagePacks(holding wanted: (String) -> Bool) -> [PackID] {
+            catalog.packs.filter { pack in
+                pack.kind == "language" && catalog.sources(of: pack.id).contains { wanted($0.source) }
+            }.map(\.id)
+        }
+        if earlierInstall {
+            let enabled = signals.enabledSources
+            return Sheet(kind: .upgrade, checked: languagePacks { enabled?.contains($0) ?? true })
+        }
+        // The UI language's dictionaries (#74) and each device language's.
+        let codes = [signals.uiLanguageCode] + signals.preferredLanguages.compactMap {
+            Locale.Language(identifier: $0).languageCode?.identifier
+        }
+        let wanted = Set(codes.flatMap { DictionaryDefaults.preferredSources[$0] ?? [] })
+        return Sheet(kind: .fresh, checked: languagePacks(holding: wanted.contains))
+    }
+
+    /// The sheet's Download or Not now: sets `packs_offered`, so the sheet
+    /// shows once. A missing sheet also drops the packs it offered from
+    /// `packs_installed`, or it would show at every launch; an install
+    /// records each one again.
+    static func record(_ sheet: Sheet, in settings: SettingsService) {
+        settings.packsOffered = true
+        if sheet.kind == .missing {
+            let installed = settings.packsInstalled
+            let kept = installed.subtracting(sheet.checked)
+            if kept != installed {
+                settings.packsInstalled = kept
+            }
+        }
+    }
+}
+
 // MARK: - Word forms: inflection tables (Issue #144)
 //
 // The Definition screen's Greek inflection tables (0136-word-forms.md,
