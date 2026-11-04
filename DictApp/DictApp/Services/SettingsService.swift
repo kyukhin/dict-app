@@ -50,6 +50,7 @@ final class SettingsService {
     private let enabledSourcesKey = "enabled_sources"
     private let dictionaryOrderKey = "dictionary_order"
     private let resultSortModeKey = "result_sort_mode"
+    private let learningListsKey = "learning_lists"
 
     /// Injectable for tests (pass an in-memory `KeyValueStore`); production uses
     /// `.shared`, which backs onto `UserDefaults.standard`.
@@ -195,6 +196,29 @@ final class SettingsService {
     var resultSortMode: ResultSortMode {
         get { ResultSortMode(rawValue: store.string(forKey: resultSortModeKey) ?? "") ?? .relevance }
         set { store.set(newValue.rawValue, forKey: resultSortModeKey) }
+    }
+
+    // MARK: - Lists new words come from (0130, #151)
+
+    /// The lists checked on New words from or by "Learn this list": new
+    /// words come from them. A JSON array of list ids, like
+    /// `enabled_sources`. Absent or empty means nothing is checked; there is
+    /// no default (Kirill, 2026-11-03). Deleting a list unchecks it (#154).
+    var learningListIDs: Set<WordListID> {
+        get {
+            guard let data = store.data(forKey: learningListsKey),
+                  let array = try? JSONDecoder().decode([String].self, from: data) else {
+                return []
+            }
+            return Set(array.map(WordListID.init(rawValue:)))
+        }
+        set {
+            if newValue.isEmpty {
+                store.removeObject(forKey: learningListsKey)
+            } else {
+                store.set(try? JSONEncoder().encode(newValue.map(\.rawValue).sorted()), forKey: learningListsKey)
+            }
+        }
     }
 }
 

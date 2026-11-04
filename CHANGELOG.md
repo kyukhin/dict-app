@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - [#144] A Greek word's Definition screen shows its conjugation or declension table, with "All forms" for the rest of a verb's forms; Credits names Wiktionary as their source.
 - [#143] Search finds an English word from its inflected forms through WordNet's morphy rules, such as went → go ("form of go") and mice → mouse ("plural of mouse").
 - [#145] Dictionary chips under the Search field switch dictionaries on and off in one tap, in the Dictionary Order sequence; a long press offers "Only this" and "All" turns every one back on. The chips and the Settings switches are one setting, and results refresh at once.
+- [#151] Word lists get their data model: built-in, imported and My words lists share one model, words link to their dictionary entry (also through word forms), and new words come by level, then by frequency with a light shuffle. No screen uses it yet.
 
 ### Changed
 - [#138] Every dictionary is searchable right after install, with no "Preparing dictionaries" bar: the app reads the bundled dictionaries in place and keeps your history, saved words and imports in a small database of their own.

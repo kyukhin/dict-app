@@ -12241,3 +12241,1164 @@ final class QuickSwitchSearchTests: XCTestCase {
         XCTAssertTrue(vm.showsNoDictionariesHint)
     }
 }
+
+// MARK: - Issue #151: word lists, the data model (0130-word-lists.md)
+
+/// Dictionary files with word lists for unit tests: `TestDictionary.make`
+/// plus the list tables of `Scripts/wordlists_schema.sql`, read through
+/// `#filePath`, so the DDL exists once (0130, "List data").
+enum WordListFixture {
+    struct List {
+        var id: String
+        var lang: String
+        var series: String
+        var level: String
+        var levelOrd: Int
+    }
+
+    /// A word of a built-in series (`series`) or an imported list.
+    struct Item {
+        var series = ""
+        var term: String
+        var headword: String?
+        var translation = ""
+        var level = ""
+        var levelOrd = 0
+        var rank: Int?
+        var seq: Int
+    }
+
+    static var schemaURL: URL {
+        URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()  // DictAppTests
+            .deletingLastPathComponent()  // DictApp
+            .deletingLastPathComponent()  // the repository
+            .appendingPathComponent("Scripts/wordlists_schema.sql")
+    }
+
+    /// Writes a dictionary file at `url` with `rows`, `metadata`, `lists`
+    /// (each `word_count` its items) and `items`.
+    @discardableResult
+    static func make(rows: [TestDictionary.Row], metadata: [TestDictionary.Metadata] = [], lists: [List],
+                     items: [Item], at url: URL) throws -> URL {
+        try TestDictionary.make(rows: rows, metadata: metadata, at: url)
+        let schema = try String(contentsOf: schemaURL, encoding: .utf8)
+        let queue = try DatabaseQueue(path: url.path)
+        try queue.write { db in
+            try db.execute(sql: schema)
+            for list in lists {
+                let count = items.filter { $0.series == list.series && $0.levelOrd == list.levelOrd }.count
+                try db.execute(sql: """
+                    INSERT INTO wordlist(id, lang, series, level, level_ord, word_count, data_source)
+                    VALUES (?, ?, ?, ?, ?, ?, 'test')
+                    """, arguments: [list.id, list.lang, list.series, list.level, list.levelOrd, count])
+            }
+            for item in items {
+                try db.execute(sql: """
+                    INSERT INTO wordlist_item(series, term, headword, translation, level, level_ord, rank, seq, sort_key)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """, arguments: [item.series, item.term, item.headword, item.translation, item.level,
+                                     item.levelOrd, item.rank, item.seq, WordListItem.sortKey(of: item.term)])
+            }
+        }
+        return url
+    }
+
+    /// Saves an imported list into the shared service's user database, as
+    /// #155's save will.
+    static func saveUserList(_ id: String, title: String, lang: String, createdAt: String, items: [Item]) async throws {
+        try await DatabaseService.shared.writeForTesting { db in
+            try db.execute(sql: "INSERT INTO user_list(id, title, lang, origin, created_at) VALUES (?, ?, ?, 'file', ?)",
+                           arguments: [id, title, lang, createdAt])
+            for item in items {
+                try db.execute(sql: """
+                    INSERT INTO user_list_item(list_id, term, headword, translation, level, level_ord, rank, seq, sort_key)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """, arguments: [id, item.term, item.headword, item.translation, item.level, item.levelOrd,
+                                     item.rank, item.seq, WordListItem.sortKey(of: item.term)])
+            }
+        }
+    }
+
+    /// Adds a My words row with its date.
+    static func addMyWord(source: String, word: String, addedAt: String) async throws {
+        try await DatabaseService.shared.writeForTesting { db in
+            try db.execute(sql: "INSERT INTO my_words(source, word, added_at) VALUES (?, ?, ?)",
+                           arguments: [source, word, addedAt])
+        }
+    }
+}
+
+/// `ListLinking` on made-up data (0130, "Linking a word to the
+/// dictionaries"): every rule and its order.
+final class ListLinkingTests: XCTestCase {
+    /// Linking against `headwords` and the form table `forms` (a spelling →
+    /// its lemmas, in order).
+    private func link(_ term: String, lang: String = "ell", headwords: [String],
+                      forms: [String: [String]] = [:]) throws -> ListLinking.Link? {
+        let lookup = ListLinking.Lookup(
+            headwords: { spelling in
+                headwords.filter { WordKey(lang: "", word: $0).word == WordKey(lang: "", word: spelling).word }
+            },
+            nearCandidates: { spelling in headwords.filter { Search.foldGreek($0) == Search.foldGreek(spelling) } },
+            formLemmas: { spelling in forms[spelling] ?? [] })
+        return try ListLinking.link(term, lang: lang, lookup: lookup)
+    }
+
+    func testExactMatchFoldsOnlyAToZ() throws {
+        XCTAssertEqual(try link("σπίτι", headwords: ["σπίτι"]), .init(headword: "σπίτι", rule: .exact))
+        XCTAssertEqual(try link("House", lang: "eng", headwords: ["house"]), .init(headword: "house", rule: .exact))
+        XCTAssertEqual(try link("house", lang: "eng", headwords: ["House", "house"]), .init(headword: "house", rule: .exact),
+                       "the spelling of the term wins among NOCASE twins")
+    }
+
+    func testCleanedVariants() {
+        XCTAssertEqual(ListLinking.cleanedVariants(of: "Ευχαριστώ!"), ["Ευχαριστώ"])
+        XCTAssertEqual(ListLinking.cleanedVariants(of: "Τι κάνεις;"), ["Τι κάνεις"])
+        XCTAssertEqual(ListLinking.cleanedVariants(of: "(Σαουδική) Αραβία"), ["Αραβία", "Σαουδική Αραβία"])
+        XCTAssertEqual(ListLinking.cleanedVariants(of: "«ναι»"), ["ναι"])
+        XCTAssertEqual(ListLinking.cleanedVariants(of: "\u{201C}yes!\u{201D}"), ["yes"])
+        XCTAssertEqual(ListLinking.cleanedVariants(of: "'yes'"), ["yes"])
+        XCTAssertEqual(ListLinking.cleanedVariants(of: "σ'"), [], "an apostrophe of elision stays")
+        XCTAssertEqual(ListLinking.cleanedVariants(of: "σπίτι"), [])
+    }
+
+    func testCleanedVariantsLinkInOrder() throws {
+        XCTAssertEqual(try link("(Σαουδική) Αραβία", headwords: ["Αραβία", "Σαουδική Αραβία"]),
+                       .init(headword: "Αραβία", rule: .cleaned))
+        XCTAssertEqual(try link("(Σαουδική) Αραβία", headwords: ["Σαουδική Αραβία"]),
+                       .init(headword: "Σαουδική Αραβία", rule: .cleaned))
+        XCTAssertEqual(try link("«ναι»", headwords: ["ναι"]), .init(headword: "ναι", rule: .cleaned))
+    }
+
+    func testNearIgnoresCaseAndDiaeresis() throws {
+        XCTAssertEqual(try link("Ευχαριστώ!", headwords: ["ευχαριστώ"]), .init(headword: "ευχαριστώ", rule: .near))
+        XCTAssertEqual(try link("Μάϊος", headwords: ["Μάιος"]), .init(headword: "Μάιος", rule: .near))
+        XCTAssertEqual(try link("Καλή όρεξη!", headwords: ["καλή όρεξη"]), .init(headword: "καλή όρεξη", rule: .near))
+    }
+
+    func testAccentFoldedMatchNeverLinks() throws {
+        XCTAssertNil(try link("νομός", headwords: ["νόμος"]), "prefecture is not law")
+        XCTAssertNil(try link("μονός", headwords: ["μόνος"]))
+    }
+
+    func testSeveralNearHeadwordsTakeTheLowercasedOne() throws {
+        XCTAssertEqual(try link("Ελιά", headwords: ["ελιά", "ΕΛΙΑ"]), .init(headword: "ελιά", rule: .near))
+        XCTAssertNil(try link("ΕΛΙΑ", headwords: ["ελιά", "έλια"]), "two near headwords, neither the lowercased term")
+    }
+
+    func testFormsOfOneWordOnly() throws {
+        XCTAssertEqual(try link("λίγοι", headwords: ["λίγος"], forms: ["λίγοι": ["λίγος"]]),
+                       .init(headword: "λίγος", rule: .form))
+        XCTAssertEqual(try link("σπουδές", headwords: ["σπουδή"], forms: ["σπουδές": ["σπουδάζω", "σπουδή"]]),
+                       .init(headword: "σπουδή", rule: .form), "one of the lemmas is a headword")
+        XCTAssertNil(try link("αυτοί", headwords: ["αυτός", "του"], forms: ["αυτοί": ["αυτός", "του"]]),
+                     "Greek: a form of two headwords links nowhere")
+        XCTAssertNil(try link("λίγοι φίλοι", headwords: ["λίγος"], forms: ["λίγοι φίλοι": ["λίγος"]]),
+                     "several words take no form")
+        XCTAssertEqual(try link("went", lang: "eng", headwords: ["go"], forms: ["went": ["go"]]),
+                       .init(headword: "go", rule: .form))
+        XCTAssertEqual(try link("xs", lang: "eng", headwords: ["noun-base", "verb-base"],
+                                forms: ["xs": ["verb-base", "noun-base"]]),
+                       .init(headword: "verb-base", rule: .form), "English: the first base in Morphy's order")
+        XCTAssertEqual(try link("xs", lang: "eng", headwords: ["noun-base"], forms: ["xs": ["verb-base", "noun-base"]]),
+                       .init(headword: "noun-base", rule: .form), "English: the first base that is a headword")
+    }
+
+    func testRulesInOrder() throws {
+        XCTAssertEqual(try link("went", lang: "eng", headwords: ["went", "go"], forms: ["went": ["go"]]),
+                       .init(headword: "went", rule: .exact), "exact before form")
+        XCTAssertEqual(try link("Ευχαριστώ!", headwords: ["Ευχαριστώ", "ευχαριστώ"]),
+                       .init(headword: "Ευχαριστώ", rule: .cleaned), "cleaned before near")
+        XCTAssertEqual(try link("Λίγοι", headwords: ["λίγοι", "λίγος"], forms: ["Λίγοι": ["λίγος"]]),
+                       .init(headword: "λίγοι", rule: .near), "near before form")
+    }
+
+    func testOtherLanguagesLinkOnlyExactOrCleaned() throws {
+        XCTAssertNil(try link("casas", lang: "spa", headwords: ["casa"], forms: ["casas": ["casa"]]))
+        XCTAssertNil(try link("Ευχαριστώ", lang: "eng", headwords: ["ευχαριστώ"]), "near is Greek only")
+        XCTAssertEqual(try link("¿casa?", lang: "spa", headwords: ["¿casa"]), .init(headword: "¿casa", rule: .cleaned))
+        XCTAssertNil(try link("έχει αέρα", headwords: ["έχω", "αέρας"]), "a standalone word")
+    }
+
+    func testSortKey() {
+        XCTAssertEqual(WordListItem.sortKey(of: "(ένα) σωρό"), "σωρο", "parentheses go, Greek folds")
+        XCTAssertEqual(WordListItem.sortKey(of: "Άγγλος"), "αγγλοσ")
+        XCTAssertEqual(WordListItem.sortKey(of: "a.m."), "am")
+        XCTAssertEqual(WordListItem.sortKey(of: "Ice  Cream"), "ice cream")
+    }
+
+    /// Every script sorts without its diacritics (0130, "List data"):
+    /// `árbol` with `arbol`, as `build_wordlists.py` writes it.
+    func testSortKeyDropsDiacriticsInEveryScript() {
+        XCTAssertEqual(WordListItem.sortKey(of: "Árbol"), "arbol")
+        XCTAssertEqual(WordListItem.sortKey(of: "árbol"), WordListItem.sortKey(of: "arbol"))
+        XCTAssertEqual(WordListItem.sortKey(of: "Ñandú"), "nandu")
+        XCTAssertEqual(WordListItem.sortKey(of: "café crème"), "cafe creme")
+        XCTAssertEqual(WordListItem.sortKey(of: "Ёлка"), "елка")
+        XCTAssertEqual(WordListItem.sortKey(of: "Ταΐζω"), "ταιζω", "Greek still folds as Search.foldGreek")
+        let sorted = ["azul", "árbol", "abeja"].sorted { WordListItem.sortKey(of: $0) < WordListItem.sortKey(of: $1) }
+        XCTAssertEqual(sorted, ["abeja", "árbol", "azul"])
+    }
+
+    func testWordKeyLowercasesOnlyAToZ() {
+        XCTAssertEqual(WordKey(lang: "eng", word: "House"), WordKey(lang: "eng", word: "house"))
+        XCTAssertEqual(WordKey(lang: "ell", word: "Σπίτι").word, "Σπίτι", "SQLite's lower() and NOCASE fold A–Z only")
+        XCTAssertNotEqual(WordKey(lang: "ell", word: "σπίτι"), WordKey(lang: "und", word: "σπίτι"))
+    }
+}
+
+/// `LearningOrder` (0130, "Order of new words"): pure, on made-up words.
+final class LearningOrderTests: XCTestCase {
+    private func word(_ term: String, list: WordListID = "ky-ell-a1", lang: String = "ell", level: Int = 1,
+                      rank: Int? = nil, seq: Int = 0) -> WordListItem {
+        WordListItem(listID: list, key: WordKey(lang: lang, word: term), term: term, headword: nil, translation: "",
+                     endings: "", partOfSpeech: "", tags: "", level: level == 0 ? "" : "L\(level)", levelOrder: level,
+                     rank: rank, seq: seq, sortKey: WordListItem.sortKey(of: term))
+    }
+
+    /// `count` words `<prefix>000`… in alphabetical (list) order, ranked by
+    /// a permutation unrelated to the alphabet, or unranked.
+    private func words(_ count: Int, prefix: String = "w", list: WordListID = "ky-ell-a1", level: Int = 1,
+                       ranked: Bool = true) -> [WordListItem] {
+        (0..<count).map { i in
+            word(prefix + String(format: "%03d", i), list: list, level: level,
+                 rank: ranked ? (i * 37) % count + 1 : nil, seq: i)
+        }
+    }
+
+    /// The pairs where a word is followed by the next word of its level in
+    /// alphabetical order, except into a last run of one word.
+    static func neighbourPairs(_ items: [WordListItem]) -> [String] {
+        var pairs: [String] = []
+        for level in Set(items.map(\.levelOrder)) {
+            let words = items.filter { $0.levelOrder == level }
+            let sorted = words.sorted { ($0.sortKey, $0.term) < ($1.sortKey, $1.term) }
+            var position: [WordKey: Int] = [:]
+            for (index, word) in sorted.enumerated() { position[word.key] = index }
+            for i in 0..<max(0, words.count - 1) {
+                let last = words.count - 1
+                let intoLastSingleRun: Bool = i + 1 == last && last % LearningOrder.window == 0
+                let current: Int = position[words[i].key] ?? -2
+                let following: Int = position[words[i + 1].key] ?? -2
+                if current + 1 == following && !intoLastSingleRun {
+                    pairs.append("\(words[i].term) → \(words[i + 1].term)")
+                }
+            }
+        }
+        return pairs
+    }
+
+    /// Kendall's tau between the places of `terms` and their alphabetical order.
+    private func kendallTau(_ terms: [String]) -> Double {
+        let alphabetical = terms.sorted()
+        let ranks = terms.map { alphabetical.firstIndex(of: $0)! }
+        var score = 0
+        for i in ranks.indices {
+            for j in (i + 1)..<ranks.count { score += ranks[i] < ranks[j] ? 1 : -1 }
+        }
+        return Double(score) / Double(ranks.count * (ranks.count - 1) / 2)
+    }
+
+    func testSeedHashAndGeneratorAreFixed() {
+        XCTAssertEqual(LearningOrder.fnv1a64(""), 0xcbf2_9ce4_8422_2325)
+        XCTAssertEqual(LearningOrder.fnv1a64("a"), 0xaf63_dc4c_8601_ec8c)
+        var generator = LearningOrder.SplitMix64(seed: 0)
+        XCTAssertEqual(generator.next(), 0xe220_a839_7b1d_cdaf)
+    }
+
+    func testFrequencyKeepsTopTenInFirstTen() {
+        let level = words(100)
+        for seed in 0..<50 as Range<UInt64> {
+            let order = LearningOrder.arrange(level, order: .frequency, seed: seed)
+            XCTAssertEqual(order.count, 100)
+            XCTAssertEqual(Set(order.prefix(10).compactMap(\.rank)), Set(1...10), "seed \(seed)")
+            XCTAssertEqual(Set(order.prefix(20).compactMap(\.rank)), Set(1...20), "seed \(seed)")
+        }
+    }
+
+    func testUnrankedFollowRankedInListOrder() {
+        let level = words(20, prefix: "u", ranked: false) + words(20, prefix: "r")
+        let order = LearningOrder.arrange(level, order: .frequency, seed: 7)
+        XCTAssertTrue(order.prefix(20).allSatisfy { $0.rank != nil }, "ranked words first")
+        XCTAssertEqual(Set(order[20..<30].map(\.term)), Set(level.prefix(10).map(\.term)),
+                       "unranked words in their list's order, shuffled within each run of 10")
+        XCTAssertEqual(Set(order[30..<40].map(\.term)), Set(level[10..<20].map(\.term)))
+    }
+
+    func testLevelsInOrder() {
+        let items = words(15, prefix: "b", list: "ky-ell-a2", level: 2) + words(15, prefix: "n", level: 0)
+            + words(15, prefix: "a", level: 1)
+        for order in NewWordOrder.allCases {
+            let levels = LearningOrder.arrange(items, order: order, seed: 3).map(\.levelOrder)
+            XCTAssertEqual(levels, Array(repeating: 1, count: 15) + Array(repeating: 2, count: 15)
+                           + Array(repeating: 0, count: 15), "\(order): A1, then A2, then words without a level")
+        }
+    }
+
+    func testRandomShufflesWithinLevel() {
+        let items = words(40, prefix: "a") + words(40, prefix: "b", level: 2)
+        let random = LearningOrder.arrange(items, order: .random, seed: 11)
+        let frequency = LearningOrder.arrange(items, order: .frequency, seed: 11)
+        XCTAssertEqual(Set(random.prefix(40).map(\.term)), Set(items.prefix(40).map(\.term)), "A1 still first")
+        XCTAssertNotEqual(random.map(\.term), frequency.map(\.term))
+        XCTAssertNotEqual(Set(random.prefix(10).compactMap(\.rank)), Set(1...10), "random ignores frequency")
+    }
+
+    func testSameSeedSameOrder() {
+        let items = words(60) + words(30, prefix: "z", ranked: false)
+        XCTAssertEqual(LearningOrder.arrange(items, order: .frequency, seed: 42),
+                       LearningOrder.arrange(items, order: .frequency, seed: 42))
+        XCTAssertEqual(LearningOrder.arrange(items, order: .random, seed: 42),
+                       LearningOrder.arrange(items, order: .random, seed: 42))
+    }
+
+    func testSeedDiffersPerSetAndInstall() {
+        let a1: [WordListID] = ["ky-ell-a1"]
+        let base = LearningOrder.seed(installSeed: 1, lists: a1, order: .frequency)
+        XCTAssertNotEqual(base, LearningOrder.seed(installSeed: 2, lists: a1, order: .frequency))
+        XCTAssertNotEqual(base, LearningOrder.seed(installSeed: 1, lists: a1 + ["ky-ell-a2"], order: .frequency))
+        XCTAssertNotEqual(base, LearningOrder.seed(installSeed: 1, lists: a1, order: .random))
+        XCTAssertEqual(LearningOrder.seed(installSeed: 1, lists: ["ky-ell-a2", "ky-ell-a1"], order: .frequency),
+                       LearningOrder.seed(installSeed: 1, lists: ["ky-ell-a1", "ky-ell-a2"], order: .frequency),
+                       "the ids are sorted")
+        let items = words(100)
+        XCTAssertNotEqual(LearningOrder.arrange(items, order: .frequency, seed: base).map(\.term),
+                          LearningOrder.arrange(items, order: .frequency,
+                                                seed: LearningOrder.seed(installSeed: 2, lists: a1, order: .frequency)).map(\.term))
+    }
+
+    /// With A, X, B, where B follows A alphabetically, and X excluded, A and
+    /// B are not side by side; the other places keep their order.
+    func testExcludedKeysDropOut() {
+        let a = word("alpha"), x = word("zeta"), b = word("beta")
+        XCTAssertEqual(LearningOrder.separateNeighbours([a, x, b]).map(\.term), ["alpha", "zeta", "beta"],
+                       "nothing to separate before")
+        XCTAssertEqual(LearningOrder.separateNeighbours([a, b]).map(\.term), ["beta", "alpha"])
+        let items = words(40)
+        let arranged = LearningOrder.arrange(items, order: .frequency, seed: 5)
+        let excluded = Set(arranged.enumerated().filter { $0.offset % 3 == 1 }.map(\.element.key))
+        let rest = LearningOrder.separateNeighbours(arranged.filter { !excluded.contains($0.key) })
+        XCTAssertEqual(Set(rest.map(\.key)), Set(items.map(\.key)).subtracting(excluded))
+        XCTAssertEqual(Self.neighbourPairs(rest), [])
+    }
+
+    func testNoAlphabeticalRun() {
+        let order = LearningOrder.arrange(words(300), order: .frequency, seed: 9)
+        XCTAssertLessThan(abs(kendallTau(order.prefix(100).map(\.term))), 0.2)
+    }
+
+    func testNoWordFollowedByItsAlphabeticalNeighbour() {
+        // A level of unranked words in alphabetical list order (51 words: a
+        // last run of one word), then a ranked level.
+        let items = words(51, prefix: "a", ranked: false) + words(100, prefix: "b", level: 2)
+        for seed in 0..<50 as Range<UInt64> {
+            let order = LearningOrder.arrange(items, order: .frequency, seed: seed)
+            XCTAssertEqual(Self.neighbourPairs(order), [], "seed \(seed)")
+            let ranked = order.filter { $0.levelOrder == 2 }
+            XCTAssertEqual(Set(ranked.prefix(10).compactMap(\.rank)), Set(1...10), "seed \(seed)")
+            XCTAssertEqual(Set(ranked.prefix(20).compactMap(\.rank)), Set(1...20), "seed \(seed)")
+            XCTAssertEqual(Set(order.prefix(10).map(\.seq)), Set(0..<10), "unranked: each run of 10 keeps its words")
+        }
+    }
+
+    /// Greek A2, a Greek import with A1 and "Lesson 1" (7) levels, and a
+    /// Greek import without levels: every A1 word before every A2 word, then
+    /// "Lesson 1", then the words without a level.
+    func testCheckedListsInLevelOrder() {
+        let a2 = words(12, prefix: "c", list: "ky-ell-a2", level: 2)
+        let imported = words(12, prefix: "a", list: "user-1", level: 1) + words(12, prefix: "l", list: "user-1", level: 7)
+        let unlevelled = words(12, prefix: "n", list: "user-2", level: 0, ranked: false)
+        let order = LearningOrder.arrange(a2 + imported + unlevelled, order: .frequency, seed: 1)
+        XCTAssertEqual(order.map(\.levelOrder), Array(repeating: 1, count: 12) + Array(repeating: 2, count: 12)
+                       + Array(repeating: 7, count: 12) + Array(repeating: 0, count: 12))
+        XCTAssertEqual(Set(order.prefix(10).compactMap(\.rank)), Set(1...10), "frequency within the level")
+        XCTAssertEqual(Set(order.prefix(12).map(\.listID)), ["user-1"], "the import's A1 words lead")
+        XCTAssertEqual(Set(order[12..<22].compactMap(\.rank)), Set(1...10), "Greek A2 by frequency too")
+        XCTAssertEqual(Set(order[24..<34].compactMap(\.rank)), Set(1...10), "Lesson 1 by frequency too")
+        XCTAssertEqual(Set(order[36..<46].map(\.term)), Set(unlevelled.prefix(10).map(\.term)),
+                       "unranked words in list order, shuffled only within their run of 10")
+        XCTAssertEqual(Self.neighbourPairs(order), [])
+    }
+
+    func testWordInTwoListsComesOnce() {
+        let inA2 = word("σπίτι", list: "ky-ell-a2", level: 2, rank: 5)
+        let inImport = word("σπίτι", list: "user-1", level: 1, rank: 5)
+        let unlevelled = word("σπίτι", list: "user-2", level: 0)
+        let order = LearningOrder.arrange([inA2, word("νερό", list: "ky-ell-a2", level: 2), unlevelled, inImport],
+                                          order: .frequency, seed: 1)
+        XCTAssertEqual(order.filter { $0.term == "σπίτι" }.count, 1)
+        XCTAssertEqual(order.first?.listID, "user-1", "at its lowest level, from that list")
+        XCTAssertEqual(order.first?.levelOrder, 1)
+    }
+}
+
+/// The model and queries on test dictionaries and the user database
+/// (0130, "Swift" and "User database").
+@MainActor
+final class WordListModelTests: XCTestCase {
+    private var tempDir: URL!
+    private var db: DatabaseService { .shared }
+    private var userPath: String { tempDir.appendingPathComponent("user.sqlite").path }
+
+    private static let metadata: [TestDictionary.Metadata] = [
+        .init(source: "wordnet", displayName: "WordNet", fromLang: "eng", toLang: "eng"),
+        .init(source: "freedict-eng-spa", displayName: "En–Es", fromLang: "eng", toLang: "spa"),
+        .init(source: "freedict-ell-eng", displayName: "El–En FD", fromLang: "ell", toLang: "eng"),
+        .init(source: "wordnet-ell-eng", displayName: "El–En WN", fromLang: "ell", toLang: "eng"),
+    ]
+
+    private static let rows: [TestDictionary.Row] = [
+        .init(word: "house", definition: "a building", source: "wordnet"),
+        .init(word: "house", definition: "casa", source: "freedict-eng-spa"),
+        .init(word: "Dog", definition: "perro", source: "freedict-eng-spa"),
+        .init(word: "dog", definition: "a canine", source: "wordnet"),
+        .init(word: "σπίτι", normalized: "σπιτι", definition: "house", source: "freedict-ell-eng"),
+        .init(word: "σπίτι", normalized: "σπιτι", definition: "home", source: "wordnet-ell-eng"),
+        .init(word: "γράφω", normalized: "γραφω", definition: "write", source: "freedict-ell-eng"),
+        .init(word: "γράφω", normalized: "γραφω", definition: "write", source: "wordnet-ell-eng"),
+    ]
+
+    private static let lists: [WordListFixture.List] = [
+        .init(id: "ky-ell-a1", lang: "ell", series: "ky-ell", level: "A1", levelOrd: 1),
+        .init(id: "ky-ell-a2", lang: "ell", series: "ky-ell", level: "A2", levelOrd: 2),
+        .init(id: "cefr-eng-c2", lang: "eng", series: "cefr-eng", level: "C2", levelOrd: 6),
+    ]
+
+    /// Greek A1 and A2 of one series, 12 words each with a few ranked, and English C2.
+    private static let items: [WordListFixture.Item] = {
+        var items: [WordListFixture.Item] = [
+            .init(series: "ky-ell", term: "σπίτι", headword: "σπίτι", translation: "house", level: "A1", levelOrd: 1,
+                  rank: 3, seq: 0),
+            .init(series: "ky-ell", term: "έχει αέρα", translation: "it is windy", level: "A1", levelOrd: 1, seq: 1),
+            .init(series: "cefr-eng", term: "house", headword: "house", level: "C2", levelOrd: 6, rank: 1, seq: 0),
+            .init(series: "cefr-eng", term: "sesquipedalian", level: "C2", levelOrd: 6, seq: 1),
+        ]
+        for i in 0..<10 {
+            items.append(.init(series: "ky-ell", term: "αλφα\(i)", level: "A1", levelOrd: 1, rank: 10 + i, seq: 2 + i))
+            items.append(.init(series: "ky-ell", term: "βήτα\(i)", level: "A2", levelOrd: 2, rank: i % 2 == 0 ? 5 + i : nil,
+                               seq: 12 + i))
+        }
+        return items
+    }()
+
+    override func setUp() async throws {
+        try await super.setUp()
+        await DictAppTests.waitForHostAppLaunch()
+        tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+    }
+
+    override func tearDown() async throws {
+        try? FileManager.default.removeItem(at: tempDir)
+        try await super.tearDown()
+    }
+
+    /// Opens the service on the test dictionary with the lists.
+    private func open() async throws {
+        let url = try WordListFixture.make(rows: Self.rows, metadata: Self.metadata, lists: Self.lists, items: Self.items,
+                                           at: tempDir.appendingPathComponent("dictionary.sqlite"))
+        try await db.setup(userPath: userPath, dictionaryURL: url)
+    }
+
+    /// #151: built-in and user lists share one model and one query API.
+    func testOneModelForEveryKind() async throws {
+        try await open()
+        try await WordListFixture.addMyWord(source: "freedict-ell-eng", word: "σπίτι", addedAt: "2026-11-01 10:00:00")
+        try await WordListFixture.addMyWord(source: "wordnet", word: "house", addedAt: "2026-11-02 10:00:00")
+        try await WordListFixture.saveUserList("user-1", title: "Greek lesson 1", lang: "ell", createdAt: "2026-11-03 10:00:00",
+                                               items: [.init(term: "νερό", translation: "water", level: "A1", levelOrd: 1, seq: 0),
+                                                       .init(term: "σπίτι", headword: "σπίτι", seq: 1)])
+
+        let lists = try await db.wordLists()
+        XCTAssertEqual(lists.map(\.id), ["ky-ell-a1", "ky-ell-a2", "cefr-eng-c2", "my-words", "user-1"])
+        XCTAssertEqual(lists.map(\.kind), [.builtIn, .builtIn, .builtIn, .myWords, .user])
+        XCTAssertEqual(lists.map(\.count), [12, 10, 2, 2, 2])
+        XCTAssertEqual(lists.map(\.lang), ["ell", "ell", "eng", WordList.myWordsLanguage, "ell"])
+        XCTAssertEqual(lists.map(\.level), ["A1", "A2", "C2", "", ""])
+        XCTAssertEqual(lists.last?.title, "Greek lesson 1")
+
+        let a1 = try await db.wordListItems("ky-ell-a1")
+        XCTAssertEqual(a1.count, 12)
+        XCTAssertEqual(a1.first?.term, "αλφα0", "alphabetical by sort key")
+        let windy = try XCTUnwrap(a1.first { $0.term == "έχει αέρα" })
+        XCTAssertNil(windy.headword)
+        XCTAssertEqual(windy.translation, "it is windy", "an unmatched word keeps its translation")
+        XCTAssertEqual(windy.key, WordKey(lang: "ell", word: "έχει αέρα"))
+        XCTAssertEqual(Set(a1.map(\.listID)), ["ky-ell-a1"])
+
+        let imported = try await db.wordListItems("user-1")
+        XCTAssertEqual(imported.map(\.term), ["νερό", "σπίτι"])
+        XCTAssertEqual(imported.map(\.levelOrder), [1, 0])
+        XCTAssertEqual(imported.first?.key, WordKey(lang: "ell", word: "νερό"))
+
+        let myWords = try await db.wordListItems(.myWords)
+        XCTAssertEqual(myWords.map(\.term), ["house", "σπίτι"], "newest first")
+        XCTAssertEqual(myWords.map(\.key), [WordKey(lang: "eng", word: "house"), WordKey(lang: "ell", word: "σπίτι")])
+        XCTAssertEqual(myWords.map(\.headword), ["house", "σπίτι"])
+
+        let unknown = try await db.wordListItems("ky-ell-z9")
+        XCTAssertEqual(unknown, [])
+    }
+
+    func testLevelListHoldsOnlyItsLevel() async throws {
+        try await open()
+        let a1 = try await db.wordListItems("ky-ell-a1")
+        let a2 = try await db.wordListItems("ky-ell-a2")
+        XCTAssertEqual(Set(a1.map(\.level)), ["A1"])
+        XCTAssertEqual(Set(a2.map(\.levelOrder)), [2])
+        XCTAssertTrue(Set(a1.map(\.key)).isDisjoint(with: a2.map(\.key)), "the levels of a series are disjoint")
+        XCTAssertFalse(a2.contains { $0.term == "σπίτι" })
+    }
+
+    func testUserListDeleteCascades() async throws {
+        try await open()
+        let words: [WordListFixture.Item] = [.init(term: "νερό", seq: 0), .init(term: "ψωμί", seq: 1)]
+        try await WordListFixture.saveUserList("user-1", title: "One", lang: "ell", createdAt: "2026-11-01 10:00:00", items: words)
+        try await WordListFixture.saveUserList("user-2", title: "Two", lang: "ell", createdAt: "2026-11-02 10:00:00", items: words)
+        try await db.writeForTesting { db in try db.execute(sql: "DELETE FROM user_list WHERE id = 'user-1'") }
+        let remaining = try await db.writeForTesting { db in
+            try Row.fetchAll(db, sql: "SELECT list_id, COUNT(*) AS n FROM user_list_item GROUP BY list_id")
+                .map { "\($0["list_id"] as String) \($0["n"] as Int)" }
+        }
+        XCTAssertEqual(remaining, ["user-2 2"], "deleting a list deletes its words")
+        let ids = try await db.wordLists().map(\.id)
+        XCTAssertFalse(ids.contains("user-1"))
+    }
+
+    /// The same key from two dictionaries is one item, the row added first;
+    /// My words' count counts keys.
+    func testMyWordsOneItemPerKey() async throws {
+        try await open()
+        try await WordListFixture.addMyWord(source: "freedict-ell-eng", word: "γράφω", addedAt: "2026-11-01 10:00:00")
+        try await WordListFixture.addMyWord(source: "wordnet-ell-eng", word: "γράφω", addedAt: "2026-11-01 11:00:00")
+        try await WordListFixture.addMyWord(source: "freedict-eng-spa", word: "Dog", addedAt: "2026-11-01 12:00:00")
+        try await WordListFixture.addMyWord(source: "wordnet", word: "dog", addedAt: "2026-11-01 13:00:00")
+        let items = try await db.wordListItems(.myWords)
+        XCTAssertEqual(items.map(\.key), [WordKey(lang: "eng", word: "dog"), WordKey(lang: "ell", word: "γράφω")])
+        XCTAssertEqual(items.first?.term, "Dog", "the row added first stands for the key")
+        let count = try await db.wordLists().first { $0.id == .myWords }?.count
+        XCTAssertEqual(count, 2)
+    }
+
+    /// 129-1 data, then 130-1: My words and the other user rows stay as
+    /// they were, and the list tables appear empty.
+    func testMigrationLeavesMyWordsUntouched() async throws {
+        let pool = try DatabasePool(path: userPath)
+        try DatabaseService.migrator.migrate(pool, upTo: "129-1-core")
+        try await pool.write { db in
+            try db.execute(sql: """
+                INSERT INTO my_words(source, word, added_at) VALUES ('wordnet', 'dog', '2026-10-01 10:00:00');
+                INSERT INTO my_words(source, word, added_at) VALUES ('freedict-ell-eng', 'σπίτι', '2026-10-02 10:00:00');
+                INSERT INTO history(word, source) VALUES ('dog', 'wordnet');
+                INSERT INTO user_meta(key, value) VALUES ('legacy_migration', '2026-10-03 10:00:00');
+                """)
+        }
+        let myWordsSQL = "SELECT source || '|' || word || '|' || added_at FROM my_words ORDER BY word"
+        let before = try await pool.read { db in try String.fetchAll(db, sql: myWordsSQL) }
+        try DatabaseService.migrator.migrate(pool)
+        let after = try await pool.read { db in
+            (myWords: try String.fetchAll(db, sql: myWordsSQL),
+             history: try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM history"),
+             meta: try String.fetchOne(db, sql: "SELECT value FROM user_meta WHERE key = 'legacy_migration'"),
+             lists: try Int.fetchOne(db, sql: "SELECT (SELECT COUNT(*) FROM user_list) + (SELECT COUNT(*) FROM user_list_item)"),
+             applied: try DatabaseService.migrator.appliedMigrations(db))
+        }
+        XCTAssertEqual(before.count, 2)
+        XCTAssertEqual(after.myWords, before)
+        XCTAssertEqual(after.history, 1)
+        XCTAssertEqual(after.meta, "2026-10-03 10:00:00")
+        XCTAssertEqual(after.lists, 0)
+        XCTAssertEqual(after.applied, ["129-1-core", "130-1-word-lists"])
+    }
+
+    /// The linking rules on the real dictionary file.
+    func testLinkingOnTheFile() async throws {
+        try await db.setup(userPath: userPath, dictionaryURL: try TestDictionary.bundledURL())
+        let greek = try await db.links(for: ["σπίτι", "Ευχαριστώ!", "Καλή όρεξη!", "λίγοι", "έχει αέρα"], lang: "ell")
+        XCTAssertEqual(greek, [.init(headword: "σπίτι", rule: .exact), .init(headword: "ευχαριστώ", rule: .near),
+                               .init(headword: "καλή όρεξη", rule: .near), .init(headword: "λίγος", rule: .form), nil])
+        // `went` is a headword of En–El · FD, so it links exactly (0130's
+        // example went → go needs the form rule): bought and was do.
+        let english = try await db.links(for: ["house", "bought", "was", "went"], lang: "eng")
+        XCTAssertEqual(english, [.init(headword: "house", rule: .exact), .init(headword: "buy", rule: .form),
+                                 .init(headword: "be", rule: .form), .init(headword: "went", rule: .exact)])
+        let spanish = try await db.links(for: ["casa", "λίγοι"], lang: "spa")
+        XCTAssertEqual(spanish.first??.headword, "casa")
+        XCTAssertNil(spanish.last ?? nil, "a Spanish list links only to Spanish headwords")
+    }
+
+    /// The level and rank reads use their primary keys, as does the Greek form lookup of linking.
+    func testRankLookupUsesPrimaryKey() async throws {
+        let url = try WordListFixture.make(rows: Self.rows, metadata: Self.metadata, lists: Self.lists, items: Self.items,
+                                           at: tempDir.appendingPathComponent("dictionary.sqlite"))
+        let bundled = try TestDictionary.bundledURL()
+        let plans = try DatabaseQueue().inDatabase { db -> [[String]] in
+            try db.execute(sql: "ATTACH DATABASE ? AS dict", arguments: [DatabaseService.dictionaryURI(url)])
+            try db.execute(sql: "ATTACH DATABASE ? AS bundled", arguments: [DatabaseService.dictionaryURI(bundled)])
+            let queries: [(String, StatementArguments)] = [
+                (DatabaseService.wordRankSQL(schema: "dict"), ["ell", "σπιτι"]),
+                (DatabaseService.wordListItemsSQL(schema: "dict", order: "seq"), ["ky-ell", 1]),
+                (DatabaseService.greekFormLemmasSQL(schema: "bundled"), ["λιγοι", "λίγοι"]),
+            ]
+            return try queries.map { sql, arguments in
+                try Row.fetchAll(db, sql: "EXPLAIN QUERY PLAN " + sql, arguments: arguments).map { $0["detail"] as String }
+            }
+        }
+        XCTAssertTrue(plans[0].contains { $0.hasSuffix("word_rank USING PRIMARY KEY (lang=? AND key=?)") }, "\(plans[0])")
+        XCTAssertTrue(plans[1].contains { $0.hasSuffix("wordlist_item USING PRIMARY KEY (series=?)") }, "\(plans[1])")
+        XCTAssertEqual(plans[2].first, "SEARCH f USING PRIMARY KEY (form_norm=?)",
+                       "the form's key comes first, never all the lemmas: \(plans[2])")
+        for plan in plans {
+            XCTAssertFalse(plan.contains { $0.hasPrefix("SCAN") }, "no table scan: \(plan)")
+        }
+    }
+
+    /// Two imported lists without levels: the newer list's words come
+    /// first, whatever order the set gives.
+    func testNextNewWordsInListsScreenOrder() async throws {
+        try await open()
+        let older = (0..<12).map { WordListFixture.Item(term: "παλιό\($0)", seq: $0) }
+        let newer = (0..<12).map { WordListFixture.Item(term: "νέο\($0)", seq: $0) }
+        try await WordListFixture.saveUserList("user-a", title: "Old", lang: "ell", createdAt: "2026-11-01 10:00:00", items: older)
+        try await WordListFixture.saveUserList("user-b", title: "New", lang: "ell", createdAt: "2026-11-02 10:00:00", items: newer)
+        let words = try await db.nextNewWords(in: "ell", from: ["user-a", "user-b"], count: 100, excluding: [], order: .frequency)
+        XCTAssertEqual(words.count, 24)
+        XCTAssertTrue(words.prefix(10).allSatisfy { $0.listID == "user-b" }, "\(words.map(\.term))")
+        XCTAssertTrue(words.suffix(4).allSatisfy { $0.listID == "user-a" }, "\(words.map(\.term))")
+        let reordered: Set<WordListID> = ["user-b", "user-a"]
+        let again = try await db.nextNewWords(in: "ell", from: reordered, count: 100, excluding: [], order: .frequency)
+        XCTAssertEqual(again, words)
+    }
+
+    /// Greek A1, Greek A2 and English C2 checked: each language gets its
+    /// own words, levels in order; checking English C2 leaves the Greek
+    /// order unchanged; an unknown id is skipped; enrolled words drop out.
+    func testNextNewWordsPerLanguage() async throws {
+        try await open()
+        let greek = try await db.nextNewWords(in: "ell", from: ["ky-ell-a1", "ky-ell-a2", "cefr-eng-c2"], count: 100,
+                                              excluding: [], order: .frequency)
+        XCTAssertEqual(greek.count, 22)
+        XCTAssertEqual(greek.map(\.levelOrder), Array(repeating: 1, count: 12) + Array(repeating: 2, count: 10))
+        XCTAssertEqual(Set(greek.prefix(10).compactMap(\.rank)), Set([3] + Array(10...18)),
+                       "the 10 most frequent A1 words first")
+        let english = try await db.nextNewWords(in: "eng", from: ["ky-ell-a1", "cefr-eng-c2"], count: 100,
+                                                excluding: [], order: .frequency)
+        XCTAssertEqual(Set(english.map(\.term)), ["house", "sesquipedalian"])
+
+        let greekOnly = try await db.nextNewWords(in: "ell", from: ["ky-ell-a1", "ky-ell-a2", "ky-ell-z9"], count: 100,
+                                                  excluding: [], order: .frequency)
+        XCTAssertEqual(greekOnly, greek, "another language's list and an unknown id leave the order unchanged")
+
+        let first = try await db.nextNewWords(in: "ell", from: ["ky-ell-a1"], count: 3, excluding: [], order: .frequency)
+        let next = try await db.nextNewWords(in: "ell", from: ["ky-ell-a1"], count: 3, excluding: Set(first.map(\.key)),
+                                             order: .frequency)
+        XCTAssertEqual(first.count, 3)
+        XCTAssertTrue(Set(first.map(\.key)).isDisjoint(with: next.map(\.key)), "enrolled words drop out")
+        let random = try await db.nextNewWords(in: "ell", from: ["ky-ell-a1"], count: 100, excluding: [], order: .random)
+        let a1 = try await db.wordListItems("ky-ell-a1")
+        XCTAssertEqual(Set(random.map(\.key)), Set(a1.map(\.key)))
+
+        let seed = try await db.writeForTesting { db in
+            try String.fetchOne(db, sql: "SELECT value FROM user_meta WHERE key = ?", arguments: [DatabaseService.wordListSeedKey])
+        }
+        XCTAssertNotNil(seed.flatMap(UInt64.init), "the install's seed is stored on first use")
+        try await db.setup(userPath: userPath, dictionaryURL: tempDir.appendingPathComponent("dictionary.sqlite"))
+        let reopened = try await db.nextNewWords(in: "ell", from: ["ky-ell-a1", "ky-ell-a2"], count: 100, excluding: [],
+                                                 order: .frequency)
+        XCTAssertEqual(reopened, greek, "the same order every session")
+    }
+
+    /// A list word opens its headword in the first source of the given
+    /// order with the word's language.
+    func testEntryFollowsDictionaryOrder() async throws {
+        try await open()
+        let c2 = try await db.wordListItems("cefr-eng-c2")
+        let a1 = try await db.wordListItems("ky-ell-a1")
+        let english = try XCTUnwrap(c2.first { $0.term == "house" })
+        let byWordNet = try await db.entry(for: english, sourceOrder: ["wordnet", "freedict-eng-spa"])
+        XCTAssertEqual(byWordNet?.source, "wordnet")
+        let bySpanish = try await db.entry(for: english, sourceOrder: ["freedict-eng-spa", "wordnet"])
+        XCTAssertEqual(bySpanish?.source, "freedict-eng-spa")
+        let greek = try XCTUnwrap(a1.first { $0.term == "σπίτι" })
+        let entry = try await db.entry(for: greek, sourceOrder: ["wordnet", "wordnet-ell-eng", "freedict-ell-eng"])
+        XCTAssertEqual(entry?.source, "wordnet-ell-eng", "only sources of the word's language")
+        let standalone = try XCTUnwrap(a1.first { $0.term == "έχει αέρα" })
+        let none = try await db.entry(for: standalone, sourceOrder: ["freedict-ell-eng"])
+        XCTAssertNil(none)
+    }
+
+    func testWordKeyForEntry() async throws {
+        try await open()
+        let english = try await db.wordKey(for: EntryKey(source: "freedict-eng-spa", word: "Dog"))
+        XCTAssertEqual(english, WordKey(lang: "eng", word: "dog"))
+        let greek = try await db.wordKey(for: EntryKey(source: "wordnet-ell-eng", word: "γράφω"))
+        XCTAssertEqual(greek, WordKey(lang: "ell", word: "γράφω"))
+        let unknown = try await db.wordKey(for: EntryKey(source: "my-import", word: "Word"))
+        XCTAssertEqual(unknown, WordKey(lang: "und", word: "word"))
+    }
+
+    /// Needs the Greek pack's lists (#152, 0237).
+    func testNextNewWordsOnTheFile() throws {
+        throw XCTSkip("QA: needs the built Greek lists (#152)")
+    }
+
+    /// Needs the Greek pack's and the English lists pack's lists (#152, #153, 0237).
+    func testNextNewWordsPerLanguageOnTheFile() throws {
+        throw XCTSkip("QA: needs the built Greek and English lists (#152, #153)")
+    }
+}
+
+extension SettingsServiceTests {
+    /// 0130: `learning_lists` is a JSON array of list ids; absent means
+    /// nothing is checked, and an empty set removes the key.
+    func testLearningListsRoundTrip() throws {
+        let store = InMemoryKeyValueStore()
+        let settings = SettingsService(store: store)
+        XCTAssertEqual(settings.learningListIDs, [])
+        settings.learningListIDs = ["ky-ell-b1", "cefr-eng-c2", "user-1"]
+        XCTAssertEqual(settings.learningListIDs, ["user-1", "ky-ell-b1", "cefr-eng-c2"])
+        let stored = try JSONDecoder().decode([String].self, from: try XCTUnwrap(store.data(forKey: "learning_lists")))
+        XCTAssertEqual(stored, ["cefr-eng-c2", "ky-ell-b1", "user-1"])
+        settings.learningListIDs = []
+        XCTAssertFalse(store.keys.contains("learning_lists"))
+    }
+}
+
+// MARK: - Issue #151 QA: edge cases of the word list model
+
+extension SettingsServiceTests {
+    /// An unreadable `learning_lists` value means nothing is checked, and
+    /// the next write replaces it; the preference writes only its own key.
+    func testLearningListsUnreadableValueMeansNothingChecked() throws {
+        let store = InMemoryKeyValueStore()
+        let settings = SettingsService(store: store)
+        store.set(Data("not json".utf8), forKey: "learning_lists")
+        XCTAssertEqual(settings.learningListIDs, [])
+        store.set(try JSONEncoder().encode([1, 2]), forKey: "learning_lists")
+        XCTAssertEqual(settings.learningListIDs, [], "an array of numbers is no list of ids")
+        store.set(try JSONEncoder().encode(["ky-ell-a1", "ky-ell-a1"]), forKey: "learning_lists")
+        XCTAssertEqual(settings.learningListIDs, ["ky-ell-a1"], "a repeated id is one list")
+
+        let writes = store.writeLog.count
+        settings.learningListIDs = ["cefr-eng-b2"]
+        XCTAssertEqual(settings.learningListIDs, ["cefr-eng-b2"])
+        XCTAssertEqual(Array(store.writeLog.dropFirst(writes)), ["learning_lists"], "no other preference is written")
+        XCTAssertEqual(store.keys, ["learning_lists"])
+    }
+}
+
+extension ListLinkingTests {
+    /// Empty, blank and punctuation-only terms have no cleaned spelling and
+    /// link nowhere; a term with stray spaces links through its trimmed form.
+    func testEmptyAndPunctuationOnlyTermsLinkNowhere() throws {
+        for term in ["", "   ", "!?", "«»", "''", ";."] {
+            XCTAssertEqual(ListLinking.cleanedVariants(of: term), [], "'\(term)'")
+            XCTAssertNil(try link(term, headwords: ["σπίτι"], forms: [term: ["σπίτι"]]), "'\(term)'")
+            XCTAssertNil(try link(term, lang: "eng", headwords: ["house"], forms: [term: ["house"]]), "'\(term)'")
+        }
+        XCTAssertEqual(try link("  σπίτι ", headwords: ["σπίτι"]), .init(headword: "σπίτι", rule: .cleaned))
+        XCTAssertFalse(ListLinking.isOneWord(""))
+        XCTAssertFalse(ListLinking.isOneWord("καλή όρεξη"))
+        XCTAssertTrue(ListLinking.isOneWord("σ'"))
+    }
+
+    /// An unclosed parenthesis runs to the end; a stray closing one goes.
+    func testUnbalancedParentheses() {
+        XCTAssertEqual(ListLinking.withoutParentheses("σπίτι (μου"), "σπίτι ")
+        XCTAssertEqual(ListLinking.cleanedVariants(of: "σπίτι (μου"), ["σπίτι", "σπίτι μου"])
+        XCTAssertEqual(ListLinking.withoutParentheses("a) b"), "a b")
+        XCTAssertEqual(ListLinking.withoutParentheses("((a) b) c"), " c")
+    }
+
+    /// `NOCASE` twins that are not spelled as the term: the first in code
+    /// point order, whatever order the dictionary returns them in.
+    func testExactTwinsTakeTheFirstCodePoint() throws {
+        XCTAssertEqual(try link("HOUSE", lang: "eng", headwords: ["house", "House"]),
+                       .init(headword: "House", rule: .exact))
+        XCTAssertEqual(try link("HOUSE", lang: "eng", headwords: ["House", "house"]),
+                       .init(headword: "House", rule: .exact))
+    }
+
+    /// Greek in capitals is near its accented headword (capitals carry no
+    /// accent, #144); a capital initial keeps the accent rule.
+    func testGreekCapitalsAreNear() throws {
+        XCTAssertEqual(try link("ΣΠΙΤΙ", headwords: ["σπίτι"]), .init(headword: "σπίτι", rule: .near))
+        XCTAssertNil(try link("Νομός", headwords: ["νόμος"]), "a capital initial does not hide a moved accent")
+        XCTAssertEqual(try link("Σπίτι", headwords: ["σπίτι", "Σπίτι"]), .init(headword: "Σπίτι", rule: .exact))
+    }
+
+    /// As built (QA #151): the form rule also tries the cleaned spellings,
+    /// and the same lemma from two files counts once.
+    func testFormRuleTriesTheCleanedSpellings() throws {
+        XCTAssertEqual(try link("λίγοι!", headwords: ["λίγος"], forms: ["λίγοι": ["λίγος"]]),
+                       .init(headword: "λίγος", rule: .form))
+        XCTAssertEqual(try link("(οι) λίγοι", headwords: ["λίγος"], forms: ["λίγοι": ["λίγος"]]),
+                       .init(headword: "λίγος", rule: .form), "the one-word spelling without its parenthesised part")
+        XCTAssertEqual(try link("σπουδές", headwords: ["σπουδή"], forms: ["σπουδές": ["σπουδή", "σπουδή"]]),
+                       .init(headword: "σπουδή", rule: .form), "one lemma read from two files is one headword")
+        XCTAssertNil(try link("σπουδές", headwords: [], forms: ["σπουδές": ["σπουδή"]]),
+                     "a lemma that is no headword links nowhere")
+    }
+
+    func testWordListIDKinds() {
+        XCTAssertEqual(WordListID.myWords.rawValue, "my-words")
+        XCTAssertEqual(WordListID(rawValue: "my-words").kind, .myWords)
+        XCTAssertEqual(WordListID(rawValue: "user-0f8fad5b-d9cb-469f-a165-70867728950e").kind, .user)
+        XCTAssertEqual(WordListID(rawValue: "ky-ell-a1").kind, .builtIn)
+        XCTAssertEqual(WordListID(rawValue: "cefr-eng-c2").kind, .builtIn)
+        XCTAssertEqual(WordListID(rawValue: "users").kind, .builtIn, "only the 'user-' prefix marks an import")
+    }
+}
+
+extension LearningOrderTests {
+    /// Words whose places in their level's alphabetical order are `places`,
+    /// in that order (`<prefix>000` …).
+    private func level(_ places: [Int], prefix: String = "w", level: Int = 1) -> [WordListItem] {
+        places.map { word(prefix + String(format: "%03d", $0), level: level, seq: $0) }
+    }
+
+    private func places(_ items: [WordListItem]) -> [Int] {
+        items.map { Int($0.term.dropFirst()) ?? -1 }
+    }
+
+    /// The seed string and the generator, checked against an independent
+    /// FNV-1a and SplitMix64 (Python): the order must not change with a
+    /// launch, a platform or a refactor.
+    func testSeedFormatIsFixed() {
+        let seed = LearningOrder.seed(installSeed: 7, lists: ["ky-ell-a2", "ky-ell-a1"], order: .frequency)
+        XCTAssertEqual(seed, 0xf0c3_7429_b41c_ad35, "FNV-1a of \"7|ky-ell-a1,ky-ell-a2|frequency\"")
+        XCTAssertEqual(LearningOrder.seed(installSeed: .max, lists: ["user-1"], order: .random), 0xd7a5_5753_59b7_0a40)
+        var generator = LearningOrder.SplitMix64(seed: seed)
+        XCTAssertEqual([generator.next(), generator.next(), generator.next()],
+                       [0x2742_8b38_8471_f203, 0xd62d_4759_6497_9dbb, 0xb2b1_3787_945d_fccc])
+    }
+
+    /// The whole arrangement against an independent implementation of
+    /// "Order of new words" (QA, Python, from the spec's text): words without
+    /// a level given first, a ranked level with three unranked words, and an
+    /// unranked level in alphabetical list order. A change here reorders
+    /// every learner's new words after an update.
+    func testArrangementMatchesTheSpecsAlgorithm() {
+        let unlevelled = (0..<4).map { word("n\($0)", list: "user-1", level: 0, seq: $0) }
+        let ranked = (0..<15).map { i in
+            word(String(format: "a%02d", i), level: 1, rank: i < 12 ? (i * 7) % 15 + 1 : nil, seq: i)
+        }
+        let alphabetical = (0..<13).map { word(String(format: "b%02d", $0), list: "ky-ell-a2", level: 2, seq: $0) }
+        let items = unlevelled + ranked + alphabetical
+        XCTAssertEqual(LearningOrder.arrange(items, order: .frequency, seed: 2026).map(\.term), [
+            "a03", "a00", "a06", "a09", "a05", "a10", "a07", "a01", "a08", "a11", "a04", "a13", "a12", "a02", "a14",
+            "b06", "b00", "b02", "b09", "b08", "b04", "b03", "b01", "b05", "b07", "b11", "b10", "b12",
+            "n0", "n3", "n2", "n1",
+        ])
+        XCTAssertEqual(LearningOrder.arrange(items, order: .random, seed: 2026).map(\.term), [
+            "a10", "a14", "a11", "a08", "a03", "a02", "a07", "a12", "a00", "a13", "a04", "a06", "a05", "a09", "a01",
+            "b00", "b09", "b08", "b05", "b12", "b06", "b04", "b11", "b03", "b07", "b02", "b01", "b10",
+            "n1", "n0", "n2", "n3",
+        ])
+    }
+
+    func testEmptyAndSingleWord() {
+        for order in NewWordOrder.allCases {
+            XCTAssertEqual(LearningOrder.arrange([], order: order, seed: 1), [])
+            let one = [word("σπίτι", rank: 1)]
+            XCTAssertEqual(LearningOrder.arrange(one, order: order, seed: 1), one)
+        }
+        XCTAssertEqual(LearningOrder.separateNeighbours([]), [])
+    }
+
+    /// The neighbour pass on known orders: a pair inside a run of 10 swaps;
+    /// a pair that straddles two runs swaps the later run's first two words;
+    /// a pair into a last run of one word stays.
+    func testNeighbourPassOnKnownOrders() {
+        XCTAssertEqual(places(LearningOrder.separateNeighbours(level(Array(0..<12)))),
+                       [1, 0, 3, 2, 5, 4, 7, 6, 9, 8, 11, 10])
+        XCTAssertEqual(places(LearningOrder.separateNeighbours(level([0, 2, 4, 6, 8, 1, 3, 5, 7, 10, 11, 9]))),
+                       [0, 2, 4, 6, 8, 1, 3, 5, 7, 10, 9, 11], "10 → 11 straddles two runs")
+        XCTAssertEqual(places(LearningOrder.separateNeighbours(level([0, 2, 4, 6, 8, 1, 3, 5, 7, 9, 10]))),
+                       [0, 2, 4, 6, 8, 1, 3, 5, 7, 9, 10], "9 → 10 runs into a last run of one word")
+    }
+
+    /// Runs of 10 count from each level's first place, and a pair never
+    /// spans two levels.
+    func testNeighbourPassRunsPerLevel() {
+        let first = level([0, 2, 4, 6, 8, 1, 3, 5, 7], prefix: "w", level: 1)
+        let second = level(Array(0..<12), prefix: "x", level: 2)
+        let result = LearningOrder.separateNeighbours(first + second)
+        XCTAssertEqual(places(Array(result.prefix(9))), [0, 2, 4, 6, 8, 1, 3, 5, 7])
+        XCTAssertEqual(places(Array(result.dropFirst(9))), [1, 0, 3, 2, 5, 4, 7, 6, 9, 8, 11, 10],
+                       "the second level's runs start at its own first word")
+        let acrossLevels = [word("alpha", level: 1), word("beta", level: 2)]
+        XCTAssertEqual(LearningOrder.separateNeighbours(acrossLevels), acrossLevels)
+    }
+
+    /// Random order: a full shuffle of the level, so a frequent word can land
+    /// anywhere, fixed for a seed and different across seeds.
+    func testRandomOrderPerSeed() {
+        let items = words(50)
+        let orders = (0..<10 as Range<UInt64>).map { LearningOrder.arrange(items, order: .random, seed: $0) }
+        XCTAssertEqual(Set(orders.map { $0.map(\.term) }).count, 10)
+        for order in orders {
+            XCTAssertEqual(order.sorted { $0.seq < $1.seq }, items, "a permutation of the level")
+        }
+        XCTAssertTrue(orders.contains { order in order.dropFirst(20).contains { ($0.rank ?? .max) <= 10 } },
+                      "no window: a top-10 word lands past place 20")
+    }
+}
+
+extension WordListModelTests {
+    /// The stored install seed, if any, read on a connection of the test's
+    /// own: `writeForTesting` would drop the service's cached arrangements.
+    private func storedSeed() throws -> String? {
+        var config = Configuration()
+        config.readonly = true
+        return try DatabaseQueue(path: userPath, configuration: config).read { db in
+            try String.fetchOne(db, sql: "SELECT value FROM user_meta WHERE key = ?",
+                                arguments: [DatabaseService.wordListSeedKey])
+        }
+    }
+
+    /// A dictionary file without the list tables (every file before #152
+    /// and #153 fill them) has no built-in lists; My words still shows.
+    func testFileWithoutListTablesHasNoBuiltInLists() async throws {
+        let url = try TestDictionary.make(rows: Self.rows, metadata: Self.metadata,
+                                          at: tempDir.appendingPathComponent("plain.sqlite"))
+        try await db.setup(userPath: userPath, dictionaryURL: url)
+        try await WordListFixture.addMyWord(source: "wordnet", word: "house", addedAt: "2026-11-01 10:00:00")
+        let lists = try await db.wordLists()
+        XCTAssertEqual(lists.map(\.id), [.myWords])
+        XCTAssertEqual(lists.first?.count, 1)
+        let items = try await db.wordListItems("ky-ell-a1")
+        XCTAssertEqual(items, [])
+        let words = try await db.nextNewWords(in: "ell", from: ["ky-ell-a1"], count: 10, excluding: [], order: .frequency)
+        XCTAssertEqual(words, [])
+    }
+
+    /// `nextNewWords` with no count, no lists, only My words, another
+    /// language, every word enrolled, or a list deleted since it was checked.
+    func testNextNewWordsEdgeCases() async throws {
+        try await open()
+        try await WordListFixture.addMyWord(source: "freedict-ell-eng", word: "γράφω", addedAt: "2026-11-01 10:00:00")
+        try await WordListFixture.saveUserList("user-gone", title: "Gone", lang: "ell", createdAt: "2026-11-01 10:00:00",
+                                               items: [.init(term: "νερό", translation: "water", seq: 0)])
+        let all: Set<WordListID> = ["ky-ell-a1", "user-gone", .myWords]
+        for count in [0, -1] {
+            let none = try await db.nextNewWords(in: "ell", from: all, count: count, excluding: [], order: .frequency)
+            XCTAssertEqual(none, [], "count \(count)")
+        }
+        let noLists = try await db.nextNewWords(in: "ell", from: [], count: 10, excluding: [], order: .frequency)
+        XCTAssertEqual(noLists, [])
+        let myWords = try await db.nextNewWords(in: "ell", from: [.myWords], count: 10, excluding: [], order: .frequency)
+        XCTAssertEqual(myWords, [], "My words is no source of new words")
+        let spanish = try await db.nextNewWords(in: "spa", from: all, count: 10, excluding: [], order: .random)
+        XCTAssertEqual(spanish, [])
+
+        let greek = try await db.nextNewWords(in: "ell", from: all, count: 100, excluding: [], order: .frequency)
+        XCTAssertEqual(greek.count, 13)
+        XCTAssertEqual(greek.last?.term, "νερό", "a word without a level comes after A1")
+        XCTAssertEqual(greek.last?.translation, "water")
+        let allEnrolled = try await db.nextNewWords(in: "ell", from: all, count: 100, excluding: Set(greek.map(\.key)),
+                                                    order: .frequency)
+        XCTAssertEqual(allEnrolled, [])
+
+        try await db.writeForTesting { db in try db.execute(sql: "DELETE FROM user_list WHERE id = 'user-gone'") }
+        let afterDelete = try await db.nextNewWords(in: "ell", from: all, count: 100, excluding: [], order: .frequency)
+        let a1 = try await db.wordListItems("ky-ell-a1")
+        XCTAssertEqual(Set(afterDelete.map(\.key)), Set(a1.map(\.key)), "the deleted list's id is skipped")
+        XCTAssertEqual(afterDelete.count, 12)
+    }
+
+    /// Enrolled words drop out and the neighbour pass runs again on the
+    /// rest: it keeps the arrangement's order but for that pass, and no word
+    /// is followed by its alphabetical neighbour. Unranked words in
+    /// alphabetical list order are the case most prone to neighbours.
+    func testNextNewWordsSeparatesNeighboursAfterExclusion() async throws {
+        try await open()
+        let items = (0..<40).map {
+            WordListFixture.Item(term: "λέξη" + String(format: "%03d", $0), level: "A1", levelOrd: 1, seq: $0)
+        }
+        try await WordListFixture.saveUserList("user-abc", title: "ABC", lang: "ell", createdAt: "2026-11-01 10:00:00",
+                                               items: items)
+        var neighboursWithoutTheSecondPass = 0
+        for installSeed in 1...8 {
+            try await db.writeForTesting { db in
+                try db.execute(sql: "INSERT OR REPLACE INTO user_meta(key, value) VALUES (?, ?)",
+                               arguments: [DatabaseService.wordListSeedKey, String(installSeed)])
+            }
+            let full = try await db.nextNewWords(in: "ell", from: ["user-abc"], count: 100, excluding: [],
+                                                 order: .frequency)
+            XCTAssertEqual(full.count, 40)
+            XCTAssertEqual(LearningOrderTests.neighbourPairs(full), [], "seed \(installSeed)")
+            for step in 2...4 {
+                let enrolled = Set(full.enumerated().filter { $0.offset % step == 1 }.map(\.element.key))
+                let filtered = full.filter { !enrolled.contains($0.key) }
+                let rest = try await db.nextNewWords(in: "ell", from: ["user-abc"], count: 100, excluding: enrolled,
+                                                     order: .frequency)
+                XCTAssertEqual(rest, LearningOrder.separateNeighbours(filtered), "seed \(installSeed), step \(step)")
+                XCTAssertEqual(LearningOrderTests.neighbourPairs(rest), [], "seed \(installSeed), step \(step)")
+                if !LearningOrderTests.neighbourPairs(filtered).isEmpty { neighboursWithoutTheSecondPass += 1 }
+                let firstTwo = try await db.nextNewWords(in: "ell", from: ["user-abc"], count: 2, excluding: enrolled,
+                                                         order: .frequency)
+                XCTAssertEqual(firstTwo, Array(rest.prefix(2)), "count takes the head of the same order")
+            }
+        }
+        XCTAssertGreaterThan(neighboursWithoutTheSecondPass, 0, "the cases exercise the second pass")
+    }
+
+    /// The arrangement is cached until a list changes: clearing the imported
+    /// lists (`-resetData`) takes their words out of the next call at once,
+    /// and keeps the install's seed.
+    func testClearUserListsDropsTheCachedOrderAndKeepsTheSeed() async throws {
+        try await open()
+        try await WordListFixture.saveUserList("user-1", title: "One", lang: "ell", createdAt: "2026-11-01 10:00:00",
+                                               items: (0..<5).map { WordListFixture.Item(term: "νέα\($0)", seq: $0) })
+        let checked: Set<WordListID> = ["user-1", "ky-ell-a1"]
+        let before = try await db.nextNewWords(in: "ell", from: checked, count: 100, excluding: [], order: .frequency)
+        XCTAssertEqual(before.filter { $0.listID == "user-1" }.count, 5)
+        let seed = try storedSeed()
+        XCTAssertNotNil(seed)
+
+        try await db.clearUserLists()
+        let after = try await db.nextNewWords(in: "ell", from: checked, count: 100, excluding: [], order: .frequency)
+        XCTAssertEqual(after.count, 12)
+        XCTAssertFalse(after.contains { $0.listID == "user-1" }, "no stale cached arrangement")
+        XCTAssertEqual(try storedSeed(), seed, "the install's seed stays")
+        let ids = try await db.wordLists().map(\.id)
+        XCTAssertEqual(ids, ["ky-ell-a1", "ky-ell-a2", "cefr-eng-c2", "my-words"])
+        let orphans = try await db.writeForTesting { db in try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM user_list_item") }
+        XCTAssertEqual(orphans, 0)
+    }
+
+    /// Imported dictionaries count for linking, entries and word keys once
+    /// their language is known (`imported_sources.from_lang`, #208); an
+    /// import of no known language does not; a dictionary's own language
+    /// wins over an import under its ID; My words keys a source of no known
+    /// language as `und`.
+    func testImportedDictionariesLinkByTheirLanguage() async throws {
+        try await open()
+        try await db.writeForTesting { db in
+            try db.execute(sql: """
+                INSERT INTO imported_sources(source, from_lang) VALUES ('my-greek', 'ell'), ('my-unknown', NULL), ('wordnet', 'spa');
+                INSERT INTO imported_entries(word, word_normalized, definition, source) VALUES
+                    ('θάλασσα', 'θαλασσα', 'sea', 'my-greek'),
+                    ('βουνό', 'βουνο', 'mountain', 'my-unknown');
+                """)
+        }
+        let links = try await db.links(for: ["θάλασσα", "ΘΑΛΑΣΣΑ", "βουνό", "σπίτι", "ουρανός"], lang: "ell")
+        XCTAssertEqual(links, [.init(headword: "θάλασσα", rule: .exact), .init(headword: "θάλασσα", rule: .near), nil,
+                               .init(headword: "σπίτι", rule: .exact), nil])
+        let english = try await db.links(for: ["dog", "θάλασσα"], lang: "eng")
+        XCTAssertEqual(english, [.init(headword: "dog", rule: .exact), nil])
+
+        let keys = [
+            try await db.wordKey(for: EntryKey(source: "my-greek", word: "θάλασσα")),
+            try await db.wordKey(for: EntryKey(source: "my-unknown", word: "Βουνό")),
+            try await db.wordKey(for: EntryKey(source: "wordnet", word: "Dog")),
+        ]
+        XCTAssertEqual(keys, [WordKey(lang: "ell", word: "θάλασσα"), WordKey(lang: "und", word: "Βουνό"),
+                              WordKey(lang: "eng", word: "dog")])
+
+        let sea = WordListItem(listID: "user-1", key: WordKey(lang: "ell", word: "θάλασσα"), term: "θάλασσα",
+                               headword: "θάλασσα", translation: "", endings: "", partOfSpeech: "", tags: "", level: "",
+                               levelOrder: 0, rank: nil, seq: 0, sortKey: "θαλασσα")
+        let entry = try await db.entry(for: sea, sourceOrder: ["freedict-ell-eng", "my-greek"])
+        XCTAssertEqual(entry?.source, "my-greek")
+        XCTAssertEqual(entry?.definition, "sea")
+        let missing = WordListItem(listID: "user-1", key: WordKey(lang: "ell", word: "ουρανός"), term: "ουρανός",
+                                   headword: "ουρανός", translation: "sky", endings: "", partOfSpeech: "", tags: "",
+                                   level: "", levelOrder: 0, rank: nil, seq: 1, sortKey: "ουρανοσ")
+        let none = try await db.entry(for: missing, sourceOrder: ["freedict-ell-eng", "my-greek"])
+        XCTAssertNil(none, "a headword no dictionary has opens nothing")
+
+        try await WordListFixture.addMyWord(source: "my-unknown", word: "βουνό", addedAt: "2026-11-01 10:00:00")
+        let myWords = try await db.wordListItems(.myWords)
+        XCTAssertEqual(myWords.map(\.key), [WordKey(lang: "und", word: "βουνό")])
+    }
+
+    /// A My words row of an import of no known language (every import until
+    /// #208) has the key language `und` and still opens its entry through
+    /// `sourceOrder` (CodeRabbit, PR #250).
+    func testMyWordOfAnUnknownLanguageImportOpensItsEntry() async throws {
+        try await open()
+        try await db.writeForTesting { db in
+            try db.execute(sql: """
+                INSERT INTO imported_sources(source, from_lang) VALUES ('my-unknown', NULL);
+                INSERT INTO imported_entries(word, word_normalized, definition, source)
+                    VALUES ('βουνό', 'βουνό', 'mountain', 'my-unknown');
+                """)
+        }
+        try await WordListFixture.addMyWord(source: "my-unknown", word: "βουνό", addedAt: "2026-11-01 10:00:00")
+        let myWords = try await db.wordListItems(.myWords)
+        let item = try XCTUnwrap(myWords.first)
+        XCTAssertEqual(item.key, WordKey(lang: "und", word: "βουνό"))
+        let entry = try await db.entry(for: item, sourceOrder: ["freedict-ell-eng", "my-unknown"])
+        XCTAssertEqual(entry?.source, "my-unknown", "a Greek dictionary is not the word's language")
+        XCTAssertEqual(entry?.definition, "mountain")
+    }
+
+    /// My words: the row added first gives its key its place (newest first
+    /// by that row); every item is levelless and carries its word as headword.
+    func testMyWordsKeyKeepsItsFirstRowsPlace() async throws {
+        try await open()
+        try await WordListFixture.addMyWord(source: "freedict-ell-eng", word: "γράφω", addedAt: "2026-11-01 10:00:00")
+        try await WordListFixture.addMyWord(source: "freedict-ell-eng", word: "σπίτι", addedAt: "2026-11-01 11:00:00")
+        try await WordListFixture.addMyWord(source: "wordnet-ell-eng", word: "γράφω", addedAt: "2026-11-01 12:00:00")
+        try await WordListFixture.addMyWord(source: "deleted-import", word: "Word", addedAt: "2026-11-01 13:00:00")
+        let items = try await db.wordListItems(.myWords)
+        XCTAssertEqual(items.map(\.term), ["Word", "σπίτι", "γράφω"], "γράφω sits where its first row was added")
+        XCTAssertEqual(items.map(\.key), [WordKey(lang: "und", word: "word"), WordKey(lang: "ell", word: "σπίτι"),
+                                          WordKey(lang: "ell", word: "γράφω")])
+        XCTAssertEqual(items.map(\.headword), ["Word", "σπίτι", "γράφω"])
+        XCTAssertEqual(Set(items.map(\.levelOrder)), [0])
+        XCTAssertEqual(Set(items.map(\.listID)), [.myWords])
+        let count = try await db.wordLists().first { $0.id == .myWords }?.count
+        XCTAssertEqual(count, 3)
+    }
+
+    /// The queries at full size, on made-up English lists of the measured
+    /// sizes (8,648 words, 89% ranked): `wordListItems` of the largest list
+    /// (B2, 2,417 words) and a cold `nextNewWords` over all six lists. 0130's
+    /// 100 ms target holds in an optimized build (QA #151, iPhone 15 Pro,
+    /// iOS 17.5: 9 ms and 41 ms, median of 3); this Debug (-Onone) test
+    /// build takes about 31 ms and 220 ms, so the bounds here only catch a
+    /// regression such as a quadratic pass.
+    func testListQueriesAtFullSize() async throws {
+        let sizes = [1_063, 1_241, 2_139, 2_417, 913, 875]
+        let levels = ["A1", "A2", "B1", "B2", "C1", "C2"]
+        var lists: [WordListFixture.List] = []
+        var items: [WordListFixture.Item] = []
+        for (index, size) in sizes.enumerated() {
+            lists.append(.init(id: "cefr-eng-" + levels[index].lowercased(), lang: "eng", series: "cefr-eng",
+                               level: levels[index], levelOrd: index + 1))
+            for _ in 0..<size {
+                let seq = items.count
+                items.append(.init(series: "cefr-eng", term: String(format: "word%05d", seq), level: levels[index],
+                                   levelOrd: index + 1, rank: seq % 9 == 0 ? nil : (seq * 7_919) % 50_000 + 1, seq: seq))
+            }
+        }
+        let url = try WordListFixture.make(rows: Self.rows, metadata: Self.metadata, lists: lists, items: items,
+                                           at: tempDir.appendingPathComponent("english.sqlite"))
+        try await db.setup(userPath: userPath, dictionaryURL: url)
+        let all = Set(lists.map { WordListID(rawValue: $0.id) })
+        func milliseconds(_ duration: Duration) -> Double {
+            Double(duration.components.seconds) * 1_000 + Double(duration.components.attoseconds) / 1e15
+        }
+        var itemTimes: [Double] = [], nextTimes: [Double] = []
+        for _ in 0..<3 {
+            var start = ContinuousClock.now
+            let b2 = try await db.wordListItems("cefr-eng-b2")
+            itemTimes.append(milliseconds(ContinuousClock.now - start))
+            XCTAssertEqual(b2.count, 2_417)
+            try await db.writeForTesting { _ in }  // drops the cached arrangement
+            start = ContinuousClock.now
+            let next = try await db.nextNewWords(in: "eng", from: all, count: 20, excluding: [], order: .frequency)
+            nextTimes.append(milliseconds(ContinuousClock.now - start))
+            XCTAssertEqual(next.count, 20)
+            XCTAssertEqual(Set(next.map(\.level)), ["A1"])
+        }
+        let itemMedian = itemTimes.sorted()[1], nextMedian = nextTimes.sorted()[1]
+        print("QA #151: wordListItems(B2) \(itemTimes) ms, cold nextNewWords(6 lists) \(nextTimes) ms")
+        XCTAssertLessThan(itemMedian, 150, "wordListItems of B2: \(itemTimes) ms")
+        XCTAssertLessThan(nextMedian, 500, "nextNewWords of six lists: \(nextTimes) ms")
+    }
+}

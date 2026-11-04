@@ -108,6 +108,36 @@ struct EntryKey: Hashable, Sendable {
     }
 }
 
+// MARK: - WordKey (0130)
+
+/// A word's learning identity (0130-word-lists.md, "For E4 and E10"): its
+/// language and the word, so one word in two lists or two dictionaries is
+/// one word. `lang` is ISO 639-3 (`und` when unknown). `word` is the word as
+/// stored with only A–Z lowercased, as SQLite's `lower()` and `NOCASE` do,
+/// so Swift equality matches SQL. No Unicode normalisation: list terms are
+/// stored in NFC, but some dictionary headwords are not, and SQL could not
+/// normalise them.
+struct WordKey: Hashable, Sendable {
+    let lang: String
+    let word: String
+
+    init(lang: String, word: String) {
+        self.lang = lang
+        self.word = String(String.UnicodeScalarView(word.unicodeScalars.map { scalar in
+            ("A"..."Z").contains(scalar) ? Unicode.Scalar(UInt8(scalar.value) + 0x20) : scalar
+        }))
+    }
+}
+
+extension DatabaseService {
+    /// The `WordKey` of a dictionary entry: its source's headword language
+    /// (`und` when unknown) and its word. For the Learn button and E4's
+    /// enrolment of My words (0130, "For E4 and E10").
+    func wordKey(for key: EntryKey) async throws -> WordKey {
+        WordKey(lang: try await sourceLanguage(of: key.source) ?? "und", word: key.word)
+    }
+}
+
 // MARK: - Search by any form (Issue #142)
 
 /// Why the form step added a row to Search: the query is an inflected form
@@ -1218,4 +1248,447 @@ struct DictionaryItem: Identifiable, Hashable {
 
     /// Summed entry count across the pair's sources.
     var count: Int { pair.count }
+}
+
+// MARK: - Word lists (0130, #151)
+//
+// 0130-word-lists.md, "Swift": one model for the built-in lists (the
+// `wordlist` tables of the dictionary files, 0237), My words (0129's
+// `my_words`) and imported lists (`user_list`), the order new words come
+// in, and the linking rules. Pure: the SQL is in `DatabaseService`.
+
+/// A word list's permanent id: a built-in list's (`ky-ell-a1` …
+/// `cefr-eng-c2`), `my-words`, or `user-<uuid>` for an imported list.
+/// User data stores it as text, never a row id.
+struct WordListID: RawRepresentable, Hashable, Sendable, ExpressibleByStringLiteral {
+    let rawValue: String
+
+    init(rawValue: String) {
+        self.rawValue = rawValue
+    }
+
+    init(stringLiteral value: String) {
+        self.init(rawValue: value)
+    }
+
+    static let myWords = WordListID(rawValue: "my-words")
+
+    var kind: WordList.Kind {
+        if self == .myWords { return .myWords }
+        return rawValue.hasPrefix("user-") ? .user : .builtIn
+    }
+}
+
+/// One list, as the Lists screen shows it.
+struct WordList: Identifiable, Hashable, Sendable {
+    enum Kind: String, Hashable, Sendable {
+        case builtIn, myWords, user
+    }
+
+    /// My words holds words of every language.
+    static let myWordsLanguage = "mul"
+
+    let id: WordListID
+    let kind: Kind
+    /// ISO 639-3; `und` for Other, `mul` for My words.
+    let lang: String
+    /// A built-in list's level, `A1` … `C2`; empty for My words and imports.
+    let level: String
+    /// An imported list's name. Empty for built-in lists and My words, whose
+    /// titles the views compose and translate (#154).
+    let title: String
+    /// Its words: a built-in list's `word_count`, My words' keys, an import's rows.
+    let count: Int
+}
+
+/// One word of a list. `wordlist_item` and `user_list_item` share their
+/// columns, so one function decodes both (`DatabaseService`).
+struct WordListItem: Identifiable, Hashable, Sendable {
+    /// The list it was read from.
+    let listID: WordListID
+    /// `WordKey(lang: list language, word: term)`; for My words, the
+    /// source's language and the entry's word.
+    let key: WordKey
+    /// As the list writes it (NFC).
+    let term: String
+    /// The dictionary headword its Definition opens; nil for a standalone word.
+    let headword: String?
+    /// The list's translation; may be empty (the English lists, My words).
+    let translation: String
+    let endings: String
+    let partOfSpeech: String
+    let tags: String
+    let level: String
+    /// 1 … 6 = A1 … C2; an import's other level names 7, 8, …; 0 = none.
+    let levelOrder: Int
+    /// Frequency rank; nil = unranked.
+    let rank: Int?
+    /// Order in the list's source file (My words: order added).
+    let seq: Int
+    /// The alphabetical key (`sortKey(of:)`).
+    let sortKey: String
+
+    /// A key appears once per list, and once in `nextNewWords`.
+    var id: WordKey { key }
+
+    /// The alphabetical key of a term (0130, "List data"): without its
+    /// parenthesised parts and punctuation, Greek folded as `Search.foldGreek`
+    /// (`normalize_greek`), other scripts lowercased without diacritics.
+    /// `build_wordlists.py` writes the same (NFD, combining marks dropped),
+    /// so "(ένα) σωρό" sorts under σ and `árbol` with `arbol`.
+    static func sortKey(of term: String) -> String {
+        let text = String(String.UnicodeScalarView(
+            ListLinking.withoutParentheses(term).unicodeScalars.filter { !isPunctuation($0) }))
+        let folded = Search.foldGreek(text).folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil)
+        return ListLinking.collapsingWhitespace(folded)
+    }
+
+    private static func isPunctuation(_ scalar: Unicode.Scalar) -> Bool {
+        switch scalar.properties.generalCategory {
+        case .connectorPunctuation, .dashPunctuation, .openPunctuation, .closePunctuation,
+             .initialPunctuation, .finalPunctuation, .otherPunctuation:
+            return true
+        default:
+            return false
+        }
+    }
+}
+
+/// The order new words come in within a level (the setting is E4's).
+enum NewWordOrder: String, CaseIterable, Hashable, Sendable {
+    case frequency, random
+}
+
+/// "Order of new words" (0130): the order of the items of one language's
+/// checked lists. Levels in order across the lists (A1 first, words without
+/// a level last), each word once at its lowest level; within a level by
+/// frequency with a light shuffle, or shuffled. Deterministic for a seed.
+enum LearningOrder {
+    /// Places shuffled together in frequency order: the 10 most frequent
+    /// words stay in the first 10, the 20 most frequent in the first 20.
+    static let window = 10
+
+    /// The arrangement's seed: FNV-1a 64 of "installSeed|ids|order", with
+    /// the ids of that language's checked lists sorted and comma-joined, so
+    /// checking a list of another language leaves the order unchanged.
+    /// Swift's `Hasher` changes per launch, so it cannot be used.
+    static func seed(installSeed: UInt64, lists: some Sequence<WordListID>, order: NewWordOrder) -> UInt64 {
+        let ids = lists.map(\.rawValue).sorted().joined(separator: ",")
+        return fnv1a64("\(installSeed)|\(ids)|\(order.rawValue)")
+    }
+
+    /// FNV-1a, 64 bits, over the UTF-8 bytes of `text`.
+    static func fnv1a64(_ text: String) -> UInt64 {
+        var hash: UInt64 = 0xcbf2_9ce4_8422_2325
+        for byte in text.utf8 {
+            hash = (hash ^ UInt64(byte)) &* 0x0000_0100_0000_01b3
+        }
+        return hash
+    }
+
+    /// SplitMix64: a small generator whose sequence never changes with the
+    /// platform.
+    struct SplitMix64: RandomNumberGenerator {
+        private var state: UInt64
+
+        init(seed: UInt64) {
+            state = seed
+        }
+
+        mutating func next() -> UInt64 {
+            state &+= 0x9e37_79b9_7f4a_7c15
+            var z = state
+            z = (z ^ (z >> 30)) &* 0xbf58_476d_1ce4_e5b9
+            z = (z ^ (z >> 27)) &* 0x94d0_49bb_1331_11eb
+            return z ^ (z >> 31)
+        }
+    }
+
+    /// The order of `items`, the words of one language's checked lists in
+    /// Lists screen order, each list in its own order (`seq`):
+    /// 1. one item per key: the lowest level (none counts as the highest),
+    ///    then the first list;
+    /// 2. levels ascending, words without a level (0) last;
+    /// 3. frequency: ranked words by rank, then unranked words in their
+    ///    lists' order; each run of 10 places shuffled; then the neighbour
+    ///    pass (`separateNeighbours`). Random: the level shuffled.
+    static func arrange(_ items: [WordListItem], order: NewWordOrder, seed: UInt64) -> [WordListItem] {
+        var generator = SplitMix64(seed: seed)
+        return levels(of: unique(items)).flatMap { words -> [WordListItem] in
+            var level = words
+            switch order {
+            case .random:
+                shuffle(&level, level.indices, using: &generator)
+            case .frequency:
+                level = byFrequency(level)
+                for start in stride(from: 0, to: level.count, by: window) {
+                    shuffle(&level, start..<min(start + window, level.count), using: &generator)
+                }
+                separateNeighbours(inLevel: &level)
+            }
+            return level
+        }
+    }
+
+    /// The neighbour pass over `items` in their order, one level (a run of
+    /// one `levelOrder`) at a time, with runs of 10 counted from the level's
+    /// first place. A word followed by the next word of its level in
+    /// alphabetical order (`sortKey`, then `term`) swaps places with it;
+    /// when the pair straddles two runs, the first two words of the later run
+    /// swap instead, so no word leaves its run. A swap never creates such a
+    /// pair behind the pass, so one pass is enough: afterwards no word is
+    /// followed by its alphabetical neighbour, except into a last run of one
+    /// word. `DatabaseService.nextNewWords` runs it again once enrolled
+    /// words drop out.
+    static func separateNeighbours(_ items: [WordListItem]) -> [WordListItem] {
+        var result: [WordListItem] = []
+        result.reserveCapacity(items.count)
+        var start = items.startIndex
+        while start < items.endIndex {
+            var end = start + 1
+            while end < items.endIndex && items[end].levelOrder == items[start].levelOrder { end += 1 }
+            var level = Array(items[start..<end])
+            separateNeighbours(inLevel: &level)
+            result += level
+            start = end
+        }
+        return result
+    }
+
+    /// `levelOrder` as a sort key: no level (0) after every level.
+    static func levelRank(_ item: WordListItem) -> Int {
+        item.levelOrder == 0 ? .max : item.levelOrder
+    }
+
+    /// One item per key, in input order: the one with the lowest level, then the first.
+    private static func unique(_ items: [WordListItem]) -> [WordListItem] {
+        var kept: [WordKey: Int] = [:]
+        for (index, item) in items.enumerated() {
+            if let other = kept[item.key], levelRank(items[other]) <= levelRank(item) { continue }
+            kept[item.key] = index
+        }
+        let indices = Set(kept.values)
+        return items.indices.filter(indices.contains).map { items[$0] }
+    }
+
+    /// The levels, ascending, each in input order.
+    private static func levels(of items: [WordListItem]) -> [[WordListItem]] {
+        Dictionary(grouping: items, by: levelRank).sorted { $0.key < $1.key }.map(\.value)
+    }
+
+    /// Ranked words by rank, then unranked words; ties keep their order.
+    private static func byFrequency(_ level: [WordListItem]) -> [WordListItem] {
+        level.enumerated().sorted { a, b in
+            switch (a.element.rank, b.element.rank) {
+            case let (x?, y?) where x != y: return x < y
+            case (.some, .none): return true
+            case (.none, .some): return false
+            default: return a.offset < b.offset
+            }
+        }.map(\.element)
+    }
+
+    /// Fisher–Yates over `range`. Its own, so an order never changes with the
+    /// standard library's shuffle.
+    private static func shuffle(_ items: inout [WordListItem], _ range: Range<Int>, using generator: inout SplitMix64) {
+        guard range.count > 1 else { return }
+        for i in stride(from: range.upperBound - 1, to: range.lowerBound, by: -1) {
+            let j = range.lowerBound + Int(generator.next() % UInt64(i - range.lowerBound + 1))
+            items.swapAt(i, j)
+        }
+    }
+
+    /// The neighbour pass over one level (`separateNeighbours(_:)`).
+    private static func separateNeighbours(inLevel level: inout [WordListItem]) {
+        guard level.count > 1 else { return }
+        // Each place's word's position in the level's alphabetical order.
+        var alphabetical = [Int](repeating: 0, count: level.count)
+        let sorted = level.indices.sorted {
+            (level[$0].sortKey, level[$0].term, $0) < (level[$1].sortKey, level[$1].term, $1)
+        }
+        for (position, index) in sorted.enumerated() { alphabetical[index] = position }
+        for i in 0..<(level.count - 1) where alphabetical[i] + 1 == alphabetical[i + 1] {
+            if i / window == (i + 1) / window {
+                level.swapAt(i, i + 1)
+                alphabetical.swapAt(i, i + 1)
+            } else if i + 2 < level.count {
+                level.swapAt(i + 1, i + 2)
+                alphabetical.swapAt(i + 1, i + 2)
+            }
+        }
+    }
+}
+
+/// "Linking a word to the dictionaries" (0130): the rules that link a list
+/// word to a headword of a dictionary in the list's language. The first
+/// rule that finds exactly one headword wins:
+/// 1. exact: the term is a headword (SQLite `NOCASE`, which folds only A–Z);
+/// 2. cleaned: each of `cleanedVariants(of:)` is a headword;
+/// 3. near (Greek): the term or a cleaned variant is a headword but for case
+///    and diaeresis, accents kept (`InflectionLookup.match`, #144); of
+///    several near headwords the one equal to the lowercased spelling, else
+///    none;
+/// 4. form, one word only, the term or a cleaned variant: Greek, the lemmas
+///    whose table holds its exact spelling, when exactly one of them is a
+///    headword; English, the bases of its WordNet exception lines in
+///    Morphy's order (verb, noun, adj, adv), the first that is a headword.
+/// An accent-folded match alone never links (νομός is not νόμος).
+/// `build_wordlists.py` implements the same rules in Python.
+enum ListLinking {
+    enum Rule: String, Hashable, Sendable {
+        case exact, cleaned, near, form
+    }
+
+    struct Link: Hashable, Sendable {
+        let headword: String
+        let rule: Rule
+    }
+
+    /// The dictionary reads of one language that linking needs.
+    /// `DatabaseService` reads them; tests pass made-up data.
+    struct Lookup {
+        /// The headwords spelled as the string, SQLite `NOCASE`.
+        var headwords: (String) throws -> [String]
+        /// At least every headword that folds like the string
+        /// (`Search.foldGreek`), with as many scalars: the near candidates.
+        var nearCandidates: (String) throws -> [String]
+        /// The lemmas a one-word string is a form of, headwords or not:
+        /// Greek, those whose table holds its exact spelling; English, the
+        /// bases of its exception lines in Morphy's order.
+        var formLemmas: (String) throws -> [String]
+    }
+
+    /// The link of `term`, a word of a list in `lang`, or nil for a
+    /// standalone word.
+    static func link(_ term: String, lang: String, lookup: Lookup) throws -> Link? {
+        if let headword = try headword(among: lookup.headwords(term), spelledAs: term) {
+            return Link(headword: headword, rule: .exact)
+        }
+        let variants = cleanedVariants(of: term)
+        for variant in variants {
+            if let headword = try headword(among: lookup.headwords(variant), spelledAs: variant) {
+                return Link(headword: headword, rule: .cleaned)
+            }
+        }
+        let spellings = ([term] + variants).filter { $0.contains(where: \.isLetter) }
+        if lang == "ell" {
+            for spelling in spellings {
+                if let headword = try near(spelling, among: lookup.nearCandidates(spelling)) {
+                    return Link(headword: headword, rule: .near)
+                }
+            }
+        }
+        guard lang == "ell" || lang == "eng" else { return nil }
+        for spelling in spellings where isOneWord(spelling) {
+            var found: [String] = []
+            for lemma in try lookup.formLemmas(spelling) {
+                guard let headword = try headword(among: lookup.headwords(lemma), spelledAs: lemma),
+                      !found.contains(where: { sameHeadword($0, headword) }) else { continue }
+                found.append(headword)
+                // English takes the first; Greek needs exactly one.
+                if lang == "eng" { break }
+            }
+            if found.count == 1 { return Link(headword: found[0], rule: .form) }
+        }
+        return nil
+    }
+
+    /// The cleaned spellings of `term`, in the order rule 2 tries them,
+    /// without `term` itself, empty ones and repeats:
+    /// 1. without trailing `! ? ; .`, and without the quotes and guillemets
+    ///    around it (`Ευχαριστώ!` → Ευχαριστώ, `«ναι»` → ναι);
+    /// 2. that, without its parenthesised parts (`(Σαουδική) Αραβία` → Αραβία);
+    /// 3. that, with the parentheses removed (`Σαουδική Αραβία`).
+    static func cleanedVariants(of term: String) -> [String] {
+        let stripped = strippingPunctuation(term)
+        let candidates = [
+            stripped,
+            collapsingWhitespace(withoutParentheses(stripped)),
+            collapsingWhitespace(stripped.filter { $0 != "(" && $0 != ")" }),
+        ]
+        var variants: [String] = []
+        for variant in candidates where !variant.isEmpty && variant != term && !variants.contains(variant) {
+            variants.append(variant)
+        }
+        return variants
+    }
+
+    /// Whether `headword` is near `spelling` (rule 3): the same but for case
+    /// or a diaeresis, as #144's `InflectionLookup.match` decides it.
+    static func isNear(_ headword: String, _ spelling: String) -> Bool {
+        InflectionLookup.match(headword, spelling) != nil
+    }
+
+    /// One word: letters without whitespace.
+    static func isOneWord(_ spelling: String) -> Bool {
+        !spelling.isEmpty && !spelling.contains(where: \.isWhitespace)
+    }
+
+    /// `text` without its parenthesised parts; an unclosed one runs to the end.
+    static func withoutParentheses(_ text: String) -> String {
+        var depth = 0
+        var result = ""
+        for character in text {
+            switch character {
+            case "(": depth += 1
+            case ")": depth = max(0, depth - 1)
+            default: if depth == 0 { result.append(character) }
+            }
+        }
+        return result
+    }
+
+    /// `text` trimmed, with each run of whitespace as one space.
+    static func collapsingWhitespace(_ text: String) -> String {
+        text.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+    }
+
+    private static let trailingMarks: Set<Character> = ["!", "?", ";", "."]
+    private static let quotes: Set<Character> = ["\"", "\u{201C}", "\u{201D}", "\u{201E}", "«", "»", "‹", "›"]
+    private static let singleQuotes: Set<Character> = ["'", "\u{2018}", "\u{2019}"]
+
+    /// `term` trimmed, without trailing `! ? ; .` (the Greek question mark
+    /// is `;` in NFC), without the double quotes and guillemets at either
+    /// end, and without single quotes that wrap it (an apostrophe of
+    /// elision, σ', stays).
+    private static func strippingPunctuation(_ term: String) -> String {
+        var text = Substring(term)
+        while true {
+            let before = text
+            while let last = text.last, last.isWhitespace || trailingMarks.contains(last) || quotes.contains(last) {
+                text.removeLast()
+            }
+            while let first = text.first, first.isWhitespace || quotes.contains(first) {
+                text.removeFirst()
+            }
+            if text.count > 1, let first = text.first, let last = text.last,
+               singleQuotes.contains(first), singleQuotes.contains(last) {
+                text = text.dropFirst().dropLast()
+            }
+            if text == before { return String(text) }
+        }
+    }
+
+    /// The headword of exact matches of `spelling`: they are one headword
+    /// under `NOCASE`, so the one spelled as `spelling` if any, else the
+    /// first in code point order; nil for none.
+    private static func headword(among headwords: [String], spelledAs spelling: String) -> String? {
+        headwords.first { $0 == spelling } ?? headwords.min()
+    }
+
+    /// The near headword of `spelling` among `candidates` (rule 3).
+    private static func near(_ spelling: String, among candidates: [String]) -> String? {
+        var near: [String] = []
+        for candidate in candidates where isNear(candidate, spelling) && !near.contains(candidate) {
+            near.append(candidate)
+        }
+        if near.count == 1 { return near[0] }
+        let lowercased = spelling.lowercased()
+        return near.first { $0 == lowercased }
+    }
+
+    /// Two headwords that `NOCASE` takes for one.
+    private static func sameHeadword(_ a: String, _ b: String) -> Bool {
+        WordKey(lang: "", word: a).word == WordKey(lang: "", word: b).word
+    }
 }
