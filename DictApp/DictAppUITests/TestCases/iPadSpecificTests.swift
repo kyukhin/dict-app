@@ -21,6 +21,8 @@ import XCTest
 ///      otherwise-shared UI must survive.
 ///   3) The Search dictionary chips (#145) in both orientations and under
 ///      the iPadOS 26 search drawer.
+///   4) The Learn tab (0131, #158) in the tab bar or the iPadOS 26 strip,
+///      in both orientations.
 ///
 /// All tests skip cleanly on non-iPad destinations.
 final class iPadSpecificTests: XCTestCase {
@@ -31,7 +33,7 @@ final class iPadSpecificTests: XCTestCase {
     /// *identifier* set on the TabView children in ContentView attaches to
     /// the content view, not to the tab control rendered by the OS — on the
     /// iPad pill in iOS 26 the only stable handle is the displayed label.
-    private let allTabLabels = ["Search", "History", "Bookmarks", "Settings"]
+    private let allTabLabels = ["Search", "Learn", "History", "Settings"]
 
     override func setUpWithError() throws {
         continueAfterFailure = false
@@ -197,6 +199,30 @@ final class iPadSpecificTests: XCTestCase {
                 XCTAssertTrue(tab.exists, "the iPadOS 26 tab strip still shows with a query")
                 XCTAssertLessThan(tab.frame.maxY, row.frame.minY + 1, "the tab strip is above the row")
             }
+        }
+    }
+
+    /// 0131, #158: Learn is the second tab, also in the iPadOS 26 strip
+    /// (by its `graduationcap` symbol), and shows the language picker after
+    /// `-resetData` in both orientations.
+    func testLearnTabOnIPad() throws {
+        // Once, on the Search screen: the init waits for it, so a page built
+        // later on the Learn tab would time out.
+        let tabBarPage = TabBarPage(app: app)
+        let learnButton = app.tabButton(.learn)
+        XCTAssertTrue(learnButton.waitForExistence(timeout: TestData.Timeouts.medium), "the Learn tab")
+        XCTAssertEqual(learnButton.label, "Learn")
+        if app.usesFloatingTabStrip {
+            XCTAssertLessThan(app.tabButton(.search).frame.midX, learnButton.frame.midX, "Learn follows Search")
+            XCTAssertLessThan(learnButton.frame.midX, app.tabButton(.history).frame.midX, "History follows Learn")
+        }
+        for orientation in [UIDeviceOrientation.portrait, .landscapeLeft] {
+            XCUIDevice.shared.orientation = orientation
+            // From Search each time, so the switch to Learn happens in this orientation.
+            tabBarPage.tap(.search)
+            let learnPage = tabBarPage.tapLearnTab()
+            XCTAssertTrue(learnPage.waitForPicker(), "the language picker in \(orientation.rawValue)")
+            XCTAssertTrue(learnPage.pickerRow("ell", via: "eng").exists, "Greek via English is offered")
         }
     }
 }

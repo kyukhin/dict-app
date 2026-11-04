@@ -14,7 +14,7 @@ struct SettingsView: View {
                 uiLanguageSection
                 sortingSection
                 dictionaryManagementSection
-                learningModeSection
+                // 0131: #162 adds the Learning section here.
                 supportSection
                 aboutSection
                 versionSection
@@ -122,15 +122,6 @@ struct SettingsView: View {
             .padding(.vertical, 4)
         } header: {
             Text("about.section")
-        }
-    }
-
-    // MARK: - Stub Sections
-
-    private var learningModeSection: some View {
-        Section("settings.learningMode.section") {
-            Label("common.comingSoon", systemImage: "brain")
-                .foregroundStyle(.secondary)
         }
     }
 

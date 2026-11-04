@@ -4,7 +4,36 @@ import Foundation
 
 @MainActor
 final class DefinitionViewModel: ObservableObject {
-    @Published var isBookmarked: Bool = false
+    /// What the Learn button shows and does (0131, "Learn on the
+    /// Definition screen", #158).
+    enum LearnAction: Equatable {
+        /// An outlined cap: adds the entry to My words and learns the word,
+        /// or asks first when its language is not learned (`LearnQuestion`).
+        case learn
+        /// A filled cap: the word leaves My words and its cards are paused.
+        case stopLearning
+        /// A filled cap: the word is in My words, its language not learned.
+        case removeFromMyWords
+    }
+
+    /// What Learn asks on a word of a language not learned.
+    enum LearnQuestion: Equatable {
+        /// "Learn Spanish via English?": the language's pair (its stored
+        /// via, else its default); a limited pair's warning is the message.
+        case pair(LearningPair)
+        /// 0130's "Learn lists in other languages?": a language without a
+        /// pair, learned on its own (Other).
+        case other(lang: String)
+    }
+
+    /// The word in learning with its cards, paused ones included; nil when
+    /// it was never enrolled.
+    @Published private(set) var learning: WordLearningState?
+    /// My words holds the word, from this dictionary or another.
+    @Published private(set) var isInMyWords = false
+    @Published private(set) var isLanguageLearned = false
+    /// The alert Learn shows; nil when none is shown.
+    @Published var question: LearnQuestion?
     @Published var errorMessage: String?
     /// Issue #144: the Greek headword's inflection table; nil for other
     /// sources and for words without one.
@@ -16,36 +45,91 @@ final class DefinitionViewModel: ObservableObject {
     let speechLanguage: String
     let canSpeak: Bool
     private let db: DatabaseService
+    private let languages: LearningLanguageService
+    private let clock: LearningClock
+    /// The entry's word (`wordKey(for:)`), known after `onAppear`.
+    private var wordKey: WordKey?
 
     init(entry: DictionaryEntry, db: DatabaseService = .shared,
+         languages: LearningLanguageService? = nil, clock: LearningClock = LearningClock(),
          hasVoice: (String) -> Bool = SpeechService.hasVoice(for:)) {
         self.entry = entry
         self.db = db
+        self.languages = languages ?? .shared
+        self.clock = clock
         speechLanguage = SpeechService.language(forSource: entry.source)
         canSpeak = hasVoice(speechLanguage)
+    }
+
+    var learnAction: LearnAction {
+        if let learning, !learning.isPaused {
+            return isInMyWords && !isLanguageLearned ? .removeFromMyWords : .stopLearning
+        }
+        return isInMyWords ? .removeFromMyWords : .learn
     }
 
     func onAppear() async {
         do {
             try await db.addToHistory(word: entry.word, source: entry.source)
-            isBookmarked = try await db.isInMyWords(EntryKey(entry))
+            try await refreshLearning()
         } catch {
             errorMessage = error.localizedDescription
         }
     }
 
-    /// Issue #138: until #158, the star adds the entry to My words or removes it.
-    func toggleBookmark() async {
+    /// The Learn button. Learn on a word of a learned language adds it to
+    /// My words and learns it at once (a stopped word resumes with its
+    /// progress); of another language it asks `LearnQuestion` first. Stop
+    /// learning and Remove from My words remove every My words row of the
+    /// word and pause its cards.
+    func toggleLearn() async {
         do {
-            if isBookmarked {
-                try await db.removeFromMyWords(EntryKey(entry))
-            } else {
-                try await db.addToMyWords(EntryKey(entry))
+            switch learnAction {
+            case .learn:
+                guard let wordKey else { return }
+                guard isLanguageLearned else {
+                    question = try await languages.pair(for: wordKey.lang).map(LearnQuestion.pair)
+                        ?? .other(lang: wordKey.lang)
+                    return
+                }
+                try await db.learnWord(EntryKey(entry), today: clock.today)
+            case .stopLearning, .removeFromMyWords:
+                try await db.stopLearning(EntryKey(entry))
             }
-            isBookmarked.toggle()
+            try await refreshLearning()
         } catch {
             errorMessage = error.localizedDescription
         }
+    }
+
+    /// The answer to `question` (Kirill, 2026-11-03 and 2026-11-04): Yes
+    /// learns the pair, as the picker does, or the language alone, then the
+    /// word; No only adds the word to My words, without cards, until its
+    /// language is chosen.
+    func answer(_ question: LearnQuestion, yes: Bool) async {
+        self.question = nil
+        do {
+            if yes {
+                switch question {
+                case let .pair(pair): try await languages.learn(pair)
+                case let .other(lang): try await languages.learn(language: lang)
+                }
+                try await db.learnWord(EntryKey(entry), today: clock.today)
+            } else {
+                try await db.addToMyWords(EntryKey(entry))
+            }
+            try await refreshLearning()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func refreshLearning() async throws {
+        let key = try await db.wordKey(for: EntryKey(entry))
+        wordKey = key
+        learning = try await db.learningState(of: key)
+        isInMyWords = try await db.isInMyWords(key)
+        isLanguageLearned = languages.isLearned(key.lang)
     }
 
     func speak() {
