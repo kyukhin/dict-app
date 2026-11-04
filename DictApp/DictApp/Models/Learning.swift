@@ -783,3 +783,545 @@ enum Forecast: Hashable, Sendable {
         return .days(max(newDays, learning ?? 0))
     }
 }
+
+// MARK: - Conjugation drill: tenses and levels (0132, #167)
+//
+// 0132-conjugation-drill.md, "Tenses and levels", "Verbs" and "Questions and
+// options". Every form the drill asks or offers is a form of #144's tables
+// (`ParadigmLayout.VoiceForms`), except the θα / να + present fallback of a
+// verb without a dependent stem (Kirill, 2026-11-04).
+
+/// A tense of the drill, in the tables' order (#144). The raw values are
+/// ASCII without a dot: they are the first part of a card's facet, which
+/// E10 groups on.
+enum ConjugationTense: String, CaseIterable, Sendable {
+    case present, imperfect, aorist, future
+    case imperativeContinuous, imperativeSimple
+    case futureContinuous, perfect, pluperfect, futurePerfect
+    case subjunctiveContinuous, subjunctiveSimple
+
+    typealias Person = ParadigmLayout.Person
+
+    /// "Aorist"; a mood with its aspect: "Subjunctive · simple". Built from
+    /// #144's labels, so no key of its own. The separator is not translated.
+    func title(locale: Locale) -> String {
+        let (head, aspect) = labels
+        guard let aspect else { return head.title(locale: locale) }
+        return head.title(locale: locale) + " · " + aspect.text(locale: locale)
+    }
+
+    private var labels: (FormLabel, FormLabel?) {
+        switch self {
+        case .present: return (.present, nil)
+        case .imperfect: return (.imperfect, nil)
+        case .aorist: return (.aorist, nil)
+        case .future: return (.future, nil)
+        case .imperativeContinuous: return (.imperative, .continuous)
+        case .imperativeSimple: return (.imperative, .simple)
+        case .futureContinuous: return (.futureContinuous, nil)
+        case .perfect: return (.perfect, nil)
+        case .pluperfect: return (.pluperfect, nil)
+        case .futurePerfect: return (.futurePerfect, nil)
+        case .subjunctiveContinuous: return (.subjunctive, .continuous)
+        case .subjunctiveSimple: return (.subjunctive, .simple)
+        }
+    }
+
+    /// The persons the tense has: εσύ and εσείς for the imperatives.
+    var persons: [Person] {
+        switch self {
+        case .imperativeContinuous, .imperativeSimple: return [.secondSingular, .secondPlural]
+        default: return Person.allCases
+        }
+    }
+
+    /// The forms of `person` in this tense of `voice`, in table order. The
+    /// simple tenses are the cells; the others are #144's generated forms.
+    /// A voice with a present and no dependent form (είμαι, έχω) takes θα and
+    /// να + the present as its Future and simple Subjunctive, and has no
+    /// continuous ones of its own (Kirill, 2026-11-04).
+    func forms(_ voice: ParadigmLayout.VoiceForms, _ person: Person) -> [String] {
+        forms(voice, person, lacksDependent: Self.lacksDependent(voice))
+    }
+
+    /// `forms(_:_:)` with `lacksDependent(voice)` given, for a whole table.
+    func forms(_ voice: ParadigmLayout.VoiceForms, _ person: Person, lacksDependent: Bool) -> [String] {
+        switch self {
+        case .present: return voice.forms(.present, person)
+        case .imperfect: return voice.forms(.imperfect, person)
+        case .aorist: return voice.forms(.aorist, person)
+        case .imperativeContinuous: return voice.forms(.imperativeContinuous, person)
+        case .imperativeSimple: return voice.forms(.imperativeSimple, person)
+        case .future: return lacksDependent ? voice.futureContinuous(person) : voice.future(person)
+        case .subjunctiveSimple: return lacksDependent ? voice.subjunctiveContinuous(person) : voice.subjunctiveSimple(person)
+        case .futureContinuous: return lacksDependent ? [] : voice.futureContinuous(person)
+        case .subjunctiveContinuous: return lacksDependent ? [] : voice.subjunctiveContinuous(person)
+        case .perfect: return voice.perfect(person)
+        case .pluperfect: return voice.pluperfect(person)
+        case .futurePerfect: return voice.futurePerfect(person)
+        }
+    }
+
+    /// A voice with present forms and no dependent form.
+    static func lacksDependent(_ voice: ParadigmLayout.VoiceForms) -> Bool {
+        func has(_ slot: ParadigmLayout.FiniteSlot) -> Bool {
+            Person.allCases.contains { !voice.forms(slot, $0).isEmpty }
+        }
+        return has(.present) && !has(.dependent)
+    }
+}
+
+/// A tense in a voice: one drill card per verb (0131, "For E5"), a
+/// `CardKind.conjugation` card whose `CardKey.facet` is `rawValue`.
+struct ConjugationFacet: Hashable, Sendable {
+    let tense: ConjugationTense
+    let voice: ParadigmLayout.Voice
+
+    init(_ tense: ConjugationTense, _ voice: ParadigmLayout.Voice) {
+        self.tense = tense
+        self.voice = voice
+    }
+
+    /// `<tense>.<voice>`: `aorist.active`, `present.passive`.
+    var rawValue: String { "\(tense.rawValue).\(voice.rawValue)" }
+
+    init?(rawValue: String) {
+        let parts = rawValue.split(separator: ".", omittingEmptySubsequences: false)
+        guard parts.count == 2,
+              let tense = ConjugationTense(rawValue: String(parts[0])),
+              let voice = ParadigmLayout.Voice(rawValue: String(parts[1])) else { return nil }
+        self.init(tense, voice)
+    }
+}
+
+/// A tense level after the ΚΕΓ syllabus: each level adds tenses, and the
+/// drill asks every tense up to its level. It never selects verbs.
+enum DrillLevel: String, CaseIterable, Comparable, Sendable {
+    case a1 = "A1", a2 = "A2", b1 = "B1", b2 = "B2"
+
+    static func < (lhs: DrillLevel, rhs: DrillLevel) -> Bool {
+        lhs.order < rhs.order
+    }
+
+    private var order: Int { Self.allCases.firstIndex(of: self) ?? 0 }
+
+    /// The facets of a verb up to this level, its main voice first, each
+    /// voice in the tables' order ("Levels"):
+    /// - main voice active: A1 present, aorist, future, simple subjunctive
+    ///   and imperative; B1 the imperfect and the continuous ones; B2 the
+    ///   perfect tenses;
+    /// - main voice passive (passive forms only): nothing at A1, then the
+    ///   same tenses a level later for the A1 set (A1 is active only);
+    /// - the passive of a verb with both voices (`hasPassive`): the present
+    ///   at A2, the continuous future and subjunctive at B1, the rest at B2.
+    func facets(mainVoice: ParadigmLayout.Voice, hasPassive: Bool) -> [ConjugationFacet] {
+        var result = ConjugationTense.allCases
+            .filter { Self.mainLevel(of: $0, voice: mainVoice) <= self }
+            .map { ConjugationFacet($0, mainVoice) }
+        if mainVoice == .active && hasPassive {
+            result += ConjugationTense.allCases
+                .filter { Self.passiveLevel(of: $0) <= self }
+                .map { ConjugationFacet($0, .passive) }
+        }
+        return result
+    }
+
+    /// The level that adds `tense` in the main voice.
+    static func mainLevel(of tense: ConjugationTense, voice: ParadigmLayout.Voice) -> DrillLevel {
+        let level: DrillLevel
+        switch tense {
+        case .present, .aorist, .future, .subjunctiveSimple, .imperativeSimple: level = .a1
+        case .imperfect, .futureContinuous, .subjunctiveContinuous, .imperativeContinuous: level = .b1
+        case .perfect, .pluperfect, .futurePerfect: level = .b2
+        }
+        // A1 is active only: a verb with passive forms only starts at A2.
+        return voice == .passive ? max(level, .a2) : level
+    }
+
+    /// The level that adds `tense` in the passive of a verb with both voices.
+    static func passiveLevel(of tense: ConjugationTense) -> DrillLevel {
+        switch tense {
+        case .present: return .a2
+        case .futureContinuous, .subjunctiveContinuous: return .b1
+        default: return .b2
+        }
+    }
+}
+
+/// What the drill asks, from the preferences (0132, "Tenses and levels"):
+/// the checked built-in Greek lists choose the verbs, the highest of them
+/// (or "Tenses up to", which only raises it) the tenses.
+enum DrillScope {
+    /// Kirill's Greek series (0130). There is no B2 list: B2 is a tense level only.
+    static let series = "ky-ell"
+
+    /// The series' lists by level, in level order.
+    static let lists: [(id: WordListID, level: DrillLevel)] = [
+        ("ky-ell-a1", .a1), ("ky-ell-a2", .a2), ("ky-ell-b1", .b1),
+    ]
+
+    /// The built-in Greek lists among `checked`, in level order. Imported
+    /// lists never feed the drill.
+    static func greekLists(checked: Set<WordListID>) -> [WordListID] {
+        lists.map(\.id).filter(checked.contains)
+    }
+
+    /// The highest checked list's level, or A1 when none is checked.
+    static func floor(checked: Set<WordListID>) -> DrillLevel {
+        lists.filter { checked.contains($0.id) }.map(\.level).max() ?? .a1
+    }
+
+    /// The tense level: the stored "Tenses up to", which only raises the floor.
+    static func tenseLevel(checked: Set<WordListID>, stored: DrillLevel?) -> DrillLevel {
+        let floor = Self.floor(checked: checked)
+        return max(stored ?? floor, floor)
+    }
+
+    /// The segments of "Tenses up to": the floor up to B2.
+    static func offeredLevels(checked: Set<WordListID>) -> [DrillLevel] {
+        let floor = Self.floor(checked: checked)
+        return DrillLevel.allCases.filter { $0 >= floor }
+    }
+}
+
+// MARK: - Conjugation drill: verbs (0132, #167)
+
+/// A verb the drill asks, with the voices it drills.
+struct DrillVerb: Equatable, Sendable {
+    typealias Voice = ParadigmLayout.Voice
+    typealias Person = ParadigmLayout.Person
+
+    /// The card's word (NFC): the lemma, or a list word that is the passive
+    /// of another verb's table (ντύνομαι in ντύνω's).
+    let word: String
+    /// The word the prompt shows: the main voice's present εγώ (γράφω,
+    /// έρχομαι, πηγαίνω), αυτός for an impersonal verb (πρέπει), else `word`.
+    let citation: String
+    /// In the meanings language of Greek's pair (0131). From a list
+    /// (`DatabaseService.drillVerbs(lists:meaningsLang:)`): the list's
+    /// translation when it is in that language, else empty.
+    let translation: String
+    /// The list it came from, 1 … 3 (A1 … B1); nil from the Definition screen.
+    let listLevel: Int?
+    let rank: Int?
+    let seq: Int
+    /// Active, or the passive for a verb with passive forms only: its
+    /// questions carry the "passive" note.
+    let mainVoice: Voice
+    /// Only the voices drilled.
+    let voices: [Voice: ParadigmLayout.VoiceForms]
+    /// Every finite form of the main voice is in the third person: only
+    /// αυτός is asked.
+    let isImpersonal: Bool
+    /// Every non-empty cell of the drilled voices, generated forms included
+    /// (`ConjugationTense.forms`), with its forms folded: computed once, so
+    /// building questions folds nothing.
+    let cells: [ConjugationFacet: [Person: Cell]]
+
+    struct Cell: Equatable, Sendable {
+        /// In table order; the first is the one offered.
+        let forms: [String]
+        /// Each form folded (`ConjugationQuestionBuilder.fold`).
+        let keys: [String]
+    }
+
+    init(word: String, citation: String, translation: String, listLevel: Int?, rank: Int?, seq: Int,
+         mainVoice: Voice, voices: [Voice: ParadigmLayout.VoiceForms], isImpersonal: Bool) {
+        self.word = word
+        self.citation = citation
+        self.translation = translation
+        self.listLevel = listLevel
+        self.rank = rank
+        self.seq = seq
+        self.mainVoice = mainVoice
+        self.voices = voices
+        self.isImpersonal = isImpersonal
+        var cells: [ConjugationFacet: [Person: Cell]] = [:]
+        for (voice, voiceForms) in voices {
+            let lacksDependent = ConjugationTense.lacksDependent(voiceForms)
+            for tense in ConjugationTense.allCases {
+                for person in tense.persons {
+                    let forms = tense.forms(voiceForms, person, lacksDependent: lacksDependent)
+                    guard !forms.isEmpty else { continue }
+                    let keys = forms.map(ConjugationQuestionBuilder.fold)
+                    cells[ConjugationFacet(tense, voice), default: [:]][person] = Cell(forms: forms, keys: keys)
+                }
+            }
+        }
+        self.cells = cells
+    }
+
+    /// A verb whose main voice is active and that also drills its passive.
+    var hasPassive: Bool { mainVoice == .active && voices[.passive] != nil }
+
+    /// One cell; nil when it has no form.
+    func cell(_ facet: ConjugationFacet, _ person: Person) -> Cell? {
+        cells[facet]?[person]
+    }
+
+    /// The forms of one cell, generated forms included.
+    func forms(_ facet: ConjugationFacet, _ person: Person) -> [String] {
+        cell(facet, person)?.forms ?? []
+    }
+
+    /// The drill verb of `word` and the table the Definition rule gives it
+    /// (#144); nil when no level has a question for it.
+    /// - Own table: the lemma, in its main voice, plus the passive when the
+    ///   main voice is active and the passive has a present.
+    /// - Linked table (the word is a form or an alternative of the table's
+    ///   verb): the voices in which the word is a finite cell. Passive only
+    ///   (ντύνομαι in ντύνω's): the word itself, passive as its main voice.
+    ///   Active (πάω in πηγαίνω's): the table's lemma, as if it was given.
+    ///   Neither (a participle listed as a verb): no verb.
+    static func make(word: String, paradigm: LemmaParadigm, translation: String,
+                     listLevel: Int? = nil, rank: Int? = nil, seq: Int = 0) -> DrillVerb? {
+        guard paradigm.pos == "verb" else { return nil }
+        let word = word.precomposedStringWithCanonicalMapping
+        let all = ParadigmLayout.voiceForms(paradigm.cells)
+        // The voices in which a linked word is a finite cell of the table.
+        let linkedVoices = Set(paradigm.cells.compactMap { cell -> Voice? in
+            guard paradigm.isLinked, cell.form == word, let match = ParadigmLayout.verbSlot(of: cell.tags),
+                  case .finite = match.slot else { return nil }
+            return match.voice
+        })
+        let key: String
+        let main: Voice
+        var voices: [Voice: ParadigmLayout.VoiceForms] = [:]
+        if !paradigm.isLinked || linkedVoices.contains(.active) {
+            key = paradigm.word
+            main = ParadigmLayout.mainVoice(all)
+            voices[main] = all[main]
+            let passivePresent = Person.allCases.contains { !(all[.passive]?.forms(.present, $0).isEmpty ?? true) }
+            if main == .active && passivePresent { voices[.passive] = all[.passive] }
+        } else if linkedVoices.contains(.passive) {
+            key = word
+            main = .passive
+            voices[.passive] = all[.passive]
+        } else {
+            return nil
+        }
+        let persons = voices[main]?.persons ?? []
+        let isImpersonal = !persons.isEmpty && persons.isSubset(of: [.thirdSingular, .thirdPlural])
+        let cited = voices[main]?.forms(.present, isImpersonal ? .thirdSingular : .firstSingular).first
+        let verb = DrillVerb(word: key, citation: cited ?? key, translation: translation, listLevel: listLevel,
+                             rank: rank, seq: seq, mainVoice: main, voices: voices, isImpersonal: isImpersonal)
+        // Levels add up, so B2 has every question a lower level has.
+        return ConjugationQuestionBuilder.hasQuestion(verb: verb, level: .b2) ? verb : nil
+    }
+}
+
+// MARK: - Conjugation drill: questions and options (0132, #167)
+
+/// One question: "γράφω · Aorist · εγώ" and four options.
+struct ConjugationQuestion: Sendable {
+    typealias Person = ParadigmLayout.Person
+
+    let verb: DrillVerb
+    let facet: ConjugationFacet
+    let person: Person
+    /// Four options: the right one and three distractors, shuffled.
+    let options: [String]
+    let rightIndex: Int
+    /// Every form of the asked cell; each one is right (γράφτηκα / γράφηκα).
+    let rightForms: [String]
+    /// The whole tense by person, every form, for the feedback.
+    let tenseRows: [(person: Person, forms: [String])]
+
+    /// A verb with passive forms only: the "passive" note next to the tense.
+    var showsPassiveNote: Bool { verb.mainVoice == .passive }
+    /// The passive of a verb with both voices: "passive" in the tense line.
+    var showsVoice: Bool { facet.voice == .passive && verb.mainVoice == .active }
+}
+
+/// Builds the drill's questions (0132, "Questions and options"). Pure.
+enum ConjugationQuestionBuilder {
+    typealias Person = ParadigmLayout.Person
+    typealias Voice = ParadigmLayout.Voice
+
+    static let distractorCount = 3
+
+    /// The question of one cell at tense level `level`, or nil when the cell
+    /// is empty or has fewer than 3 distractors:
+    /// 1. the right option is the cell's first form; its other forms are right too;
+    /// 2. candidates, each a cell's first form: A, the same person in another
+    ///    facet of the level; B, the same facet in another person; C, another
+    ///    facet of the level in another person; D, the asked voice's other
+    ///    tenses outside the level, any person;
+    /// 3. a candidate that folds like a right form or a taken option is dropped;
+    /// 4. one from A, one from B, the third from A ∪ B; gaps from C, then D;
+    /// 5. the options are shuffled with `rng`.
+    static func build<G: RandomNumberGenerator>(verb: DrillVerb, facet: ConjugationFacet, person: Person,
+                                                level: DrillLevel, rng: inout G) -> ConjugationQuestion? {
+        guard let asked = verb.cell(facet, person), let right = asked.forms.first else { return nil }
+        let rightForms = asked.forms
+        let levelFacets = facets(of: verb, level: level)
+        let persons = Person.allCases
+        typealias Candidate = (form: String, key: String)
+        func first(_ facet: ConjugationFacet, _ person: Person) -> Candidate? {
+            verb.cell(facet, person).map { ($0.forms[0], $0.keys[0]) }
+        }
+        let otherFacets = levelFacets.filter { $0 != facet }
+        let otherPersons = persons.filter { $0 != person }
+        let groupA = otherFacets.compactMap { first($0, person) }
+        let groupB = otherPersons.compactMap { first(facet, $0) }
+        // A ∪ B, then C and D, which are read only when A and B run short.
+        let fills: [() -> [Candidate]] = [
+            { groupA + groupB },
+            { otherFacets.flatMap { other in otherPersons.compactMap { first(other, $0) } } },
+            { outside(levelFacets, voice: facet.voice).flatMap { other in persons.compactMap { first(other, $0) } } },
+        ]
+
+        var taken = Set(asked.keys)
+        var picked: [String] = []
+        /// Picks one candidate of `group` at random, if any is left.
+        func pick(_ group: [Candidate]) -> Bool {
+            var keys = Set<String>()
+            let left = group.filter { !taken.contains($0.key) && keys.insert($0.key).inserted }
+            guard !left.isEmpty else { return false }
+            let candidate = left[randomIndex(left.count, using: &rng)]
+            picked.append(candidate.form)
+            taken.insert(candidate.key)
+            return true
+        }
+        _ = pick(groupA)
+        _ = pick(groupB)
+        for fill in fills where picked.count < distractorCount {
+            let candidates = fill()
+            while picked.count < distractorCount, pick(candidates) {}
+        }
+        guard picked.count == distractorCount else { return nil }
+
+        var options = [right] + picked
+        shuffle(&options, using: &rng)
+        let tenseRows: [(person: Person, forms: [String])] = facet.tense.persons.compactMap { row in
+            let forms = verb.forms(facet, row)
+            return forms.isEmpty ? nil : (row, forms)
+        }
+        return ConjugationQuestion(verb: verb, facet: facet, person: person, options: options,
+                                   rightIndex: options.firstIndex(of: right) ?? 0, rightForms: rightForms,
+                                   tenseRows: tenseRows)
+    }
+
+    /// The level's facets of `verb` with the persons that build a question:
+    /// a form, three distractors, never the cited cell (the main voice's
+    /// present εγώ, or αυτός for an impersonal verb), and only αυτός for an
+    /// impersonal verb. The planner, the verb count and Practise use it.
+    static func questions(verb: DrillVerb, level: DrillLevel) -> [(facet: ConjugationFacet, persons: [Person])] {
+        var rule = AskRule(verb: verb, level: level)
+        let levelFacets = rule.levelFacets
+        return levelFacets.compactMap { facet in
+            let persons = facet.tense.persons.filter { rule.builds(facet, $0) }
+            return persons.isEmpty ? nil : (facet, persons)
+        }
+    }
+
+    /// Whether `questions(verb:level:)` has any; stops at the first.
+    static func hasQuestion(verb: DrillVerb, level: DrillLevel) -> Bool {
+        var rule = AskRule(verb: verb, level: level)
+        let levelFacets = rule.levelFacets
+        return levelFacets.contains { facet in facet.tense.persons.contains { rule.builds(facet, $0) } }
+    }
+
+    /// Which cells of a level `questions` lists.
+    private struct AskRule {
+        let verb: DrillVerb
+        let levelFacets: [ConjugationFacet]
+        private let cited: ConjugationFacet
+        private let citedPerson: Person
+        private var candidateKeys: [Voice: Set<String>] = [:]
+
+        init(verb: DrillVerb, level: DrillLevel) {
+            self.verb = verb
+            levelFacets = ConjugationQuestionBuilder.facets(of: verb, level: level)
+            cited = ConjugationFacet(.present, verb.mainVoice)
+            citedPerson = verb.isImpersonal ? .thirdSingular : .firstSingular
+        }
+
+        /// Every candidate of a question in a voice is the first form of a
+        /// level cell or of a cell outside the level in that voice (A ∪ B ∪
+        /// C ∪ D), and the asked cell's own is right. So a question builds
+        /// when at least 3 of these keys fold like no right form.
+        mutating func builds(_ facet: ConjugationFacet, _ person: Person) -> Bool {
+            if verb.isImpersonal && person != .thirdSingular { return false }
+            if facet == cited && person == citedPerson { return false }
+            guard let cell = verb.cell(facet, person) else { return false }
+            let candidates = keys(facet.voice)
+            return candidates.count - Set(cell.keys).filter(candidates.contains).count >= distractorCount
+        }
+
+        private mutating func keys(_ voice: Voice) -> Set<String> {
+            if let cached = candidateKeys[voice] { return cached }
+            let result = Set((levelFacets + outside(levelFacets, voice: voice)).flatMap { facet in
+                Person.allCases.compactMap { verb.cell(facet, $0)?.keys[0] }
+            })
+            candidateKeys[voice] = result
+            return result
+        }
+    }
+
+    /// The level's facets in the voices `verb` drills.
+    static func facets(of verb: DrillVerb, level: DrillLevel) -> [ConjugationFacet] {
+        level.facets(mainVoice: verb.mainVoice, hasPassive: verb.hasPassive).filter { verb.voices[$0.voice] != nil }
+    }
+
+    /// The tenses of `voice` that are not among `levelFacets` (group D).
+    private static func outside(_ levelFacets: [ConjugationFacet], voice: Voice) -> [ConjugationFacet] {
+        ConjugationTense.allCases.map { ConjugationFacet($0, voice) }.filter { !levelFacets.contains($0) }
+    }
+
+    /// Options that read alike once accents, case and final sigma are
+    /// folded are one option (0131's rule, as its `AnswerChecker.fold`,
+    /// which #159 adds; until then the drill folds on its own):
+    /// lowercased, NFD without nonspacing marks, ς as σ; for Greek forms the
+    /// same key as `Search.foldGreek`. A form of Greek letters and spaces is
+    /// folded letter by letter from a table, three times faster: every verb
+    /// folds all its forms once (`DrillVerb.cells`).
+    static func fold(_ form: String) -> String {
+        var scalars = String.UnicodeScalarView()
+        for scalar in form.unicodeScalars {
+            if let folded = foldedGreekLetters[scalar] {
+                scalars.append(contentsOf: folded)
+            } else if scalar == " " {
+                scalars.append(scalar)
+            } else {
+                return fullFold(form)
+            }
+        }
+        return String(scalars)
+    }
+
+    /// `fullFold` of each Greek and Greek Extended code point.
+    private static let foldedGreekLetters: [Unicode.Scalar: String.UnicodeScalarView] = {
+        var table: [Unicode.Scalar: String.UnicodeScalarView] = [:]
+        for value in UInt32(0x0370)...0x03FF {
+            if let scalar = Unicode.Scalar(value) { table[scalar] = fullFold(String(scalar)).unicodeScalars }
+        }
+        for value in UInt32(0x1F00)...0x1FFF {
+            if let scalar = Unicode.Scalar(value) { table[scalar] = fullFold(String(scalar)).unicodeScalars }
+        }
+        return table
+    }()
+
+    private static func fullFold(_ form: String) -> String {
+        var scalars = String.UnicodeScalarView()
+        for scalar in form.lowercased().decomposedStringWithCanonicalMapping.unicodeScalars
+        where scalar.properties.generalCategory != .nonspacingMark {
+            scalars.append(scalar == "\u{03C2}" ? "\u{03C3}" : scalar)
+        }
+        return String(scalars)
+    }
+
+    /// A random index below `count`. Its own, with `shuffle`, so an order
+    /// never changes with the standard library's.
+    private static func randomIndex<G: RandomNumberGenerator>(_ count: Int, using rng: inout G) -> Int {
+        Int(rng.next() % UInt64(count))
+    }
+
+    /// Fisher–Yates.
+    private static func shuffle<G: RandomNumberGenerator>(_ items: inout [String], using rng: inout G) {
+        guard items.count > 1 else { return }
+        for i in stride(from: items.count - 1, to: 0, by: -1) {
+            items.swapAt(i, randomIndex(i + 1, using: &rng))
+        }
+    }
+}

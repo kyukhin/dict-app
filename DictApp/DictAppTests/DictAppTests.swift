@@ -14771,6 +14771,12 @@ enum WordListFixture {
     static func make(rows: [TestDictionary.Row], metadata: [TestDictionary.Metadata] = [], lists: [List],
                      items: [Item], at url: URL) throws -> URL {
         try TestDictionary.make(rows: rows, metadata: metadata, at: url)
+        return try addLists(lists, items: items, to: url)
+    }
+
+    /// Adds the list tables with `lists` and `items` to the dictionary file at `url`.
+    @discardableResult
+    static func addLists(_ lists: [List], items: [Item], to url: URL) throws -> URL {
         let schema = try String(contentsOf: schemaURL, encoding: .utf8)
         let queue = try DatabaseQueue(path: url.path)
         try queue.write { db in
@@ -19950,5 +19956,1484 @@ extension WordListDataTests {
             "cefrj-1.5: The CEFR-J Wordlist Version 1.5, compiled by Yukio Tono, Tokyo University of Foreign Studies",
             "octanove-c1c2-1.0: Octanove Vocabulary Profile C1/C2 1.0, Octanove Labs",
         ])
+    }
+}
+
+// MARK: - Issue #167: conjugation drill, questions and options by level (0132-conjugation-drill.md)
+
+/// The drill on the paradigms of the Greek pack (0132, Test plan; 0237):
+/// verbs through the Definition rule (#144), as Practise builds them, and
+/// seeded generators.
+private enum DrillFixture {
+    typealias Person = ParadigmLayout.Person
+    typealias Voice = ParadigmLayout.Voice
+
+    static let allPersons = ["1sg", "2sg", "3sg", "1pl", "2pl", "3pl"]
+
+    static func facets(_ voice: Voice, _ tenses: [ConjugationTense]) -> [ConjugationFacet] {
+        tenses.map { ConjugationFacet($0, voice) }
+    }
+
+    /// Opens the service on the bundled file with a user database in `directory`.
+    @MainActor
+    static func open(in directory: URL) async throws {
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try await InflectionFixture.open(in: directory)
+    }
+
+    /// The drill verb of a FreeDict verb entry: its table by the Definition
+    /// rule (#144), then `DrillVerb.make`, as Practise builds it.
+    @MainActor
+    static func verb(_ word: String) async throws -> DrillVerb {
+        let paradigm = try await InflectionFixture.paradigm(word, pos: "verb")
+        let found = try XCTUnwrap(paradigm, "\(word) has a table")
+        return try XCTUnwrap(DrillVerb.make(word: word, paradigm: found, translation: ""), "\(word) is a drill verb")
+    }
+
+    /// The questions of a level, as facet → persons (raw values).
+    static func questions(_ verb: DrillVerb, _ level: DrillLevel) -> [String: [String]] {
+        Dictionary(uniqueKeysWithValues: ConjugationQuestionBuilder.questions(verb: verb, level: level).map {
+            ($0.facet.rawValue, $0.persons.map(\.rawValue))
+        })
+    }
+
+    /// The facets a level asks, in order (raw values).
+    static func facetsAsked(_ verb: DrillVerb, _ level: DrillLevel) -> [String] {
+        ConjugationQuestionBuilder.questions(verb: verb, level: level).map(\.facet.rawValue)
+    }
+
+    static func build(_ verb: DrillVerb, _ tense: ConjugationTense, _ person: Person, voice: Voice = .active,
+                      level: DrillLevel, seed: UInt64 = 1) -> ConjugationQuestion? {
+        var rng = LearningOrder.SplitMix64(seed: seed)
+        return ConjugationQuestionBuilder.build(verb: verb, facet: ConjugationFacet(tense, voice), person: person,
+                                                level: level, rng: &rng)
+    }
+
+    /// Every form of the verb's drilled voices (or of one), generated forms included.
+    static func everyForm(of verb: DrillVerb, voice: Voice? = nil) -> Set<String> {
+        Set(verb.cells.filter { voice == nil || $0.key.voice == voice }.values.flatMap { $0.values.flatMap(\.forms) })
+    }
+
+    /// The Greek pack, installed from the committed asset (#237), read directly.
+    static func greekPack() throws -> BundledDictionary {
+        BundledDictionary(url: try PackFixtures.file(.ell))
+    }
+
+    /// The Kirill lists of 0130 at their levels (`ky-ell`, `level_ord` 1 … 3).
+    static let greekLists: [WordListFixture.List] = [
+        .init(id: "ky-ell-a1", lang: "ell", series: "ky-ell", level: "A1", levelOrd: 1),
+        .init(id: "ky-ell-a2", lang: "ell", series: "ky-ell", level: "A2", levelOrd: 2),
+        .init(id: "ky-ell-b1", lang: "ell", series: "ky-ell", level: "B1", levelOrd: 3),
+    ]
+
+    /// A copy of the Greek pack (an APFS clone) at `url` with `lists` and
+    /// `items`, where the drill reads them (`DictionarySchemas.listsSchema(for:
+    /// "ell")`). The pack's own rows of those series and lists (#152's
+    /// `ky-ell`) go first. `translationLang` sets 0130's
+    /// `wordlist.translation_lang` of `lists`, adding the column to a pack
+    /// without it; nil leaves '', as `WordListFixture.addLists` writes it.
+    @discardableResult
+    static func greekPack(at url: URL, lists: [WordListFixture.List] = greekLists, items: [WordListFixture.Item],
+                          translationLang: String? = nil) throws -> URL {
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.copyItem(at: try PackFixtures.file(.ell), to: url)
+        let series = Array(Set(lists.map(\.series) + items.map(\.series))).sorted()
+        let ids = lists.map(\.id)
+        func marks(_ count: Int) -> String { Array(repeating: "?", count: count).joined(separator: ", ") }
+        try DatabaseQueue(path: url.path).write { db in
+            guard try db.tableExists("wordlist") else { return }
+            try db.execute(sql: "DELETE FROM wordlist_item WHERE series IN (\(marks(series.count)))",
+                           arguments: StatementArguments(series))
+            try db.execute(sql: "DELETE FROM wordlist WHERE series IN (\(marks(series.count))) OR id IN (\(marks(ids.count)))",
+                           arguments: StatementArguments(series + ids))
+        }
+        try WordListFixture.addLists(lists, items: items, to: url)
+        if let translationLang {
+            try DatabaseQueue(path: url.path).write { db in
+                if try !db.columns(in: "wordlist").contains(where: { $0.name == "translation_lang" }) {
+                    try db.execute(sql: "ALTER TABLE wordlist ADD COLUMN translation_lang TEXT NOT NULL DEFAULT ''")
+                }
+                try db.execute(sql: "UPDATE wordlist SET translation_lang = ? WHERE id IN (\(marks(ids.count)))",
+                               arguments: StatementArguments([translationLang] + ids))
+            }
+        }
+        return url
+    }
+
+    /// Opens the service on a user database at `userPath`, the bundle (or
+    /// `bundle`) and every committed pack, with `greek` as the Greek pack.
+    static func open(userPath: String, greek: URL, bundle: URL? = nil) async throws {
+        var packs = try PackFixtures.all()
+        packs[.ell] = greek
+        try await DatabaseService.shared.setup(userPath: userPath, dictionaryURL: try bundle ?? TestDictionary.bundledURL(),
+                                               packFiles: packs)
+    }
+
+    /// The cells of a lemma of the Greek pack.
+    static func cells(of word: String, pos: String = "verb") throws -> [ParadigmCell] {
+        try greekPack().read { db in
+            try Row.fetchAll(db, sql: """
+                SELECT p.form, t.tags FROM lemma l JOIN paradigm p ON p.lemma_id = l.id
+                JOIN tagset t ON t.id = p.tagset_id
+                WHERE l.lang = 'ell' AND l.word = ? AND l.pos = ? ORDER BY p.ord
+                """, arguments: [word, pos]).map { ParadigmCell(form: $0["form"], tags: $0["tags"] as String) }
+        }
+    }
+
+    /// Every verb lemma of the Greek pack with cells, each as its own table.
+    static func everyVerbOfTheFile() throws -> [LemmaParadigm] {
+        let rows = try greekPack().read { db in
+            try Row.fetchAll(db, sql: """
+                SELECT l.id, l.word, p.form, t.tags FROM lemma l JOIN paradigm p ON p.lemma_id = l.id
+                JOIN tagset t ON t.id = p.tagset_id
+                WHERE l.pos = 'verb' ORDER BY l.id, p.ord
+                """).map { (id: $0["id"] as Int64, word: $0["word"] as String,
+                            cell: ParadigmCell(form: $0["form"], tags: $0["tags"] as String)) }
+        }
+        var result: [LemmaParadigm] = []
+        var start = rows.startIndex
+        while start < rows.endIndex {
+            var end = start + 1
+            while end < rows.endIndex && rows[end].id == rows[start].id { end += 1 }
+            result.append(LemmaParadigm(word: rows[start].word, pos: "verb", cells: rows[start..<end].map(\.cell),
+                                        isLinked: false))
+            start = end
+        }
+        return result
+    }
+}
+
+/// Tense levels and titles (0132, "Levels", "Tenses and levels"). Pure,
+/// except the passive-only verbs on the file.
+final class ConjugationLevelTests: XCTestCase {
+    private typealias Fixture = DrillFixture
+
+    private static let a1: [ConjugationTense] = [.present, .aorist, .future, .imperativeSimple, .subjunctiveSimple]
+    private static let b1: [ConjugationTense] = [.present, .imperfect, .aorist, .future, .imperativeContinuous,
+                                                 .imperativeSimple, .futureContinuous, .subjunctiveContinuous,
+                                                 .subjunctiveSimple]
+
+    func testTensesAreInTheTablesOrder() {
+        XCTAssertEqual(ConjugationTense.allCases, [.present, .imperfect, .aorist, .future, .imperativeContinuous,
+                                                   .imperativeSimple, .futureContinuous, .perfect, .pluperfect,
+                                                   .futurePerfect, .subjunctiveContinuous, .subjunctiveSimple])
+        for tense in ConjugationTense.allCases {
+            XCTAssertFalse(tense.rawValue.contains("."), "E10 groups on the part before the dot")
+            XCTAssertTrue(tense.rawValue.allSatisfy(\.isASCII))
+        }
+        XCTAssertEqual(ConjugationTense.imperativeSimple.persons.map(\.rawValue), ["2sg", "2pl"])
+        XCTAssertEqual(ConjugationTense.imperativeContinuous.persons.map(\.rawValue), ["2sg", "2pl"])
+        XCTAssertEqual(ConjugationTense.aorist.persons.map(\.rawValue), Fixture.allPersons)
+    }
+
+    func testFacetRawValue() {
+        let facet = ConjugationFacet(.aorist, .active)
+        XCTAssertEqual(facet.rawValue, "aorist.active")
+        XCTAssertEqual(ConjugationFacet(rawValue: "present.passive"), ConjugationFacet(.present, .passive))
+        XCTAssertEqual(ConjugationFacet(rawValue: "subjunctiveSimple.active"), ConjugationFacet(.subjunctiveSimple, .active))
+        for raw in ["aorist", "aorist.middle", "past.active", "aorist.active.x", ""] {
+            XCTAssertNil(ConjugationFacet(rawValue: raw), raw)
+        }
+        for tense in ConjugationTense.allCases {
+            for voice in ParadigmLayout.Voice.allCases {
+                let facet = ConjugationFacet(tense, voice)
+                XCTAssertEqual(ConjugationFacet(rawValue: facet.rawValue), facet)
+            }
+        }
+    }
+
+    func testA1IsActivePresentAoristFutureSubjunctiveImperative() {
+        XCTAssertEqual(DrillLevel.a1.facets(mainVoice: .active, hasPassive: true), Fixture.facets(.active, Self.a1))
+        XCTAssertEqual(DrillLevel.a1.facets(mainVoice: .active, hasPassive: false), Fixture.facets(.active, Self.a1))
+    }
+
+    func testA2AddsThePassivePresent() {
+        XCTAssertEqual(DrillLevel.a2.facets(mainVoice: .active, hasPassive: true),
+                       Fixture.facets(.active, Self.a1) + Fixture.facets(.passive, [.present]))
+        XCTAssertEqual(DrillLevel.a2.facets(mainVoice: .active, hasPassive: false), Fixture.facets(.active, Self.a1),
+                       "a verb without a passive gains nothing at A2")
+    }
+
+    func testB1Adds() {
+        XCTAssertEqual(DrillLevel.b1.facets(mainVoice: .active, hasPassive: true),
+                       Fixture.facets(.active, Self.b1)
+                           + Fixture.facets(.passive, [.present, .futureContinuous, .subjunctiveContinuous]))
+    }
+
+    func testB2Adds() {
+        XCTAssertEqual(DrillLevel.b2.facets(mainVoice: .active, hasPassive: true),
+                       Fixture.facets(.active, ConjugationTense.allCases)
+                           + Fixture.facets(.passive, ConjugationTense.allCases))
+        XCTAssertEqual(DrillLevel.b2.facets(mainVoice: .active, hasPassive: false),
+                       Fixture.facets(.active, ConjugationTense.allCases))
+    }
+
+    /// Kirill, 2026-11-04: a verb with passive forms only enters at A2 with
+    /// every A1 tense in its own voice, then follows the main-voice schedule.
+    func testPassiveMainVoiceStartsAtA2() {
+        for hasPassive in [false, true] {
+            XCTAssertEqual(DrillLevel.a1.facets(mainVoice: .passive, hasPassive: hasPassive), [])
+            XCTAssertEqual(DrillLevel.a2.facets(mainVoice: .passive, hasPassive: hasPassive),
+                           Fixture.facets(.passive, Self.a1))
+            XCTAssertEqual(DrillLevel.b1.facets(mainVoice: .passive, hasPassive: hasPassive),
+                           Fixture.facets(.passive, Self.b1))
+            XCTAssertEqual(DrillLevel.b2.facets(mainVoice: .passive, hasPassive: hasPassive),
+                           Fixture.facets(.passive, ConjugationTense.allCases))
+        }
+    }
+
+    func testLevelsAddUp() {
+        XCTAssertEqual(DrillLevel.allCases, [.a1, .a2, .b1, .b2])
+        XCTAssertEqual(DrillLevel.allCases.map(\.rawValue), ["A1", "A2", "B1", "B2"])
+        XCTAssertTrue(DrillLevel.a1 < .a2 && DrillLevel.a2 < .b1 && DrillLevel.b1 < .b2)
+        for main in ParadigmLayout.Voice.allCases {
+            for (lower, higher) in zip(DrillLevel.allCases, DrillLevel.allCases.dropFirst()) {
+                let low = Set(lower.facets(mainVoice: main, hasPassive: true))
+                XCTAssertTrue(low.isSubset(of: higher.facets(mainVoice: main, hasPassive: true)),
+                              "\(main): \(lower) ⊆ \(higher)")
+            }
+        }
+    }
+
+    /// έρχομαι (own table) and ντύνομαι (ντύνω's passive): no question at
+    /// A1; at A2 the A1 tenses, all passive.
+    @MainActor
+    func testPassiveOnlyVerbsStartAtA2() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try await Fixture.open(in: directory)
+        for word in ["έρχομαι", "ντύνομαι"] {
+            let verb = try await Fixture.verb(word)
+            XCTAssertEqual(verb.mainVoice, .passive, word)
+            XCTAssertEqual(Fixture.facetsAsked(verb, .a1), [], word)
+            XCTAssertEqual(Fixture.facetsAsked(verb, .a2),
+                           ["present.passive", "aorist.passive", "future.passive", "imperativeSimple.passive",
+                            "subjunctiveSimple.passive"], word)
+        }
+    }
+
+    func testTenseTitlesInEveryLanguage() {
+        XCTAssertEqual(ConjugationTense.allCases.map { $0.title(locale: Locale(identifier: "en")) },
+                       ["Present", "Imperfect", "Aorist", "Future", "Imperative · continuous", "Imperative · simple",
+                        "Future continuous", "Perfect", "Pluperfect", "Future perfect", "Subjunctive · continuous",
+                        "Subjunctive · simple"])
+        XCTAssertEqual(ConjugationTense.subjunctiveSimple.title(locale: Locale(identifier: "el")), "Υποτακτική · στιγμιαία")
+        for code in ["en", "ru", "es", "ar", "el"] {
+            let titles = ConjugationTense.allCases.map { $0.title(locale: Locale(identifier: code)) }
+            XCTAssertEqual(Set(titles).count, 12, "\(code): \(titles)")
+            for title in titles {
+                XCTAssertFalse(title.contains("forms."), "\(code): \(title) is a key")
+                XCTAssertFalse(title.isEmpty)
+            }
+        }
+    }
+}
+
+/// The preferences → what the drill asks (0132, `DrillScope`). Pure.
+final class DrillScopeTests: XCTestCase {
+    func testGreekListsOnly() {
+        XCTAssertEqual(DrillScope.greekLists(checked: ["ky-ell-b1", "user-1", "cefr-eng-a1", "ky-ell-a1", "my-words"]),
+                       ["ky-ell-a1", "ky-ell-b1"], "built-in Greek lists in level order; imports never feed the drill")
+        XCTAssertEqual(DrillScope.greekLists(checked: []), [])
+        XCTAssertEqual(DrillScope.greekLists(checked: ["user-1"]), [])
+    }
+
+    func testTenseLevelIsTheHighestCheckedList() {
+        XCTAssertEqual(DrillScope.tenseLevel(checked: ["ky-ell-a2"], stored: nil), .a2)
+        XCTAssertEqual(DrillScope.tenseLevel(checked: ["ky-ell-a1", "ky-ell-b1"], stored: nil), .b1)
+        XCTAssertEqual(DrillScope.tenseLevel(checked: [], stored: nil), .a1)
+        XCTAssertEqual(DrillScope.tenseLevel(checked: ["user-1", "cefr-eng-c2"], stored: nil), .a1)
+        XCTAssertEqual(DrillScope.floor(checked: ["ky-ell-a1", "ky-ell-a2"]), .a2)
+    }
+
+    func testStoredValueOnlyRaises() {
+        XCTAssertEqual(DrillScope.tenseLevel(checked: ["ky-ell-b1"], stored: .a1), .b1, "checking B1 after storing A1")
+        XCTAssertEqual(DrillScope.tenseLevel(checked: ["ky-ell-a1"], stored: .b2), .b2)
+        XCTAssertEqual(DrillScope.tenseLevel(checked: ["ky-ell-a1"], stored: .a2), .a2)
+        XCTAssertEqual(DrillScope.tenseLevel(checked: [], stored: .b1), .b1)
+    }
+
+    func testOfferedLevelsStartAtTheHighestCheckedList() {
+        XCTAssertEqual(DrillScope.offeredLevels(checked: ["ky-ell-a2"]), [.a2, .b1, .b2])
+        XCTAssertEqual(DrillScope.offeredLevels(checked: ["ky-ell-a1"]), [.a1, .a2, .b1, .b2])
+        XCTAssertEqual(DrillScope.offeredLevels(checked: ["ky-ell-a1", "ky-ell-b1"]), [.b1, .b2])
+        XCTAssertEqual(DrillScope.offeredLevels(checked: []), [.a1, .a2, .b1, .b2])
+    }
+}
+
+extension LearningSettingsTests {
+    /// `learning_drill_tenses` (0132): absent by default, stored as the
+    /// level's name, nil removes it, an unknown value reads as absent, and
+    /// `-resetData` clears it with the other `learning_*` keys
+    /// (`resetLearning`).
+    func testDrillTensesKey() {
+        let (settings, store) = service()
+        XCTAssertNil(settings.learningDrillTenses)
+        XCTAssertFalse(store.keys.contains("learning_drill_tenses"))
+        settings.learningDrillTenses = .b2
+        XCTAssertEqual(store.string(forKey: "learning_drill_tenses"), "B2")
+        XCTAssertEqual(settings.learningDrillTenses, .b2)
+        settings.learningDrillTenses = nil
+        XCTAssertFalse(store.keys.contains("learning_drill_tenses"))
+        store.set("C1", forKey: "learning_drill_tenses")
+        XCTAssertNil(settings.learningDrillTenses)
+
+        settings.learningDrillTenses = .a2
+        settings.resetLearning()
+        XCTAssertNil(settings.learningDrillTenses)
+        XCTAssertFalse(store.keys.contains("learning_drill_tenses"))
+    }
+}
+
+/// The five verbs of #167's acceptance criteria, on the file's paradigms
+/// (0132, "Each verb's questions by tense level").
+@MainActor
+final class ConjugationFormsTests: XCTestCase {
+    private typealias Fixture = DrillFixture
+    private var tempDir: URL!
+
+    override func setUp() async throws {
+        try await super.setUp()
+        tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try await Fixture.open(in: tempDir)
+    }
+
+    override func tearDown() async throws {
+        try? FileManager.default.removeItem(at: tempDir)
+        try await super.tearDown()
+    }
+
+    func testGrafo() async throws {
+        let verb = try await Fixture.verb("γράφω")
+        XCTAssertEqual(verb.word, "γράφω")
+        XCTAssertEqual(verb.citation, "γράφω")
+        XCTAssertEqual(verb.mainVoice, .active)
+        XCTAssertTrue(verb.hasPassive)
+        XCTAssertFalse(verb.isImpersonal)
+
+        XCTAssertEqual(Fixture.facetsAsked(verb, .a1), ["present.active", "aorist.active", "future.active",
+                                                        "imperativeSimple.active", "subjunctiveSimple.active"])
+        let a1 = Fixture.questions(verb, .a1)
+        XCTAssertEqual(a1["present.active"], ["2sg", "3sg", "1pl", "2pl", "3pl"], "εγώ is the cited form")
+        XCTAssertEqual(a1["aorist.active"], Fixture.allPersons)
+        XCTAssertEqual(a1["imperativeSimple.active"], ["2sg", "2pl"])
+        XCTAssertEqual(Fixture.facetsAsked(verb, .a2), Fixture.facetsAsked(verb, .a1) + ["present.passive"])
+        XCTAssertEqual(Fixture.questions(verb, .a2)["present.passive"], Fixture.allPersons, "γράφομαι is asked")
+        XCTAssertEqual(Fixture.facetsAsked(verb, .b1),
+                       ["present.active", "imperfect.active", "aorist.active", "future.active",
+                        "imperativeContinuous.active", "imperativeSimple.active", "futureContinuous.active",
+                        "subjunctiveContinuous.active", "subjunctiveSimple.active",
+                        "present.passive", "futureContinuous.passive", "subjunctiveContinuous.passive"])
+        XCTAssertEqual(Fixture.facetsAsked(verb, .b2).count, 24, "every tense in both voices")
+
+        let first = ParadigmLayout.Person.firstSingular
+        XCTAssertEqual(verb.forms(ConjugationFacet(.aorist, .active), first), ["έγραψα"])
+        XCTAssertEqual(verb.forms(ConjugationFacet(.future, .active), first), ["θα γράψω"])
+        XCTAssertEqual(verb.forms(ConjugationFacet(.subjunctiveSimple, .active), first), ["να γράψω"])
+        XCTAssertEqual(verb.forms(ConjugationFacet(.futureContinuous, .active), first), ["θα γράφω"])
+        XCTAssertEqual(verb.forms(ConjugationFacet(.perfect, .active), first), ["έχω γράψει"])
+        XCTAssertEqual(verb.forms(ConjugationFacet(.pluperfect, .active), .thirdPlural), ["είχαν γράψει"])
+        XCTAssertEqual(verb.forms(ConjugationFacet(.futurePerfect, .active), .secondSingular), ["θα έχεις γράψει"])
+        XCTAssertEqual(verb.forms(ConjugationFacet(.aorist, .passive), first), ["γράφτηκα", "γράφηκα"])
+        XCTAssertEqual(verb.forms(ConjugationFacet(.future, .passive), first), ["θα γραφτώ", "θα γραφώ"])
+        XCTAssertEqual(verb.forms(ConjugationFacet(.perfect, .passive), first), ["έχω γραφτεί", "έχω γραφεί"])
+        XCTAssertEqual(verb.forms(ConjugationFacet(.imperativeSimple, .passive), .secondSingular), ["γράψου"])
+        XCTAssertEqual(verb.forms(ConjugationFacet(.imperativeSimple, .active), .secondPlural), ["γράψτε", "γράφτε"])
+    }
+
+    /// είμαι has no aorist, no dependent and no infinitive: θα / να + the
+    /// present for its Future and simple Subjunctive, from A1; no separate
+    /// continuous ones, no imperative (its forms are archaic), no perfect.
+    func testEimai() async throws {
+        let verb = try await Fixture.verb("είμαι")
+        XCTAssertEqual(verb.citation, "είμαι")
+        XCTAssertEqual(verb.mainVoice, .active)
+        XCTAssertFalse(verb.hasPassive)
+        XCTAssertFalse(verb.isImpersonal)
+        XCTAssertEqual(Fixture.facetsAsked(verb, .a1), ["present.active", "future.active", "subjunctiveSimple.active"])
+        XCTAssertEqual(Fixture.questions(verb, .a1)["future.active"], Fixture.allPersons)
+        XCTAssertEqual(Fixture.facetsAsked(verb, .a2), Fixture.facetsAsked(verb, .a1))
+        XCTAssertEqual(Fixture.facetsAsked(verb, .b1),
+                       ["present.active", "imperfect.active", "future.active", "subjunctiveSimple.active"])
+        XCTAssertEqual(Fixture.facetsAsked(verb, .b2), Fixture.facetsAsked(verb, .b1))
+
+        XCTAssertEqual(verb.forms(ConjugationFacet(.future, .active), .firstSingular), ["θα είμαι"])
+        XCTAssertEqual(verb.forms(ConjugationFacet(.subjunctiveSimple, .active), .thirdSingular), ["να είναι"])
+        XCTAssertEqual(verb.forms(ConjugationFacet(.futureContinuous, .active), .firstSingular), [])
+        XCTAssertEqual(verb.forms(ConjugationFacet(.subjunctiveContinuous, .active), .firstSingular), [])
+        XCTAssertEqual(verb.forms(ConjugationFacet(.imperfect, .active), .firstSingular), ["ήμουν", "ήμουνα"])
+        XCTAssertEqual(verb.forms(ConjugationFacet(.imperfect, .active), .thirdPlural), ["ήταν", "ήτανε"],
+                       "ήσαν and ήσανε are archaic or rare")
+
+        for seed in UInt64(0)..<20 {
+            let question = try XCTUnwrap(Fixture.build(verb, .future, .firstSingular, level: .a1, seed: seed))
+            XCTAssertEqual(question.options[question.rightIndex], "θα είμαι")
+            XCTAssertEqual(Set(question.options).count, 4)
+        }
+    }
+
+    /// έρχομαι, passive forms only: nothing at A1; ήρθα, θα έρθω, έλα at A2;
+    /// ερχόμουν at B1; the perfect tenses at B2.
+    func testErchomai() async throws {
+        let verb = try await Fixture.verb("έρχομαι")
+        XCTAssertEqual(verb.word, "έρχομαι")
+        XCTAssertEqual(verb.citation, "έρχομαι")
+        XCTAssertEqual(verb.mainVoice, .passive)
+        XCTAssertFalse(verb.hasPassive)
+        XCTAssertEqual(Array(verb.voices.keys), [.passive])
+        XCTAssertEqual(Fixture.facetsAsked(verb, .a1), [])
+        let a2 = Fixture.questions(verb, .a2)
+        XCTAssertEqual(a2["present.passive"], ["2sg", "3sg", "1pl", "2pl", "3pl"], "εγώ is the cited form")
+        XCTAssertEqual(a2["imperativeSimple.passive"], ["2sg", "2pl"])
+        XCTAssertEqual(verb.forms(ConjugationFacet(.aorist, .passive), .firstSingular), ["ήρθα", "ήλθα"])
+        XCTAssertEqual(verb.forms(ConjugationFacet(.future, .passive), .firstSingular), ["θα έρθω", "θα έλθω"])
+        XCTAssertEqual(verb.forms(ConjugationFacet(.imperativeSimple, .passive), .secondSingular), ["έλα"])
+
+        let b1 = Fixture.facetsAsked(verb, .b1)
+        XCTAssertEqual(b1, ["present.passive", "imperfect.passive", "aorist.passive", "future.passive",
+                            "imperativeContinuous.passive", "imperativeSimple.passive", "futureContinuous.passive",
+                            "subjunctiveContinuous.passive", "subjunctiveSimple.passive"])
+        XCTAssertEqual(Fixture.questions(verb, .b1)["imperativeContinuous.passive"], ["2pl"], "έρχεστε; no εσύ")
+        XCTAssertEqual(verb.forms(ConjugationFacet(.imperfect, .passive), .firstSingular), ["ερχόμουν", "ερχόμουνα"])
+        XCTAssertEqual(verb.forms(ConjugationFacet(.perfect, .passive), .firstSingular), ["έχω έρθει", "έχω έλθει"])
+        XCTAssertEqual(Fixture.facetsAsked(verb, .b2).count, 12)
+
+        let passive = Fixture.everyForm(of: verb)
+        for seed in UInt64(0)..<20 {
+            let question = try XCTUnwrap(Fixture.build(verb, .aorist, .firstSingular, voice: .passive, level: .a2, seed: seed))
+            XCTAssertEqual(question.options[question.rightIndex], "ήρθα")
+            XCTAssertFalse(question.options.contains("ήλθα"), "another right variant is never offered")
+            XCTAssertTrue(question.showsPassiveNote)
+            XCTAssertTrue(Set(question.options).isSubset(of: passive))
+        }
+    }
+
+    /// πάω shows πηγαίνω's table (#144): the drill asks πηγαίνω.
+    func testPao() async throws {
+        let verb = try await Fixture.verb("πάω")
+        XCTAssertEqual(verb.word, "πηγαίνω", "the card word is the table's verb")
+        XCTAssertEqual(verb.citation, "πηγαίνω")
+        XCTAssertEqual(verb.mainVoice, .active)
+        XCTAssertEqual(verb.forms(ConjugationFacet(.present, .active), .firstSingular), ["πηγαίνω", "πάω"])
+        XCTAssertNil(Fixture.questions(verb, .a1)["present.active"]?.first { $0 == "1sg" }, "the cited cell")
+        XCTAssertEqual(verb.forms(ConjugationFacet(.future, .active), .firstSingular), ["θα πάω"])
+        XCTAssertEqual(verb.forms(ConjugationFacet(.aorist, .active), .firstSingular), ["πήγα"])
+
+        for (facet, persons) in ConjugationQuestionBuilder.questions(verb: verb, level: .a1) {
+            for person in persons {
+                for seed in UInt64(0)..<3 {
+                    let question = try XCTUnwrap(Fixture.build(verb, facet.tense, person, voice: facet.voice, level: .a1,
+                                                               seed: seed))
+                    XCTAssertEqual(question.options[question.rightIndex], question.rightForms[0])
+                    XCTAssertTrue(Set(question.options).isDisjoint(with: question.rightForms.dropFirst()),
+                                  "\(facet.rawValue) \(person.rawValue): \(question.options)")
+                }
+            }
+        }
+        for seed in UInt64(0)..<30 {
+            let question = try XCTUnwrap(Fixture.build(verb, .present, .secondPlural, level: .a1, seed: seed))
+            XCTAssertEqual(question.options[question.rightIndex], "πηγαίνετε")
+            XCTAssertFalse(question.options.contains("πάτε"))
+        }
+    }
+
+    /// The impersonal πρέπει and πρόκειται: only αυτός, whose present is
+    /// cited; θα and να + the present at A1; έπρεπε at B1.
+    func testPrepei() async throws {
+        let verb = try await Fixture.verb("πρέπει")
+        XCTAssertEqual(verb.word, "πρέπει")
+        XCTAssertEqual(verb.citation, "πρέπει")
+        XCTAssertTrue(verb.isImpersonal)
+        XCTAssertEqual(Fixture.questions(verb, .a1), ["future.active": ["3sg"], "subjunctiveSimple.active": ["3sg"]])
+        XCTAssertEqual(Fixture.facetsAsked(verb, .a1), ["future.active", "subjunctiveSimple.active"])
+        XCTAssertEqual(Fixture.facetsAsked(verb, .b1), ["imperfect.active", "future.active", "subjunctiveSimple.active"])
+        XCTAssertEqual(Fixture.questions(verb, .b2), Fixture.questions(verb, .b1))
+        let allowed: Set<String> = ["θα πρέπει", "πρέπει", "να πρέπει", "θα πρέπουν", "έπρεπε"]
+        for seed in UInt64(0)..<30 {
+            let question = try XCTUnwrap(Fixture.build(verb, .future, .thirdSingular, level: .a1, seed: seed))
+            XCTAssertEqual(question.options[question.rightIndex], "θα πρέπει")
+            XCTAssertTrue(Set(question.options).isSubset(of: allowed), "\(question.options)")
+            XCTAssertEqual(Set(question.options).count, 4)
+        }
+
+        let prokeitai = try await Fixture.verb("πρόκειται")
+        XCTAssertTrue(prokeitai.isImpersonal)
+        XCTAssertEqual(prokeitai.citation, "πρόκειται")
+        XCTAssertEqual(Fixture.questions(prokeitai, .a1),
+                       ["future.active": ["3sg"], "subjunctiveSimple.active": ["3sg"]])
+        let question = try XCTUnwrap(Fixture.build(prokeitai, .future, .thirdSingular, level: .a1))
+        XCTAssertEqual(Set(question.options), ["θα πρόκειται", "πρόκειται", "να πρόκειται", "επρόκειτο"],
+                       "the imperfect, outside A1, fills the third place")
+    }
+}
+
+/// `DrillVerb.make`: voices, citation, links (0132, "Verbs").
+@MainActor
+final class DrillVerbTests: XCTestCase {
+    private typealias Fixture = DrillFixture
+    private var tempDir: URL!
+
+    override func setUp() async throws {
+        try await super.setUp()
+        tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try await Fixture.open(in: tempDir)
+    }
+
+    override func tearDown() async throws {
+        try? FileManager.default.removeItem(at: tempDir)
+        try await super.tearDown()
+    }
+
+    /// ντύνομαι shows ντύνω's table: drilled in the passive only, under its own word.
+    func testPassiveLinkKeepsItsWord() async throws {
+        let paradigm = try await InflectionFixture.paradigm("ντύνομαι", pos: "verb")
+        XCTAssertEqual(paradigm?.word, "ντύνω")
+        XCTAssertEqual(paradigm?.isLinked, true)
+        let verb = try await Fixture.verb("ντύνομαι")
+        XCTAssertEqual(verb.word, "ντύνομαι")
+        XCTAssertEqual(verb.citation, "ντύνομαι")
+        XCTAssertEqual(verb.mainVoice, .passive)
+        XCTAssertEqual(Array(verb.voices.keys), [.passive])
+        XCTAssertFalse(Fixture.everyForm(of: verb).contains("ντύνω"), "no active form")
+        XCTAssertEqual(Fixture.questions(verb, .a2)["present.passive"], ["2sg", "3sg", "1pl", "2pl", "3pl"])
+
+        let ntyno = try await Fixture.verb("ντύνω")
+        XCTAssertEqual(ntyno.word, "ντύνω")
+        XCTAssertTrue(ntyno.hasPassive, "the lemma drills both voices")
+    }
+
+    /// A participle listed as a verb is no verb, by its own table or through a link.
+    func testParticipleIsNoVerb() throws {
+        let own = LemmaParadigm(word: "συνηθισμένος", pos: "verb", cells: try Fixture.cells(of: "συνηθισμένος"),
+                                isLinked: false)
+        XCTAssertFalse(own.cells.isEmpty)
+        XCTAssertNil(DrillVerb.make(word: "συνηθισμένος", paradigm: own, translation: "usual"))
+        let linked = LemmaParadigm(word: "συνηθίζω", pos: "verb", cells: try Fixture.cells(of: "συνηθίζω"), isLinked: true)
+        XCTAssertNil(DrillVerb.make(word: "συνηθισμένος", paradigm: linked, translation: "usual"),
+                     "neither an active nor a passive finite cell")
+        let house = LemmaParadigm(word: "σπίτι", pos: "noun", cells: try Fixture.cells(of: "σπίτι", pos: "noun"),
+                                  isLinked: false)
+        XCTAssertNil(DrillVerb.make(word: "σπίτι", paradigm: house, translation: "house"))
+    }
+
+    func testFieldsComeFromTheList() throws {
+        let paradigm = LemmaParadigm(word: "γράφω", pos: "verb", cells: try Fixture.cells(of: "γράφω"), isLinked: false)
+        let verb = try XCTUnwrap(DrillVerb.make(word: "γράφω", paradigm: paradigm, translation: "to write",
+                                                listLevel: 1, rank: 150, seq: 334))
+        XCTAssertEqual(verb.translation, "to write")
+        XCTAssertEqual(verb.listLevel, 1)
+        XCTAssertEqual(verb.rank, 150)
+        XCTAssertEqual(verb.seq, 334)
+        XCTAssertEqual(Set(verb.voices.keys), [.active, .passive])
+    }
+
+    /// A verb with too few forms for three distractors has no question, so no drill verb.
+    func testNoQuestionNoVerb() {
+        let cells = [ParadigmCell(form: "μέλλει", tags: "active imperfective indicative present singular third-person")]
+        XCTAssertNil(DrillVerb.make(word: "μέλλει", paradigm: LemmaParadigm(word: "μέλλει", pos: "verb", cells: cells,
+                                                                           isLinked: false), translation: ""))
+    }
+}
+
+/// Options (0132, "Options"): 4 distinct real forms of the verb, exactly one
+/// right, never another right variant.
+@MainActor
+final class ConjugationQuestionTests: XCTestCase {
+    private typealias Fixture = DrillFixture
+    private var tempDir: URL!
+
+    override func setUp() async throws {
+        try await super.setUp()
+        tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try await Fixture.open(in: tempDir)
+    }
+
+    override func tearDown() async throws {
+        try? FileManager.default.removeItem(at: tempDir)
+        try await super.tearDown()
+    }
+
+    /// Every question every verb of the file lists at A1 and B2 builds: 4
+    /// options that no two fold alike, each a form of the verb (at A1 of
+    /// the asked voice), exactly one right, and that one the cell's first
+    /// form. Until #152's lists are in the file, every verb of the file
+    /// stands for the three lists' verbs (QA: 3 seeds on those then).
+    func testEveryQuestionOfThePoolHasFourDistinctRealForms() throws {
+        let paradigms = try Fixture.everyVerbOfTheFile()
+        let start = ContinuousClock.now
+        let verbs = paradigms.compactMap { DrillVerb.make(word: $0.word, paradigm: $0, translation: "") }
+        print("#167: DrillVerb.make on \(paradigms.count) verb tables: \(ContinuousClock.now - start)")
+        XCTAssertGreaterThan(verbs.count, 1_500)
+        var failures: [String] = []
+        var built = 0
+        for verb in verbs {
+            let every = Fixture.everyForm(of: verb)
+            let byVoice = Dictionary(uniqueKeysWithValues: verb.voices.keys.map { ($0, Fixture.everyForm(of: verb, voice: $0)) })
+            var folded: [String: String] = [:]
+            func fold(_ form: String) -> String {
+                if let key = folded[form] { return key }
+                let key = Search.foldGreek(form)
+                folded[form] = key
+                return key
+            }
+            for level in [DrillLevel.a1, .b2] {
+                for (facet, persons) in ConjugationQuestionBuilder.questions(verb: verb, level: level) {
+                    let forms = level == .a1 ? byVoice[facet.voice] ?? [] : every
+                    for person in persons {
+                        built += 1
+                        guard let question = Fixture.build(verb, facet.tense, person, voice: facet.voice, level: level,
+                                                           seed: UInt64(built)) else {
+                            failures.append("\(verb.word) \(level.rawValue) \(facet.rawValue) \(person.rawValue): no question")
+                            continue
+                        }
+                        func label() -> String { "\(verb.word) \(level.rawValue) \(facet.rawValue) \(person.rawValue)" }
+                        let keys = question.options.map(fold)
+                        let rightKeys = Set(question.rightForms.map(fold))
+                        if question.options.count != 4 || Set(keys).count != 4 {
+                            failures.append("\(label()): \(question.options)")
+                        }
+                        if !Set(question.options).isSubset(of: forms) {
+                            failures.append("\(label()): not the verb's forms \(question.options)")
+                        }
+                        if keys.filter(rightKeys.contains).count != 1
+                            || question.options[question.rightIndex] != question.rightForms[0] {
+                            failures.append("\(label()): right \(question.rightForms), options \(question.options)")
+                        }
+                    }
+                }
+            }
+        }
+        print("#167: \(built) questions of \(verbs.count) verbs")
+        XCTAssertEqual(failures.count, 0, failures.prefix(20).joined(separator: "\n"))
+    }
+
+    /// The options' fold is `Search.foldGreek`'s key on every form of the
+    /// file's verb tables, and on generated ones.
+    func testFoldIsTheSearchFold() throws {
+        let forms = try Fixture.everyVerbOfTheFile().flatMap { $0.cells.map(\.form) }
+        XCTAssertGreaterThan(forms.count, 100_000)
+        let generated = forms.prefix(5_000).flatMap { ["θα " + $0, "έχεις " + $0] }
+        let differ = (forms + generated).filter { ConjugationQuestionBuilder.fold($0) != Search.foldGreek($0) }
+        XCTAssertEqual(differ, [])
+        XCTAssertEqual(ConjugationQuestionBuilder.fold("ΈΓΡΑΨΑ"), "εγραψα")
+        XCTAssertEqual(ConjugationQuestionBuilder.fold("θα γραφτείς"), "θα γραφτεισ")
+        XCTAssertEqual(ConjugationQuestionBuilder.fold("ϊ"), "ι")
+        // Not from the table: a decomposed accent, Latin letters.
+        XCTAssertEqual(ConjugationQuestionBuilder.fold("γρα\u{0301}φω"), "γραφω")
+        XCTAssertEqual(ConjugationQuestionBuilder.fold("Café"), "cafe")
+    }
+
+    func testOtherRightFormsAreNeverOffered() async throws {
+        let grafo = try await Fixture.verb("γράφω")
+        for seed in UInt64(0)..<30 {
+            let aorist = try XCTUnwrap(Fixture.build(grafo, .aorist, .firstSingular, voice: .passive, level: .b2, seed: seed))
+            XCTAssertEqual(aorist.rightForms, ["γράφτηκα", "γράφηκα"])
+            XCTAssertEqual(aorist.options[aorist.rightIndex], "γράφτηκα")
+            XCTAssertFalse(aorist.options.contains("γράφηκα"))
+            // γραφόμαστε is the present and an imperfect of εμείς.
+            let imperfect = try XCTUnwrap(Fixture.build(grafo, .imperfect, .firstPlural, voice: .passive, level: .b2, seed: seed))
+            XCTAssertEqual(imperfect.options[imperfect.rightIndex], "γραφόμασταν")
+            XCTAssertFalse(imperfect.options.contains("γραφόμαστε"))
+            let present = try XCTUnwrap(Fixture.build(grafo, .present, .firstPlural, voice: .passive, level: .b2, seed: seed))
+            XCTAssertEqual(present.options[present.rightIndex], "γραφόμαστε")
+            XCTAssertEqual(present.options.filter { $0 == "γραφόμαστε" }.count, 1)
+        }
+    }
+
+    func testRightOptionIsTheFirstForm() async throws {
+        let grafo = try await Fixture.verb("γράφω")
+        for seed in UInt64(0)..<30 {
+            let question = try XCTUnwrap(Fixture.build(grafo, .aorist, .thirdPlural, level: .a1, seed: seed))
+            XCTAssertEqual(question.rightForms, ["έγραψαν", "γράψαν", "γράψανε"])
+            XCTAssertEqual(question.options[question.rightIndex], "έγραψαν")
+            XCTAssertTrue(Set(question.options).isDisjoint(with: ["γράψαν", "γράψανε"]))
+        }
+    }
+
+    /// Kirill, 2026-10-22: the same person in another tense, the same tense
+    /// in another person.
+    func testOneSamePersonAndOneSameTense() async throws {
+        let grafo = try await Fixture.verb("γράφω")
+        let samePerson: Set<String> = ["γράφω", "θα γράψω", "να γράψω"]
+        let sameTense: Set<String> = ["έγραψες", "έγραψε", "γράψαμε", "γράψατε", "έγραψαν"]
+        var seen = Set<String>()
+        for seed in UInt64(0)..<50 {
+            let question = try XCTUnwrap(Fixture.build(grafo, .aorist, .firstSingular, level: .a1, seed: seed))
+            let wrong = Set(question.options).subtracting(["έγραψα"])
+            XCTAssertEqual(wrong.count, 3)
+            XCTAssertFalse(wrong.isDisjoint(with: samePerson), "\(question.options)")
+            XCTAssertFalse(wrong.isDisjoint(with: sameTense), "\(question.options)")
+            XCTAssertTrue(wrong.isSubset(of: samePerson.union(sameTense)), "A and B suffice: \(question.options)")
+            seen.formUnion(wrong)
+        }
+        XCTAssertEqual(seen, samePerson.union(sameTense), "every candidate comes up")
+    }
+
+    func testNoOtherVoiceAtA1() async throws {
+        let grafo = try await Fixture.verb("γράφω")
+        let passive = Fixture.everyForm(of: grafo, voice: .passive)
+        for (facet, persons) in ConjugationQuestionBuilder.questions(verb: grafo, level: .a1) {
+            XCTAssertEqual(facet.voice, .active)
+            for person in persons {
+                for seed in UInt64(0)..<5 {
+                    let question = try XCTUnwrap(Fixture.build(grafo, facet.tense, person, voice: facet.voice, level: .a1,
+                                                               seed: seed))
+                    XCTAssertTrue(Set(question.options).isDisjoint(with: passive), "\(question.options)")
+                }
+            }
+        }
+    }
+
+    /// A question that cannot get three distractors is never asked.
+    func testNoQuestionWithoutThreeDistractors() {
+        // One cell: the future and the simple subjunctive (θα / να + the
+        // present) have only each other and the cited form.
+        let cells = [ParadigmCell(form: "μέλλει", tags: "active imperfective indicative present singular third-person")]
+        let voices = ParadigmLayout.voiceForms(cells)
+        let verb = DrillVerb(word: "μέλλει", citation: "μέλλει", translation: "", listLevel: nil, rank: nil, seq: 0,
+                             mainVoice: .active, voices: voices, isImpersonal: true)
+        XCTAssertEqual(verb.forms(ConjugationFacet(.future, .active), .thirdSingular), ["θα μέλλει"])
+        for level in DrillLevel.allCases {
+            XCTAssertTrue(ConjugationQuestionBuilder.questions(verb: verb, level: level).isEmpty)
+        }
+        XCTAssertNil(Fixture.build(verb, .future, .thirdSingular, level: .b2))
+        XCTAssertNil(Fixture.build(verb, .aorist, .thirdSingular, level: .b2), "an empty cell")
+    }
+
+    func testTenseRowsHoldEveryPersonAndForm() async throws {
+        let grafo = try await Fixture.verb("γράφω")
+        let aorist = try XCTUnwrap(Fixture.build(grafo, .aorist, .secondSingular, voice: .passive, level: .b2))
+        XCTAssertEqual(aorist.tenseRows.map(\.person.rawValue), Fixture.allPersons)
+        XCTAssertEqual(aorist.tenseRows.first?.forms, ["γράφτηκα", "γράφηκα"])
+        let imperative = try XCTUnwrap(Fixture.build(grafo, .imperativeSimple, .secondSingular, level: .a1))
+        XCTAssertEqual(imperative.tenseRows.map(\.person.rawValue), ["2sg", "2pl"])
+        XCTAssertEqual(imperative.tenseRows.last?.forms, ["γράψτε", "γράφτε"])
+    }
+
+    func testPassiveNoteOnlyForPassiveOnlyVerbs() async throws {
+        let erchomai = try await Fixture.verb("έρχομαι")
+        let came = try XCTUnwrap(Fixture.build(erchomai, .aorist, .firstSingular, voice: .passive, level: .a2))
+        XCTAssertTrue(came.showsPassiveNote)
+        XCTAssertFalse(came.showsVoice)
+        let grafo = try await Fixture.verb("γράφω")
+        let written = try XCTUnwrap(Fixture.build(grafo, .present, .secondSingular, voice: .passive, level: .a2))
+        XCTAssertFalse(written.showsPassiveNote)
+        XCTAssertTrue(written.showsVoice, "γράφομαι's tense line says passive instead")
+        let wrote = try XCTUnwrap(Fixture.build(grafo, .aorist, .firstSingular, level: .a2))
+        XCTAssertFalse(wrote.showsPassiveNote)
+        XCTAssertFalse(wrote.showsVoice)
+    }
+
+    /// The same seed gives the same options in the same order (`-learningSeed`).
+    func testSeededOrder() async throws {
+        let grafo = try await Fixture.verb("γράφω")
+        let one = try XCTUnwrap(Fixture.build(grafo, .aorist, .firstSingular, level: .b1, seed: 42))
+        let two = try XCTUnwrap(Fixture.build(grafo, .aorist, .firstSingular, level: .b1, seed: 42))
+        XCTAssertEqual(one.options, two.options)
+        let orders = Set((UInt64(0)..<20).compactMap {
+            Fixture.build(grafo, .aorist, .firstSingular, level: .b1, seed: $0)?.rightIndex
+        })
+        XCTAssertGreaterThan(orders.count, 1, "the right option moves")
+    }
+}
+
+/// `DatabaseService.drillVerbs(lists:meaningsLang:)` on a copy of the Greek
+/// pack with test lists of real Greek words in place of #152's (0132,
+/// "Verbs"; 0237: the lists and the forms are the pack's), and on the pack
+/// itself (`testCountsPerList`).
+final class DrillVerbPoolTests: XCTestCase {
+    private typealias Fixture = DrillFixture
+    private static var directory: URL!
+    private static var listsURL: URL!
+    private var tempDir: URL!
+    private var db: DatabaseService { .shared }
+
+    /// Words of Kirill's lists, with made-up ranks; πάω is put in A2.
+    /// αγαπώ has no lemma: it comes in through its link, αγαπάω's table.
+    private static let items: [WordListFixture.Item] = {
+        let a1: [(String, String, Int?, Int)] = [
+            ("είμαι", "to be", 1, 0), ("έχω", "to have", 2, 519), ("ξέρω", "to know", 8, 913),
+            ("πρέπει", "I/you/he… must", 15, 1105), ("πηγαίνω", "to go", 30, 1040), ("έρχομαι", "to come", 40, 491),
+            ("σπίτι", "house, residence", 50, 1205), ("αγαπώ", "to love", 60, 12), ("γράφω", "to write", 150, 334),
+            ("θυμάμαι", "to remember", 200, 567), ("κάθομαι", "to sit", nil, 607), ("ντύνομαι", "to get dressed", nil, 902),
+        ]
+        let a2: [(String, String, Int?, Int)] = [
+            ("πάω", "to go (πάω)", 3, 300), ("βρέχει", "it is raining", nil, 82), ("συνηθισμένος", "usual", nil, 665),
+        ]
+        let b1: [(String, String, Int?, Int)] = [
+            ("αντιγράφω", "to copy", 900, 155), ("ξαναπηγαίνω", "to go back, to go again", nil, 1477),
+        ]
+        return [(a1, "A1", 1), (a2, "A2", 2), (b1, "B1", 3)].flatMap { words, level, ord in
+            words.map { WordListFixture.Item(series: "ky-ell", term: $0.0, headword: $0.0, translation: $0.1,
+                                             level: level, levelOrd: ord, rank: $0.2, seq: $0.3) }
+        }
+    }()
+
+    private static let a1Verbs = ["είμαι", "έχω", "ξέρω", "πρέπει", "πηγαίνω", "έρχομαι", "αγαπάω", "γράφω",
+                                  "θυμάμαι", "κάθομαι", "ντύνομαι"]
+
+    /// The Greek pack, copied (an APFS clone), with the test lists added;
+    /// their translations are English (0130's `translation_lang`).
+    override class func setUp() {
+        super.setUp()
+        directory = FileManager.default.temporaryDirectory.appendingPathComponent("drill-\(UUID().uuidString)")
+        do {
+            listsURL = try Fixture.greekPack(at: directory.appendingPathComponent("ell.sqlite"), items: items,
+                                             translationLang: "eng")
+        } catch {
+            XCTFail("the drill lists fixture: \(error)")
+        }
+    }
+
+    override class func tearDown() {
+        if let directory { try? FileManager.default.removeItem(at: directory) }
+        super.tearDown()
+    }
+
+    override func setUp() async throws {
+        try await super.setUp()
+        await DictAppTests.waitForHostAppLaunch()
+        tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        try await Fixture.open(userPath: tempDir.appendingPathComponent("user.sqlite").path,
+                               greek: try XCTUnwrap(Self.listsURL))
+    }
+
+    override func tearDown() async throws {
+        try? FileManager.default.removeItem(at: tempDir)
+        try await super.tearDown()
+    }
+
+    /// Only Greek A1 checked: its verbs, each once, by frequency then list
+    /// order; σπίτι (a noun) is no verb; αγαπώ, with no verb lemma, comes
+    /// in through its link as αγαπάω (0132, "Pool", step 1).
+    @MainActor
+    func testA1PoolIsTheA1ListsVerbs() async throws {
+        let verbs = try await db.drillVerbs(lists: ["ky-ell-a1"], meaningsLang: "eng")
+        XCTAssertEqual(verbs.map(\.word), Self.a1Verbs)
+        XCTAssertEqual(Set(verbs.compactMap(\.listLevel)), [1])
+        XCTAssertFalse(verbs.contains { $0.word == "σπίτι" })
+        let go = try XCTUnwrap(verbs.first { $0.word == "πηγαίνω" })
+        XCTAssertEqual(go.translation, "to go")
+        XCTAssertEqual(go.rank, 30)
+        let love = try XCTUnwrap(verbs.first { $0.word == "αγαπάω" })
+        XCTAssertEqual(love.citation, "αγαπάω")
+        XCTAssertEqual(love.translation, "to love")
+        XCTAssertEqual(love.rank, 60)
+        XCTAssertEqual(verbs.first { $0.word == "ντύνομαι" }?.mainVoice, .passive)
+        XCTAssertEqual(verbs.first { $0.word == "πρέπει" }?.isImpersonal, true)
+    }
+
+    /// Kirill, 2026-11-04: the checked lists choose the verbs.
+    @MainActor
+    func testOnlyCheckedListsGiveVerbs() async throws {
+        // A2 alone: πάω is πηγαίνω, βρέχει is βρέχω (#144's links), and the
+        // participle συνηθισμένος is no verb. No έχω, no γράφω.
+        let a2 = try await db.drillVerbs(lists: ["ky-ell-a2"], meaningsLang: "eng")
+        XCTAssertEqual(a2.map(\.word), ["πηγαίνω", "βρέχω"])
+        XCTAssertEqual(a2.map(\.listLevel), [2, 2])
+        XCTAssertEqual(a2.first?.translation, "to go (πάω)")
+
+        // A1 and A2: both lists, A1 first; πηγαίνω once, at its lower level.
+        let both = try await db.drillVerbs(lists: ["ky-ell-a1", "ky-ell-a2"], meaningsLang: "eng")
+        XCTAssertEqual(both.map(\.word), Self.a1Verbs + ["βρέχω"])
+        let go = try XCTUnwrap(both.first { $0.word == "πηγαίνω" })
+        XCTAssertEqual(go.listLevel, 1)
+        XCTAssertEqual(go.translation, "to go")
+
+        // B1: ξαναπηγαίνω is no lemma of the file.
+        let b1 = try await db.drillVerbs(lists: ["ky-ell-b1"], meaningsLang: "eng")
+        XCTAssertEqual(b1.map(\.word), ["αντιγράφω"])
+
+        // None, or an imported Greek list: no verb.
+        let none = try await db.drillVerbs(lists: [], meaningsLang: "eng")
+        XCTAssertEqual(none.count, 0)
+        let imported = try await db.drillVerbs(lists: ["user-1"], meaningsLang: "eng")
+        XCTAssertEqual(imported.count, 0)
+        let mixed = try await db.drillVerbs(lists: ["user-1", "ky-ell-b1"], meaningsLang: "eng")
+        XCTAssertEqual(mixed.map(\.word), ["αντιγράφω"])
+    }
+
+    /// Raising "Tenses up to" keeps the same verbs and adds their tenses.
+    @MainActor
+    func testRaisingTensesKeepsTheVerbs() async throws {
+        let verbs = try await db.drillVerbs(lists: ["ky-ell-a1"], meaningsLang: "eng")
+        let a1 = verbs.filter { !ConjugationQuestionBuilder.questions(verb: $0, level: .a1).isEmpty }.map(\.word)
+        XCTAssertEqual(a1, Self.a1Verbs.filter { !["έρχομαι", "θυμάμαι", "κάθομαι", "ντύνομαι"].contains($0) },
+                       "verbs with passive forms only wait for A2")
+        let b2 = verbs.filter { !ConjugationQuestionBuilder.questions(verb: $0, level: .b2).isEmpty }.map(\.word)
+        XCTAssertEqual(b2, Self.a1Verbs)
+        let grafo = try XCTUnwrap(verbs.first { $0.word == "γράφω" })
+        let b2Facets = Set(ConjugationQuestionBuilder.questions(verb: grafo, level: .b2).map(\.facet.rawValue))
+        XCTAssertTrue(b2Facets.isSuperset(of: ["perfect.active", "aorist.passive", "imperfect.passive"]))
+    }
+
+    /// 0132 (pairs, the limited Greek via Russian): the verb's translation
+    /// is in the meanings language of Greek's pair (`LearningPairs.pair`
+    /// over the offered pairs, `LearningPair.meaningsLang`). Greek via
+    /// English and the limited Greek via Russian (meanings `eng`): Kirill's
+    /// English translation. A Greek–Russian dictionary in the Russian pack's
+    /// catalog makes Greek via Russian a full pair (meanings `rus`): never
+    /// the English translation, so the line is empty and every verb is still
+    /// drilled; #159's `meanings` then gives the dictionary's Russian sense.
+    @MainActor
+    func testTranslationFollowsTheVia() async throws {
+        func meaningsLang(via: String) async throws -> String {
+            let offered = try await db.learningPairs()
+            let pair = try XCTUnwrap(LearningPairs.pair(for: "ell", stored: ["ell": via], offered: offered.keys,
+                                                        uiLanguage: "en"), "Greek via \(via) is offered")
+            XCTAssertEqual(pair.via, via)
+            return pair.meaningsLang
+        }
+
+        let viaEnglish = try await meaningsLang(via: "eng")
+        XCTAssertEqual(viaEnglish, "eng")
+        let english = try await db.drillVerbs(lists: ["ky-ell-a1"], meaningsLang: viaEnglish)
+        XCTAssertEqual(english.map(\.word), Self.a1Verbs)
+        XCTAssertEqual(english.first { $0.word == "γράφω" }?.translation, "to write")
+        XCTAssertFalse(english.contains { $0.translation.isEmpty })
+
+        let limited = try await meaningsLang(via: "rus")
+        XCTAssertEqual(limited, "eng", "the limited Greek via Russian has English meanings")
+        let viaLimitedRussian = try await db.drillVerbs(lists: ["ky-ell-a1"], meaningsLang: limited)
+        XCTAssertEqual(viaLimitedRussian, english, "the drill reads exactly as via English")
+
+        // A test pack dictionary from Greek into Russian, listed in the catalog.
+        let bundle = tempDir.appendingPathComponent("bundle.sqlite")
+        try FileManager.default.copyItem(at: try TestDictionary.bundledURL(), to: bundle)
+        try await DatabaseQueue(path: bundle.path).write { db in
+            try db.execute(sql: """
+                INSERT INTO catalog_source(pack_id, source, display_name, word_count, from_lang, to_lang)
+                VALUES ('rus', 'test-ell-rus', 'El–Ru · Test', 1, 'ell', 'rus')
+                """)
+        }
+        try await Fixture.open(userPath: tempDir.appendingPathComponent("full-pair.sqlite").path,
+                               greek: try XCTUnwrap(Self.listsURL), bundle: bundle)
+        let full = try await meaningsLang(via: "rus")
+        XCTAssertEqual(full, "rus", "Greek via Russian is a full pair")
+        let viaRussian = try await db.drillVerbs(lists: ["ky-ell-a1"], meaningsLang: full)
+        XCTAssertEqual(viaRussian.map(\.word), Self.a1Verbs, "every verb is still drilled")
+        XCTAssertEqual(Set(viaRussian.map(\.translation)), [""], "never Kirill's English translation")
+    }
+
+    /// The reads go through primary keys and the lemma index, never a scan.
+    func testDrillQueriesUseIndexes() throws {
+        let url = try XCTUnwrap(Self.listsURL)
+        let plans = try DatabaseQueue().inDatabase { db -> [[String]] in
+            try db.execute(sql: "ATTACH DATABASE ? AS ell", arguments: [DatabaseService.dictionaryURI(url)])
+            let queries: [(String, StatementArguments)] = [
+                (DatabaseService.drillListLevelsSQL(schema: "ell", count: 2), ["ky-ell-a1", "ky-ell-a2", "ky-ell"]),
+                (DatabaseService.drillItemsSQL(lists: "ell", forms: "ell", levelCount: 2), ["ky-ell", 1, 2]),
+                (DatabaseService.drillCellsSQL(schema: "ell", count: 3), [1, 2, 3]),
+            ]
+            return try queries.map { sql, arguments in
+                try Row.fetchAll(db, sql: "EXPLAIN QUERY PLAN " + sql, arguments: arguments).map { $0["detail"] as String }
+            }
+        }
+        XCTAssertEqual(plans[1].first, "SEARCH i USING PRIMARY KEY (series=?)", "the items by the series: \(plans[1])")
+        XCTAssertTrue(plans[1].contains { $0.contains("(lang=? AND word=? AND pos=?)") }, "\(plans[1])")
+        for plan in plans {
+            XCTAssertFalse(plan.contains { $0.hasPrefix("SCAN") }, "no table scan: \(plan)")
+        }
+    }
+
+    /// Without the Greek pack, `ell` is the empty stub (0237): no verb, no
+    /// error, and the drill offers the download.
+    @MainActor
+    func testWithoutTheGreekPackGivesNoVerbs() async throws {
+        var packs = try PackFixtures.all()
+        packs[.ell] = nil
+        try await db.setup(userPath: tempDir.appendingPathComponent("no-pack.sqlite").path,
+                           dictionaryURL: try TestDictionary.bundledURL(), packFiles: packs)
+        let verbs = try await db.drillVerbs(lists: ["ky-ell-a1", "ky-ell-a2", "ky-ell-b1"], meaningsLang: "eng")
+        XCTAssertEqual(verbs.count, 0)
+    }
+
+    /// QA: the verbs per list of #152's lists in the Greek pack (0132,
+    /// "Levels" measured 189, 64 and 274 on Kirill's CSVs; the pack's
+    /// numbers are recorded in the spec's History).
+    @MainActor
+    func testCountsPerList() async throws {
+        try await db.setup(userPath: tempDir.appendingPathComponent("packs.sqlite").path,
+                           dictionaryURL: try TestDictionary.bundledURL(), packFiles: try PackFixtures.all())
+        let verbs = try await db.drillVerbs(lists: DrillScope.lists.map(\.id), meaningsLang: "eng")
+        let perList = Dictionary(grouping: verbs, by: { $0.listLevel ?? 0 }).mapValues(\.count)
+        XCTAssertEqual(perList, [1: 198, 2: 69, 3: 330])
+        XCTAssertEqual(Set(verbs.map(\.word)).count, verbs.count)
+    }
+}
+
+// MARK: - Issue #167 QA: edge cases of the drill's pool, verbs and options (0132-conjugation-drill.md)
+
+/// QA (#167): `drillVerbs(lists:meaningsLang:)` on a copy of the Greek pack whose
+/// lists hold the edge cases of 0132, "Verbs": another Greek series at the
+/// drill's A1 `level_ord`, items of a level with no list row, two words of
+/// one verb in one level, a headword in a higher level, a standalone item
+/// (`headword` NULL), and words that are no verb lemma.
+final class DrillPoolEdgeTests: XCTestCase {
+    private static var directory: URL!
+    private static var listsURL: URL!
+    private var tempDir: URL!
+    private var db: DatabaseService { .shared }
+
+    private static let lists: [WordListFixture.List] = [
+        .init(id: "ky-ell-a1", lang: "ell", series: "ky-ell", level: "A1", levelOrd: 1),
+        .init(id: "ky-ell-a2", lang: "ell", series: "ky-ell", level: "A2", levelOrd: 2),
+        .init(id: "ky-ell-b1", lang: "ell", series: "ky-ell", level: "B1", levelOrd: 3),
+        .init(id: "xx-ell-a1", lang: "ell", series: "xx-ell", level: "A1", levelOrd: 1),
+    ]
+
+    private static func item(_ term: String, _ translation: String, ord: Int, rank: Int?, seq: Int,
+                             headword: String? = nil, series: String = "ky-ell") -> WordListFixture.Item {
+        WordListFixture.Item(series: series, term: term, headword: headword, translation: translation,
+                             level: ["", "A1", "A2", "B1", "B2"][ord], levelOrd: ord, rank: rank, seq: seq)
+    }
+
+    private static let items: [WordListFixture.Item] = [
+        // A1: γράφω standalone; ντύνω and its passive ντύνομαι; an adjective and an adverb.
+        item("γράφω", "to write", ord: 1, rank: 100, seq: 10),
+        item("ντύνω", "to dress", ord: 1, rank: 300, seq: 11, headword: "ντύνω"),
+        item("ντύνομαι", "to get dressed", ord: 1, rank: 310, seq: 12, headword: "ντύνομαι"),
+        item("καλός", "good", ord: 1, rank: 5, seq: 13, headword: "καλός"),
+        item("γρήγορα", "quickly", ord: 1, rank: 6, seq: 14, headword: "γρήγορα"),
+        // A2: πάω and πηγαίνω are one verb; πάω comes first in the source,
+        // πηγαίνω has the better rank. διαβάζω is unranked.
+        item("πάω", "to go (πάω)", ord: 2, rank: 50, seq: 1, headword: "πάω"),
+        item("πηγαίνω", "to go", ord: 2, rank: 20, seq: 2, headword: "πηγαίνω"),
+        item("διαβάζω", "to read", ord: 2, rank: nil, seq: 0, headword: "διαβάζω"),
+        // B1: a term whose headword is γράφω, with a better rank than A1's.
+        item("γράφτηκα", "was written", ord: 3, rank: 5, seq: 3, headword: "γράφω"),
+        // A level of the series with no list row.
+        item("αρέσω", "to please", ord: 4, rank: 1, seq: 4, headword: "αρέσω"),
+        // Another Greek series at the drill's A1 level_ord.
+        item("τρώω", "to eat", ord: 1, rank: 1, seq: 0, headword: "τρώω", series: "xx-ell"),
+    ]
+
+    override class func setUp() {
+        super.setUp()
+        directory = FileManager.default.temporaryDirectory.appendingPathComponent("drill-qa-\(UUID().uuidString)")
+        do {
+            listsURL = try DrillFixture.greekPack(at: directory.appendingPathComponent("ell.sqlite"), lists: lists,
+                                                  items: items)
+        } catch {
+            XCTFail("the drill QA lists fixture: \(error)")
+        }
+    }
+
+    override class func tearDown() {
+        if let directory { try? FileManager.default.removeItem(at: directory) }
+        super.tearDown()
+    }
+
+    override func setUp() async throws {
+        try await super.setUp()
+        await DictAppTests.waitForHostAppLaunch()
+        tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        try await DrillFixture.open(userPath: tempDir.appendingPathComponent("user.sqlite").path,
+                                    greek: try XCTUnwrap(Self.listsURL))
+    }
+
+    override func tearDown() async throws {
+        try? FileManager.default.removeItem(at: tempDir)
+        try await super.tearDown()
+    }
+
+    /// Only the `ky-ell` series and the checked lists' levels feed the
+    /// drill: not another Greek series at the same `level_ord`, not a level
+    /// without a list row, not a list id the series does not have.
+    @MainActor
+    func testOnlyTheSeriesAndTheCheckedLevels() async throws {
+        let a1 = try await db.drillVerbs(lists: ["ky-ell-a1"], meaningsLang: "eng")
+        XCTAssertEqual(a1.map(\.word), ["γράφω", "ντύνω", "ντύνομαι"], "no τρώω, αρέσω, καλός or γρήγορα")
+        XCTAssertEqual(a1.map(\.listLevel), [1, 1, 1])
+        let other = try await db.drillVerbs(lists: ["xx-ell-a1"], meaningsLang: "eng")
+        XCTAssertEqual(other.map(\.word), [], "another series is not the drill's")
+        let noList = try await db.drillVerbs(lists: ["ky-ell-b2"], meaningsLang: "eng")
+        XCTAssertEqual(noList.map(\.word), [], "the series has no B2 list")
+        let all = try await db.drillVerbs(lists: Self.lists.map { WordListID(rawValue: $0.id) } + ["ky-ell-b2"],
+                                          meaningsLang: "eng")
+        XCTAssertEqual(all.map(\.word), ["γράφω", "ντύνω", "ντύνομαι", "πηγαίνω", "διαβάζω"])
+    }
+
+    /// A standalone item (headword NULL) joins on its term; a list word and
+    /// the passive it links to are two verbs (0132: ντύνομαι is drilled
+    /// under its own word, ντύνω in both voices).
+    @MainActor
+    func testStandaloneTermAndPassiveLink() async throws {
+        let verbs = try await db.drillVerbs(lists: ["ky-ell-a1"], meaningsLang: "eng")
+        let grafo = try XCTUnwrap(verbs.first { $0.word == "γράφω" })
+        XCTAssertEqual(grafo.translation, "to write")
+        XCTAssertEqual(grafo.rank, 100)
+        XCTAssertEqual(grafo.seq, 10)
+        XCTAssertTrue(grafo.hasPassive)
+        let dress = try XCTUnwrap(verbs.first { $0.word == "ντύνω" })
+        XCTAssertEqual(dress.mainVoice, .active)
+        XCTAssertEqual(Set(dress.voices.keys), [.active, .passive])
+        let dressed = try XCTUnwrap(verbs.first { $0.word == "ντύνομαι" })
+        XCTAssertEqual(dressed.mainVoice, .passive)
+        XCTAssertEqual(Array(dressed.voices.keys), [.passive])
+        XCTAssertEqual(dressed.citation, "ντύνομαι")
+        XCTAssertEqual(dressed.translation, "to get dressed")
+    }
+
+    /// Two words of one verb (0132, step 4): the lowest level wins, then the
+    /// best rank, and the winning item gives the translation, rank and seq.
+    /// Unranked items come last whatever their seq.
+    @MainActor
+    func testOneVerbPerWordLowestLevelThenBestRank() async throws {
+        let a2 = try await db.drillVerbs(lists: ["ky-ell-a2"], meaningsLang: "eng")
+        XCTAssertEqual(a2.map(\.word), ["πηγαίνω", "διαβάζω"], "διαβάζω is unranked, so last despite seq 0")
+        let go = try XCTUnwrap(a2.first)
+        XCTAssertEqual(go.translation, "to go", "πηγαίνω's rank 20 beats πάω's 50, though πάω comes first")
+        XCTAssertEqual(go.rank, 20)
+        XCTAssertEqual(go.seq, 2)
+        XCTAssertNil(a2.last?.rank)
+
+        let both = try await db.drillVerbs(lists: ["ky-ell-a1", "ky-ell-b1"], meaningsLang: "eng")
+        XCTAssertEqual(both.map(\.word), ["γράφω", "ντύνω", "ντύνομαι"], "γράφτηκα is γράφω")
+        let grafo = try XCTUnwrap(both.first)
+        XCTAssertEqual(grafo.listLevel, 1, "the lower level wins over B1's better rank")
+        XCTAssertEqual(grafo.translation, "to write")
+        XCTAssertEqual(grafo.rank, 100)
+
+        let b1 = try await db.drillVerbs(lists: ["ky-ell-b1"], meaningsLang: "eng")
+        XCTAssertEqual(b1.map(\.word), ["γράφω"], "B1 alone: the headword's verb, at B1")
+        XCTAssertEqual(b1.first?.listLevel, 3)
+        XCTAssertEqual(b1.first?.translation, "was written")
+        XCTAssertEqual(b1.first?.rank, 5)
+    }
+
+    /// A Greek pack with the lists and without the forms (empty tables, as
+    /// in the stub, 0237): no verb and no error.
+    @MainActor
+    func testListsWithoutFormsGiveNoVerbs() async throws {
+        let url = try WordListFixture.make(rows: [], lists: Self.lists, items: Self.items,
+                                           at: tempDir.appendingPathComponent("stub.sqlite"))
+        try await DrillFixture.open(userPath: tempDir.appendingPathComponent("stub-user.sqlite").path, greek: url)
+        let verbs = try await db.drillVerbs(lists: ["ky-ell-a1", "ky-ell-a2", "ky-ell-b1"], meaningsLang: "eng")
+        XCTAssertEqual(verbs.map(\.word), [])
+    }
+
+    /// 0132: with no list checked, the pool "reads nothing". A Greek pack
+    /// whose list tables are broken (no `wordlist`) fails any read of the
+    /// lists, and no list still gives no verb.
+    @MainActor
+    func testNoListReadsNothing() async throws {
+        let url = try TestDictionary.make(rows: [], at: tempDir.appendingPathComponent("broken.sqlite"))
+        try await DatabaseQueue(path: url.path).write { db in
+            try db.execute(sql: "DROP TABLE wordlist")
+        }
+        try await DrillFixture.open(userPath: tempDir.appendingPathComponent("broken-user.sqlite").path, greek: url)
+        do {
+            _ = try await db.drillVerbs(lists: ["ky-ell-a1"], meaningsLang: "eng")
+            XCTFail("a checked list reads the list tables")
+        } catch {
+            XCTAssertTrue("\(error)".contains("wordlist"), "\(error)")
+        }
+        let none = try await db.drillVerbs(lists: [], meaningsLang: "eng")
+        XCTAssertEqual(none.map(\.word), [])
+    }
+}
+
+/// QA (#167): the pool at the three lists' size (0132: 527 verbs, about 60
+/// through a link). 0132's target, the Conjugation screen ready in under
+/// 300 ms (#168), includes this read.
+final class DrillPoolPerformanceTests: XCTestCase {
+    @MainActor
+    func testPoolOfTheListsSize() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("drill-perf-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try await DrillFixture.open(in: directory)
+
+        // 467 verbs with a table of their own, the file's first that are
+        // drill verbs, timing `DrillVerb.make` alone on the way.
+        var own: [String] = []
+        var makeTime = Duration.zero
+        var made = 0
+        for paradigm in try DrillFixture.everyVerbOfTheFile() where own.count < 467 {
+            let start = ContinuousClock.now
+            let verb = DrillVerb.make(word: paradigm.word, paradigm: paradigm, translation: "")
+            makeTime += ContinuousClock.now - start
+            made += 1
+            if verb != nil { own.append(paradigm.word) }
+        }
+        // 60 verb lemmas without a table that link to a drill verb (πάω → πηγαίνω).
+        let tableless = try await DrillFixture.greekPack().read { db in
+            try String.fetchAll(db, sql: """
+                SELECT word FROM lemma l WHERE lang = 'ell' AND pos = 'verb'
+                  AND NOT EXISTS (SELECT 1 FROM paradigm p WHERE p.lemma_id = l.id) ORDER BY id LIMIT 500
+                """)
+        }
+        var linked: [String] = []
+        for word in tableless where linked.count < 60 {
+            guard let paradigm = try await InflectionFixture.paradigm(word, pos: "verb"), paradigm.isLinked,
+                  let verb = DrillVerb.make(word: word, paradigm: paradigm, translation: ""),
+                  !own.contains(verb.word) else { continue }
+            linked.append(word)
+        }
+        XCTAssertEqual(own.count + linked.count, 527)
+
+        // Every 9th word is a linked one, spread over the three lists (189, 64, 274).
+        var words: [String] = []
+        var ownWords = own[...], linkedWords = linked[...]
+        while let next = (words.count % 9 == 8 ? linkedWords.popFirst() : nil) ?? ownWords.popFirst()
+            ?? linkedWords.popFirst() {
+            words.append(next)
+        }
+        let items = words.enumerated().map { index, word -> WordListFixture.Item in
+            let ord = index < 189 ? 1 : index < 253 ? 2 : 3
+            return WordListFixture.Item(series: "ky-ell", term: word, headword: word, translation: "",
+                                        level: ["", "A1", "A2", "B1"][ord], levelOrd: ord, rank: index + 1, seq: index)
+        }
+        let url = try DrillFixture.greekPack(at: directory.appendingPathComponent("ell.sqlite"), items: items)
+        try await DrillFixture.open(userPath: directory.appendingPathComponent("lists-user.sqlite").path, greek: url)
+
+        func ms(_ duration: Duration) -> Double {
+            Double(duration.components.seconds) * 1_000 + Double(duration.components.attoseconds) / 1e15
+        }
+        var times: [Double] = []
+        var count = 0
+        for _ in 0..<3 {
+            let start = ContinuousClock.now
+            let verbs = try await DatabaseService.shared.drillVerbs(lists: DrillScope.lists.map(\.id),
+                                                                    meaningsLang: "eng")
+            times.append(ms(ContinuousClock.now - start))
+            count = verbs.count
+        }
+        let median = times.sorted()[1]
+        let perMake = ms(makeTime) / Double(made)
+        // The cells of the 467 own tables, read as `drillVerbs` reads them.
+        let cellsStart = ContinuousClock.now
+        let cellCount = try DatabaseQueue().inDatabase { db -> Int in
+            try db.execute(sql: "ATTACH DATABASE ? AS ell", arguments: [DatabaseService.dictionaryURI(url)])
+            let ids = try Int64.fetchAll(db, sql: """
+                SELECT id FROM ell.lemma WHERE lang = 'ell' AND pos = 'verb' AND word IN (SELECT value FROM json_each(?))
+                """, arguments: [String(data: try JSONEncoder().encode(own), encoding: .utf8)])
+            var cells: [Int64: [ParadigmCell]] = [:]
+            for start in stride(from: 0, to: ids.count, by: 500) {
+                let chunk = Array(ids[start..<min(start + 500, ids.count)])
+                for row in try Row.fetchAll(db, sql: DatabaseService.drillCellsSQL(schema: "ell", count: chunk.count),
+                                            arguments: StatementArguments(chunk)) {
+                    cells[row["lemma_id"], default: []].append(ParadigmCell(form: row["form"], tags: row["tags"] as String))
+                }
+            }
+            return cells.values.map(\.count).reduce(0, +)
+        }
+        let cellsTime = ms(ContinuousClock.now - cellsStart)
+        print("#167 QA: drillVerbs of 527 list words: \(count) verbs, \(times.map { Int($0) }) ms, median \(Int(median)) ms; "
+              + "DrillVerb.make alone \(String(format: "%.2f", perMake)) ms per table (\(made) tables); "
+              + "the \(cellCount) cells of the 467 own tables read in \(Int(cellsTime)) ms")
+        XCTAssertGreaterThanOrEqual(count, 520, "the fixture's words are drill verbs")
+        // A Debug build on the simulator; 0132's 300 ms is #168's whole screen.
+        XCTAssertLessThan(median, 1_500, "drillVerbs of the three lists: \(times) ms")
+    }
+}
+
+/// QA (#167): edge cases of `DrillVerb.make` and the options, on the
+/// file's paradigms (0132, "Verbs", "Gaps", "Options").
+@MainActor
+final class ConjugationDrillEdgeTests: XCTestCase {
+    private typealias Fixture = DrillFixture
+    private typealias Person = ParadigmLayout.Person
+    private var tempDir: URL!
+
+    override func setUp() async throws {
+        try await super.setUp()
+        tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try await Fixture.open(in: tempDir)
+    }
+
+    override func tearDown() async throws {
+        try? FileManager.default.removeItem(at: tempDir)
+        try await super.tearDown()
+    }
+
+    /// έχω, a list verb without simple forms (0132, "Gaps"): θα and να + the
+    /// present from A1; no aorist and no simple imperative; the imperfect
+    /// and the continuous imperative at B1, but no separate continuous
+    /// future or subjunctive; no perfect (no aorist infinitive). Its rare
+    /// έχομε is never a form.
+    func testEcho() async throws {
+        let verb = try await Fixture.verb("έχω")
+        XCTAssertEqual(verb.word, "έχω")
+        XCTAssertEqual(verb.citation, "έχω")
+        XCTAssertFalse(verb.hasPassive)
+        XCTAssertFalse(verb.isImpersonal)
+        XCTAssertEqual(Fixture.facetsAsked(verb, .a1), ["present.active", "future.active", "subjunctiveSimple.active"])
+        XCTAssertEqual(Fixture.questions(verb, .a1)["present.active"], ["2sg", "3sg", "1pl", "2pl", "3pl"])
+        XCTAssertEqual(Fixture.facetsAsked(verb, .a2), Fixture.facetsAsked(verb, .a1))
+        XCTAssertEqual(Fixture.facetsAsked(verb, .b1), ["present.active", "imperfect.active", "future.active",
+                                                        "imperativeContinuous.active", "subjunctiveSimple.active"])
+        XCTAssertEqual(Fixture.facetsAsked(verb, .b2), Fixture.facetsAsked(verb, .b1))
+        XCTAssertEqual(verb.forms(ConjugationFacet(.future, .active), .firstSingular), ["θα έχω"])
+        XCTAssertEqual(verb.forms(ConjugationFacet(.subjunctiveSimple, .active), .thirdPlural), ["να έχουν", "να έχουνε"])
+        XCTAssertEqual(verb.forms(ConjugationFacet(.present, .active), .firstPlural), ["έχουμε"])
+        XCTAssertFalse(Fixture.everyForm(of: verb).contains { $0.hasSuffix("έχομε") }, "έχομε is rare")
+
+        // έχετε is both the present and the imperative of εσείς: it is
+        // offered once, as the right option.
+        let forms = Fixture.everyForm(of: verb)
+        for seed in UInt64(0)..<30 {
+            let imperative = try XCTUnwrap(Fixture.build(verb, .imperativeContinuous, .secondPlural, level: .b1,
+                                                         seed: seed))
+            XCTAssertEqual(imperative.options[imperative.rightIndex], "έχετε")
+            XCTAssertEqual(imperative.options.filter { $0 == "έχετε" }.count, 1, "\(imperative.options)")
+            XCTAssertEqual(Set(imperative.options).count, 4)
+            let future = try XCTUnwrap(Fixture.build(verb, .future, .secondPlural, level: .a1, seed: seed))
+            XCTAssertEqual(future.options[future.rightIndex], "θα έχετε")
+            XCTAssertTrue(Set(future.options).isSubset(of: forms), "\(future.options)")
+        }
+    }
+
+    /// The tense after the answer holds only the persons with a form: έρχομαι's
+    /// continuous imperative has only εσείς, πρέπει's future αυτός and αυτοί.
+    func testTenseRowsOnlyHoldPersonsWithForms() async throws {
+        let erchomai = try await Fixture.verb("έρχομαι")
+        let come = try XCTUnwrap(Fixture.build(erchomai, .imperativeContinuous, .secondPlural, voice: .passive,
+                                               level: .b1))
+        XCTAssertEqual(come.tenseRows.map(\.person), [.secondPlural])
+        XCTAssertEqual(come.tenseRows.first?.forms, ["έρχεστε"])
+        XCTAssertNil(Fixture.build(erchomai, .imperativeContinuous, .secondSingular, voice: .passive, level: .b1),
+                     "no εσύ form")
+        let prepei = try await Fixture.verb("πρέπει")
+        let must = try XCTUnwrap(Fixture.build(prepei, .future, .thirdSingular, level: .a1))
+        XCTAssertEqual(must.tenseRows.map(\.person), [.thirdSingular, .thirdPlural])
+        XCTAssertEqual(must.tenseRows.map(\.forms), [["θα πρέπει"], ["θα πρέπουν"]])
+    }
+
+    /// A cell without a form never builds a question: another voice, a
+    /// person the tense lacks, εγώ of an impersonal verb, the continuous
+    /// future of a verb without simple forms, a missing aorist.
+    func testCellsWithoutAFormBuildNoQuestion() async throws {
+        let erchomai = try await Fixture.verb("έρχομαι")
+        XCTAssertNil(Fixture.build(erchomai, .aorist, .firstSingular, voice: .active, level: .b2), "no active voice")
+        let grafo = try await Fixture.verb("γράφω")
+        XCTAssertNil(Fixture.build(grafo, .imperativeSimple, .firstSingular, level: .b2), "no εγώ imperative")
+        let prepei = try await Fixture.verb("πρέπει")
+        XCTAssertNil(Fixture.build(prepei, .future, .firstSingular, level: .b2), "an impersonal verb has no εγώ")
+        let eimai = try await Fixture.verb("είμαι")
+        XCTAssertNil(Fixture.build(eimai, .futureContinuous, .firstSingular, level: .b2), "θα είμαι is its Future only")
+        XCTAssertNil(Fixture.build(eimai, .aorist, .firstSingular, level: .b2))
+        XCTAssertNil(Fixture.build(eimai, .perfect, .firstSingular, level: .b2))
+    }
+
+    /// The card word is NFC (0132, "Data") even when the given word is not,
+    /// and a linked passive is still found.
+    func testDecomposedWordIsKeptInNFC() async throws {
+        let found = try await InflectionFixture.paradigm("ντύνομαι", pos: "verb")
+        let table = try XCTUnwrap(found)
+        let nfc = "ντύνομαι".precomposedStringWithCanonicalMapping
+        let decomposed = nfc.decomposedStringWithCanonicalMapping
+        XCTAssertNotEqual(Array(decomposed.unicodeScalars), Array(nfc.unicodeScalars))
+        let verb = try XCTUnwrap(DrillVerb.make(word: decomposed, paradigm: table, translation: ""))
+        XCTAssertEqual(Array(verb.word.unicodeScalars), Array(nfc.unicodeScalars))
+        XCTAssertEqual(verb.mainVoice, .passive)
+    }
+
+    /// A linked word is a verb only through a finite cell that the tables
+    /// show: not a rare form (έχομε), not a participle (έχοντας). An active
+    /// form drills the table's verb. No cell: no verb.
+    func testLinkThroughAHiddenOrNonfiniteFormIsNoVerb() throws {
+        let cells = try Fixture.cells(of: "έχω")
+        XCTAssertTrue(cells.contains { $0.form == "έχομε" && $0.tags.contains("rare") })
+        let table = LemmaParadigm(word: "έχω", pos: "verb", cells: cells, isLinked: true)
+        XCTAssertNil(DrillVerb.make(word: "έχομε", paradigm: table, translation: ""), "rare forms are never asked")
+        XCTAssertNil(DrillVerb.make(word: "έχοντας", paradigm: table, translation: ""), "a participle")
+        let have = try XCTUnwrap(DrillVerb.make(word: "έχουμε", paradigm: table, translation: ""))
+        XCTAssertEqual(have.word, "έχω", "an active form drills the table's verb")
+        XCTAssertEqual(have.citation, "έχω")
+        let empty = LemmaParadigm(word: "έχω", pos: "verb", cells: [], isLinked: false)
+        XCTAssertNil(DrillVerb.make(word: "έχω", paradigm: empty, translation: ""))
+    }
+
+    /// The shuffle puts the right option in every place, about as often.
+    func testRightOptionTakesEveryPlace() async throws {
+        let grafo = try await Fixture.verb("γράφω")
+        var places = [Int](repeating: 0, count: 4)
+        for seed in UInt64(0)..<400 {
+            let question = try XCTUnwrap(Fixture.build(grafo, .aorist, .firstSingular, level: .a1, seed: seed))
+            places[question.rightIndex] += 1
+        }
+        for (place, count) in places.enumerated() {
+            XCTAssertGreaterThan(count, 60, "place \(place): \(places)")
+        }
+    }
+
+    /// Common verbs of every kind (irregular, without simple forms, passive
+    /// only, linked, impersonal) at every level with 3 seeds, standing for
+    /// the lists' verbs until #152 (0132, Test plan). Each question: 4
+    /// options that no two fold alike (`Search.foldGreek`), forms of the
+    /// drilled voices (at A1 of the asked voice only), exactly one right and
+    /// that one the cell's first form. The distractors follow 0132's order:
+    /// one of the same person and one of the same tense whenever the level
+    /// has one (Kirill, 2026-10-22), the rest from those two groups while
+    /// they last, then from the level's other cells, and only then from
+    /// outside the level.
+    func testCommonVerbsAtEveryLevelWithThreeSeeds() async throws {
+        let words = ["είμαι", "έχω", "κάνω", "λέω", "μπορώ", "ξέρω", "θέλω", "πάω", "έρχομαι", "βλέπω", "τρώω",
+                     "πίνω", "δίνω", "παίρνω", "βγαίνω", "μπαίνω", "φεύγω", "βρίσκω", "ακούω", "γράφω", "διαβάζω",
+                     "ντύνομαι", "κάθομαι", "θυμάμαι", "κοιμάμαι", "φοβάμαι", "γίνομαι", "πρέπει", "πρόκειται",
+                     "αρέσω", "ζω", "αγαπάω", "μιλάω", "περιμένω", "σηκώνομαι", "βρέχει"]
+        var failures: [String] = []
+        var built = 0
+        for word in words {
+            let verb = try await Fixture.verb(word)
+            let every = Fixture.everyForm(of: verb)
+            func firstKeys(_ cells: [(ConjugationFacet, Person)], without right: Set<String>) -> Set<String> {
+                Set(cells.compactMap { verb.forms($0.0, $0.1).first }.map(Search.foldGreek)).subtracting(right)
+            }
+            for level in DrillLevel.allCases {
+                let levelFacets = ConjugationQuestionBuilder.facets(of: verb, level: level)
+                for (facet, persons) in ConjugationQuestionBuilder.questions(verb: verb, level: level) {
+                    let allowed = level == .a1 ? Fixture.everyForm(of: verb, voice: facet.voice) : every
+                    let otherFacets = levelFacets.filter { $0 != facet }
+                    for person in persons {
+                        let otherPersons = Person.allCases.filter { $0 != person }
+                        let right = Set(verb.forms(facet, person).map(Search.foldGreek))
+                        let samePerson = firstKeys(otherFacets.map { ($0, person) }, without: right)
+                        let sameTense = firstKeys(otherPersons.map { (facet, $0) }, without: right)
+                        let groups = samePerson.union(sameTense)
+                        let levelKeys = firstKeys(otherFacets.flatMap { other in otherPersons.map { (other, $0) } },
+                                                  without: right).union(groups)
+                        for seed in UInt64(1)...3 {
+                            built += 1
+                            let label = "\(word) \(level.rawValue) \(facet.rawValue) \(person.rawValue) seed \(seed)"
+                            guard let question = Fixture.build(verb, facet.tense, person, voice: facet.voice,
+                                                               level: level, seed: seed) else {
+                                failures.append("\(label): no question")
+                                continue
+                            }
+                            let keys = question.options.map(Search.foldGreek)
+                            let wrong = Set(keys).subtracting(right)
+                            if question.options.count != 4 || Set(keys).count != 4 || wrong.count != 3 {
+                                failures.append("\(label): not 4 distinct options with one right \(question.options)")
+                            }
+                            if !Set(question.options).isSubset(of: allowed) {
+                                failures.append("\(label): not the verb's forms \(question.options)")
+                            }
+                            if question.options[question.rightIndex] != question.rightForms.first {
+                                failures.append("\(label): right \(question.rightForms), options \(question.options)")
+                            }
+                            if !samePerson.isEmpty && wrong.isDisjoint(with: samePerson) {
+                                failures.append("\(label): no same-person distractor \(question.options)")
+                            }
+                            if !sameTense.isEmpty && wrong.isDisjoint(with: sameTense) {
+                                failures.append("\(label): no same-tense distractor \(question.options)")
+                            }
+                            if groups.count >= 3 ? !wrong.isSubset(of: groups) : !wrong.isSuperset(of: groups) {
+                                failures.append("\(label): the third distractor skips the two groups \(question.options)")
+                            }
+                            if levelKeys.count >= 3 ? !wrong.isSubset(of: levelKeys) : !wrong.isSuperset(of: levelKeys) {
+                                failures.append("\(label): a distractor from outside the level too soon \(question.options)")
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        print("#167 QA: \(built) questions of \(words.count) common verbs at 4 levels × 3 seeds")
+        XCTAssertGreaterThan(built, 10_000)
+        XCTAssertEqual(failures.count, 0, failures.prefix(20).joined(separator: "\n"))
     }
 }
