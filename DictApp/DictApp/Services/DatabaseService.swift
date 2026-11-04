@@ -571,6 +571,22 @@ actor DatabaseService {
         return move
     }
 
+    /// Signs of an earlier install in the user database, for the
+    /// first-launch offer (#244, 0237 "Launch"): the marker of a committed
+    /// 1.x move, and any History, My words or imported row (the 2.0 alpha).
+    /// Launch reads them before it starts a move, so nothing waits.
+    func earlierInstallSigns() async throws -> (legacyMarker: Bool, userRows: Bool) {
+        let pool = try await userPool()
+        return try await read(pool) { db in
+            let row = try Row.fetchOne(db, sql: """
+                SELECT EXISTS (SELECT 1 FROM user_meta WHERE key = ?) AS marker,
+                       EXISTS (SELECT 1 FROM history) OR EXISTS (SELECT 1 FROM my_words)
+                           OR EXISTS (SELECT 1 FROM imported_entries) AS user_rows
+                """, arguments: [LegacyMigration.markerKey])
+            return (legacyMarker: row?["marker"] ?? false, userRows: row?["user_rows"] ?? false)
+        }
+    }
+
     /// The pool, once a running 1.x move has ended: committed, or failed and
     /// left for the next launch. Every method that touches user data starts
     /// here, so History, My words, imports and their counts never show a
@@ -2505,6 +2521,18 @@ actor DatabaseService {
         }
     }
 
+    /// UI-test hook `-legacyFixture <path>` (#244): a 1.x install about to
+    /// update, for the upgrade test. The user database and any 1.x database
+    /// are deleted, as by `-resetDatabase`, and the 1.x fixture at `fixture`
+    /// becomes `dict.sqlite`, so this launch moves it.
+    static func installLegacyFixture(_ fixture: URL) throws {
+        removeDatabaseFiles()
+        let legacy = legacyDatabaseURL()
+        try FileManager.default.createDirectory(at: legacy.deletingLastPathComponent(),
+                                                withIntermediateDirectories: true)
+        try FileManager.default.copyItem(at: fixture, to: legacy)
+    }
+
     /// Unit-test seam: runs `body` on the writer, the connection a write to
     /// `dict.*` would use, so a test can prove the attached dictionary file
     /// is read-only. The app never calls it.
@@ -2630,6 +2658,8 @@ enum LegacyMigration {
         var imported = 0
         var history = 0
         var myWords = 0
+        /// Pack dictionaries whose 1.x rows were dropped by their count (#244).
+        var packDictionaries = 0
     }
 
     /// Moves `legacyURL` into the user database of `pool`, then deletes it.
@@ -2650,7 +2680,8 @@ enum LegacyMigration {
             let ms = Int(Date().timeIntervalSince(started) * 1000)
             if let moved {
                 print("LegacyMigration: moved \(moved.imported) imported rows, \(moved.history) History rows "
-                      + "and \(moved.myWords) bookmarks, then deleted the 1.x database, in \(ms) ms")
+                      + "and \(moved.myWords) bookmarks, left the rows of \(moved.packDictionaries) pack "
+                      + "dictionaries to their packs, then deleted the 1.x database, in \(ms) ms")
             } else {
                 print("LegacyMigration: deleted the 1.x database an earlier launch had moved")
             }
@@ -2692,12 +2723,31 @@ enum LegacyMigration {
         beforeCopy?()
         #endif
         var moved = Moved()
-        // Imported dictionaries: every 1.x row whose key the dictionary files
-        // lack (the bundle and every pack, #237: a source's rows are in one
-        // file, and a pack that is not installed reads as empty). This
-        // carries custom imports and imports named like a bundled source, and
-        // drops the 1.x copy of the bundled rows. The search key is the word,
-        // as on import; the triggers fill `imported_fts`.
+        // Issue #244, the count rule (0237, "Update from 1.x"): the 1.x rows
+        // of a pack's dictionary whose pack is not installed are the pack's,
+        // and are dropped, when their count is the catalog's `word_count`.
+        // Every 1.x seed holds exactly today's rows of each dictionary it
+        // shipped, and an import under the same ID only adds rows. Any other
+        // count moves all of them below; the pack's install deletes the rows
+        // it has (`removeImportsCovered`).
+        let attached = DictionarySchemas.all.map { "SELECT source FROM \($0).dict_metadata" }
+            .joined(separator: " UNION ALL ")
+        let packRows = try String.fetchAll(db, sql: """
+            WITH counts AS (SELECT source, COUNT(*) AS n FROM legacy.entries GROUP BY source)
+            SELECT c.source FROM dict.catalog_source c JOIN counts ON counts.source = c.source
+            WHERE counts.n = c.word_count AND c.source NOT IN (\(attached))
+            """)
+        moved.packDictionaries = packRows.count
+        let notPackRows = packRows.isEmpty
+            ? ""
+            : "l.source NOT IN (\(packRows.map { _ in "?" }.joined(separator: ", ")))\n  AND "
+        // Imported dictionaries: every other 1.x row whose key the dictionary
+        // files lack (the bundle and every installed pack, #237: a source's
+        // rows are in one file, and a pack that is not installed reads as
+        // empty). This carries custom imports and imports named like a
+        // bundled source, and drops the 1.x copy of the bundled rows. The
+        // search key is the word, as on import; the triggers fill
+        // `imported_fts`.
         let inFiles = DictionarySchemas.all.map { schema in
             "NOT EXISTS (SELECT 1 FROM \(schema).entries d WHERE d.word = l.word COLLATE NOCASE AND d.source = l.source)"
         }.joined(separator: "\n  AND ")
@@ -2705,9 +2755,9 @@ enum LegacyMigration {
             INSERT OR IGNORE INTO imported_entries(word, word_normalized, definition, phonetic, pos, source, created_at)
             SELECT l.word, l.word, l.definition, COALESCE(l.phonetic, ''), COALESCE(l.pos, ''), l.source, l.created_at
             FROM legacy.entries l
-            WHERE \(inFiles)
+            WHERE \(notPackRows)\(inFiles)
             ORDER BY l.id
-            """)
+            """, arguments: StatementArguments(packRows))
         moved.imported = db.changesCount
         // One row per imported dictionary, dated by its earliest row. A source
         // that an import after a failed move registered keeps its row.

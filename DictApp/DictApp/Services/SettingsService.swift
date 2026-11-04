@@ -537,6 +537,28 @@ enum DictionaryGrouping {
         sourceGroups(order: order).flatMap { $0 }
     }
 
+    /// `listed`, a new order of the listed sources, with every source of
+    /// `stored` that is not listed (a pack not installed, #244) kept right
+    /// after the listed source it followed in `stored`, or first when none
+    /// did; one whose pair has a listed member goes right after that member
+    /// (I2), so the listed order stays as it is. Callers group the result
+    /// (`groupedOrder`).
+    static func order(_ listed: [String], keepingUnlistedOf stored: [String]) -> [String] {
+        let isListed = Set(listed)
+        var unlisted: [String?: [String]] = [:]
+        var anchor: String?
+        for source in stored {
+            if isListed.contains(source) {
+                anchor = source
+                continue
+            }
+            let key = pairKey(forSource: source)
+            let sibling = listed.last { pairKey(forSource: $0) == key }
+            unlisted[sibling ?? anchor, default: []].append(source)
+        }
+        return (unlisted[nil] ?? []) + listed.flatMap { [$0] + (unlisted[$0] ?? []) }
+    }
+
     /// Enforces I1 (enabled-if-any) on a stored enabled set: every known or
     /// listed source whose pair has at least one enabled member becomes
     /// enabled. `nil` (all enabled) stays `nil`; `{}` stays `{}`. IDs present

@@ -24,6 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - [#138] Every dictionary is searchable right after install, with no "Preparing dictionaries" bar: the app reads the bundled dictionaries in place and keeps your history, saved words and imports in a small database of their own.
 - [#139] Upgrading from 1.x keeps your bookmarks (now My words), history and imported dictionaries, and frees about 138 MB.
 - [#240, #241] The app bundles English only (56 MB instead of 152 MB); every other language is a pack, built byte for byte by `Scripts/cut_packs.py`, that Search, Definition, History and My words read next to the bundle once installed.
+- [#244] An update from 1.x or the 2.0 alpha keeps History, My words and imports without turning the old copy of each language's dictionaries into imports, keeps their place and switch in Dictionary Order until their pack is installed, and decides which packs the first launch offers (those of the dictionaries that were enabled).
 
 ### Fixed
 - [#138] History and Recent words reopen a word in the dictionary it was read in.

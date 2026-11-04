@@ -1,7 +1,7 @@
 # Dictionaries and word lists downloaded at setup
 
 > Spec written by Claude (AI) for LibreDict.
-> Status: Approved by Kirill on 2026-11-04 · Epic: #237 · Tickets: #240 (T1, done), #241 (T2, done), #242 (T3, done), #243 (T4), #244 (T5), #245 (T6), #246 (T7) · Updated: 2026-11-06
+> Status: Approved by Kirill on 2026-11-04 · Epic: #237 · Tickets: #240 (T1, done), #241 (T2, done), #242 (T3, done), #243 (T4), #244 (T5, done), #245 (T6), #246 (T7) · Updated: 2026-11-06
 
 Read [0000-overview.md](0000-overview.md), [0129-dictionary-file.md](0129-dictionary-file.md) and [0136-word-forms.md](0136-word-forms.md) first. This epic changes 0129's single bundled file into an English bundle plus language packs, attached the same way. E3 ([0130](0130-word-lists.md), word lists) and E4 ([0131](0131-learning.md), learning) are drafted in parallel and call this spec's API ("For E3 and E4"). Numbers marked "measured" come from a prototype of the cut, run on 2026-11-03 and 11-04 against the dictionary file of master `fc8c930` (151,674,880 bytes, sha256 `24a1494d…`), Python 3.14.0, SQLite 3.51.2, on a Mac under heavy load (timings are relative).
 
@@ -272,20 +272,20 @@ DEBUG launch arguments (release builds ignore them, as #203's do):
 | `-resetPacks` | Deletes `Packs/` and `Downloads/` before setup |
 | `-installPacks <all\|id,…>` with `-packFixtures <path>` | Installs the packs from the committed assets at `<path>` through the install path, no network; skips a pack already installed at that version. When one fails, the packs installed before it are attached, then it throws |
 | `-packDownloads <mode>` | Every download goes through `PackFixtureURLProtocol`: `ok`, `slow`, `offline`, `failOnce`, `http404`, `corrupt`, `noSpace`, `expiredResume` (as `failOnce`, then HTTP 403 for a resumed request) |
-| `-skipWelcome` | Sets `packs_offered`, so the sheet does not show |
-| `-legacyFixture <path>` | Copies a 1.x fixture to `dict.sqlite` before setup, for the upgrade UI test |
+| `-skipWelcome` | Sets `packs_offered`, and launch decides no sheet: none of the three kinds shows |
+| `-legacyFixture <path>` | Before setup, deletes the user database (as `-resetDatabase`), copies a 1.x fixture to `dict.sqlite` and clears `packs_offered` and `packs_installed`, for the upgrade UI test |
 
 `PackOffer.decide` (pure) returns nothing or a sheet:
 - **fresh**: `packs_offered` absent and no sign of an earlier install. Checked: the UI language's and the device languages' packs.
-- **upgrade**: `packs_offered` absent and an earlier install: a 1.x `dict.sqlite` found at this launch, the `legacy_migration` marker, a stored `dictionary_order`, or user rows in History, My words or imports (the 2.0 alpha). Checked: the packs of the enabled sources.
-- **missing**: `packs_installed` names packs that are not usable (a restore from backup, a format bump). Checked: those packs.
-- Download or "Not now" sets `packs_offered`.
+- **upgrade**: `packs_offered` absent and an earlier install: a 1.x `dict.sqlite` found at this launch, the `legacy_migration` marker, a stored `dictionary_order` that holds a pack's dictionary (a fresh 2.0 install stores only installed ones, and installs only after the sheet's answer), or user rows in History, My words or imports (the 2.0 alpha). Checked: the packs of the enabled sources.
+- **missing**: `packs_installed` names packs that are not usable (a restore from backup, a format bump), whatever `packs_offered` says; it comes before the other two. Checked: those packs.
+- Download or "Not now" sets `packs_offered`; the missing sheet's answer also drops its packs from `packs_installed`, so it shows once (an install adds each one again).
 
 ### Update from 1.x (changes to 0129's move, #139)
 
 0129's move puts every 1.x row whose key the dictionary file lacks into `imported_entries`. With English-only bundles that would turn 270k rows of the other dictionaries into imports. The rule becomes, per source of the 1.x file:
 - `wordnet` and custom sources: as today (`dict.entries`, the import rule).
-- **A pack source** (in `catalog_source`): if its 1.x row count equals the catalog's `word_count`, its rows are the pack's and are dropped. Otherwise all its rows move into `imported_entries`, and the pack's install later deletes the rows it has (Download and install, step 7).
+- **A pack source** (in `catalog_source`) whose pack is not installed at the move: if its 1.x row count equals the catalog's `word_count`, its rows are the pack's and are dropped; otherwise all its rows move into `imported_entries`, and the pack's install later deletes the rows it has (Download and install, step 7). An installed pack's rows take the import rule, as `wordnet`'s.
 - Why this is exact: every 1.x seed (1.1.0 to 1.4.1) holds exactly today's rows of each dictionary it shipped (measured: per-source counts equal, 0 rows missing). Imports named like a source add keys, never remove them, so the count equals `word_count` only when no row is an import. A 1.x import under a pack source ID (the #105 feature) is the only case that takes the second branch; it costs up to the dictionary's size in `user.sqlite` until the pack is installed.
 - History and My words move as today. Their keys resolve once the pack is installed; until then the "not downloaded" view.
 - The 2.0 alpha needs no data step: its `user.sqlite` is already 2.0's. Imports it made under a pack source ID are covered by step 7.
@@ -453,3 +453,9 @@ QA records in History: the sizes of each asset and file, App Size and the downlo
 - 2026-11-06: #242: a failed step 7 does not fail the install: the pack is already attached.
 - 2026-11-06: #242: `installPair` stops at the first pack that fails, and returns empty for a pair the catalog lacks (a pair of imports needs no pack).
 - 2026-11-06: #242: a resumed request counts as refused when it ends in HTTP 4xx or 5xx; DEBUG `-packDownloads expiredResume` refuses it with 403 for the tests.
+- 2026-11-06: #244: the 1.x count rule applies only to packs not installed at the move; an installed pack's rows go through the key check.
+- 2026-11-06: #244: the missing sheet shows even after `packs_offered`, and its answer drops its packs from `packs_installed`.
+- 2026-11-06: #244: a stored order is an upgrade sign only when it holds a pack's dictionary: a fresh 2.0 install stores only the bundle's and installed ones.
+- 2026-11-06: #244: `-legacyFixture` also deletes the user database and clears `packs_offered` and `packs_installed`, so the launch is a clean 1.x update.
+- 2026-11-06: #244: `-skipWelcome` suppresses every kind of sheet, the missing one too.
+- 2026-11-06: #244, rebased on #242: the offer is decided after the launch scan, which now runs after `setup()` and finishes an interrupted install or removal first, so `packs_installed` and the usable packs it reads are settled.

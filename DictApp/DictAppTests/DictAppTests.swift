@@ -10954,6 +10954,549 @@ final class LegacyMigrationTests: XCTestCase {
     }
 }
 
+// MARK: - Issue #244: the update from 1.x with packs missing (0237, "Update from 1.x")
+
+/// The 1.x move on an English-only bundle with no pack installed, as on a
+/// real update to 2.0: a pack's dictionary is decided by its row count.
+extension LegacyMigrationTests {
+    /// The date `Scripts/make_legacy_fixtures.py` gives the seed rows it copies.
+    nonisolated private static let seedRowsDate = "2026-04-01 00:00:00"
+
+    /// The dictionaries of the four language packs.
+    private static var packSources: Set<String> {
+        get throws { Set(try PackFixtures.catalog().sources.map(\.source)) }
+    }
+
+    /// Opens the shared service on an English-only bundle made for the 1.x
+    /// file in place: its WordNet seed rows, and the host app's catalog
+    /// with each pack dictionary's `word_count` set to the file's seed rows
+    /// of it, so every dictionary 1.x shipped reads as unchanged, then
+    /// changed by `adjust`. Only `installed` packs are attached: each other
+    /// one is the stub. Returns the bundle.
+    @discardableResult
+    private func openEnglishOnlyBundle(installed: [PackID] = [],
+                                       adjust: (inout [String: Int]) -> Void = { _ in }) async throws -> URL {
+        let seed = try await inspectCopy(of: legacyURL).read { conn in
+            (wordnet: try Row.fetchAll(conn, sql: """
+                SELECT word, definition, COALESCE(phonetic, '') AS phonetic, COALESCE(pos, '') AS pos
+                FROM entries WHERE source = 'wordnet' AND created_at = ? ORDER BY id
+                """, arguments: [Self.seedRowsDate]).map {
+                    TestDictionary.Row(word: $0["word"], definition: $0["definition"], phonetic: $0["phonetic"],
+                                       pos: $0["pos"], source: "wordnet")
+                },
+             counts: try Row.fetchAll(conn, sql: """
+                SELECT source, COUNT(*) AS n FROM entries WHERE created_at = ? GROUP BY source
+                """, arguments: [Self.seedRowsDate]).map { (source: $0["source"] as String, count: $0["n"] as Int) })
+        }
+        let bundle = try TestDictionary.make(
+            rows: seed.wordnet, metadata: [TestDictionary.Metadata(source: "wordnet", displayName: "WordNet")],
+            at: tempDir.appendingPathComponent("english-only.sqlite"))
+        var counts = Dictionary(uniqueKeysWithValues: seed.counts.map { ($0.source, $0.count) })
+        adjust(&counts)
+        let wordCounts = counts
+        let catalogSource = try TestDictionary.bundledURL()
+        let queue = try DatabaseQueue(path: bundle.path)
+        try await queue.writeWithoutTransaction { conn in
+            try conn.execute(sql: "ATTACH DATABASE ? AS shipped", arguments: [DatabaseService.dictionaryURI(catalogSource)])
+            try conn.inTransaction {
+                try conn.execute(sql: "INSERT INTO catalog_pack SELECT * FROM shipped.catalog_pack")
+                try conn.execute(sql: "INSERT INTO catalog_source SELECT * FROM shipped.catalog_source")
+                for (source, count) in wordCounts {
+                    try conn.execute(sql: "UPDATE catalog_source SET word_count = ? WHERE source = ?",
+                                     arguments: [count, source])
+                }
+                return .commit
+            }
+            try conn.execute(sql: "DETACH DATABASE shipped")
+        }
+        try queue.close()
+        let packFiles = try Dictionary(uniqueKeysWithValues: installed.map { ($0, try PackFixtures.file($0)) })
+        try await db.setup(userPath: userPath, dictionaryURL: bundle, packFiles: packFiles)
+        return bundle
+    }
+
+    /// The rows of each source in the 1.x file in place.
+    private func legacyCounts() async throws -> [String: Int] {
+        try await inspectCopy(of: legacyURL).read { conn in
+            Dictionary(uniqueKeysWithValues: try Row.fetchAll(conn, sql: """
+                SELECT source, COUNT(*) AS n FROM entries GROUP BY source
+                """).map { ($0["source"] as String, $0["n"] as Int) })
+        }
+    }
+
+    /// The rows of each source in `imported_entries`.
+    private func importedCounts() throws -> [String: Int] {
+        var config = Configuration()
+        config.readonly = true
+        return try DatabaseQueue(path: userPath, configuration: config).read { conn in
+            Dictionary(uniqueKeysWithValues: try Row.fetchAll(conn, sql: """
+                SELECT source, COUNT(*) AS n FROM imported_entries GROUP BY source
+                """).map { ($0["source"] as String, $0["n"] as Int) })
+        }
+    }
+
+    /// Update from 1.4.0 with no pack installed: History and My words move
+    /// as in #139; the rows of each pack dictionary whose count is the
+    /// catalog's are dropped, not imported; `my_glossary` is imported, and
+    /// so is every row of `freedict-eng-spa`, which holds an import too
+    /// (its count is above the catalog's). My words of a missing pack stay
+    /// stored and resolve once it is installed.
+    func testMoveWithPacksMissing() async throws {
+        try install(Self.v140.name)
+        let legacyHistory = try await inspectCopy(of: legacyURL).read { try Self.historyRows($0) }
+        let counts = try await legacyCounts()
+        try await openEnglishOnlyBundle()
+
+        try await move()
+
+        let state = try userState()
+        XCTAssertEqual(state.history, legacyHistory, "History is equal row for row")
+        XCTAssertEqual(state.myWords, Self.v140.bookmarks.enumerated().map {
+            "\($0.element.source)/\($0.element.word)|\(Self.bookmarkedAt($0.offset))"
+        }, "every bookmark is a My words key, its pack installed or not")
+        let imported = try importedCounts()
+        XCTAssertEqual(imported, [Self.glossary: Self.glossaryWords.count,
+                                  "freedict-eng-spa": try XCTUnwrap(counts["freedict-eng-spa"])],
+                       "the pack dictionaries' rows are dropped; the import and the source holding one move")
+        let dropped = try Self.packSources.subtracting(["freedict-eng-spa"])
+        XCTAssertEqual(dropped.filter { counts[$0] != nil }.count, 7, "precondition: the fixture has every pack dictionary")
+        XCTAssertTrue(dropped.isDisjoint(with: imported.keys), "\(imported)")
+        XCTAssertEqual(Set(state.importedSources.map { $0.components(separatedBy: "|")[0] }),
+                       [Self.glossary, "freedict-eng-spa"])
+        await assertImportIndexIntact()
+
+        let resolving: Set<String> = ["wordnet", Self.glossary, "freedict-eng-spa"]
+        let myWords = try await db.fetchMyWords()
+        XCTAssertEqual(Self.keys(myWords), Self.v140.bookmarks.filter { resolving.contains($0.source) }.reversed(),
+                       "the keys of a missing pack resolve once it is installed")
+        let zorblat = try await db.search(query: "zorblat")
+        XCTAssertEqual(Self.keys(zorblat), [EntryKey(source: Self.glossary, word: "zorblat")])
+        let dog = try await db.entry(for: EntryKey(source: "wordnet", word: "dog"))
+        XCTAssertNil(dog?.createdAt, "WordNet's 1.x copy is dropped by the key check, as before")
+        XCTAssertNotNil(dog)
+        XCTAssertNotNil(try userState().marker)
+        XCTAssertEqual(legacyFiles(), [])
+    }
+
+    /// A pack dictionary whose 1.x count is above the catalog's holds an
+    /// import (#105): all its rows move, then the pack's install deletes
+    /// the rows it has, leaving only the imported keys. A My words key on a
+    /// pack row opens the pack's row from then on.
+    func testImportUnderAPackSourceMovesUntilThePackArrives() async throws {
+        try install(Self.v140.name)
+        let counts = try await legacyCounts()
+        try await openEnglishOnlyBundle()
+        try await move()
+        let spanish = "freedict-eng-spa"
+        XCTAssertEqual(try importedCounts()[spanish], try XCTUnwrap(counts[spanish]), "precondition: every row moved")
+        let houseBefore = try await db.entry(for: EntryKey(source: spanish, word: "house"))
+        XCTAssertNotNil(houseBefore?.createdAt, "precondition: the bookmark opens the moved row")
+
+        // The pack's install, from the committed asset, through the app's
+        // install path (step 7 deletes the imported rows it covers).
+        let catalog = PackCatalog.shared
+        defer { PackCatalog.shared = catalog }
+        let service = PackService(folder: tempDir.appendingPathComponent("Packs", isDirectory: true),
+                                  downloads: tempDir.appendingPathComponent("Downloads", isDirectory: true),
+                                  database: db, settings: SettingsService(store: InMemoryKeyValueStore()),
+                                  status: PackStatusModel())
+        try await service.prepare()
+        try await service.install([.spa], fromAssetsIn: PackFixtures.assets)
+
+        let state = try userState()
+        XCTAssertEqual(state.imported, Self.expectedImports(Self.v140), "only the imported keys stay")
+        XCTAssertTrue(state.importedSources.contains { $0.hasPrefix("\(spanish)|") }, "the import keeps its row")
+        await assertImportIndexIntact()
+        let house = try await db.entry(for: EntryKey(source: spanish, word: "house"))
+        XCTAssertNotNil(house)
+        XCTAssertNil(house?.createdAt, "the bookmark opens the pack's row")
+        let dogsitter = try await db.search(query: "dogsitter")
+        XCTAssertEqual(Self.keys(dogsitter), [EntryKey(source: spanish, word: "dogsitter")])
+        XCTAssertNotNil(dogsitter.first?.createdAt, "an imported key stays the import")
+    }
+
+    /// The signs of an earlier install that the first-launch offer reads:
+    /// none on a new user database; user rows (the 2.0 alpha); the marker
+    /// of a committed 1.x move, even one that moved no user data.
+    func testEarlierInstallSigns() async throws {
+        var signs = try await db.earlierInstallSigns()
+        XCTAssertFalse(signs.legacyMarker)
+        XCTAssertFalse(signs.userRows, "a new user database")
+
+        try await db.addToMyWords(EntryKey(source: "wordnet", word: "dog"))
+        signs = try await db.earlierInstallSigns()
+        XCTAssertTrue(signs.userRows, "My words")
+        try await db.clearMyWords()
+
+        try install(Self.v140.name) { conn in
+            try conn.execute(sql: "DELETE FROM bookmarks; DELETE FROM history; DELETE FROM entries")
+        }
+        try await move()
+        signs = try await db.earlierInstallSigns()
+        XCTAssertTrue(signs.legacyMarker, "the move's marker")
+        XCTAssertFalse(signs.userRows)
+
+        try await db.addToHistory(word: "dog", source: "wordnet")
+        signs = try await db.earlierInstallSigns()
+        XCTAssertTrue(signs.userRows, "History")
+    }
+
+    /// QA #244: a pack dictionary with fewer 1.x rows than the catalog's
+    /// `word_count` (rows gone after the seed) is no copy of the pack: all
+    /// its rows move as an import, and its bookmark opens the moved row
+    /// until the pack arrives. The other pack dictionaries are still dropped.
+    func testCountBelowTheCatalogMovesEveryRow() async throws {
+        try install(Self.v140.name)
+        try await openEnglishOnlyBundle()
+        let arabic = "wordnet-arb-eng"
+        let queue = try DatabaseQueue(path: legacyURL.path)
+        try await queue.write { conn in
+            try conn.execute(sql: """
+                DELETE FROM entries WHERE id = (SELECT MIN(id) FROM entries
+                    WHERE source = ? AND id NOT IN (SELECT entry_id FROM bookmarks))
+                """, arguments: [arabic])
+            XCTAssertEqual(conn.changesCount, 1, "precondition: one Arabic seed row deleted")
+        }
+        try queue.close()
+        let counts = try await legacyCounts()
+
+        try await move()
+
+        let imported = try importedCounts()
+        XCTAssertEqual(imported, [Self.glossary: Self.glossaryWords.count,
+                                  "freedict-eng-spa": try XCTUnwrap(counts["freedict-eng-spa"]),
+                                  arabic: try XCTUnwrap(counts[arabic])],
+                       "every row of the Arabic dictionary moves; the exact copies are dropped")
+        XCTAssertEqual(Set(try userState().importedSources.map { $0.components(separatedBy: "|")[0] }),
+                       [Self.glossary, "freedict-eng-spa", arabic])
+        await assertImportIndexIntact()
+        let book = try await db.entry(for: EntryKey(source: arabic, word: "كِتاب"))
+        XCTAssertNotNil(book?.createdAt, "the bookmark opens the moved row")
+        let greek = try await db.entry(for: EntryKey(source: "freedict-ell-eng", word: "σπίτι"))
+        XCTAssertNil(greek, "Greek was an exact copy: dropped, its pack is not installed")
+    }
+
+    /// QA #244: the count rule is for packs that are not installed at the
+    /// move. With Spanish installed, its dictionaries take the key check even
+    /// when a 1.x count equals the catalog's: the keys the pack lacks (the
+    /// import named like its source) move, the rest are the pack's. The
+    /// packs that are not installed are still dropped by their count.
+    func testInstalledPackTakesTheKeyCheckNotTheCount() async throws {
+        try install(Self.v140.name)
+        let counts = try await legacyCounts()
+        let spanish = "freedict-eng-spa"
+        let all = try XCTUnwrap(counts[spanish])
+        try await openEnglishOnlyBundle(installed: [.spa]) { $0[spanish] = all }
+
+        try await move()
+
+        let state = try userState()
+        XCTAssertEqual(state.imported, Self.expectedImports(Self.v140),
+                       "only the import's keys move, though the count is the catalog's")
+        XCTAssertEqual(try importedCounts().keys.sorted(), [spanish, Self.glossary].sorted())
+        await assertImportIndexIntact()
+        let house = try await db.entry(for: EntryKey(source: spanish, word: "house"))
+        XCTAssertNotNil(house)
+        XCTAssertNil(house?.createdAt, "the bookmark opens the installed pack's row")
+        let dom = try await db.entry(for: EntryKey(source: "openrussian", word: "дом"))
+        XCTAssertNil(dom, "Russian is not installed: dropped by its count")
+        XCTAssertEqual(state.myWords.count, Self.v140.bookmarks.count, "every bookmark is kept")
+    }
+}
+
+// MARK: - Issue #244: the first-launch offer (0237, "Launch")
+
+/// `PackOffer.decide`: which sheet launch shows and which packs it checks.
+/// Pure, on the host app's catalog.
+final class PackOfferTests: XCTestCase {
+    private var catalog: PackCatalog!
+    /// The four language packs, in catalog order; never the English lists.
+    private let languagePacks: [PackID] = [.spa, .rus, .arb, .ell]
+
+    override func setUpWithError() throws {
+        try super.setUpWithError()
+        catalog = try PackFixtures.catalog()
+    }
+
+    private func decide(_ signals: PackOffer.Signals) -> PackOffer.Sheet? {
+        PackOffer.decide(signals, catalog: catalog)
+    }
+
+    private func fresh(ui: String, device: [String]) -> PackOffer.Sheet? {
+        decide(PackOffer.Signals(uiLanguageCode: ui, preferredLanguages: device))
+    }
+
+    /// A fresh install checks the UI language's pack and those of the
+    /// device's preferred languages, in catalog order. An English UI on an
+    /// English-only device checks nothing.
+    func testFreshChecksTheUIAndDeviceLanguages() {
+        XCTAssertEqual(fresh(ui: "en", device: ["en-US", "en-GB"]), PackOffer.Sheet(kind: .fresh, checked: []))
+        XCTAssertEqual(fresh(ui: "es", device: ["en-US"]), PackOffer.Sheet(kind: .fresh, checked: [.spa]))
+        XCTAssertEqual(fresh(ui: "en", device: ["el-GR", "ru", "zh-Hans-CN"])?.checked, [.rus, .ell],
+                       "a device language without a pack adds nothing")
+        XCTAssertEqual(fresh(ui: "ar", device: ["es-MX", "ar-EG"])?.checked, [.spa, .arb])
+        XCTAssertEqual(fresh(ui: "el", device: [])?.checked, [.ell])
+        XCTAssertEqual(fresh(ui: "ru", device: ["en"])?.checked, [.rus])
+    }
+
+    /// An update from 1.x or the alpha, from each sign: the packs of every
+    /// dictionary when `enabled_sources` is absent (all were on). A stored
+    /// order of English only is what a fresh 2.0 install stores itself.
+    func testUpgradeFromEachSign() {
+        let signs: [(String, PackOffer.Signals)] = [
+            ("a 1.x file", PackOffer.Signals(legacyDatabaseFound: true)),
+            ("the move's marker", PackOffer.Signals(legacyMarker: true)),
+            ("user rows", PackOffer.Signals(userRows: true)),
+            ("a stored order with a pack's dictionary", PackOffer.Signals(storedOrder: ["wordnet", "openrussian"])),
+        ]
+        for (sign, signals) in signs {
+            XCTAssertEqual(decide(signals), PackOffer.Sheet(kind: .upgrade, checked: languagePacks), sign)
+        }
+        XCTAssertEqual(decide(PackOffer.Signals(storedOrder: ["wordnet", "my_glossary"]))?.kind, .fresh,
+                       "an order without a pack's dictionary is no sign")
+        XCTAssertEqual(decide(PackOffer.Signals(storedOrder: []))?.kind, .fresh)
+    }
+
+    /// The upgrade checks the packs of the dictionaries that were enabled,
+    /// whatever the UI language: a 1.3.0-style set without Greek leaves
+    /// Greek unchecked; a set of English and imports checks nothing.
+    func testUpgradeChecksThePacksOfTheEnabledDictionaries() {
+        func upgrade(enabled: Set<String>) -> [PackID]? {
+            decide(PackOffer.Signals(legacyDatabaseFound: true, enabledSources: enabled, uiLanguageCode: "el",
+                                     preferredLanguages: ["ru"]))?.checked
+        }
+        XCTAssertEqual(upgrade(enabled: ["wordnet", "openrussian", "freedict-eng-spa", "wordnet-spa-eng",
+                                         "wordnet-arb-eng"]), [.spa, .rus, .arb])
+        XCTAssertEqual(upgrade(enabled: ["wordnet", "freedict-eng-ell"]), [.ell], "one dictionary of a pack checks it")
+        XCTAssertEqual(upgrade(enabled: ["wordnet", "my_glossary"]), [], "the sheet shows, with nothing checked")
+        XCTAssertEqual(upgrade(enabled: []), [])
+    }
+
+    /// Installed packs without a usable file are offered again, even after
+    /// the sheet was answered, and before an upgrade's offer; nothing is
+    /// offered once the sheet was answered and every pack is usable.
+    func testMissingPacksAreOfferedAgain() {
+        let restored = PackOffer.Signals(packsOffered: true, packsInstalled: [.spa, .ell, .engLists], usable: [.spa])
+        XCTAssertEqual(decide(restored), PackOffer.Sheet(kind: .missing, checked: [.ell, .engLists]))
+        let upgrading = PackOffer.Signals(packsInstalled: [.rus], legacyDatabaseFound: true)
+        XCTAssertEqual(decide(upgrading), PackOffer.Sheet(kind: .missing, checked: [.rus]))
+        XCTAssertNil(decide(PackOffer.Signals(packsOffered: true, packsInstalled: [.spa], usable: [.spa, .rus])))
+        XCTAssertNil(decide(PackOffer.Signals(packsOffered: true, legacyDatabaseFound: true, userRows: true)),
+                     "the sheet shows once")
+        XCTAssertNil(decide(PackOffer.Signals(packsOffered: true)))
+    }
+
+    /// Download or Not now sets `packs_offered`; a missing sheet's answer
+    /// also drops the packs it offered, so it shows once too.
+    func testRecordAnswersTheSheetOnce() {
+        let settings = SettingsService(store: InMemoryKeyValueStore())
+        settings.packsInstalled = [.spa, .ell]
+        PackOffer.record(PackOffer.Sheet(kind: .upgrade, checked: languagePacks), in: settings)
+        XCTAssertTrue(settings.packsOffered)
+        XCTAssertEqual(settings.packsInstalled, [.spa, .ell], "an upgrade's answer keeps the installed packs")
+
+        let missing = PackOffer.Sheet(kind: .missing, checked: [.ell])
+        PackOffer.record(missing, in: settings)
+        XCTAssertEqual(settings.packsInstalled, [.spa])
+        XCTAssertNil(decide(PackOffer.Signals(packsOffered: settings.packsOffered,
+                                              packsInstalled: settings.packsInstalled, usable: [.spa])))
+    }
+}
+
+// MARK: - Issue #244: the signals launch reads for the offer
+
+/// `PackOffer.atLaunch` on real services: the user database, the settings
+/// and the pack service's files feed `decide` (QA #244).
+@MainActor
+final class PackOfferLaunchTests: XCTestCase {
+    private var tempDir: URL!
+    private var sharedCatalog: PackCatalog!
+    private var settings: SettingsService!
+    private var packs: PackService!
+    private var db: DatabaseService { .shared }
+    private let languagePacks: [PackID] = [.spa, .rus, .arb, .ell]
+
+    override func setUp() async throws {
+        try await super.setUp()
+        await DictAppTests.waitForHostAppLaunch()
+        sharedCatalog = PackCatalog.shared
+        tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        let bundle = try TestDictionary.bundledURL()
+        try await db.setup(userPath: tempDir.appendingPathComponent("user.sqlite").path, dictionaryURL: bundle)
+        settings = SettingsService(store: InMemoryKeyValueStore())
+        settings.selectedUILanguageCode = "en"
+        packs = PackService(folder: tempDir.appendingPathComponent("Packs", isDirectory: true),
+                            downloads: tempDir.appendingPathComponent("Downloads", isDirectory: true),
+                            database: db, settings: settings, status: PackStatusModel(),
+                            localization: LocalizationManager(settingsService: settings, bundle: .main))
+        try await packs.prepare()
+    }
+
+    override func tearDown() async throws {
+        PackCatalog.shared = sharedCatalog
+        try? FileManager.default.removeItem(at: tempDir)
+        try await super.tearDown()
+    }
+
+    private func sheet(legacyFound: Bool = false) async throws -> PackOffer.Sheet? {
+        try await PackOffer.atLaunch(legacyDatabaseFound: legacyFound, settings: settings, database: db,
+                                     packs: packs,
+                                     localization: LocalizationManager(settingsService: settings, bundle: .main))
+    }
+
+    /// A new user database, no stored preferences, no pack: the fresh
+    /// sheet, with the UI language's pack checked.
+    func testFreshInstall() async throws {
+        let english = try await sheet()
+        XCTAssertEqual(english?.kind, .fresh)
+        XCTAssertFalse(english?.checked.contains(.spa) ?? true, "precondition: English UI")
+        settings.selectedUILanguageCode = "es"
+        let spanish = try await sheet()
+        XCTAssertEqual(spanish?.kind, .fresh)
+        XCTAssertEqual(spanish?.checked.contains(.spa), true, "the Spanish UI checks Spanish")
+    }
+
+    /// Each sign launch reads: a 1.x file, History, imports alone, a stored
+    /// order holding a pack's dictionary; the enabled set picks the packs;
+    /// an answered sheet shows no more.
+    func testUpgradeReadsTheUserDatabaseAndSettings() async throws {
+        let legacy = try await sheet(legacyFound: true)
+        XCTAssertEqual(legacy, PackOffer.Sheet(kind: .upgrade, checked: languagePacks), "a 1.x file, nothing stored")
+
+        try await db.addToHistory(word: "σπίτι", source: "freedict-ell-eng")
+        settings.enabledSources = ["wordnet", "freedict-ell-eng", "wordnet-ell-eng", "freedict-eng-ell", "wordnet-eng-ell"]
+        let alpha = try await sheet()
+        XCTAssertEqual(alpha, PackOffer.Sheet(kind: .upgrade, checked: [.ell]), "History; Greek only was on")
+        try await db.clearHistory()
+        let cleared = try await sheet()
+        XCTAssertEqual(cleared?.kind, .fresh, "precondition: no sign left")
+
+        let json = tempDir.appendingPathComponent("glossary.json")
+        try Data(#"[{"word": "zorblat", "definition": "a test word"}]"#.utf8).write(to: json)
+        let added = try await db.importJSON(at: json, source: "my_glossary")
+        XCTAssertEqual(added, 1, "precondition")
+        let imported = try await sheet()
+        XCTAssertEqual(imported?.kind, .upgrade, "an import alone is a sign")
+        try await db.clearEntries(fromSource: "my_glossary")
+
+        settings.dictionaryOrder = ["wordnet", "my_glossary"]
+        let englishOrder = try await sheet()
+        XCTAssertEqual(englishOrder?.kind, .fresh, "an order without a pack's dictionary is no sign")
+        settings.dictionaryOrder = ["openrussian", "wordnet"]
+        let order = try await sheet()
+        XCTAssertEqual(order?.kind, .upgrade, "a stored order with a pack's dictionary")
+
+        settings.packsOffered = true
+        let answered = try await sheet(legacyFound: true)
+        XCTAssertNil(answered, "the sheet shows once")
+    }
+
+    /// Usable packs come from the pack service: an installed Greek offers
+    /// nothing; a pack recorded as installed without a file is offered
+    /// again, before an upgrade's offer.
+    func testMissingReadsThePackFiles() async throws {
+        try await packs.install([.ell], fromAssetsIn: PackFixtures.assets)
+        XCTAssertEqual(settings.packsInstalled, [.ell], "precondition: the install records Greek")
+        settings.packsOffered = true
+        let installed = try await sheet()
+        XCTAssertNil(installed, "Greek is usable")
+
+        settings.packsInstalled = [.ell, .rus]
+        let missing = try await sheet(legacyFound: true)
+        XCTAssertEqual(missing, PackOffer.Sheet(kind: .missing, checked: [.rus]))
+        PackOffer.record(try XCTUnwrap(missing), in: settings)
+        let answered = try await sheet()
+        XCTAssertNil(answered, "answered once")
+        XCTAssertEqual(settings.packsInstalled, [.ell])
+    }
+}
+
+// MARK: - Issue #244: Dictionary Order keeps the catalog's dictionaries
+
+/// `DictionarySelection` on the bundle and every pack: a pack that is not
+/// installed (removed, or not downloaded yet after an update) keeps its
+/// dictionaries' place and switch in the stored order, and they are listed
+/// again where they were once it is installed (0237, "Update from 1.x").
+@MainActor
+final class DictionarySelectionPackTests: XCTestCase {
+    private var tempDir: URL!
+    private var db: DatabaseService { .shared }
+
+    override func setUp() async throws {
+        try await super.setUp()
+        await DictAppTests.waitForHostAppLaunch()
+        tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        try await db.setup(userPath: tempDir.appendingPathComponent("user.sqlite").path,
+                           dictionaryURL: try TestDictionary.bundledURL(), packFiles: try PackFixtures.all())
+    }
+
+    override func tearDown() async throws {
+        try? FileManager.default.removeItem(at: tempDir)
+        try await super.tearDown()
+    }
+
+    func testRemovedPackKeepsItsPlaceAndSwitch() async throws {
+        let catalog = try PackFixtures.catalog()
+        let greek = catalog.sources(of: .ell).map(\.source)
+        let store = InMemoryKeyValueStore()
+        let settings = SettingsService(store: store)
+        settings.selectedUILanguageCode = "en"
+        let localization = LocalizationManager(settingsService: settings, bundle: .main)
+        let selection = DictionarySelection(settings: settings, localization: localization,
+                                            catalogSources: { catalog.sources.map(\.source) })
+        await selection.load()
+        let greekIndex = try XCTUnwrap(selection.pairs.firstIndex { $0.id == "ell-eng" }, "precondition")
+        selection.move(from: IndexSet(integer: greekIndex), to: 1)
+        XCTAssertEqual(selection.pairs.map(\.id), ["eng", "ell-eng", "eng-spa", "eng-rus", "arb-eng"], "precondition")
+        let ordered = try XCTUnwrap(settings.dictionaryOrder)
+        XCTAssertNil(settings.enabledSources, "precondition: every dictionary on")
+
+        // Greek is removed: the stub is attached under its name. A stale ID
+        // in the stored order is still dropped.
+        try await db.attachPacks([.ell: nil])
+        settings.dictionaryOrder = ordered + ["ghost"]
+        await selection.load()
+        XCTAssertEqual(selection.pairs.map(\.id), ["eng", "eng-spa", "eng-rus", "arb-eng"], "only installed ones are listed")
+        XCTAssertEqual(settings.dictionaryOrder, ordered, "the Greek dictionaries keep their place")
+
+        // A switch and a reorder while Greek is gone keep its switch and place.
+        selection.setEnabled(false, pair: "eng-rus")
+        XCTAssertEqual(settings.enabledSources?.isSuperset(of: greek), true, "Greek stays on")
+        XCTAssertEqual(settings.enabledSources?.contains("openrussian"), false)
+        selection.move(from: IndexSet(integer: 2), to: 0)   // Russian first
+        XCTAssertEqual(selection.pairs.map(\.id), ["eng-rus", "eng", "eng-spa", "arb-eng"])
+        let order = try XCTUnwrap(settings.dictionaryOrder)
+        XCTAssertEqual(order, ["openrussian", "wordnet"] + ordered.filter(greek.contains)
+                       + ["freedict-eng-spa", "wordnet-spa-eng", "wordnet-arb-eng"],
+                       "Greek stays right after English, the dictionary it followed")
+
+        // Greek returns where it was, switched on.
+        try await db.attachPacks([.ell: try PackFixtures.file(.ell)])
+        await selection.load()
+        XCTAssertEqual(selection.pairs.map(\.id), ["eng-rus", "eng", "ell-eng", "eng-spa", "arb-eng"])
+        XCTAssertEqual(selection.pairs.first { $0.id == "ell-eng" }?.isEnabled, true)
+        XCTAssertEqual(settings.dictionaryOrder, order, "nothing to store")
+    }
+
+    /// The pure rule behind a reorder: each source that is not listed stays
+    /// right after the listed source it followed, or first; a member of a
+    /// listed pair (an import named like a missing pack's source) stays
+    /// with it, so grouping keeps the order the user dropped.
+    func testOrderKeepsUnlistedSourcesAfterTheirNeighbour() {
+        XCTAssertEqual(DictionaryGrouping.order(["b", "a"], keepingUnlistedOf: ["a", "x", "b", "y"]),
+                       ["b", "y", "a", "x"])
+        XCTAssertEqual(DictionaryGrouping.order(["b", "a"], keepingUnlistedOf: ["x", "a", "b"]), ["x", "b", "a"])
+        XCTAssertEqual(DictionaryGrouping.order(["a", "b"], keepingUnlistedOf: []), ["a", "b"])
+        XCTAssertEqual(DictionaryGrouping.order(["a", "b"], keepingUnlistedOf: ["a", "b"]), ["a", "b"])
+        let kept = DictionaryGrouping.order(["wordnet", "freedict-eng-spa"],
+                                            keepingUnlistedOf: ["wordnet-spa-eng", "freedict-eng-spa", "wordnet"])
+        XCTAssertEqual(kept, ["wordnet", "freedict-eng-spa", "wordnet-spa-eng"])
+        XCTAssertEqual(DictionaryGrouping.groupedOrder(kept), kept, "English stays first")
+    }
+}
+
 // MARK: - Issue #141: Greek word forms in the dictionary file
 
 /// The forms tables `Scripts/build_forms.py` writes into the bundled

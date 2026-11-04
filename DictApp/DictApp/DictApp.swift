@@ -101,6 +101,15 @@ struct DictApp: App {
             if CommandLine.arguments.contains("-resetPacks") {
                 PackFiles.removeAll()
             }
+            // Issue #244: a 1.x install about to update. The fixture becomes
+            // the 1.x database on an empty user database, and the keys 1.x
+            // never wrote are cleared, so this launch moves it and offers
+            // the packs of the dictionaries that were enabled.
+            if let fixture = Self.argument(after: "-legacyFixture") {
+                try DatabaseService.installLegacyFixture(URL(fileURLWithPath: fixture))
+                SettingsService.shared.packsOffered = false
+                SettingsService.shared.packsInstalled = []
+            }
             #endif
             // Issue #237 (0237, "Launch"): the pool with the bundle and every
             // pack name on the stub, then the launch scan, which reads the
@@ -150,7 +159,8 @@ struct DictApp: App {
                 try? await DatabaseService.shared.clearEntries(fromSource: "test_import_fixture")
             }
 
-            // Issue #237: the first-launch sheet does not show.
+            // Issue #237: the first-launch sheet does not show, of any kind
+            // (#244: launch skips the offer below too).
             if CommandLine.arguments.contains("-skipWelcome") {
                 SettingsService.shared.packsOffered = true
             }
@@ -183,6 +193,20 @@ struct DictApp: App {
             let catalogSources = PackCatalog.shared.sources.map(\.source)
             let knownSources = installedSources + catalogSources.filter { !installedSources.contains($0) }
             SettingsService.shared.normalizeDictionaryPreferences(knownSources: knownSources)
+
+            // Issue #244: whether the first-launch sheet shows, and which
+            // kind: decided before the 1.x move deletes its file and before
+            // any screen stores a dictionary order. A failed read offers
+            // nothing now; the next launch decides again.
+            #if DEBUG
+            let skipWelcome = CommandLine.arguments.contains("-skipWelcome")
+            #else
+            let skipWelcome = false
+            #endif
+            if !skipWelcome {
+                let legacyFound = FileManager.default.fileExists(atPath: DatabaseService.legacyDatabaseURL().path)
+                PackOffer.launchSheet = try? await PackOffer.atLaunch(legacyDatabaseFound: legacyFound)
+            }
 
             // Issue #139: a 1.x database moves into the user database as a
             // detached utility task. Started just before the UI shows, so

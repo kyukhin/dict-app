@@ -1289,6 +1289,35 @@ actor PackService {
     #endif
 }
 
+// MARK: - The first-launch offer (#244)
+
+extension PackOffer {
+    /// The sheet this launch offers, as `isReady` turns true (0237,
+    /// "Launch", step 7). `ContentView` shows it; `record` answers it.
+    @MainActor static var launchSheet: Sheet?
+
+    /// Gathers the signals and decides (0237, "Launch"). Runs after the
+    /// launch scan and the DEBUG hooks and before the 1.x move starts, so
+    /// the user database is read without waiting for it and before any
+    /// screen stores a dictionary order. `legacyDatabaseFound`: a 1.x
+    /// `dict.sqlite` is there to move.
+    @MainActor
+    static func atLaunch(legacyDatabaseFound: Bool, settings: SettingsService = .shared,
+                         database: DatabaseService = .shared, packs: PackService = .shared,
+                         localization: LocalizationManager? = nil) async throws -> Sheet? {
+        let signs = try await database.earlierInstallSigns()
+        let installed = await packs.installedPacks()
+        let signals = Signals(
+            packsOffered: settings.packsOffered, packsInstalled: settings.packsInstalled,
+            usable: Set(installed.filter(\.usable).map(\.id)), legacyDatabaseFound: legacyDatabaseFound,
+            legacyMarker: signs.legacyMarker, storedOrder: settings.dictionaryOrder, userRows: signs.userRows,
+            enabledSources: settings.enabledSources,
+            uiLanguageCode: (localization ?? .shared).currentLanguage.code,
+            preferredLanguages: Locale.preferredLanguages)
+        return decide(signals, catalog: await packs.catalog)
+    }
+}
+
 // MARK: - Background time
 
 /// The app's background time while packs install (0237, "Offline and

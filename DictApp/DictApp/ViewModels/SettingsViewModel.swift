@@ -38,17 +38,22 @@ final class DictionarySelection: ObservableObject {
     private let settings: SettingsService
     private let localization: LocalizationManager
     private let db: DatabaseService
+    /// The dictionaries of every catalog pack, installed or not (#244).
+    private let catalogSources: () -> [String]
     private var cancellables: Set<AnyCancellable> = []
 
     /// `LocalizationManager.shared` is `@MainActor`-isolated, so it is
     /// resolved inside the body (same pattern as `SettingsViewModel`).
+    /// `catalogSources`: `PackCatalog.shared`'s by default; a test passes its own.
     init(settings: SettingsService = .shared,
          localization: LocalizationManager? = nil,
-         db: DatabaseService = .shared) {
+         db: DatabaseService = .shared,
+         catalogSources: (() -> [String])? = nil) {
         self.settings = settings
         let resolvedLocalization = localization ?? .shared
         self.localization = resolvedLocalization
         self.db = db
+        self.catalogSources = catalogSources ?? { PackCatalog.shared.sources.map(\.source) }
 
         // `$currentLanguage` emits before `currentLocale` changes, so build
         // the locale from the new language, the way `setLanguage` does.
@@ -98,20 +103,26 @@ final class DictionarySelection: ObservableObject {
             // `settings` read stays below it, so a reorder or toggle made
             // while the fetch was in flight is picked up here, never reverted.
             let existing = stats.map(\.source)
+            // Issue #244: a pack's dictionaries keep their place and switch
+            // while the pack is not installed (removed, or not downloaded yet
+            // after an update from 1.x), and are listed once it is (0237,
+            // "Update from 1.x").
+            let known = knownSources(listed: existing)
 
             // Issue #92 §2b: re-establish the pair invariants (enabled-if-any,
             // contiguous members) on the stored prefs — covers callers that
             // bypass the App's launch-time pass, imports, and later iCloud merges.
-            settings.normalizeDictionaryPreferences(knownSources: existing)
+            settings.normalizeDictionaryPreferences(knownSources: known)
 
             // Reconcile the persisted order with live sources: keep stored order
-            // for sources that still exist, append new/imported ones at the end
-            // (in fetchSourceStats order), then re-persist so imports stick and a
-            // first-launch default materializes. (§6 — lazy, persisted on first read.)
+            // for sources that still exist or are in the catalog, append
+            // new/imported ones at the end (in fetchSourceStats order), then
+            // re-persist so imports stick and a first-launch default
+            // materializes. (§6 — lazy, persisted on first read.)
             let storedOrder = settings.dictionaryOrder
             var sourceOrder: [String]
             if let stored = storedOrder {
-                sourceOrder = stored.filter { existing.contains($0) }
+                sourceOrder = stored.filter(Set(known).contains)
                     + existing.filter { !stored.contains($0) }
             } else {
                 // First launch (Issue #74): no stored order → derive the default
@@ -130,6 +141,7 @@ final class DictionarySelection: ObservableObject {
             }
 
             let locale = localization.currentLocale
+            // Only the listed dictionaries get a pair: `pairs` drops the rest.
             let items = DictionaryGrouping.pairs(from: stats, order: sourceOrder).map { pair in
                 DictionaryItem(
                     pair: pair,
@@ -152,12 +164,16 @@ final class DictionarySelection: ObservableObject {
 
     /// Turns every source of the pair on or off in one write (Issue #92: the
     /// sources of a pair share one state). The known set is every listed
-    /// source, so the first change never switches off another pair. No write
-    /// when the pair is already in that state or unknown.
+    /// source and every one the stored order keeps while its pack is not
+    /// installed (#244), so the first change never switches off another
+    /// pair, and a pack that returns comes back on. (A pack never installed
+    /// is switched on by its install.) No write when the pair is already in
+    /// that state or unknown.
     func setEnabled(_ enabled: Bool, pair pairID: String) {
         guard let index = pairs.firstIndex(where: { $0.id == pairID }),
               pairs[index].isEnabled != enabled else { return }
-        let knownSources = Set(pairs.flatMap(\.pair.sourceIDs))
+        let kept = Set(catalogSources()).intersection(settings.dictionaryOrder ?? [])
+        let knownSources = Set(pairs.flatMap(\.pair.sourceIDs)).union(kept)
         settings.setEnabled(enabled, forSources: pairs[index].pair.sourceIDs, knownSources: knownSources)
         var items = pairs
         items[index].isEnabled = enabled
@@ -195,13 +211,23 @@ final class DictionarySelection: ObservableObject {
     }
 
     /// Reorders pairs (drag-to-reorder) and persists the flattened source
-    /// order (§6). Members stay contiguous by construction (I2).
+    /// order (§6). Members stay contiguous by construction (I2). A stored
+    /// source that is not listed (a pack not installed, #244) keeps its
+    /// place after the listed source it followed.
     func move(from offsets: IndexSet, to destination: Int) {
         var items = pairs
         items.move(fromOffsets: offsets, toOffset: destination)
         guard items != pairs else { return }
-        settings.dictionaryOrder = items.flatMap(\.pair.sourceIDs)
+        let listed = items.flatMap(\.pair.sourceIDs)
+        settings.dictionaryOrder = DictionaryGrouping.groupedOrder(
+            DictionaryGrouping.order(listed, keepingUnlistedOf: settings.dictionaryOrder ?? []))
         pairs = items
+    }
+
+    /// `listed`, then every catalog source it lacks.
+    private func knownSources(listed: [String]) -> [String] {
+        let listedSet = Set(listed)
+        return listed + catalogSources().filter { !listedSet.contains($0) }
     }
 
     /// Rebuilds every title for `locale` after an in-app language change.
