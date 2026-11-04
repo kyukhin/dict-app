@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - [#145] Dictionary chips under the Search field switch dictionaries on and off in one tap, in the Dictionary Order sequence; a long press offers "Only this" and "All" turns every one back on. The chips and the Settings switches are one setting, and results refresh at once.
 - [#151] Word lists get their data model: built-in, imported and My words lists share one model, words link to their dictionary entry (also through word forms), and new words come by level, then by frequency with a light shuffle. No screen uses it yet.
 - [#240, #241] Every dictionary file has the grammar and example sentence tables, empty until their data lands, and the pack catalog lists the language pairs to learn, Greek via Russian as a limited one.
+- [#157] The learning engine's data: every word gets a recognition and a production card on a fixed 1–90-day ladder, graded by the answer and logged, with learning kept per language, each learned through a language pair offered by the dictionaries ("Greek via English"), and a day starting at 4 AM.
 
 ### Changed
 - [#138] Every dictionary is searchable right after install, with no "Preparing dictionaries" bar: the app reads the bundled dictionaries in place and keeps your history, saved words and imports in a small database of their own.
