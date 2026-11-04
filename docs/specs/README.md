@@ -47,6 +47,7 @@ Data, modules, APIs, migrations, constraints. Links to the code.
 | `0129-dictionary-file.md`: dictionaries as read-only files (the English bundle and the attached language packs), the user database, the 1.x migration, reopening an invalidated file | Approved | #129 |
 | `0130-word-lists.md`: word lists by level (Greek A1–B1, English A1–C2), My words as a list, the Lists screen, list import | Approved | #130 |
 | `0131-learning.md`: learning words with spaced repetition (cards, the answer log, sessions, exercises, match the pairs, mistakes, the Learn tab replacing Bookmarks, learning settings and the reminder) | Approved | #131 |
+| `0132-conjugation-drill.md`: the Greek conjugation drill (questions and options by level, the drill screen and Practise on Definition, spaced repetition per verb and tense) | Approved | #132 |
 | `0136-word-forms.md`: word forms (search by any inflected form, inflection tables) | Implemented | #136 |
 | `0146-quick-switch.md`: dictionary chips on Search, one setting with Dictionary Order | Implemented | #146 |
 | `0166-learning-statistics.md`: learning statistics (daily goal and streak, today, a 30-day chart, list progress and forecast, hardest words, accuracy by direction and tense, a word's status on Definition) | Approved | #166 |
