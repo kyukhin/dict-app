@@ -2,18 +2,18 @@ import XCTest
 
 class TabBarPage: BasePage {
 
-    /// The four tabs, in `ContentView` order. The raw value is the tab's index
-    /// in a `UITabBar`.
+    /// The four tabs, in `ContentView` order (0131, #158: Search · Learn ·
+    /// History · Settings). The raw value is the tab's index in a `UITabBar`.
     enum Tab: Int, CaseIterable {
-        case search, history, bookmarks, settings
+        case search, learn, history, settings
 
         /// The tab item's SF Symbol: the tab-button identifier on the iPadOS 26
         /// floating strip. Must match `ContentView`'s `.tabItem` `systemImage`.
         var symbol: String {
             switch self {
             case .search: return AccessibilityIdentifiers.TabBar.searchSymbol
+            case .learn: return AccessibilityIdentifiers.TabBar.learnSymbol
             case .history: return AccessibilityIdentifiers.TabBar.historySymbol
-            case .bookmarks: return AccessibilityIdentifiers.TabBar.bookmarksSymbol
             case .settings: return AccessibilityIdentifiers.TabBar.settingsSymbol
             }
         }
@@ -129,9 +129,11 @@ class TabBarPage: BasePage {
     }
 
     @discardableResult
-    func tapBookmarksTab() -> BookmarksPage {
-        tap(.bookmarks)
-        return BookmarksPage(app: app)
+    func tapLearnTab() -> LearnPage {
+        tap(.learn)
+        let page = LearnPage(app: app)
+        page.popToRoot()
+        return page
     }
 
     @discardableResult
@@ -158,8 +160,8 @@ class TabBarPage: BasePage {
         return isSelected(.history)
     }
 
-    func verifyBookmarksTabSelected() -> Bool {
-        return isSelected(.bookmarks)
+    func verifyLearnTabSelected() -> Bool {
+        return isSelected(.learn)
     }
 
     func verifySettingsTabSelected() -> Bool {

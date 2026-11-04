@@ -35,11 +35,11 @@ final class ArabicLocalizationTests: XCTestCase {
     private var app: XCUIApplication!
 
     /// Native tab labels in Arabic, for leakage / presence assertions.
-    /// (search / history / bookmarks / settings)
+    /// (search / learn / history / settings)
     enum ArabicTab {
         static let search = "بحث"
+        static let learn = "تعلّم"
         static let history = "السجل"
-        static let bookmarks = "المرجعيات"
         static let settings = "الإعدادات"
     }
 
@@ -99,7 +99,7 @@ final class ArabicLocalizationTests: XCTestCase {
     /// behind, and the Settings screen renders Arabic chrome (nav title,
     /// language section, "Dictionaries" section header).
     func testNoEnglishLeakage() throws {
-        for arabic in [ArabicTab.search, ArabicTab.history, ArabicTab.bookmarks, ArabicTab.settings] {
+        for arabic in [ArabicTab.search, ArabicTab.learn, ArabicTab.history, ArabicTab.settings] {
             XCTAssertTrue(
                 tabButton(label: arabic).waitForExistence(timeout: 10),
                 "Tab bar must show the Arabic label '\(arabic)'"
@@ -110,7 +110,7 @@ final class ArabicLocalizationTests: XCTestCase {
         // previous tree, so an instant `.exists` check can catch a button
         // mid-transition.
         let gone = NSPredicate(format: "exists == FALSE")
-        for english in ["Search", "History", "Bookmarks", "Settings"] {
+        for english in ["Search", "Learn", "History", "Settings"] {
             expectation(for: gone, evaluatedWith: tabButton(label: english), handler: nil)
         }
         waitForExpectations(timeout: 5) { error in
@@ -435,6 +435,59 @@ final class ArabicLocalizationTests: XCTestCase {
         XCTAssertEqual(page.allFormsButton.label, "الصيغ الرئيسية")
         XCTAssertTrue(page.reveal(passive))
         attachScreenshot("γράφω (ar), all forms")
+    }
+
+    /// 0131, #158: the Learn tab in Arabic, mirrored. The picker asks in
+    /// Arabic and names the pairs in Arabic; on γράφω the Learn button
+    /// reads "تعلّم", sits left of the reading-mode toggle (the trailing
+    /// toolbar mirrors) and asks "تعلّم اليونانية عبر الإنجليزية؟"; "نعم" learns Greek, and
+    /// the home's My words row reads right to left.
+    func testLearnTabRightToLeft() throws {
+        tapTab(ArabicTab.learn)
+        let learnPage = LearnPage(app: app)
+        XCTAssertTrue(learnPage.waitForPicker(), "no learned language: the picker")
+        XCTAssertTrue(staticTextContaining("ما اللغة التي تريد تعلّمها"), "the picker's question in Arabic")
+        XCTAssertEqual(Self.visible(learnPage.pickerRow("ell", via: "eng").label), "اليونانية عبر الإنجليزية")
+        XCTAssertEqual(Self.visible(learnPage.pickerRow("eng", via: "eng").label), "الإنجليزية عبر الإنجليزية")
+        attachScreenshot("learn picker (ar)")
+
+        tapTab(ArabicTab.search)
+        search(for: "γράφω")
+        let row = app.collectionViews.firstMatch.cells
+            .containing(.any, identifier: AccessibilityIdentifiers.Search.sourceBadge(source: TestData.Sources.freedictEllEng))
+            .containing(NSPredicate(format: "label == %@", "γράφω"))
+            .firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: TestData.Timeouts.long), "'γράφω' must list the FreeDict entry")
+        app.dismissKeyboardIfPresent()
+        row.tap()
+        let learn = app.buttons[AccessibilityIdentifiers.Definition.learnButton].firstMatch
+        XCTAssertTrue(learn.waitForExistence(timeout: TestData.Timeouts.long))
+        XCTAssertEqual(learn.label, "تعلّم")
+        let toggle = app.buttons[AccessibilityIdentifiers.ReadingMode.toggle].firstMatch
+        XCTAssertLessThanOrEqual(learn.frame.maxX, toggle.frame.minX + 1,
+                                 "RTL: the Learn button is outermost, on the left")
+        learn.tap()
+        let alert = app.alerts.firstMatch
+        XCTAssertTrue(alert.waitForExistence(timeout: TestData.Timeouts.medium), "Learn on a Greek word asks")
+        // Foundation wraps the language name in U+2068/U+2069 isolates.
+        let texts = alert.staticTexts.allElementsBoundByIndex.map { Self.visible($0.label) }
+        XCTAssertTrue(texts.contains("تعلّم اليونانية عبر الإنجليزية؟"),
+                      "the alert reads 'تعلّم اليونانية عبر الإنجليزية؟'; got \(texts)")
+        alert.buttons["نعم"].tap()
+        XCTAssertTrue(learnPage.waitForLabel(of: learn, toBe: "إيقاف التعلّم"), "after Yes: 'إيقاف التعلّم'")
+
+        tapTab(ArabicTab.learn)
+        learnPage.popToRoot()
+        XCTAssertTrue(learnPage.waitForHome(), "Greek learned: the home")
+        let title = learnPage.myWordsRow.staticTexts["كلماتي"].firstMatch
+        XCTAssertTrue(title.waitForExistence(timeout: TestData.Timeouts.medium), "the My words row reads 'كلماتي'")
+        let count = learnPage.myWordsRow.staticTexts["1"].firstMatch
+        if count.exists {
+            XCTAssertGreaterThan(title.frame.minX, count.frame.maxX, "RTL: the title on the right, the count on the left")
+        } else {
+            XCTAssertGreaterThan(title.frame.midX, app.windows.firstMatch.frame.midX, "RTL: the title on the right")
+        }
+        attachScreenshot("learn home (ar)")
     }
 
     /// The pushed detail's navigation bar (its `identifier` is the title)

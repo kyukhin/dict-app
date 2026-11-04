@@ -1134,8 +1134,9 @@ actor DatabaseService {
 
     // MARK: - My words (Issue #138)
     //
-    // Until #158 replaces the Bookmarks tab, the Definition star and the tab
-    // read and write My words, by stable entry key.
+    // My words by stable entry key. The Learn button and the My words swipe
+    // go through `learnWord` and `stopLearning` (#158); "No" to "Learn %@?"
+    // adds the entry here without cards. E3's lists read these too.
 
     func addToMyWords(_ key: EntryKey) async throws {
         let pool = try await userPool()
@@ -1165,6 +1166,17 @@ actor DatabaseService {
                 sql: "SELECT EXISTS (SELECT 1 FROM my_words WHERE source = ? AND word = ?)",
                 arguments: [key.source, key.word]
             ) ?? false
+        }
+    }
+
+    /// Whether My words holds the word `key`, from any dictionary: the Learn
+    /// button's "Remove from My words" (#158).
+    func isInMyWords(_ key: WordKey) async throws -> Bool {
+        let pool = try await userPool()
+        return try await read(pool) { db in
+            try Bool.fetchOne(db, sql: """
+                SELECT EXISTS (SELECT 1 FROM (\(LearningSQL.myWordsKeys)) WHERE lang = ? AND word = ?)
+                """, arguments: [key.lang, key.word]) ?? false
         }
     }
 
@@ -1755,6 +1767,54 @@ actor DatabaseService {
                 """, arguments: [lang, since.rawValue]).map(Self.cardState)
         }
     }
+
+    /// Words of `lang` in learning, paused ones left out: none gives the
+    /// Learn home's empty state (#158).
+    func learningWordCount(lang: String) async throws -> Int {
+        let pool = try await userPool()
+        return try await read(pool) { db in
+            try Int.fetchOne(db, sql: """
+                SELECT COUNT(*) FROM learn_word w
+                WHERE w.lang = ? AND EXISTS (SELECT 1 FROM learn_card c
+                                             WHERE c.lang = w.lang AND c.word = w.word AND c.suspended = 0
+                                               AND c.kind IN \(LearningSQL.wordKinds))
+                """, arguments: [lang]) ?? 0
+        }
+    }
+
+    #if DEBUG
+    /// `-learningFixture <name>` (0131, Test seams), written after the reset
+    /// relative to `today`. Returns the fixture's languages, nil for a name
+    /// this build does not know. #158: `myWords5` (γράφω, σπίτι, νερό,
+    /// καλός, είμαι in My words, new) and `bilingual` (γράφω and σπίτι due in
+    /// Greek, house and water in English, all in My words).
+    func writeLearningFixture(_ name: String, today: LearnDay) async throws -> [String]? {
+        func greek(_ word: String) -> EntryKey { EntryKey(source: "freedict-ell-eng", word: word) }
+        switch name {
+        case "myWords5":
+            for word in ["γράφω", "σπίτι", "νερό", "καλός", "είμαι"] {
+                try await learnWord(greek(word), today: today)
+            }
+            return ["ell"]
+        case "bilingual":
+            for key in [greek("γράφω"), greek("σπίτι"), EntryKey(source: "wordnet", word: "house"),
+                        EntryKey(source: "wordnet", word: "water")] {
+                try await learnWord(key, today: today)
+            }
+            // Started yesterday, both cards on the 1-day rung: due today.
+            let yesterday = today.adding(days: -1).rawValue
+            let pool = try await userPool()
+            try await pool.write { db in
+                try db.execute(sql: "UPDATE learn_card SET step = 1, last_day = ?, due_day = ?",
+                               arguments: [yesterday, today.rawValue])
+                try db.execute(sql: "UPDATE learn_word SET introduced_day = ?", arguments: [yesterday])
+            }
+            return ["ell", "eng"]
+        default:
+            return nil
+        }
+    }
+    #endif
 
     /// `-resetData` (DEBUG): every learning row.
     func clearLearning() async throws {

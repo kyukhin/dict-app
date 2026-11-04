@@ -124,8 +124,17 @@ struct DictApp: App {
                 ReviewRequestService.shared.resetPersistedState()
             }
 
-            // 0131, Test seams: the learned languages and their vias
+            // 0131, Test seams: a learning fixture written after the reset,
+            // which also sets its languages, each with its default via; or
+            // the learned languages and their vias alone
             // (`-learningLanguages ell,eng:spa`), skipping the picker.
+            if let name = Self.launchValue(after: "-learningFixture"),
+               let languages = try await DatabaseService.shared.writeLearningFixture(name, today: LearningClock().today) {
+                SettingsService.shared.learningLanguages = languages
+                for lang in languages {
+                    SettingsService.shared.learningVia[lang] = try await LearningLanguageService.shared.pair(for: lang)?.via
+                }
+            }
             if let argument = Self.launchValue(after: "-learningLanguages") {
                 SettingsService.shared.setLearningLanguages(argument: argument)
             }

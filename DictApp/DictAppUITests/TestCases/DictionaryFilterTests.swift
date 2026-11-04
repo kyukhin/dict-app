@@ -6,7 +6,7 @@ import XCTest
 /// Dictionaries: search results must respect the toggle state, and disabling
 /// every dictionary must produce an empty result set on the Search screen.
 ///
-/// Modeled on `BookmarkFlowTests` (the reliable UI suite in this project).
+/// Modeled on `MyWordsFlowTests`, the former `BookmarkFlowTests` (the reliable UI suite in this project).
 ///
 /// Each test launches with `-resetData`, which (in
 /// `DictApp.initializeDatabase`) resets `SettingsService.enabledSources = nil`
