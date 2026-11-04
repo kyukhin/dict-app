@@ -1,7 +1,7 @@
 # Learning statistics
 
 > Spec written by Claude (AI) for LibreDict.
-> Status: Approved by Kirill on 2026-11-04 · Epic: #166 · Tickets: #163, #164, #165 · Updated: 2026-11-05
+> Status: Approved by Kirill on 2026-11-04 · Epic: #166 · Tickets: #163 (done), #164, #165 · Updated: 2026-11-06
 
 Read [0000-overview.md](0000-overview.md), [0129-dictionary-file.md](0129-dictionary-file.md) and [0131-learning.md](0131-learning.md) first. Every number here is computed on the device from 0131's answer log (`learn_review`), cards (`learn_card`) and words (`learn_word`). The conjugation drill (E5, #132) writes to the same log, which gives accuracy by tense. Lists and their words come from E3 ([0130-word-lists.md](0130-word-lists.md)). This epic adds one small table, for the daily goal.
 
@@ -82,10 +82,10 @@ Recognition: every 7 days · Production: learning
 | Exercises (a day, a run) | Log rows of that day or run, of every kind |
 | Goal met (a day) | Exercises ≥ the day's goal |
 | New words | Rows with `introduced = 1`: a word counts on the day of its first answer, once |
-| Reviewed words | Distinct words with a recognition or production row, `introduced = 0` |
+| Reviewed words | Distinct words with a recognition or production row, `introduced = 0`, and no `introduced = 1` row among the same rows: a word started that day (or run) is new, never also reviewed |
 | Accuracy | Right and accent rows ÷ all rows |
 | Time | The sum of `duration_ms`, each capped at 60 s |
-| List: learned / learning / new | Per distinct word of the list: **learned**, both word cards at 30 days or more; **learning**, unpaused cards but not learned; **new**, no cards or paused |
+| List: learned / learning / new | Per distinct word of the list: **learned**, both word cards at 30 days or more; **learning**, unpaused cards with an answer but not learned; **new**, no cards, paused, or never answered |
 | Hardest words | The most wrong answers on word cards in the last 30 days (today and the 29 days before) |
 | Accuracy by direction | Recognition (match the pairs included) and production rows of the last 30 days |
 | Accuracy by tense | `conjugation` rows of the last 30 days, by tense: the part of `facet` before the dot, both voices together |
@@ -168,8 +168,8 @@ These are pure, in `Models/Learning.swift`, and tested without a database.
   Days come from 0131's `LearnDay`: the Gregorian calendar, the current time zone, ISO weeks whatever the locale's first weekday. A few years of days is a few thousand steps.
 - `Accuracy.byDirection(_:)` and `Accuracy.byTense(_:)`.
 - `HardestWords.rank(_:limit:)`: most wrong first, then lower accuracy, then the latest mistake. Only words with at least one mistake.
-- `ListProgress.of(items:states:) -> ListProgress`: new, learning, learned, and words started in the last 30 days.
-- `Forecast.days(progress:states:today:) -> Forecast`, one of `.days(n)`, `.noPace` and `.done`:
+- `ListProgress.of(items:states:) -> ListProgress`: new, learning, learned, and the day each started word was started (`startedDays`), from which the forecast counts the last 30 days.
+- `Forecast.days(progress:states:today:) -> Forecast?`, one of `.days(n)` (n ≥ 1), `.noPace` and `.done`, or nil for an empty list, which shows no forecast:
   - pace = words of the list started in the last 30 days (today and the 29 before) ÷ 30, a sliding window as in Anki's month view; when the list's first word was started fewer than 30 days ago, ÷ the days since then, today included. Raising the daily limit improves the forecast day by day;
   - a learning word needs the larger of its two cards' `daysToLearned`. For a card, that is `max(0, due − today)` plus the intervals from its next rung up to the 14-day rung: on rung 0, 1 + 3 + 7 + 14 = 25; on rung 4, 0;
   - no new words: the largest of those, or `.done` when nothing is learning either;
@@ -177,8 +177,8 @@ These are pure, in `Models/Learning.swift`, and tested without a database.
   - otherwise: the larger of `ceil(new ÷ pace) + 25` and the learning words' largest.
   - Shown as "~N days" up to 365, else "over a year".
   - Example: Greek A1 with 1,458 words, 120 learned, 300 learning, 1,038 new and 300 started in the last 30 days. The pace is 10 a day, so ceil(1,038 ÷ 10) + 25 = 129: "All learned in ~129 days".
-- `ChartSummary`: the VoiceOver texts.
-- `WordStatusText.lines(state:errors:today:locale:)`: the lines for #165.
+- `ChartSummary`: the VoiceOver texts (#164).
+- `WordStatusText.lines(state:errors:today:locale:)`: the lines for #165, in #165.
 
 ### Queries (#163)
 
@@ -191,7 +191,7 @@ All in `DatabaseService`, behind `userPool()`. The reads go through `read`; `set
 | `reviewRows(day:lang:)`, `reviewRows(run:)` | The rows `ReviewSummary` needs (distinct reviewed words), on 0131's `learn_review_day` and `learn_review_run` indexes |
 | `directionAccuracy(since:lang:)` | `GROUP BY kind` over recognition and production |
 | `hardestWords(since:lang:limit:)` | `GROUP BY lang, word` over every word-card row since the day (recognition and production): all answers, wrong ones and the latest wrong `answered_at`, kept when one is wrong (`HAVING`), so accuracy counts every answer; joined to `learn_word` for the entry's `source` and `headword`, `term`, `translation` and `translation_lang` (0131), from which #164 gets the meaning in the meanings language |
-| `tenseAccuracy(since:lang:)`, `hardestVerbs(since:lang:limit:)` | `kind = 'conjugation'`, `GROUP BY substr(facet, 1, instr(facet, '.') - 1)` (the tense) and `GROUP BY word`, the verbs with `hardestWords`' three aggregates |
+| `tenseAccuracy(since:lang:)`, `hardestVerbs(since:lang:limit:)` | `kind = 'conjugation'`, `GROUP BY facet`, merged by tense (the part before the dot) in `Accuracy.byTense`, and `GROUP BY word`, the verbs with `hardestWords`' three aggregates |
 | `wordStates(lang:) -> [WordKey: WordLearningState]` | Every word of the language with its cards, one query, for list progress |
 | `errorCount(lang:word:)` | #165: `COUNT(*)` of `learn_review` where `lang = ? AND word = ? AND kind IN ('recognition', 'production') AND outcome = 'wrong'`, on the `learn_review_word` index |
 | `setGoal(_:today:)` | Upsert of today's `learn_day` row |
@@ -247,7 +247,7 @@ E5's rows are those in 0131 "For E5": kind `conjugation`, `facet` `<tense>.<voic
 
 | Path | Change |
 |---|---|
-| `Models/Learning.swift` | `ReviewSummary`, `DailySeries`, `Streak`, `Accuracy`, `HardestWords`, `ListProgress`, `Forecast`, `ChartSummary`, `WordStatusText` (#163, #165) |
+| `Models/Learning.swift` | `ReviewSummary`, `DailySeries`, `Streak`, `Accuracy`, `HardestWords`, `ListProgress`, `Forecast` (#163), `ChartSummary` (#164), `WordStatusText` (#165) |
 | `Services/DatabaseService.swift` | Migration `166-1-daily-goal`, the goal write in `recordAnswer`, `setGoal`, the queries (#163) |
 | `ViewModels/LearnViewModel.swift` | `StatisticsViewModel`; goal and streak in `LearnViewModel` (#164) |
 | `Views/StatisticsView.swift` (new, 0131's Xcode step) | The screen, charts and calendar (#164) |
@@ -326,3 +326,11 @@ A day starts at 4 AM local time (0131, Decisions), here too.
 - 2026-11-04: Review fixes after approval: a freeze comes on Mondays only, as the rules say (the pseudocode also gave one in a first week that starts after Monday); the hardest words and verbs aggregate every answer on their cards, with the latest wrong one, so accuracy is right. Tests added.
 - 2026-11-05: Review fixes after approval: `translation_lang` is in the `learn_word` inputs; the query table names the `lang` argument of every per-language query; `errorCount` counts only the word's own recognition and production mistakes, with its test.
 - 2026-11-05: Review fix: `reviewRows(run:)` reads 0131's new `learn_review_run` index instead of scanning the log.
+- 2026-11-06: #163: a word started in a day or a run counts as new there, never also as reviewed (PM, 2026-11-04).
+- 2026-11-06: #163: in list progress a word enrolled but never answered is new, as `WordStatus` shows it (PM, 2026-11-04).
+- 2026-11-06: #163: an empty list has no forecast (nil), and a forecast is at least "~1 day", never "~0 days" (PM, 2026-11-04).
+- 2026-11-06: #163: `ChartSummary` moves to #164 and `WordStatusText` to #165, with their tests, next to the screens that read them.
+- 2026-11-06: #163: `tenseAccuracy` groups by `facet` in SQL and merges the voices of a tense in `Accuracy.byTense`.
+- 2026-11-06: #163: `ListProgress` keeps `startedDays`, the day each started word was started, and the forecast counts the last 30 days from it.
+- 2026-11-06: #163: `hardestWords` and `hardestVerbs` keep the log id of the latest wrong answer, which orders like `answered_at`.
+- 2026-11-06: #163: built when `learn_review` had no `run_id` index, `reviewRows(run:)` scanned the log; rebased on #157, it reads `learn_review_run`.

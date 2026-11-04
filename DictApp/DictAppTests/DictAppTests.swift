@@ -15406,7 +15406,7 @@ final class LearningStoreTests: XCTestCase {
         try await db.recordAnswer(AnswerRecord(card: CardKey(word: word, kind: kind, facet: facet), exercise: exercise,
                                                mode: mode, runID: run, outcome: outcome, durationMs: durationMs,
                                                detail: detail),
-                                  today: day ?? today)
+                                  today: day ?? today, goal: 20)
     }
 
     private func state(_ key: WordKey, file: StaticString = #filePath, line: UInt = #line) async throws -> WordLearningState {
@@ -15630,7 +15630,7 @@ final class LearningStoreTests: XCTestCase {
              Dictionary(uniqueKeysWithValues: try Row.fetchAll(conn, sql: "PRAGMA database_list")
                 .map { ($0["name"] as String, $0["file"] as String) }))
         }
-        XCTAssertEqual(main, ["learn_card", "learn_card_due", "learn_review", "learn_review_day",
+        XCTAssertEqual(main, ["learn_card", "learn_card_due", "learn_day", "learn_review", "learn_review_day",
                               "learn_review_run", "learn_review_word", "learn_word"])
         XCTAssertEqual(dictionary, [], "no learn_* name in the dictionary file")
         XCTAssertEqual(files["main"].map { URL(fileURLWithPath: $0).resolvingSymlinksInPath().path },
@@ -15740,7 +15740,7 @@ final class LearningStoreTests: XCTestCase {
         try await open()
 
         let migrations = try await rows("SELECT identifier FROM grdb_migrations ORDER BY identifier")
-        XCTAssertEqual(migrations, ["129-1-core", "130-1-word-lists", "131-1-learning"])
+        XCTAssertEqual(migrations, ["129-1-core", "130-1-word-lists", "131-1-learning", "166-1-daily-goal"])
         for table in ["learn_word", "learn_card", "learn_review"] {
             let n = try await count("SELECT COUNT(*) FROM \(table)")
             XCTAssertEqual(n, 0, "\(table) is empty after the migration")
@@ -16233,7 +16233,7 @@ final class LearningStoreTests: XCTestCase {
 
         try await db.clearLearning()
 
-        for table in ["learn_word", "learn_card", "learn_review"] {
+        for table in ["learn_word", "learn_card", "learn_review", "learn_day"] {
             let n = try await count("SELECT COUNT(*) FROM \(table)")
             XCTAssertEqual(n, 0, table)
         }
@@ -16681,5 +16681,1390 @@ final class WordListDataTests: XCTestCase {
             for j in (i + 1)..<ranks.count { score += ranks[i] < ranks[j] ? 1 : -1 }
         }
         return Double(score) / Double(ranks.count * (ranks.count - 1) / 2)
+    }
+}
+
+// MARK: - 0166: learning statistics (#163)
+//
+// 0166-learning-statistics.md, Test plan: the rows of #163. The aggregates
+// are pure, on fixed days and no clock; the store tests run on a temp user
+// database like `LearningStoreTests`.
+
+/// A temp user database on `DatabaseService.shared` for the statistics
+/// tests: a `TestDictionary` with four Greek and two English words, and
+/// writers for words, cards and answers. The test removes its files.
+@MainActor
+final class StatsTestStore {
+    static let grafoFD = EntryKey(source: "freedict-ell-eng", word: "γράφω")
+    static let spitiFD = EntryKey(source: "freedict-ell-eng", word: "σπίτι")
+    static let neroFD = EntryKey(source: "freedict-ell-eng", word: "νερό")
+    static let eimaiFD = EntryKey(source: "freedict-ell-eng", word: "είμαι")
+    static let houseWN = EntryKey(source: "wordnet", word: "house")
+    static let waterWN = EntryKey(source: "wordnet", word: "water")
+    static let grafo = WordKey(lang: "ell", word: "γράφω")
+    static let spiti = WordKey(lang: "ell", word: "σπίτι")
+    static let nero = WordKey(lang: "ell", word: "νερό")
+    static let eimai = WordKey(lang: "ell", word: "είμαι")
+    static let house = WordKey(lang: "eng", word: "house")
+    static let water = WordKey(lang: "eng", word: "water")
+
+    private static let rows = [
+        TestDictionary.Row(word: "γράφω", normalized: "γραφω", definition: "write", pos: "verb", source: "freedict-ell-eng"),
+        TestDictionary.Row(word: "σπίτι", normalized: "σπιτι", definition: "house, home", pos: "noun", source: "freedict-ell-eng"),
+        TestDictionary.Row(word: "νερό", normalized: "νερο", definition: "water", pos: "noun", source: "freedict-ell-eng"),
+        TestDictionary.Row(word: "είμαι", normalized: "ειμαι", definition: "be", pos: "verb", source: "freedict-ell-eng"),
+        TestDictionary.Row(word: "house", definition: "a dwelling", pos: "noun", source: "wordnet"),
+        TestDictionary.Row(word: "water", definition: "a clear liquid", pos: "noun", source: "wordnet"),
+    ]
+
+    private static let metadata = [
+        TestDictionary.Metadata(source: "freedict-ell-eng", displayName: "El–En · FD", fromLang: "ell", toLang: "eng"),
+        TestDictionary.Metadata(source: "wordnet", displayName: "WordNet"),
+    ]
+
+    let today = LearningFixture.today
+    let tempDir: URL
+    var db: DatabaseService { .shared }
+    var userPath: String { tempDir.appendingPathComponent("user.sqlite").path }
+
+    /// A new temp directory, removed when `test` ends.
+    init(for test: XCTestCase) throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        test.addTeardownBlock { try? FileManager.default.removeItem(at: dir) }
+        tempDir = dir
+    }
+
+    /// Opens the service on the user database at `userPath` (new, or left
+    /// there by the test) and the dictionary.
+    func open() async throws {
+        await DictAppTests.waitForHostAppLaunch()
+        let url = try TestDictionary.make(rows: Self.rows, metadata: Self.metadata,
+                                          at: tempDir.appendingPathComponent("dictionary.sqlite"))
+        try await db.setup(userPath: userPath, dictionaryURL: url)
+    }
+
+    /// Runs `sql` on the user database's writer.
+    func execute(_ sql: String, _ arguments: [String?] = []) async throws {
+        try await db.writeForTesting { conn in
+            try conn.execute(sql: sql, arguments: StatementArguments(arguments.map { $0 as (any DatabaseValueConvertible)? }))
+        }
+    }
+
+    /// The rows of `sql`, each as `a|b|c`, NULL as `∅`.
+    func rows(_ sql: String) async throws -> [String] {
+        try await db.writeForTesting { conn in
+            try Row.fetchAll(conn, sql: sql).map { row in
+                row.databaseValues.map { value -> String in
+                    switch value.storage {
+                    case .null: return "∅"
+                    case .int64(let int): return String(int)
+                    case .double(let double): return String(double)
+                    case .string(let string): return string
+                    case .blob(let data): return data.base64EncodedString()
+                    }
+                }.joined(separator: "|")
+            }
+        }
+    }
+
+    func count(_ sql: String) async throws -> Int {
+        try await db.writeForTesting { try Int.fetchOne($0, sql: sql) ?? 0 }
+    }
+
+    /// A word without a dictionary entry, as E3's list words: its row with
+    /// the list's text and its two new cards.
+    func insertWord(_ key: WordKey, translation: String = "", translationLang: String = "") async throws {
+        try await execute("""
+            INSERT INTO learn_word(lang, word, term, translation, translation_lang) VALUES (?, ?, ?, ?, ?)
+            """, [key.lang, key.word, key.word, translation, translationLang])
+        try await execute(LearningSQL.createWordCards, [key.lang, key.word, today.rawValue])
+    }
+
+    /// A card as E5 writes one: kind and facet free.
+    func insertCard(_ key: WordKey, _ kind: CardKind, facet: String = "") async throws {
+        try await execute("INSERT INTO learn_card(lang, word, kind, facet, due_day) VALUES (?, ?, ?, ?, ?)",
+                          [key.lang, key.word, kind.rawValue, facet, today.rawValue])
+    }
+
+    /// One answer through `recordAnswer`. The exercise and the mode follow
+    /// the card kind unless given.
+    @discardableResult
+    func answer(_ word: WordKey, _ kind: CardKind = .recognition, _ outcome: Outcome = .right,
+                on day: LearnDay? = nil, exercise: ExerciseKind? = nil, mode: RunMode? = nil, run: UUID = UUID(),
+                facet: String = "", durationMs: Int = 0, goal: Int = 20) async throws -> CardState {
+        let defaultExercise: ExerciseKind
+        switch kind {
+        case .recognition: defaultExercise = .recognition
+        case .production: defaultExercise = .productionChoice
+        case .conjugation: defaultExercise = .conjugation
+        }
+        return try await db.recordAnswer(AnswerRecord(card: CardKey(word: word, kind: kind, facet: facet),
+                                                      exercise: exercise ?? defaultExercise,
+                                                      mode: mode ?? (kind == .conjugation ? .drill : .session),
+                                                      runID: run, outcome: outcome, durationMs: durationMs),
+                                         today: day ?? today, goal: goal)
+    }
+}
+
+final class ReviewSummaryTests: XCTestCase {
+    private let grafo = WordKey(lang: "ell", word: "γράφω")
+    private let spiti = WordKey(lang: "ell", word: "σπίτι")
+    private let nero = WordKey(lang: "ell", word: "νερό")
+    private let eimai = WordKey(lang: "ell", word: "είμαι")
+
+    /// Each definition: accent counts as right, time capped at 60 s (and
+    /// never below 0), a word is new once, reviewed = distinct words with an
+    /// `introduced = 0` word card row and not started in the same rows (PM,
+    /// 2026-11-04); drill rows count as exercises only.
+    func testNumbersFromRows() throws {
+        let rows = [
+            ReviewRow(word: grafo, kind: .recognition, outcome: .right, introduced: true, durationMs: 1_000),
+            ReviewRow(word: grafo, kind: .production, outcome: .accent, durationMs: 90_000),
+            ReviewRow(word: spiti, kind: .recognition, outcome: .wrong, introduced: true, durationMs: -5),
+            ReviewRow(word: spiti, kind: .recognition, outcome: .right, durationMs: 2_000),
+            ReviewRow(word: nero, kind: .production, outcome: .wrong, durationMs: 3_000),
+            ReviewRow(word: nero, kind: .recognition, outcome: .right, durationMs: 60_000),
+            ReviewRow(word: grafo, kind: .conjugation, outcome: .wrong, durationMs: 4_000),
+            ReviewRow(word: eimai, kind: .conjugation, outcome: .right),
+        ]
+        let summary = ReviewSummary.of(rows)
+        XCTAssertEqual(summary.exercises, 8, "every row, drill rows included")
+        XCTAssertEqual(summary.right, 5, "right and accent rows")
+        XCTAssertEqual(try XCTUnwrap(summary.accuracy), 5.0 / 8.0, accuracy: 1e-9)
+        XCTAssertEqual(summary.newWords, 2, "γράφω and σπίτι, by their introduced rows")
+        XCTAssertEqual(summary.reviewedWords, 1,
+                       "νερό; γράφω and σπίτι were started in these rows, so they are new only; είμαι has only drill rows")
+        XCTAssertEqual(summary.timeMs, 1_000 + 60_000 + 0 + 2_000 + 3_000 + 60_000 + 4_000,
+                       "90 s counts 60 s, a negative duration 0, exactly 60 s stays")
+
+        let onlyNew = ReviewSummary.of([rows[2]])
+        XCTAssertEqual(onlyNew.newWords, 1)
+        XCTAssertEqual(onlyNew.reviewedWords, 0, "a word's introducing row is no review")
+        XCTAssertEqual(onlyNew.accuracy, 0)
+
+        let drillOnly = ReviewSummary.of(Array(rows.suffix(2)))
+        XCTAssertEqual(drillOnly.exercises, 2)
+        XCTAssertEqual(drillOnly.reviewedWords, 0)
+        XCTAssertEqual(drillOnly.newWords, 0)
+
+        let empty = ReviewSummary.of([])
+        XCTAssertEqual(empty, ReviewSummary())
+        XCTAssertNil(empty.accuracy, "no answers, no accuracy")
+    }
+}
+
+final class DailySeriesTests: XCTestCase {
+    /// 30 points, oldest first, today last, one per day; days without
+    /// answers are 0 and days outside the window are left out.
+    func testThirtyDaysWithZeros() {
+        let today = LearnDay(year: 2026, month: 1, day: 10)
+        let counts = [
+            LearnDay(year: 2025, month: 12, day: 11): 7,   // the day before the window
+            LearnDay(year: 2025, month: 12, day: 12): 3,   // its first day
+            LearnDay(year: 2025, month: 12, day: 31): 4,
+            LearnDay(year: 2026, month: 1, day: 1): 5,
+            today: 6,
+            today.adding(days: 1): 9,                       // after today
+        ]
+        let points = DailySeries.last30(counts, today: today)
+        XCTAssertEqual(points.count, 30)
+        XCTAssertEqual(points.first?.day, LearnDay(year: 2025, month: 12, day: 12))
+        XCTAssertEqual(points.last?.day, today)
+        XCTAssertEqual(DailySeries.start(today: today), LearnDay(year: 2025, month: 12, day: 12))
+        for (a, b) in zip(points, points.dropFirst()) {
+            XCTAssertEqual(LearningFixture.days(from: a.day, to: b.day), 1, "\(a.day) → \(b.day)")
+        }
+        XCTAssertEqual(points[0].exercises, 3)
+        XCTAssertEqual(points[19], DayPoint(day: LearnDay(year: 2025, month: 12, day: 31), exercises: 4))
+        XCTAssertEqual(points[20], DayPoint(day: LearnDay(year: 2026, month: 1, day: 1), exercises: 5))
+        XCTAssertEqual(points[29].exercises, 6)
+        XCTAssertEqual(points.map(\.exercises).reduce(0, +), 18, "the days outside the window are left out")
+        XCTAssertEqual(points.filter { $0.exercises == 0 }.count, 26)
+
+        let empty = DailySeries.last30([:], today: today)
+        XCTAssertEqual(empty.count, 30)
+        XCTAssertTrue(empty.allSatisfy { $0.exercises == 0 })
+
+        // 1 March 2028: the window holds 29 February.
+        let leap = DailySeries.last30([LearnDay(year: 2028, month: 2, day: 29): 4], today: LearnDay(year: 2028, month: 3, day: 1))
+        XCTAssertEqual(leap.first?.day, LearnDay(year: 2028, month: 2, day: 1))
+        XCTAssertEqual(leap[28], DayPoint(day: LearnDay(year: 2028, month: 2, day: 29), exercises: 4))
+    }
+}
+
+/// `Streak.compute` on a fixed calendar (0166, "Streak rules" and its
+/// table). A pattern has one character a day from its start: `+` the goal
+/// met (20 of 20), `-` answers under the goal (5), `.` no answers. Without
+/// an explicit today, today is the day after the pattern, with no answers.
+final class StreakTests: XCTestCase {
+    private let goal = 20
+    /// Monday 2 November 2026.
+    private let monday = LearnDay(year: 2026, month: 11, day: 2)
+
+    private func counts(_ pattern: String, from start: LearnDay) -> [LearnDay: Int] {
+        var counts: [LearnDay: Int] = [:]
+        for (offset, day) in pattern.enumerated() {
+            switch day {
+            case "+": counts[start.adding(days: offset)] = goal
+            case "-": counts[start.adding(days: offset)] = 5
+            case ".": break
+            default: XCTFail("unknown day \(day)")
+            }
+        }
+        return counts
+    }
+
+    private func streak(_ pattern: String, from start: LearnDay, today: LearnDay? = nil) -> StreakState {
+        Streak.compute(counts: counts(pattern, from: start), goals: [:], currentGoal: goal,
+                       today: today ?? start.adding(days: pattern.count))
+    }
+
+    /// One character a day from `start`: M met, F frozen, X missed, O open,
+    /// · none.
+    private func marks(_ state: StreakState, from start: LearnDay, days: Int) -> String {
+        (0..<days).map { offset -> String in
+            switch state.mark(on: start.adding(days: offset)) {
+            case .met: return "M"
+            case .frozen: return "F"
+            case .missed: return "X"
+            case .open: return "O"
+            case .none: return "·"
+            }
+        }.joined()
+    }
+
+    /// Table row 1: five days met → 5. Each day met adds exactly 1, and the
+    /// goal is met at 20 of 20, not at 19.
+    func testGoalMetAddsOne() {
+        for n in 1...5 {
+            XCTAssertEqual(streak(String(repeating: "+", count: n), from: monday).current, n, "after \(n) days met")
+        }
+        let week = streak("+++++", from: monday)
+        XCTAssertEqual(week.current, 5)
+        XCTAssertEqual(week.best, 5)
+        XCTAssertEqual(marks(week, from: monday, days: 6), "MMMMMO", "Saturday is today, open")
+        XCTAssertEqual(week.freezes, 1, "Monday's freeze, unspent")
+
+        var almost = counts("++", from: monday)
+        almost[monday.adding(days: 2)] = goal - 1
+        let short = Streak.compute(counts: almost, goals: [:], currentGoal: goal, today: monday.adding(days: 3))
+        XCTAssertEqual(marks(short, from: monday, days: 3), "MMF", "19 of 20 is a miss")
+        XCTAssertEqual(short.current, 2)
+    }
+
+    /// Table row 2: Wednesday missed and frozen → 4. A day without any
+    /// answer is a miss too; a frozen day neither grows nor resets.
+    func testMissSpendsAFreeze() {
+        for pattern in ["++-++", "++.++"] {
+            let state = streak(pattern, from: monday)
+            XCTAssertEqual(marks(state, from: monday, days: 5), "MMFMM", pattern)
+            XCTAssertEqual(state.current, 4, pattern)
+            XCTAssertEqual(state.best, 4, pattern)
+            XCTAssertEqual(state.freezes, 0, "\(pattern): the one freeze is spent")
+        }
+        XCTAssertEqual(streak("++-", from: monday).current, 2, "the frozen day keeps the streak")
+    }
+
+    /// Table row 3: one freeze in stock; Wednesday spends it, Friday resets.
+    func testMissWithoutAFreezeResets() {
+        let state = streak("++-+-", from: monday)
+        XCTAssertEqual(marks(state, from: monday, days: 5), "MMFMX")
+        XCTAssertEqual(state.current, 0)
+        XCTAssertEqual(state.best, 3, "Thursday's 3 stays the best")
+        XCTAssertEqual(state.freezes, 0)
+        XCTAssertEqual(streak("++-+-+", from: monday).current, 1, "the next day met starts again at 1")
+    }
+
+    /// Starting on a Wednesday, the first week has no freeze; the next
+    /// Monday adds one, which saves a missed Monday. The same miss a day
+    /// earlier, on Sunday, resets.
+    func testMondayAddsAFreeze() {
+        let wednesday = monday.adding(days: 2)
+        let sunday = wednesday.adding(days: 4)
+        let nextMonday = monday.adding(days: 7)
+
+        let endOfWeek = streak("+++++", from: wednesday, today: sunday)
+        XCTAssertEqual(endOfWeek.current, 5)
+        XCTAssertEqual(endOfWeek.freezes, 0, "no Monday yet")
+
+        let mondayOpen = streak("+++++", from: wednesday, today: nextMonday)
+        XCTAssertEqual(mondayOpen.freezes, 1, "Monday's freeze is in stock on Monday")
+        XCTAssertEqual(mondayOpen.mark(on: nextMonday), .open)
+
+        let mondayMissed = streak("+++++-", from: wednesday)
+        XCTAssertEqual(marks(mondayMissed, from: wednesday, days: 7), "MMMMMFO")
+        XCTAssertEqual(mondayMissed.current, 5)
+        XCTAssertEqual(mondayMissed.freezes, 0)
+
+        let sundayMissed = streak("++++-", from: wednesday)
+        XCTAssertEqual(sundayMissed.mark(on: sunday), .missed)
+        XCTAssertEqual(sundayMissed.current, 0)
+    }
+
+    /// First answers on a Wednesday, goal met; Thursday missed: no freeze
+    /// in a first week that starts after Monday, so the streak is 0.
+    func testFirstPartialWeekHasNoFreeze() {
+        let wednesday = monday.adding(days: 2)
+        let state = streak("+-", from: wednesday)
+        XCTAssertEqual(marks(state, from: wednesday, days: 3), "MXO")
+        XCTAssertEqual(state.current, 0)
+        XCTAssertEqual(state.best, 1)
+        XCTAssertEqual(state.freezes, 0)
+
+        let sunday = wednesday.adding(days: 4)
+        let restarted = streak("+-+++", from: wednesday, today: sunday)
+        XCTAssertEqual(marks(restarted, from: wednesday, days: 5), "MXMMM")
+        XCTAssertEqual(restarted.current, 3)
+        XCTAssertEqual(restarted.freezes, 0, "no Monday yet")
+    }
+
+    /// Unused freezes carry over, at most 3: a learner who misses nothing
+    /// holds 1, 2, 3 and 3 at the end of weeks 1 to 4. Then three misses in
+    /// a row are all frozen and the next miss resets.
+    func testFreezesCarryOverUpToThree() {
+        for (week, expected) in [(1, 1), (2, 2), (3, 3), (4, 3)] {
+            let state = streak(String(repeating: "+", count: 7 * week), from: monday,
+                               today: monday.adding(days: 7 * week - 1))
+            XCTAssertEqual(state.freezes, expected, "end of week \(week)")
+            XCTAssertEqual(state.current, 7 * week)
+        }
+        // Three weeks and Monday met; Tuesday to Thursday missed; Friday met;
+        // Saturday missed.
+        let state = streak(String(repeating: "+", count: 22) + "---+-", from: monday)
+        XCTAssertEqual(marks(state, from: monday.adding(days: 21), days: 7), "MFFFMXO")
+        XCTAssertEqual(state.current, 0)
+        XCTAssertEqual(state.best, 23)
+        XCTAssertEqual(state.freezes, 0)
+    }
+
+    /// Table row 4: two freezes in stock (the Monday before, the first day,
+    /// missed at 0, kept its freeze through a week without answers; this
+    /// Monday adds one): both misses frozen → 3.
+    func testTwoMissesInAWeekWithTwoFreezes() {
+        let weekBefore = monday.adding(days: -7)
+        let state = streak("-......++-+-", from: weekBefore)
+        XCTAssertEqual(marks(state, from: weekBefore, days: 13), "XXXXXXXMMFMFO")
+        XCTAssertEqual(state.current, 3)
+        XCTAssertEqual(state.freezes, 0)
+    }
+
+    /// A missed Sunday spends the week's freeze, and Monday's new one saves
+    /// a missed Monday. Saturday and Sunday missed in one week: reset.
+    func testSundayMissThenMondayMiss() {
+        let state = streak("++++++--+", from: monday)
+        XCTAssertEqual(marks(state, from: monday, days: 10), "MMMMMMFFMO")
+        XCTAssertEqual(state.current, 7)
+        XCTAssertEqual(state.freezes, 0)
+
+        let weekend = streak("+++++--", from: monday)
+        XCTAssertEqual(marks(weekend, from: monday, days: 7), "MMMMMFX")
+        XCTAssertEqual(weekend.current, 0)
+        XCTAssertEqual(weekend.best, 5)
+    }
+
+    /// Table row 6: today has 3 of 20: open, not a miss → 3. An open day
+    /// spends no freeze, with some answers or none.
+    func testTodayUnmetIsOpenNotMissed() {
+        let friday = monday.adding(days: 4)
+        var days = counts("+-++", from: monday)
+        days[friday] = 3
+        let state = Streak.compute(counts: days, goals: [:], currentGoal: goal, today: friday)
+        XCTAssertEqual(marks(state, from: monday, days: 5), "MFMMO")
+        XCTAssertEqual(state.current, 3)
+        XCTAssertEqual(state.mark(on: friday.adding(days: 1)), .none, "after today")
+
+        let thursday = monday.adding(days: 3)
+        for todayCount in [nil, 3] {
+            var days = counts("+++", from: monday)
+            days[thursday] = todayCount
+            let open = Streak.compute(counts: days, goals: [:], currentGoal: goal, today: thursday)
+            XCTAssertEqual(open.mark(on: thursday), .open, "\(String(describing: todayCount))")
+            XCTAssertEqual(open.current, 3)
+            XCTAssertEqual(open.freezes, 1, "no freeze is spent on today")
+        }
+    }
+
+    /// Today counts as soon as its goal is met, also right after a reset.
+    func testTodayMetCounts() {
+        let wednesday = monday.adding(days: 2)
+        var days = counts("++", from: monday)
+        days[wednesday] = goal
+        let state = Streak.compute(counts: days, goals: [:], currentGoal: goal, today: wednesday)
+        XCTAssertEqual(state.mark(on: wednesday), .met)
+        XCTAssertEqual(state.current, 3)
+        XCTAssertEqual(state.best, 3)
+
+        let thursday = monday.adding(days: 3)
+        let afterReset = streak("+--+", from: monday, today: thursday)
+        XCTAssertEqual(marks(afterReset, from: monday, days: 4), "MFXM")
+        XCTAssertEqual(afterReset.current, 1)
+        XCTAssertEqual(afterReset.best, 1)
+    }
+
+    /// Table row 5: Monday, the first day ever, missed at 0: the freeze is
+    /// kept → 4, and it saves a later miss.
+    func testFreezeKeptWithoutAStreak() {
+        let state = streak("-++++", from: monday)
+        XCTAssertEqual(marks(state, from: monday, days: 5), "XMMMM")
+        XCTAssertEqual(state.current, 4)
+        XCTAssertEqual(state.freezes, 1)
+        XCTAssertEqual(state.mark(on: monday.adding(days: -1)), .none, "before the first answer")
+
+        let sunday = monday.adding(days: 6)
+        let later = streak("-++++-+", from: monday, today: sunday)
+        XCTAssertEqual(marks(later, from: monday, days: 7), "XMMMMFM")
+        XCTAssertEqual(later.current, 5)
+        XCTAssertEqual(later.freezes, 0, "Saturday spent it; the next Monday's is not in stock yet")
+    }
+
+    /// Ten days without answers after a 5-day streak: one frozen, then 0.
+    /// The Mondays at 0 still add freezes and none is spent: 2 in stock on
+    /// the day the learner comes back.
+    func testLongGapResets() {
+        let state = streak("+++++" + String(repeating: ".", count: 10) + "+", from: monday,
+                           today: monday.adding(days: 15))
+        XCTAssertEqual(marks(state, from: monday, days: 16), "MMMMMFXXXXXXXXXM")
+        XCTAssertEqual(state.current, 1)
+        XCTAssertEqual(state.best, 5)
+        XCTAssertEqual(state.freezes, 2, "the Mondays of 9 and 16 November, unspent at 0")
+    }
+
+    /// Past days use the goal in force when they ended (`learn_day`); a day
+    /// without a row and today use the current goal.
+    func testPastDaysKeepTheirGoal() {
+        let days = (0..<5).map { monday.adding(days: $0) }
+        let counts = [days[0]: 20, days[1]: 25, days[2]: 25, days[3]: 30, days[4]: 15]
+        // Wednesday has no row; today's row (10) is stale: today uses the setting.
+        let goals = [days[0]: 20, days[1]: 10, days[3]: 30, days[4]: 10]
+
+        let state = Streak.compute(counts: counts, goals: goals, currentGoal: 30, today: days[4])
+        XCTAssertEqual(marks(state, from: monday, days: 5), "MMFMO",
+                       "Tuesday met its own 10; Wednesday's 25 misses the current 30; today 15 of 30")
+        XCTAssertEqual(state.current, 3)
+
+        let raised = Streak.compute(counts: counts, goals: goals, currentGoal: 50, today: days[4])
+        XCTAssertEqual(marks(raised, from: monday, days: 5), "MMFMO", "raising the goal leaves past days alone")
+        XCTAssertEqual(raised.current, 3)
+
+        let lowered = Streak.compute(counts: counts, goals: goals, currentGoal: 15, today: days[4])
+        XCTAssertEqual(marks(lowered, from: monday, days: 5), "MMMMM",
+                       "Wednesday without a row and today follow the current 15")
+        XCTAssertEqual(lowered.current, 5)
+    }
+
+    /// Best is the longest run, kept after a reset; no answers, no streak.
+    func testBestStreak() {
+        let state = streak("++++--++", from: monday)
+        XCTAssertEqual(marks(state, from: monday, days: 8), "MMMMFXMM")
+        XCTAssertEqual(state.current, 2)
+        XCTAssertEqual(state.best, 4)
+
+        let longer = streak("++++--+++++", from: monday)
+        XCTAssertEqual(longer.current, 5)
+        XCTAssertEqual(longer.best, 5, "a longer run becomes the best")
+
+        let empty = Streak.compute(counts: [:], goals: [:], currentGoal: goal, today: monday)
+        XCTAssertEqual(empty, StreakState())
+        XCTAssertEqual(empty.mark(on: monday), .none)
+        let zeros = Streak.compute(counts: [monday: 0], goals: [:], currentGoal: goal, today: monday.adding(days: 1))
+        XCTAssertEqual(zeros, StreakState(), "a day with 0 exercises is no first day")
+    }
+
+    /// Weeks are ISO weeks, Monday first, whatever the locale's first
+    /// weekday: days built through `LearningClock` in an en-US calendar
+    /// (Sunday first) and an Arabic one (Saturday first) give the same
+    /// streak. A week from Sunday or Saturday would add a freeze before
+    /// Sunday's miss and end at 5, not 2.
+    func testWeeksStartOnMondayInEveryLocale() throws {
+        for (identifier, firstWeekday, zone) in [("en_US", 1, "America/New_York"), ("ar_EG", 7, "Africa/Cairo")] {
+            var calendar = Calendar(identifier: .gregorian)
+            calendar.locale = Locale(identifier: identifier)
+            calendar.firstWeekday = firstWeekday
+            calendar.timeZone = try XCTUnwrap(TimeZone(identifier: zone))
+            XCTAssertEqual(calendar.firstWeekday, firstWeekday, "precondition: \(identifier)")
+            // Thursday 5 to Tuesday 10 November 2026, at noon local time.
+            let days = try (5...10).map { day -> LearnDay in
+                let date = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 11, day: day, hour: 12)))
+                return LearningClock(now: { date }, calendar: calendar).today
+            }
+            XCTAssertEqual(days.first, LearnDay(year: 2026, month: 11, day: 5), identifier)
+            // Thu, Fri, Sat met; Sunday nothing; Mon met; Tue (today) met.
+            var counts: [LearnDay: Int] = [:]
+            for (day, count) in zip(days, [20, 20, 20, nil, 20, 20]) { counts[day] = count }
+            let state = Streak.compute(counts: counts, goals: [:], currentGoal: goal, today: days[5])
+            XCTAssertEqual(marks(state, from: days[0], days: 6), "MMMXMM", identifier)
+            XCTAssertEqual(state.current, 2, identifier)
+            XCTAssertEqual(state.freezes, 1, "\(identifier): Monday's freeze")
+        }
+        XCTAssertTrue(LearnDay(year: 2026, month: 11, day: 9).isMonday)
+        XCTAssertFalse(LearnDay(year: 2026, month: 11, day: 8).isMonday, "Sunday")
+        XCTAssertFalse(LearnDay(year: 2026, month: 11, day: 7).isMonday, "Saturday")
+        XCTAssertTrue(LearnDay(year: 2024, month: 12, day: 30).isMonday, "a Monday in ISO week 1 of 2025")
+    }
+}
+
+@MainActor
+final class AccuracyTests: XCTestCase {
+    private typealias S = StatsTestStore
+
+    /// Match counts as recognition, accent as right; conjugation rows, other
+    /// languages and days before the window are left out.
+    func testByDirection() async throws {
+        let pure = Accuracy.byDirection([.recognition: Tally(answers: 10, right: 8),
+                                         .production: Tally(answers: 5, right: 2),
+                                         .conjugation: Tally(answers: 7, right: 7)])
+        XCTAssertEqual(pure, DirectionAccuracy(recognition: Tally(answers: 10, right: 8),
+                                               production: Tally(answers: 5, right: 2)))
+        XCTAssertEqual(try XCTUnwrap(pure.production.accuracy), 0.4, accuracy: 1e-9)
+        XCTAssertEqual(pure.production.wrong, 3)
+        XCTAssertNil(Accuracy.byDirection([:]).recognition.accuracy, "no answers, no accuracy")
+
+        let store = try StatsTestStore(for: self)
+        try await store.open()
+        let db = store.db, today = store.today
+        let since = DailySeries.start(today: today)
+        XCTAssertEqual(since, today.adding(days: -29))
+        try await db.learnWord(S.grafoFD, today: today.adding(days: -30))
+        try await db.learnWord(S.spitiFD, today: today.adding(days: -30))
+        try await db.learnWord(S.houseWN, today: today)
+        try await store.insertCard(S.grafo, .conjugation, facet: "aorist.active")
+
+        try await store.answer(S.grafo, .recognition, .wrong, on: today.adding(days: -30))   // before the window
+        try await store.answer(S.spiti, .recognition, .right, on: since)                      // its first day
+        try await store.answer(S.grafo, .recognition, .right)
+        try await store.answer(S.grafo, .recognition, .wrong, exercise: .match, mode: .trainer)
+        try await store.answer(S.spiti, .recognition, .accent, exercise: .match, mode: .trainer)
+        try await store.answer(S.spiti, .production, .accent, exercise: .productionTyped)
+        try await store.answer(S.grafo, .production, .wrong)
+        try await store.answer(S.grafo, .conjugation, .wrong, facet: "aorist.active")
+        try await store.answer(S.house, .recognition, .wrong)
+
+        let greek = try await db.directionAccuracy(since: since, lang: "ell")
+        XCTAssertEqual(greek.recognition, Tally(answers: 4, right: 3), "two match rows included, the accent one right")
+        XCTAssertEqual(greek.production, Tally(answers: 2, right: 1))
+        let todayOnly = try await db.directionAccuracy(since: today, lang: "ell")
+        XCTAssertEqual(todayOnly.recognition, Tally(answers: 3, right: 2))
+        let english = try await db.directionAccuracy(since: since, lang: "eng")
+        XCTAssertEqual(english.recognition, Tally(answers: 1, right: 0))
+        XCTAssertEqual(english.production, Tally())
+        XCTAssertNil(english.production.accuracy)
+        let none = try await db.directionAccuracy(since: since, lang: "spa")
+        XCTAssertEqual(none, DirectionAccuracy())
+    }
+
+    /// `aorist.active` and `aorist.passive` are one group, the tense before
+    /// the dot; word cards, other languages and old rows are left out.
+    func testByTenseFromDrillRows() async throws {
+        XCTAssertEqual(Accuracy.tense(ofFacet: "aorist.active"), "aorist")
+        XCTAssertEqual(Accuracy.tense(ofFacet: "present"), "present", "no dot: the whole facet")
+        XCTAssertEqual(Accuracy.tense(ofFacet: "future.perfect.passive"), "future", "up to the first dot")
+        XCTAssertEqual(Accuracy.tense(ofFacet: ""), "")
+        let pure = Accuracy.byTense(["aorist.active": Tally(answers: 4, right: 3),
+                                     "aorist.passive": Tally(answers: 2, right: 0),
+                                     "present.active": Tally(answers: 5, right: 5),
+                                     "future": Tally(answers: 1, right: 0)])
+        XCTAssertEqual(pure, ["aorist": Tally(answers: 6, right: 3),
+                              "present": Tally(answers: 5, right: 5),
+                              "future": Tally(answers: 1, right: 0)])
+        XCTAssertEqual(Accuracy.byTense([:]), [:])
+
+        let store = try StatsTestStore(for: self)
+        try await store.open()
+        let db = store.db, today = store.today
+        let since = DailySeries.start(today: today)
+        let be = WordKey(lang: "eng", word: "be")
+        try await db.learnWord(S.grafoFD, today: today)
+        for facet in ["aorist.active", "aorist.passive", "present.active"] {
+            try await store.insertCard(S.grafo, .conjugation, facet: facet)
+        }
+        try await store.insertCard(S.eimai, .conjugation, facet: "present.active")
+        try await store.insertCard(be, .conjugation, facet: "past.active")
+
+        try await store.answer(S.grafo, .conjugation, .wrong, on: today.adding(days: -30), facet: "present.active")
+        for outcome: Outcome in [.right, .right, .wrong] {
+            try await store.answer(S.grafo, .conjugation, outcome, facet: "aorist.active")
+        }
+        try await store.answer(S.grafo, .conjugation, .wrong, facet: "aorist.passive")
+        try await store.answer(S.grafo, .conjugation, .accent, facet: "aorist.passive")
+        try await store.answer(S.grafo, .conjugation, .right, facet: "present.active")
+        try await store.answer(S.eimai, .conjugation, .wrong, facet: "present.active")
+        try await store.answer(be, .conjugation, .wrong, facet: "past.active")
+        try await store.answer(S.grafo, .recognition, .wrong)
+
+        let greek = try await db.tenseAccuracy(since: since, lang: "ell")
+        XCTAssertEqual(greek, ["aorist": Tally(answers: 5, right: 3), "present": Tally(answers: 2, right: 1)])
+        let english = try await db.tenseAccuracy(since: since, lang: "eng")
+        XCTAssertEqual(english, ["past": Tally(answers: 1, right: 0)])
+        let none = try await db.tenseAccuracy(since: today.adding(days: 1), lang: "ell")
+        XCTAssertEqual(none, [:], "no drill answers: no tenses, so no block")
+    }
+}
+
+@MainActor
+final class HardestWordsTests: XCTestCase {
+    private typealias S = StatsTestStore
+
+    private func word(_ name: String, wrong: Int, answers: Int, latest: Int64) -> HardWord {
+        HardWord(key: WordKey(lang: "ell", word: name), term: name, translation: "", translationLang: "", entry: nil,
+                 tally: Tally(answers: answers, right: answers - wrong), latestMistake: latest)
+    }
+
+    /// Most mistakes, then lower accuracy, then the latest mistake, then
+    /// the key; words without a mistake are left out.
+    func testOrdering() {
+        let words = [
+            word("α", wrong: 3, answers: 4, latest: 50),
+            word("β", wrong: 3, answers: 6, latest: 200),   // the latest of the three, but 50%
+            word("γ", wrong: 3, answers: 4, latest: 100),   // ties α on 25%: the later mistake first
+            word("δ", wrong: 5, answers: 6, latest: 10),
+            word("ε", wrong: 0, answers: 9, latest: 0),
+            word("ζ", wrong: 1, answers: 1, latest: 300),   // 0%, but one mistake
+        ]
+        let expected = ["δ", "γ", "α", "β", "ζ"]
+        XCTAssertEqual(HardestWords.rank(words, limit: 20).map(\.term), expected)
+        XCTAssertEqual(HardestWords.rank(words.reversed(), limit: 20).map(\.term), expected, "input order does not matter")
+
+        let twins = [word("π", wrong: 2, answers: 3, latest: 7), word("κ", wrong: 2, answers: 3, latest: 7)]
+        XCTAssertEqual(HardestWords.rank(twins, limit: 20).map(\.term), ["κ", "π"], "a full tie goes by the key")
+    }
+
+    /// Rows before `DailySeries.start(today:)` do not count, in the tally
+    /// either; other languages and drill rows are left out; a word keeps its
+    /// text and its language, and opens its entry when it has one.
+    func testOnlyTheLast30Days() async throws {
+        let store = try StatsTestStore(for: self)
+        try await store.open()
+        let db = store.db, today = store.today
+        let since = DailySeries.start(today: today)
+        let kalos = WordKey(lang: "ell", word: "καλός")
+        let thalassa = WordKey(lang: "ell", word: "θάλασσα")
+        try await db.learnWord(S.grafoFD, today: today.adding(days: -40))
+        try await db.learnWord(S.spitiFD, today: today.adding(days: -40))
+        try await db.learnWord(S.houseWN, today: today)
+        try await store.insertWord(kalos, translation: "good", translationLang: "eng")
+        try await store.insertWord(thalassa, translation: "sea", translationLang: "eng")
+        try await store.insertCard(S.grafo, .conjugation, facet: "aorist.active")
+
+        for _ in 0..<4 { try await store.answer(S.grafo, .recognition, .wrong, on: today.adding(days: -30)) }
+        try await store.answer(thalassa, .recognition, .wrong, on: today.adding(days: -31))
+        try await store.answer(S.grafo, .production, .wrong, on: since)
+        try await store.answer(S.spiti, .recognition, .wrong, on: today.adding(days: -10))
+        try await store.answer(S.grafo, .recognition, .right)
+        try await store.answer(S.spiti, .production, .wrong)
+        try await store.answer(S.spiti, .recognition, .right)
+        try await store.answer(kalos, .recognition, .wrong)
+        try await store.answer(kalos, .production, .right)
+        try await store.answer(thalassa, .recognition, .right)
+        for _ in 0..<5 { try await store.answer(S.grafo, .conjugation, .wrong, facet: "aorist.active") }
+        for _ in 0..<3 { try await store.answer(S.house, .recognition, .wrong) }
+
+        let greek = try await db.hardestWords(since: since, lang: "ell")
+        XCTAssertEqual(greek.map(\.term), ["σπίτι", "καλός", "γράφω"],
+                       "2 mistakes; then 1 at 50% each, the latest first; θάλασσα's only mistake is too old")
+        XCTAssertEqual(greek.map(\.tally), [Tally(answers: 3, right: 1), Tally(answers: 2, right: 1),
+                                            Tally(answers: 2, right: 1)],
+                       "γράφω's 4 old mistakes and its 5 drill mistakes are not counted")
+        XCTAssertEqual(greek.map(\.key), [S.spiti, kalos, S.grafo])
+        XCTAssertEqual(greek[0].entry, S.spitiFD)
+        XCTAssertEqual(greek[0].translation, "", "the meaning comes from the entry")
+        XCTAssertEqual(greek[0].translationLang, "")
+        XCTAssertNil(greek[1].entry, "a list word without an entry opens no Definition")
+        XCTAssertEqual(greek[1].translation, "good")
+        XCTAssertEqual(greek[1].translationLang, "eng", "with its language, for #164's meanings language")
+        XCTAssertEqual(greek[2].entry, S.grafoFD)
+        XCTAssertGreaterThan(greek[1].latestMistake, greek[2].latestMistake)
+
+        let english = try await db.hardestWords(since: since, lang: "eng")
+        XCTAssertEqual(english.map(\.key), [S.house])
+        XCTAssertEqual(english.first?.tally, Tally(answers: 3, right: 0))
+        let tomorrow = try await db.hardestWords(since: today.adding(days: 1), lang: "ell")
+        XCTAssertEqual(tomorrow, [])
+    }
+
+    /// At most `HardestWords.wordLimit`: the 20 with the most mistakes.
+    func testAtMost20() async throws {
+        let three = [word("α", wrong: 1, answers: 1, latest: 1), word("β", wrong: 2, answers: 2, latest: 2),
+                     word("γ", wrong: 3, answers: 3, latest: 3)]
+        XCTAssertEqual(HardestWords.rank(three, limit: 20).count, 3, "fewer than the limit: all")
+        XCTAssertEqual(HardestWords.rank(three, limit: 0), [])
+        XCTAssertEqual(HardestWords.rank(three, limit: -1), [], "a negative limit gives none")
+        XCTAssertEqual(HardestWords.wordLimit, 20)
+
+        let store = try StatsTestStore(for: self)
+        try await store.open()
+        let words = (1...25).map { WordKey(lang: "ell", word: String(format: "λέξη%02d", $0)) }
+        for (index, key) in words.enumerated() {
+            try await store.insertWord(key)
+            for _ in 0..<(index < 20 ? 2 : 1) { try await store.answer(key, .recognition, .wrong) }
+        }
+        let hardest = try await store.db.hardestWords(since: DailySeries.start(today: store.today), lang: "ell")
+        XCTAssertEqual(hardest.count, 20)
+        XCTAssertEqual(Set(hardest.map(\.key)), Set(words.prefix(20)), "the five words with one mistake are cut")
+        XCTAssertEqual(hardest.first?.key, words[19], "equal mistakes at 0%: the latest mistake first")
+        XCTAssertEqual(hardest.last?.key, words[0])
+        let five = try await store.db.hardestWords(since: DailySeries.start(today: store.today), lang: "ell", limit: 5)
+        XCTAssertEqual(five.map(\.key), Array(words[15..<20].reversed()))
+    }
+
+    /// `hardestVerbs(since:lang:)` over conjugation rows, by word across
+    /// its facets: word-card mistakes do not count, at most 10.
+    func testHardestVerbs() async throws {
+        let store = try StatsTestStore(for: self)
+        try await store.open()
+        let db = store.db, today = store.today
+        let since = DailySeries.start(today: today)
+        let echo = WordKey(lang: "ell", word: "έχω")
+        try await db.learnWord(S.grafoFD, today: today)
+        for facet in ["aorist.active", "present.active"] { try await store.insertCard(S.grafo, .conjugation, facet: facet) }
+        try await store.insertCard(S.eimai, .conjugation, facet: "present.active")
+        try await store.insertCard(echo, .conjugation, facet: "present.active")
+        try await store.insertCard(S.house, .conjugation, facet: "past.active")
+
+        try await store.answer(echo, .conjugation, .wrong, on: today.adding(days: -30), facet: "present.active")
+        try await store.answer(S.grafo, .conjugation, .wrong, facet: "aorist.active")
+        try await store.answer(S.grafo, .conjugation, .wrong, facet: "present.active")
+        try await store.answer(S.grafo, .conjugation, .right, facet: "present.active")
+        for _ in 0..<2 { try await store.answer(S.eimai, .conjugation, .wrong, facet: "present.active") }
+        try await store.answer(echo, .conjugation, .right, facet: "present.active")
+        for _ in 0..<3 { try await store.answer(S.grafo, .recognition, .wrong) }
+        try await store.answer(S.house, .conjugation, .wrong, facet: "past.active")
+
+        let verbs = try await db.hardestVerbs(since: since, lang: "ell")
+        XCTAssertEqual(verbs.map(\.key), [S.eimai, S.grafo], "2 mistakes each, είμαι at 0% first; έχω's is too old")
+        XCTAssertEqual(verbs.map(\.tally), [Tally(answers: 2, right: 0), Tally(answers: 3, right: 1)],
+                       "both facets of γράφω, none of its 3 word-card mistakes")
+        XCTAssertEqual(verbs[1].entry, S.grafoFD)
+        XCTAssertEqual(verbs[0].term, "είμαι", "a verb without a learn_word row shows its key")
+        XCTAssertNil(verbs[0].entry)
+        XCTAssertEqual(verbs[0].translationLang, "")
+        let english = try await db.hardestVerbs(since: since, lang: "eng")
+        XCTAssertEqual(english.map(\.key), [S.house])
+
+        for index in 1...11 {
+            let verb = WordKey(lang: "ell", word: "ρήμα\(index)")
+            try await store.insertCard(verb, .conjugation, facet: "present.active")
+            try await store.answer(verb, .conjugation, .wrong, facet: "present.active")
+        }
+        let capped = try await db.hardestVerbs(since: since, lang: "ell")
+        XCTAssertEqual(HardestWords.verbLimit, 10)
+        XCTAssertEqual(capped.count, 10)
+        XCTAssertEqual(capped.prefix(2).map(\.key), [S.eimai, S.grafo])
+    }
+}
+
+@MainActor
+final class ListProgressTests: XCTestCase {
+    private typealias S = StatsTestStore
+    private let today = LearningFixture.today
+
+    private func key(_ word: String) -> WordKey { WordKey(lang: "ell", word: word) }
+
+    private func card(_ word: WordKey, _ kind: CardKind, step: Int, due: LearnDay? = nil, answered: Bool = true,
+                      suspended: Bool = false) -> CardState {
+        CardState(key: CardKey(word: word, kind: kind), step: step, dueDay: due ?? today,
+                  lastDay: answered ? today.adding(days: -1) : nil, isSuspended: suspended)
+    }
+
+    private func state(_ word: WordKey, started: LearnDay?, _ cards: [CardState]) -> WordLearningState {
+        WordLearningState(word: LearnWord(key: word, term: word.word, endings: "", partOfSpeech: "", translation: "",
+                                          translationLang: "", entry: nil, listID: "ell-a1", introducedDay: started),
+                          cards: cards)
+    }
+
+    /// Both cards at 30 days.
+    private func learned(_ word: WordKey, started: LearnDay, suspended: Bool = false) -> WordLearningState {
+        state(word, started: started, [card(word, .recognition, step: 5, due: today.adding(days: 20), suspended: suspended),
+                                       card(word, .production, step: 5, due: today.adding(days: 25), suspended: suspended)])
+    }
+
+    /// Recognition on rung 1 due tomorrow (24 + 1), production on rung 0
+    /// due today (25).
+    private func learning(_ word: WordKey, started: LearnDay) -> WordLearningState {
+        state(word, started: started, [card(word, .recognition, step: 1, due: today.adding(days: 1)),
+                                       card(word, .production, step: 0)])
+    }
+
+    /// A paused word and a word enrolled but never answered count as new
+    /// (PM, 2026-11-04: as `WordStatus`); a word twice in a list counts once.
+    func testNewLearningLearned() {
+        let words = ["learned", "learning", "enrolled", "paused", "unknown", "learnedPaused", "halfLearned",
+                     "recognitionOnly"].map(key)
+        let states: [WordKey: WordLearningState] = [
+            words[0]: learned(words[0], started: today.adding(days: -60)),
+            words[1]: learning(words[1], started: today.adding(days: -2)),
+            // Enrolled, never answered: new, as WordStatus says.
+            words[2]: state(words[2], started: nil, [card(words[2], .recognition, step: 0, answered: false),
+                                                     card(words[2], .production, step: 0, answered: false)]),
+            words[3]: state(words[3], started: today.adding(days: -5),
+                            [card(words[3], .recognition, step: 3, suspended: true),
+                             card(words[3], .production, step: 2, suspended: true)]),
+            words[5]: learned(words[5], started: today.adding(days: -90), suspended: true),
+            words[6]: state(words[6], started: today.adding(days: -40),
+                            [card(words[6], .recognition, step: 6), card(words[6], .production, step: 4)]),
+            words[7]: state(words[7], started: today, [card(words[7], .recognition, step: 5)]),
+        ]
+        let items = words + [words[1], words[0]]
+        let progress = ListProgress.of(items: items, states: states)
+        XCTAssertEqual(progress.words, words, "list order, each word once")
+        XCTAssertEqual(progress.total, 8)
+        XCTAssertEqual(progress.learned, 1)
+        XCTAssertEqual(progress.learning, 3, "learning, half learned, one card only")
+        XCTAssertEqual(progress.new, 4, "enrolled, paused, unknown, learned but paused")
+        XCTAssertEqual(progress.learned + progress.learning + progress.new, progress.total)
+        XCTAssertEqual(progress.startedDays, [-90, -60, -40, -5, -2, 0].map { today.adding(days: $0) },
+                       "every started word, paused ones included, oldest first")
+        XCTAssertEqual(ListProgress.stage(of: nil), .new)
+        XCTAssertEqual(ListProgress.stage(of: state(words[4], started: nil, [])), .new, "no cards")
+        let oneAnswered = state(words[4], started: today, [card(words[4], .recognition, step: 1),
+                                                           card(words[4], .production, step: 0, answered: false)])
+        XCTAssertEqual(ListProgress.stage(of: oneAnswered), .learning, "one word card answered")
+        for (word, wordState) in states {
+            XCTAssertEqual(ListProgress.stage(of: wordState) == .new,
+                           WordStatus(wordState).stage == .new || wordState.isPaused, "\(word.word): agrees with WordStatus")
+        }
+
+        let empty = ListProgress.of(items: [], states: states)
+        XCTAssertEqual([empty.total, empty.new, empty.learning, empty.learned], [0, 0, 0, 0])
+    }
+
+    /// The A1 example: 1,458 words, 120 learned (started 100 days ago),
+    /// 300 learning, 1,038 new, 300 started in the last 30 days → pace 10,
+    /// ceil(1,038 ÷ 10) + 25 = 129. Ten days later with nothing started the
+    /// window has slid: 200 in it, so 181.
+    func testForecastFromTheLastThirtyDays() {
+        let words = (0..<1458).map { key(String(format: "a1-%04d", $0)) }
+        var states: [WordKey: WordLearningState] = [:]
+        for (index, word) in words.prefix(120).enumerated() {
+            states[word] = learned(word, started: today.adding(days: -100 - index % 10))
+        }
+        for (index, word) in words.dropFirst(120).prefix(300).enumerated() {
+            states[word] = learning(word, started: today.adding(days: -(index % 30)))
+        }
+        let progress = ListProgress.of(items: words, states: states)
+        XCTAssertEqual([progress.total, progress.learned, progress.learning, progress.new], [1458, 120, 300, 1038])
+        XCTAssertEqual(progress.startedCount(since: DailySeries.start(today: today), through: today), 300,
+                       "the learned words were started before the window")
+        XCTAssertEqual(Forecast.days(progress: progress, states: states, today: today), .days(129))
+
+        let later = today.adding(days: 10)
+        XCTAssertEqual(progress.startedCount(since: DailySeries.start(today: later), through: later), 200)
+        XCTAssertEqual(Forecast.days(progress: progress, states: states, today: later), .days(181),
+                       "ceil(1,038 × 30 ÷ 200) + 25")
+    }
+
+    /// 50 words started over 5 days, today included: pace 10, not 50 ÷ 30.
+    func testForecastWithShortHistory() {
+        let started = (0..<50).map { key("s\($0)") }
+        var states: [WordKey: WordLearningState] = [:]
+        for (index, word) in started.enumerated() {
+            states[word] = learning(word, started: today.adding(days: -(index % 5)))
+        }
+        func forecast(new count: Int, states: [WordKey: WordLearningState], started: [WordKey]) -> Forecast? {
+            let list = started + (0..<count).map { key("n\($0)") }
+            return Forecast.days(progress: ListProgress.of(items: list, states: states), states: states, today: today)
+        }
+        XCTAssertEqual(forecast(new: 100, states: states, started: started), .days(35), "ceil(100 ÷ 10) + 25; ÷ 30 gives 85")
+        XCTAssertEqual(forecast(new: 101, states: states, started: started), .days(36), "the days round up")
+
+        // Ten words, all started today: a window of 1 day.
+        let firstDay = Array(started.prefix(10))
+        var todayOnly: [WordKey: WordLearningState] = [:]
+        for word in firstDay { todayOnly[word] = learning(word, started: today) }
+        XCTAssertEqual(forecast(new: 100, states: todayOnly, started: firstDay), .days(35))
+    }
+
+    /// New words and none started in the window: "Start learning to see a
+    /// forecast", even with learning words started earlier.
+    func testForecastWithoutPace() {
+        let fresh = (0..<10).map { key("n\($0)") }
+        XCTAssertEqual(Forecast.days(progress: ListProgress.of(items: fresh, states: [:]), states: [:], today: today),
+                       .noPace, "nothing started")
+
+        let old = (0..<5).map { key("o\($0)") }
+        var states: [WordKey: WordLearningState] = [:]
+        for (index, word) in old.enumerated() { states[word] = learning(word, started: today.adding(days: -31 - index)) }
+        var progress = ListProgress.of(items: old + fresh, states: states)
+        XCTAssertEqual(progress.learning, 5)
+        XCTAssertEqual(Forecast.days(progress: progress, states: states, today: today), .noPace,
+                       "started 31 days ago or more: no pace")
+
+        // One more word started on the window's first day: pace 1 ÷ 30.
+        let edge = key("edge")
+        states[edge] = learning(edge, started: today.adding(days: -29))
+        progress = ListProgress.of(items: old + fresh + [edge], states: states)
+        XCTAssertEqual(Forecast.days(progress: progress, states: states, today: today), .days(325),
+                       "ceil(10 × 30 ÷ 1) + 25")
+        states[edge] = learning(edge, started: today.adding(days: -30))
+        progress = ListProgress.of(items: old + fresh + [edge], states: states)
+        XCTAssertEqual(Forecast.days(progress: progress, states: states, today: today), .noPace, "a day too old")
+    }
+
+    /// No new words: the learning words' largest days to learned. With new
+    /// words, a slow learning word still bounds the forecast.
+    func testForecastWhenEveryWordIsStarted() {
+        let a = key("a"), b = key("b"), c = key("c")
+        let states = [
+            a: state(a, started: today.adding(days: -20), [card(a, .recognition, step: 1, due: today.adding(days: 2)),
+                                                          card(a, .production, step: 3, due: today.adding(days: 5))]),
+            b: state(b, started: today.adding(days: -3), [card(b, .recognition, step: 0),
+                                                         card(b, .production, step: 5, due: today.adding(days: 30))]),
+            c: learned(c, started: today.adding(days: -80)),
+        ]
+        let progress = ListProgress.of(items: [a, b, c], states: states)
+        XCTAssertEqual([progress.new, progress.learning, progress.learned], [0, 2, 1])
+        XCTAssertEqual(Forecast.days(progress: progress, states: states, today: today), .days(26),
+                       "a: 2 + 24 beats its production's 5 + 14 and b's 25")
+
+        // One word started today, its recognition on rung 1 due in 10 days
+        // (34), and one new word: ceil(1 ÷ 1) + 25 = 26 < 34.
+        let slow = key("slow"), next = key("next")
+        let slowStates = [slow: state(slow, started: today, [card(slow, .recognition, step: 1, due: today.adding(days: 10)),
+                                                             card(slow, .production, step: 1, due: today.adding(days: 1))])]
+        let slowProgress = ListProgress.of(items: [slow, next], states: slowStates)
+        XCTAssertEqual(Forecast.days(progress: slowProgress, states: slowStates, today: today), .days(34))
+    }
+
+    func testAllLearned() {
+        let words = (0..<3).map { key("w\($0)") }
+        var states: [WordKey: WordLearningState] = [:]
+        for word in words { states[word] = learned(word, started: today.adding(days: -60)) }
+        let progress = ListProgress.of(items: words, states: states)
+        XCTAssertEqual([progress.learned, progress.learning, progress.new], [3, 0, 0])
+        XCTAssertEqual(Forecast.days(progress: progress, states: states, today: today), .done)
+    }
+
+    /// An empty list shows no forecast, not "All learned" (PM, 2026-11-04);
+    /// a list with words always has one.
+    func testEmptyListHasNoForecast() {
+        let empty = ListProgress.of(items: [], states: [:])
+        XCTAssertNil(Forecast.days(progress: empty, states: [:], today: today))
+        let one = ListProgress.of(items: [key("w")], states: [:])
+        XCTAssertEqual(Forecast.days(progress: one, states: [:], today: today), .noPace)
+    }
+
+    /// A forecast is at least 1 day: a learning word whose last card is on
+    /// rung 4, due or overdue, needs 0 more days and shows "~1 day"
+    /// (PM, 2026-11-04).
+    func testForecastIsAtLeastOneDay() {
+        let a = key("a"), b = key("b")
+        let states = [
+            a: state(a, started: today.adding(days: -40), [card(a, .recognition, step: 4, due: today),
+                                                          card(a, .production, step: 5, due: today.adding(days: 20))]),
+            b: state(b, started: today.adding(days: -45), [card(b, .recognition, step: 4, due: today.adding(days: -3)),
+                                                          card(b, .production, step: 6, due: today.adding(days: 60))]),
+        ]
+        XCTAssertEqual(states.values.flatMap(\.wordCards).map { Forecast.daysToLearned($0, today: today) }.max(), 0,
+                       "precondition: no card needs another day")
+        let progress = ListProgress.of(items: [a, b], states: states)
+        XCTAssertEqual([progress.new, progress.learning, progress.learned], [0, 2, 0])
+        XCTAssertEqual(Forecast.days(progress: progress, states: states, today: today), .days(1))
+
+        // Due in 2 days: 2, unchanged by the floor.
+        let later = [a: state(a, started: today.adding(days: -40), [card(a, .recognition, step: 4, due: today.adding(days: 2)),
+                                                                   card(a, .production, step: 5, due: today.adding(days: 20))])]
+        XCTAssertEqual(Forecast.days(progress: ListProgress.of(items: [a], states: later), states: later, today: today), .days(2))
+    }
+
+    /// 25 on rung 0, 24, 21, 14, then 0 on rung 4, plus the days until due;
+    /// overdue adds nothing; a learned card needs 0.
+    func testDaysToLearnedPerRung() {
+        XCTAssertEqual(Forecast.newWordDays, 25, "1 + 3 + 7 + 14")
+        let word = key("w")
+        func days(step: Int, due offset: Int) -> Int {
+            Forecast.daysToLearned(card(word, .recognition, step: step, due: today.adding(days: offset)), today: today)
+        }
+        XCTAssertEqual((0...6).map { days(step: $0, due: 0) }, [25, 24, 21, 14, 0, 0, 0])
+        XCTAssertEqual((0...6).map { days(step: $0, due: 3) }, [28, 27, 24, 17, 3, 0, 0])
+        XCTAssertEqual((0...6).map { days(step: $0, due: -5) }, [25, 24, 21, 14, 0, 0, 0], "overdue is due now")
+    }
+
+    /// #154: a fake E3 list whose keys are cards in every state, a word
+    /// without an entry among them, over `wordStates(lang:)`.
+    func testProgressOverE3Keys() async throws {
+        let store = try StatsTestStore(for: self)
+        try await store.open()
+        let db = store.db
+        let kalos = key("καλός")
+        try await db.learnWord(S.grafoFD, today: today.adding(days: -60))
+        try await store.answer(S.grafo, .recognition, on: today.adding(days: -60))
+        try await store.answer(S.grafo, .production, on: today.adding(days: -60))
+        try await store.execute("UPDATE learn_card SET step = 5, due_day = ? WHERE word = ?",
+                                [today.adding(days: 20).rawValue, S.grafo.word])
+        try await store.insertCard(S.grafo, .conjugation, facet: "aorist.active")
+        try await db.learnWord(S.spitiFD, today: today)
+        try await store.answer(S.spiti, .recognition)
+        try await db.learnWord(S.eimaiFD, today: today.adding(days: -3))
+        try await store.answer(S.eimai, .recognition, on: today.adding(days: -3))
+        try await db.stopLearning(S.eimaiFD)
+        try await store.insertWord(kalos, translation: "good")
+        try await store.answer(kalos, .recognition, on: today.adding(days: -1))
+        try await db.learnWord(S.houseWN, today: today)
+        try await store.answer(S.house, .recognition)
+
+        let states = try await db.wordStates(lang: "ell")
+        XCTAssertEqual(Set(states.keys), [S.grafo, S.spiti, S.eimai, kalos], "Greek words in learning, paused included")
+        XCTAssertEqual(states[S.grafo]?.cards.map(\.key.kind), [.recognition, .production], "word cards only")
+        XCTAssertNil(states[kalos]?.word.entry)
+        XCTAssertEqual(states[kalos]?.word.translation, "good")
+        XCTAssertEqual(states[S.eimai]?.isPaused, true)
+
+        let list = [S.grafo, S.spiti, S.nero, S.eimai, kalos, S.spiti]
+        let progress = ListProgress.of(items: list, states: states)
+        XCTAssertEqual(progress.words, [S.grafo, S.spiti, S.nero, S.eimai, kalos])
+        XCTAssertEqual(progress.learned, 1, "γράφω")
+        XCTAssertEqual(progress.learning, 2, "σπίτι and καλός")
+        XCTAssertEqual(progress.new, 2, "νερό, not in learning, and είμαι, paused")
+        XCTAssertEqual(progress.startedDays, [-60, -3, -1, 0].map { today.adding(days: $0) })
+        XCTAssertEqual(Forecast.days(progress: progress, states: states, today: today), .days(45),
+                       "3 started in the window, the first 60 days ago: ceil(2 × 30 ÷ 3) + 25")
+    }
+
+    /// My words keeps only its keys of the chosen language: the keys come
+    /// from `wordKey(for:)`, the states from `wordStates(lang:)`.
+    func testMyWordsPerLanguage() async throws {
+        let store = try StatsTestStore(for: self)
+        try await store.open()
+        let db = store.db
+        for entry in [S.grafoFD, S.spitiFD, S.houseWN, S.waterWN] { try await db.learnWord(entry, today: today) }
+        try await db.addToMyWords(S.neroFD)
+
+        var keys: [WordKey] = []
+        for entry in try await db.fetchMyWords() { keys.append(try await db.wordKey(for: EntryKey(entry))) }
+        XCTAssertEqual(Set(keys), [S.grafo, S.spiti, S.nero, S.house, S.water])
+        let greekKeys = keys.filter { $0.lang == "ell" }, englishKeys = keys.filter { $0.lang == "eng" }
+
+        // Enrolled, nothing answered: every word is new and there is no
+        // pace, so no "~25 days" (PM, 2026-11-04).
+        var greekStates = try await db.wordStates(lang: "ell")
+        var greek = ListProgress.of(items: greekKeys, states: greekStates)
+        XCTAssertEqual([greek.learned, greek.learning, greek.new], [0, 0, 3])
+        XCTAssertEqual(Forecast.days(progress: greek, states: greekStates, today: today), .noPace)
+
+        try await store.answer(S.grafo, .recognition)
+        try await store.answer(S.house, .recognition)
+
+        greekStates = try await db.wordStates(lang: "ell")
+        XCTAssertFalse(greekStates.keys.contains { $0.lang != "ell" })
+        greek = ListProgress.of(items: greekKeys, states: greekStates)
+        XCTAssertEqual(Set(greek.words), [S.grafo, S.spiti, S.nero])
+        XCTAssertEqual([greek.learned, greek.learning, greek.new], [0, 1, 2],
+                       "γράφω answered; σπίτι enrolled, not answered; νερό in My words without cards")
+        XCTAssertEqual(Forecast.days(progress: greek, states: greekStates, today: today), .days(27),
+                       "1 started today: ceil(2 ÷ 1) + 25")
+
+        let englishStates = try await db.wordStates(lang: "eng")
+        let english = ListProgress.of(items: englishKeys, states: englishStates)
+        XCTAssertEqual(Set(english.words), [S.house, S.water])
+        XCTAssertEqual([english.learned, english.learning, english.new], [0, 1, 1])
+        XCTAssertEqual(english.startedDays, [today])
+    }
+}
+
+/// The statistics queries on a temp user database.
+@MainActor
+final class LearningStatsStoreTests: XCTestCase {
+    private typealias S = StatsTestStore
+
+    /// Answers through `recordAnswer`, a match round and a drill question
+    /// included, then Today: the chosen language's summary and the day's
+    /// count of every language equal the log.
+    func testTodayMatchesTheLog() async throws {
+        let store = try StatsTestStore(for: self)
+        try await store.open()
+        let db = store.db, today = store.today
+        let yesterday = today.adding(days: -1)
+        for entry in [S.grafoFD, S.spitiFD, S.houseWN] { try await db.learnWord(entry, today: yesterday) }
+        try await store.insertCard(S.grafo, .conjugation, facet: "aorist.active")
+
+        try await store.answer(S.spiti, .recognition, .right, on: yesterday, durationMs: 5_000)
+        try await store.answer(S.grafo, .recognition, .right, durationMs: 2_000)
+        try await store.answer(S.grafo, .production, .accent, exercise: .productionTyped, durationMs: 75_000)
+        try await store.answer(S.spiti, .production, .wrong, durationMs: 4_000)
+        try await store.answer(S.spiti, .recognition, .right, exercise: .match, mode: .trainer, durationMs: 1_500)
+        try await store.answer(S.grafo, .conjugation, .wrong, facet: "aorist.active", durationMs: 3_000)
+        try await store.answer(S.house, .recognition, .right, durationMs: 1_000)
+
+        let greekRows = try await db.reviewRows(day: today, lang: "ell")
+        XCTAssertEqual(greekRows.map(\.kind), [.recognition, .production, .production, .recognition, .conjugation],
+                       "in answer order")
+        let logged = try await store.count("SELECT COUNT(*) FROM learn_review WHERE day = '2026-11-04' AND lang = 'ell'")
+        XCTAssertEqual(greekRows.count, logged)
+        let greek = ReviewSummary.of(greekRows)
+        XCTAssertEqual(greek.exercises, 5)
+        XCTAssertEqual(greek.right, 3, "the accent answer counts as right")
+        XCTAssertEqual(greek.newWords, 1, "γράφω; σπίτι was new yesterday")
+        XCTAssertEqual(greek.reviewedWords, 1, "σπίτι, started yesterday; γράφω, started today, is new only")
+        XCTAssertEqual(greek.timeMs, 2_000 + 60_000 + 4_000 + 1_500 + 3_000)
+        let english = ReviewSummary.of(try await db.reviewRows(day: today, lang: "eng"))
+        XCTAssertEqual(english, ReviewSummary(exercises: 1, right: 1, newWords: 1, reviewedWords: 0, timeMs: 1_000))
+
+        let counts = try await db.dayCounts()
+        XCTAssertEqual(Set(counts.keys), [yesterday, today])
+        XCTAssertEqual(counts[today], DayCount(exercises: 6, right: 4, timeMs: 71_500, newWords: 2))
+        XCTAssertEqual(counts[yesterday], DayCount(exercises: 1, right: 1, timeMs: 5_000, newWords: 1))
+        XCTAssertEqual(counts[today], DayCount(exercises: greek.exercises + english.exercises,
+                                               right: greek.right + english.right,
+                                               timeMs: greek.timeMs + english.timeMs,
+                                               newWords: greek.newWords + english.newWords),
+                       "the day is its languages together")
+        let chart = DailySeries.last30(counts.mapValues(\.exercises), today: today)
+        XCTAssertEqual(chart.suffix(3).map(\.exercises), [0, 1, 6])
+        let answered = try await db.answeredCount(on: today)
+        XCTAssertEqual(answered, 6, "the reminder's count agrees")
+    }
+
+    /// One run's summary equals Today while it is the day's only run; a
+    /// second run adds to Today only; a run past 4 AM keeps its rows.
+    func testRunSummaryAndTodayAgree() async throws {
+        let store = try StatsTestStore(for: self)
+        try await store.open()
+        let db = store.db, today = store.today
+        for entry in [S.grafoFD, S.spitiFD, S.neroFD] { try await db.learnWord(entry, today: today) }
+        let session = UUID(), trainer = UUID()
+        try await store.answer(S.grafo, .recognition, .right, run: session, durationMs: 2_000)
+        try await store.answer(S.grafo, .production, .wrong, run: session, durationMs: 3_000)
+        try await store.answer(S.spiti, .recognition, .accent, run: session, durationMs: 1_000)
+
+        let sessionRows = try await db.reviewRows(run: session)
+        let todayRows = try await db.reviewRows(day: today, lang: "ell")
+        XCTAssertEqual(sessionRows, todayRows, "one run so far: the same rows")
+        let sessionSummary = ReviewSummary.of(sessionRows)
+        XCTAssertEqual(sessionSummary, ReviewSummary.of(todayRows))
+        XCTAssertEqual(sessionSummary, ReviewSummary(exercises: 3, right: 2, newWords: 2, reviewedWords: 0, timeMs: 6_000),
+                       "γράφω's production answer: started in this run, so new only")
+
+        try await store.answer(S.nero, .recognition, .wrong, mode: .trainer, run: trainer, durationMs: 4_000)
+        try await store.answer(S.grafo, .recognition, .right, mode: .trainer, run: trainer, durationMs: 500)
+        let sessionAgain = ReviewSummary.of(try await db.reviewRows(run: session))
+        XCTAssertEqual(sessionAgain, sessionSummary, "a later run leaves the session's summary alone")
+        let trainerSummary = ReviewSummary.of(try await db.reviewRows(run: trainer))
+        XCTAssertEqual(trainerSummary.newWords, 1, "νερό")
+        XCTAssertEqual(trainerSummary.reviewedWords, 1, "within the trainer's own rows, γράφω (started in the session) is a review")
+        let todaySummary = ReviewSummary.of(try await db.reviewRows(day: today, lang: "ell"))
+        XCTAssertEqual(todaySummary.exercises, sessionSummary.exercises + trainerSummary.exercises)
+        XCTAssertEqual(todaySummary.right, sessionSummary.right + trainerSummary.right)
+        XCTAssertEqual(todaySummary.newWords, sessionSummary.newWords + trainerSummary.newWords)
+        XCTAssertEqual(todaySummary.timeMs, sessionSummary.timeMs + trainerSummary.timeMs)
+        XCTAssertEqual(todaySummary.reviewedWords, 0, "every word was started today: new, never also reviewed")
+
+        try await store.answer(S.spiti, .production, .right, on: today.adding(days: 1), run: session)
+        let acrossDays = try await db.reviewRows(run: session)
+        XCTAssertEqual(acrossDays.count, 4, "the run's answer after 4 AM stays in its summary")
+        let todayAfter = try await db.reviewRows(day: today, lang: "ell")
+        XCTAssertEqual(todayAfter.count, 5)
+        let unknown = try await db.reviewRows(run: UUID())
+        XCTAssertEqual(unknown, [])
+        XCTAssertEqual(ReviewSummary.of(unknown), ReviewSummary())
+    }
+
+    /// `setGoal` upserts today's row; past rows stay; a later answer today
+    /// keeps the goal set.
+    func testGoalChangeUpsertsToday() async throws {
+        let store = try StatsTestStore(for: self)
+        try await store.open()
+        let db = store.db, today = store.today
+        let yesterday = today.adding(days: -1)
+        try await db.setGoal(15, today: yesterday)
+        try await db.setGoal(30, today: today)
+        var goals = try await db.learnDayGoals()
+        XCTAssertEqual(goals, [yesterday: 15, today: 30])
+
+        try await db.setGoal(25, today: today)
+        goals = try await db.learnDayGoals()
+        XCTAssertEqual(goals, [yesterday: 15, today: 25], "the last goal set today wins; yesterday keeps its own")
+        let rows = try await store.rows("SELECT day, goal FROM learn_day ORDER BY day")
+        XCTAssertEqual(rows, ["2026-11-03|15", "2026-11-04|25"], "one row per day")
+
+        try await db.learnWord(S.grafoFD, today: today)
+        try await store.answer(S.grafo, goal: 40)
+        goals = try await db.learnDayGoals()
+        XCTAssertEqual(goals[today], 25, "an answer does not overwrite the goal set today")
+    }
+
+    /// The first answer of a day writes its goal; later answers keep it.
+    /// The write is in the answer's transaction.
+    func testFirstAnswerRecordsTheDaysGoal() async throws {
+        let store = try StatsTestStore(for: self)
+        try await store.open()
+        let db = store.db, today = store.today
+        let tomorrow = today.adding(days: 1), dayAfter = today.adding(days: 2)
+        try await db.learnWord(S.grafoFD, today: today)
+        try await db.learnWord(S.spitiFD, today: today)
+        var goals = try await db.learnDayGoals()
+        XCTAssertEqual(goals, [:], "no answers, no row")
+
+        try await store.answer(S.grafo, goal: 20)
+        try await store.answer(S.spiti, goal: 50)
+        try await store.answer(S.grafo, .production, on: tomorrow, goal: 50)
+        goals = try await db.learnDayGoals()
+        XCTAssertEqual(goals, [today: 20, tomorrow: 50], "the goal of each day's first answer")
+
+        try await store.execute("""
+            CREATE TRIGGER qa_goal_fails BEFORE INSERT ON learn_day
+            BEGIN SELECT RAISE(ABORT, 'qa: the goal write fails'); END
+            """)
+        do {
+            try await store.answer(S.spiti, .production, on: dayAfter, goal: 60)
+            XCTFail("the goal write fails, so recordAnswer throws")
+        } catch let error as DatabaseError {
+            XCTAssertEqual(error.resultCode, .SQLITE_CONSTRAINT, "\(error)")
+        }
+        let logged = try await store.count("SELECT COUNT(*) FROM learn_review WHERE day = '\(dayAfter.rawValue)'")
+        XCTAssertEqual(logged, 0, "the log row rolled back")
+        let spiti = try await db.learningState(of: S.spiti)
+        let production = try XCTUnwrap(spiti?.cards.first { $0.key.kind == .production })
+        XCTAssertEqual(production.step, 0, "the card update rolled back")
+        XCTAssertNil(production.lastDay)
+        goals = try await db.learnDayGoals()
+        XCTAssertEqual(goals, [today: 20, tomorrow: 50])
+    }
+
+    /// A Greek and an English answer: the day counts 2, for the goal and the
+    /// streak; each language's Today counts its own.
+    func testEveryLanguageCountsTowardTheGoal() async throws {
+        let store = try StatsTestStore(for: self)
+        try await store.open()
+        let db = store.db, today = store.today
+        try await db.learnWord(S.grafoFD, today: today)
+        try await db.learnWord(S.houseWN, today: today)
+        try await store.answer(S.grafo, goal: 2)
+        try await store.answer(S.house, goal: 2)
+
+        let counts = try await db.dayCounts()
+        XCTAssertEqual(counts[today]?.exercises, 2)
+        let goals = try await db.learnDayGoals()
+        let streak = Streak.compute(counts: counts.mapValues(\.exercises), goals: goals, currentGoal: 2, today: today)
+        XCTAssertEqual(streak.mark(on: today), .met)
+        XCTAssertEqual(streak.current, 1)
+        let greek = try await db.reviewRows(day: today, lang: "ell")
+        let english = try await db.reviewRows(day: today, lang: "eng")
+        XCTAssertEqual(greek.map(\.word), [S.grafo])
+        XCTAssertEqual(english.map(\.word), [S.house])
+    }
+
+    /// Every answer on the word's cards counts: wrong 2 times in 10 gives
+    /// 2 mistakes at 80%, and its latest mistake is its last wrong answer,
+    /// not its last answer.
+    func testHardestWordsCountEveryAnswer() async throws {
+        let store = try StatsTestStore(for: self)
+        try await store.open()
+        let db = store.db, today = store.today
+        try await db.learnWord(S.grafoFD, today: today)
+        let outcomes: [Outcome] = [.right, .wrong, .right, .accent, .right, .wrong, .right, .right, .right, .right]
+        for (index, outcome) in outcomes.enumerated() {
+            try await store.answer(S.grafo, index.isMultiple(of: 2) ? .recognition : .production, outcome)
+        }
+
+        let hardest = try await db.hardestWords(since: DailySeries.start(today: today), lang: "ell")
+        let grafo = try XCTUnwrap(hardest.first)
+        XCTAssertEqual(hardest.map(\.key), [S.grafo])
+        XCTAssertEqual(grafo.tally, Tally(answers: 10, right: 8))
+        XCTAssertEqual(grafo.tally.wrong, 2)
+        XCTAssertEqual(grafo.tally.accuracy, 0.8)
+        let lastWrong = try await store.count("SELECT MAX(id) FROM learn_review WHERE outcome = 'wrong'")
+        let last = try await store.count("SELECT MAX(id) FROM learn_review")
+        XCTAssertEqual(grafo.latestMistake, Int64(lastWrong))
+        XCTAssertLessThan(lastWrong, last, "precondition: right answers came after the last mistake")
+    }
+
+    /// #165: wrong answers on the word's two cards, ever; not drill rows,
+    /// other words or other languages.
+    func testErrorCountForAWord() async throws {
+        let store = try StatsTestStore(for: self)
+        try await store.open()
+        let db = store.db, today = store.today
+        try await db.learnWord(S.grafoFD, today: today.adding(days: -60))
+        try await db.learnWord(S.spitiFD, today: today)
+        try await db.learnWord(S.houseWN, today: today)
+        try await store.insertCard(S.grafo, .conjugation, facet: "aorist.active")
+
+        try await store.answer(S.grafo, .recognition, .wrong, on: today.adding(days: -60))
+        try await store.answer(S.grafo, .production, .wrong, on: today.adding(days: -10))
+        try await store.answer(S.grafo, .recognition, .right)
+        try await store.answer(S.grafo, .production, .accent)
+        for _ in 0..<2 { try await store.answer(S.grafo, .conjugation, .wrong, facet: "aorist.active") }
+        try await store.answer(S.spiti, .recognition, .wrong)
+        try await store.answer(S.house, .production, .wrong)
+
+        let grafo = try await db.errorCount(lang: "ell", word: "γράφω")
+        XCTAssertEqual(grafo, 2, "60 days ago counts too; drill mistakes do not")
+        let spiti = try await db.errorCount(lang: "ell", word: "σπίτι")
+        XCTAssertEqual(spiti, 1)
+        let house = try await db.errorCount(lang: "eng", word: "House")
+        XCTAssertEqual(house, 1, "the word goes through WordKey: A–Z lowercased")
+        let nero = try await db.errorCount(lang: "ell", word: "νερό")
+        XCTAssertEqual(nero, 0, "not in learning")
+        let otherLanguage = try await db.errorCount(lang: "eng", word: "γράφω")
+        XCTAssertEqual(otherLanguage, 0)
+    }
+
+    /// A day starts at 4 AM local time: answers at 23:30 and 03:59 count
+    /// for the same day, 04:00 for the next, in the counts, the goal rows
+    /// and the streak.
+    func testAnswersBeforeFourAMCountForTheDayBefore() async throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try XCTUnwrap(TimeZone(identifier: "Europe/Athens"))
+        func day(_ day: Int, _ hour: Int, _ minute: Int) throws -> LearnDay {
+            let date = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 11, day: day,
+                                                                         hour: hour, minute: minute)))
+            return LearningClock(now: { date }, calendar: calendar).today
+        }
+        let late = try day(3, 23, 30), night = try day(4, 3, 59), morning = try day(4, 4, 0)
+        let tuesday = LearnDay(year: 2026, month: 11, day: 3), wednesday = LearnDay(year: 2026, month: 11, day: 4)
+        XCTAssertEqual([late, night, morning], [tuesday, tuesday, wednesday])
+
+        let store = try StatsTestStore(for: self)
+        try await store.open()
+        let db = store.db
+        try await db.learnWord(S.grafoFD, today: tuesday)
+        try await db.learnWord(S.spitiFD, today: tuesday)
+        try await store.answer(S.grafo, on: late, goal: 2)
+        try await store.answer(S.spiti, on: night, goal: 2)
+        try await store.answer(S.grafo, .production, on: morning, goal: 2)
+
+        let counts = try await db.dayCounts()
+        XCTAssertEqual(counts.mapValues(\.exercises), [tuesday: 2, wednesday: 1])
+        let goals = try await db.learnDayGoals()
+        XCTAssertEqual(goals, [tuesday: 2, wednesday: 2])
+        let streak = Streak.compute(counts: counts.mapValues(\.exercises), goals: goals, currentGoal: 2, today: morning)
+        XCTAssertEqual(streak.mark(on: tuesday), .met, "the 03:59 answer completed Tuesday's goal")
+        XCTAssertEqual(streak.mark(on: wednesday), .open)
+        XCTAssertEqual(streak.current, 1)
+    }
+
+    /// A user database from #157 (131-1-learning) gets an empty
+    /// `learn_day`: its log stays, and its days use the current goal.
+    func testUpgradeKeepsTheLogWithoutGoals() async throws {
+        let store = try StatsTestStore(for: self)
+        let queue = try DatabaseQueue(path: store.userPath)
+        try DatabaseService.migrator.migrate(queue, upTo: "131-1-learning")
+        try await queue.write { conn in
+            try conn.execute(sql: """
+                INSERT INTO learn_review(day, lang, word, kind, exercise, mode, run_id, outcome,
+                                         step_before, step_after, introduced)
+                VALUES ('2026-11-02', 'ell', 'γράφω', 'recognition', 'recognition', 'session', 'r1', 'right', 0, 1, 1),
+                       ('2026-11-02', 'ell', 'γράφω', 'production', 'production_choice', 'session', 'r1', 'wrong', 0, 0, 0),
+                       ('2026-11-03', 'ell', 'γράφω', 'production', 'production_choice', 'session', 'r2', 'right', 0, 1, 0)
+                """)
+        }
+        let before = try await queue.read { try String.fetchAll($0, sql: "SELECT name FROM sqlite_master WHERE name = 'learn_day'") }
+        XCTAssertEqual(before, [], "precondition: no learn_day at 131-1-learning")
+        try queue.close()
+
+        try await store.open()
+        let migrations = try await store.rows("SELECT identifier FROM grdb_migrations ORDER BY identifier")
+        XCTAssertEqual(migrations.last, "166-1-daily-goal")
+        let goals = try await store.db.learnDayGoals()
+        XCTAssertEqual(goals, [:], "no backfill")
+        let counts = try await store.db.dayCounts()
+        let monday = LearnDay(year: 2026, month: 11, day: 2), tuesday = LearnDay(year: 2026, month: 11, day: 3)
+        XCTAssertEqual(counts[monday], DayCount(exercises: 2, right: 1, timeMs: 0, newWords: 1))
+        XCTAssertEqual(counts[tuesday], DayCount(exercises: 1, right: 1, timeMs: 0, newWords: 0))
+        let streak = Streak.compute(counts: counts.mapValues(\.exercises), goals: goals, currentGoal: 2,
+                                    today: store.today)
+        XCTAssertEqual(streak.mark(on: monday), .met, "2 of the current goal 2")
+        XCTAssertEqual(streak.mark(on: tuesday), .frozen, "1 of 2: Monday's freeze")
+        XCTAssertEqual(streak.current, 1)
     }
 }
