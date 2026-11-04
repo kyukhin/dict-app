@@ -20,8 +20,8 @@ struct TestData {
         "book": "written"
     ]
 
-    // Test data for bookmark and history flows
-    static let bookmarkTestWords = ["apple", "test"]
+    // Test data for the My words (Learn) and history flows
+    static let learnTestWords = ["apple", "test"]
     static let historyTestWords = ["example", "word", "book"]
 
     /// Issue #92 — language-pair keys as rendered on the Dictionary Order

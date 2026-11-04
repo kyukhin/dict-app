@@ -1,56 +1,283 @@
-// BookmarksView.swift
+// LearnView.swift
+// The Learn tab (0131-learning.md, #158): the pair picker while no
+// language is learned, else the Learn home; the interim My words list.
+// Later tickets add their sections to the home.
 
 import SwiftUI
 
-struct BookmarksView: View {
-    @StateObject private var vm = BookmarksViewModel()
+struct LearnView: View {
+    @StateObject private var vm = LearnViewModel()
+    @Environment(\.locale) private var locale
+
+    /// The screens the home pushes.
+    enum Route: Hashable {
+        case myWords
+    }
 
     var body: some View {
         NavigationStack {
             Group {
-                if vm.entries.isEmpty {
-                    ContentUnavailableView(
-                        "bookmarks.empty.title",
-                        systemImage: "bookmark",
-                        description: Text("bookmarks.empty.description")
-                    )
-                } else {
-                    List {
-                        ForEach(vm.entries) { entry in
-                            NavigationLink(value: entry) {
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Text(entry.word)
-                                        .font(.headline)
-                                    Text(strippedSnippet(entry.definition))
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                        .lineLimit(1)
-                                }
-                            }
-                        }
-                        .onDelete { offsets in
-                            let removed = offsets.map { vm.entries[$0] }
-                            Task {
-                                for entry in removed {
-                                    await vm.remove(entry)
-                                }
-                            }
-                        }
+                if !vm.isLoaded {
+                    ProgressView()
+                } else if vm.learned.isEmpty {
+                    LanguagePickerView(pairs: vm.pickerRows, withLists: vm.languagesWithLists,
+                                       downloadSizes: vm.downloadSizes) { pair in
+                        Task { await vm.choose(pair, locale: locale) }
                     }
-                    .accessibilityIdentifier("bookmarks_list")
+                } else {
+                    home
                 }
             }
-            .navigationTitle("bookmarks.title")
+            .navigationTitle("learn.title")
+            .navigationDestination(for: Route.self) { route in
+                switch route {
+                case .myWords: MyWordsView()
+                }
+            }
             .navigationDestination(for: DictionaryEntry.self) { entry in
                 DefinitionView(entry: entry)
             }
             .task {
-                await vm.load()
+                await vm.load(locale: locale)
             }
         }
     }
 
-    private func strippedSnippet(_ text: String) -> String {
+    private var home: some View {
+        List {
+            if vm.learned.count > 1, let language = vm.language {
+                Section {
+                    LearningLanguagePicker(languages: vm.learned, selection: Binding(
+                        get: { language },
+                        set: { lang in Task { await vm.select(lang) } }
+                    ))
+                }
+            }
+            Section("learn.today") {
+                // #164 adds the daily goal ring and the streak here, #161 Start.
+                today
+            }
+            // #161 adds Practise mistakes, #159 and #160 the Trainers, E3 #154 the Lists.
+            Section {
+                NavigationLink(value: Route.myWords) {
+                    LabeledContent("learn.myWords") {
+                        Text(vm.myWordsCount, format: .number)
+                    }
+                }
+                .accessibilityIdentifier("learn_my_words_row")
+            }
+            // #164 adds Statistics.
+        }
+        .accessibilityIdentifier("learn_view")
+    }
+
+    @ViewBuilder
+    private var today: some View {
+        switch vm.today {
+        case let .counts(due, newLeft)?:
+            // "12 words due · 6 new words left today", on two lines when narrow.
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 6) {
+                    dueText(due)
+                    Text(verbatim: "·")
+                        .foregroundStyle(.secondary)
+                        .accessibilityHidden(true)
+                    newText(newLeft)
+                }
+                VStack(alignment: .leading, spacing: 4) {
+                    dueText(due)
+                    newText(newLeft)
+                }
+            }
+        case .allDone?:
+            Text("learn.allDone")
+                .accessibilityIdentifier("learn_all_done")
+        case .chooseLists?:
+            // E3 #154 adds the "Choose lists" button.
+            Text("learn.empty.withLists")
+        case .addWords?:
+            // ponytail: opens E3's Import in #155
+            Button("learn.importList") {}
+                .disabled(true)
+                .accessibilityIdentifier("learn_import_list")
+            Text("learn.addWordsHint")
+                .foregroundStyle(.secondary)
+                .accessibilityIdentifier("learn_add_words_hint")
+        case nil:
+            ProgressView()
+        }
+    }
+
+    private func dueText(_ count: Int) -> some View {
+        Text("learn.today.due \(count)")
+            .accessibilityIdentifier("learn_due_count")
+    }
+
+    private func newText(_ count: Int) -> some View {
+        Text("learn.today.newLeft \(count)")
+            .accessibilityIdentifier("learn_new_count")
+    }
+}
+
+// MARK: - Language picker
+
+/// "Which language do you want to learn?" (0131, Languages and pairs): a
+/// row per pair, "Greek via English", the pairs of languages with built-in
+/// lists first, captioned "With word lists", then the others. Under a row,
+/// a limited pair's warning and the size still to download. The Learn tab
+/// shows it while no language is learned; #162 pushes it from "Add a
+/// language".
+struct LanguagePickerView: View {
+    /// In order: `LearningPairs.pickerRows`.
+    let pairs: [LearningPair]
+    let withLists: Set<String>
+    /// Bytes to download per pair; 0 or absent: no size line.
+    let downloadSizes: [LearningPair: Int64]
+    let onChoose: (LearningPair) -> Void
+    @Environment(\.locale) private var locale
+
+    var body: some View {
+        let listed = pairs.filter { withLists.contains($0.lang) }
+        let others = pairs.filter { !withLists.contains($0.lang) }
+        List {
+            Section {
+                ForEach(listed.isEmpty ? others : listed, id: \.self) { row($0) }
+            } header: {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("learn.picker.title")
+                        .font(.title3.bold())
+                        .foregroundStyle(.primary)
+                        .textCase(nil)
+                        .accessibilityAddTraits(.isHeader)
+                    if !listed.isEmpty {
+                        Text("learn.picker.withLists")
+                    }
+                }
+            }
+            if !listed.isEmpty && !others.isEmpty {
+                Section {
+                    ForEach(others, id: \.self) { row($0) }
+                }
+            }
+        }
+        .accessibilityIdentifier("language_picker")
+    }
+
+    /// The pair's button, then its notes as their own elements, so VoiceOver
+    /// reads them and UI tests find them.
+    private func row(_ pair: LearningPair) -> some View {
+        let id = "\(pair.lang)-\(pair.via)"
+        let size = downloadSizes[pair] ?? 0
+        return VStack(alignment: .leading, spacing: 4) {
+            Button {
+                onChoose(pair)
+            } label: {
+                Text(LearnViewModel.pairName(pair, locale: locale))
+                    .foregroundStyle(.primary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .accessibilityIdentifier("language_picker_row_\(id)")
+            LimitedPairNote(pair: pair)
+                .accessibilityIdentifier("language_picker_limited_\(id)")
+            if size > 0 {
+                Text("learn.picker.download \(size.formatted(.byteCount(style: .file).locale(locale)))")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .accessibilityIdentifier("language_picker_size_\(id)")
+            }
+        }
+    }
+}
+
+/// A limited pair's warning, "Words are practised in English.", with an
+/// info icon hidden from VoiceOver so the text carries it; nothing for a
+/// full pair. Under the picker's rows, and under #162's Settings rows.
+struct LimitedPairNote: View {
+    let pair: LearningPair
+    @Environment(\.locale) private var locale
+
+    var body: some View {
+        if let warning = LearnViewModel.limitedWarning(pair, locale: locale) {
+            Label {
+                Text(warning)
+            } icon: {
+                Image(systemName: "info.circle")
+                    .accessibilityHidden(true)
+            }
+            .font(.footnote)
+            .foregroundStyle(.secondary)
+            .accessibilityElement(children: .combine)
+        }
+    }
+}
+
+// MARK: - Language switch
+
+/// The Learn home's switch between the learned languages, shown with two or
+/// more; E10's statistics screen reuses it.
+struct LearningLanguagePicker: View {
+    let languages: [String]
+    @Binding var selection: String
+    @Environment(\.locale) private var locale
+
+    var body: some View {
+        Picker("learn.language", selection: $selection) {
+            ForEach(languages, id: \.self) { lang in
+                Text(LearnViewModel.languageName(lang, locale: locale)).tag(lang)
+            }
+        }
+        .pickerStyle(.segmented)
+        .accessibilityIdentifier("learn_language_switch")
+    }
+}
+
+// MARK: - My words, interim (#158, until E3 #154)
+
+/// Today's Bookmarks list, moved behind the home's My words row: newest
+/// first, a one-line snippet, a tap opens the Definition. The swipe is
+/// Stop learning.
+struct MyWordsView: View {
+    @StateObject private var vm = MyWordsViewModel()
+
+    var body: some View {
+        Group {
+            if vm.entries.isEmpty {
+                ContentUnavailableView(
+                    "learn.myWords",
+                    systemImage: "graduationcap",
+                    description: Text("learn.myWords.empty")
+                )
+            } else {
+                List {
+                    ForEach(vm.entries) { entry in
+                        NavigationLink(value: entry) {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(entry.word)
+                                    .font(.headline)
+                                Text(Self.snippet(entry.definition))
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                            }
+                        }
+                        .accessibilityIdentifier("my_words_item_\(entry.word)")
+                        .swipeActions {
+                            Button("definition.a11y.stopLearning", role: .destructive) {
+                                Task { await vm.stopLearning(entry) }
+                            }
+                        }
+                    }
+                }
+                .accessibilityIdentifier("my_words_list")
+            }
+        }
+        .navigationTitle("learn.myWords")
+        .task {
+            await vm.load()
+        }
+    }
+
+    private static func snippet(_ text: String) -> String {
         String(text.prefix(100))
             .replacingOccurrences(of: "**", with: "")
             .replacingOccurrences(of: "*", with: "")

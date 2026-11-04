@@ -12,6 +12,8 @@ final class HistoryFlowTests: XCTestCase {
         // Issue #237: every language pack, installed from the committed assets.
         app.launchArguments += UITestHelpers.packArguments()
         app.launchArguments.append("-resetData")
+        // 0131, #158: English learned, so Learn adds a word to My words at once.
+        app.launchArguments += ["-learningLanguages", "eng"]
 
         // iOS 26 surfaces an "Enable Dictation?" springboard alert the first
         // time `.searchable()` is activated. XCUI's default handler taps the
@@ -265,27 +267,28 @@ final class HistoryFlowTests: XCTestCase {
         }
     }
 
-    func testHistoryFromBookmarkNavigation() throws {
-        // Test that accessing bookmarks also updates history
+    func testHistoryFromMyWordsNavigation() throws {
+        // Test that opening a word from My words also updates history
         let searchTerm = TestData.historyTestWords[0] // "example"
 
-        // First bookmark a word
+        // First add a word to My words with Learn
         let searchPage = tabBarPage.tapSearchTab()
         searchPage.searchFor(searchTerm)
         XCTAssertTrue(searchPage.waitForResults(), "Search results should appear")
 
         let definitionPage = searchPage.tapSearchResult(at: 0)
         XCTAssertTrue(definitionPage.waitForDefinitionToLoad(), "Definition should load")
-        definitionPage.tapBookmarkButton()
+        definitionPage.learn()
         definitionPage.navigateBack()
 
-        // Access word from bookmarks
-        let bookmarksPage = tabBarPage.tapBookmarksTab()
-        XCTAssertTrue(bookmarksPage.waitForBookmarksToLoad(), "Bookmarks should load")
+        // Open the word from My words (Learn tab)
+        let learnPage = tabBarPage.tapLearnTab()
+        XCTAssertTrue(learnPage.waitForHome(), "the Learn home should load")
+        let myWordsPage = learnPage.tapMyWords()
+        XCTAssertTrue(myWordsPage.waitForWord(searchTerm), "My words should list the word")
 
-        let definitionFromBookmark = bookmarksPage.tapBookmarkItem(at: 0)
-        XCTAssertTrue(definitionFromBookmark.waitForDefinitionToLoad(), "Definition should load from bookmark")
-        definitionFromBookmark.navigateBack()
+        let definitionFromMyWords = myWordsPage.tapItem(at: 0)
+        XCTAssertTrue(definitionFromMyWords.waitForDefinitionToLoad(), "Definition should load from My words")
 
         // Check if this appears in history
         let historyPage = tabBarPage.tapHistoryTab()
@@ -294,7 +297,7 @@ final class HistoryFlowTests: XCTestCase {
         // Verify the word appears in history (may appear multiple times)
         XCTAssertTrue(
             historyPage.verifyHistoryContainsWord(searchTerm),
-            "Word accessed from bookmark should appear in history"
+            "Word opened from My words should appear in history"
         )
     }
 

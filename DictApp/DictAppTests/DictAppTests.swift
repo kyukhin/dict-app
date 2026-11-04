@@ -167,10 +167,10 @@ final class DictAppTests: XCTestCase {
         XCTAssertEqual(count, 0)
     }
 
-    /// Verifies the My words add / check / remove cycle (Issue #138: the
-    /// interim bookmark).
+    /// Verifies the My words add / check / remove cycle (Issue #138; "No"
+    /// to "Learn %@?" adds an entry this way, #158).
     @MainActor
-    func testBookmarkCycle() async throws {
+    func testMyWordsCycle() async throws {
         try await seedEntries(count: 1)
 
         let entry = try await db.entry(for: EntryKey(source: "test", word: "word0"))
@@ -178,13 +178,13 @@ final class DictAppTests: XCTestCase {
 
         // Add.
         try await db.addToMyWords(key)
-        var isBookmarked = try await db.isInMyWords(key)
-        XCTAssertTrue(isBookmarked)
+        var isInMyWords = try await db.isInMyWords(key)
+        XCTAssertTrue(isInMyWords)
 
         // Remove.
         try await db.removeFromMyWords(key)
-        isBookmarked = try await db.isInMyWords(key)
-        XCTAssertFalse(isBookmarked)
+        isInMyWords = try await db.isInMyWords(key)
+        XCTAssertFalse(isInMyWords)
     }
 
     /// Verifies prefix search returns multiple matches.
@@ -816,7 +816,7 @@ final class DictAppTests: XCTestCase {
         let cases: [(key: String, spanish: String)] = [
             ("tab.search", "Buscar"),
             ("tab.history", "Historial"),
-            ("tab.bookmarks", "Marcadores"),
+            ("tab.learn", "Aprender"),
             ("tab.settings", "Ajustes"),
             ("settings.title", "Ajustes"),
             ("settings.language.section", "Idioma de la interfaz"),
@@ -828,7 +828,7 @@ final class DictAppTests: XCTestCase {
             ("settings.manageDictionaries", "Gestionar diccionarios"),
             ("about.section", "Acerca de"),
             ("common.loading", "Cargando…"),
-            ("common.comingSoon", "Próximamente"),
+            ("learn.myWords", "Mis palabras"),
             ("language.es.name", "Español"),
             ("language.en.name", "Inglés"),
             ("language.ru.name", "Ruso"),
@@ -5745,6 +5745,9 @@ extension DictAppTests {
         "sourceBadge.accessibilityLabel.single %@ %@",
     ]
 
+    /// Keys whose translation is spelled as in English, per language.
+    private static let sameAsEnglishKeys: [String: Set<String>] = ["es": ["common.no"]]
+
     /// The multiset of `%@` / `%lld` specifiers (with positional index) in a
     /// value, sorted so word order does not matter.
     private static func formatSpecifiers(_ value: String) -> [String] {
@@ -5882,7 +5885,7 @@ extension DictAppTests {
                 XCTAssertNotEqual(value, key, "\(code): '\(key)' renders the raw key")
                 XCTAssertEqual(value, value.trimmingCharacters(in: .whitespacesAndNewlines),
                                "\(code): '\(key)' has leading/trailing whitespace")
-                if !Self.formatOnlyKeys.contains(key) {
+                if !Self.formatOnlyKeys.contains(key) && !(Self.sameAsEnglishKeys[code]?.contains(key) ?? false) {
                     XCTAssertNotEqual(value, english, "\(code): '\(key)' falls back to the English text")
                 }
                 XCTAssertEqual(Self.formatSpecifiers(value), Self.formatSpecifiers(english),
@@ -5926,11 +5929,11 @@ extension DictAppTests {
 
         let cases: [(key: String, greek: String)] = [
             ("tab.search", "Αναζήτηση"), ("tab.history", "Ιστορικό"),
-            ("tab.bookmarks", "Σελιδοδείκτες"), ("tab.settings", "Ρυθμίσεις"),
+            ("tab.learn", "Μάθηση"), ("tab.settings", "Ρυθμίσεις"),
             ("search.title", "Λεξικό"), ("search.prompt", "Αναζήτηση λέξεων…"),
             ("search.recent.title", "Πρόσφατα"), ("search.notFound.title", "Δεν βρέθηκε"),
             ("history.title", "Ιστορικό"), ("history.clear", "Εκκαθάριση"), ("history.empty.title", "Χωρίς ιστορικό"),
-            ("bookmarks.title", "Σελιδοδείκτες"), ("bookmarks.empty.title", "Χωρίς σελιδοδείκτες"),
+            ("learn.title", "Μάθηση"), ("learn.myWords", "Οι λέξεις μου"),
             ("settings.title", "Ρυθμίσεις"),
             ("settings.language.section", "Γλώσσα διεπαφής"), ("settings.language.picker", "Γλώσσα"),
             ("settings.sorting.section", "Ταξινόμηση αποτελεσμάτων"), ("settings.sorting.mode", "Ταξινόμηση κατά"),
@@ -5940,7 +5943,7 @@ extension DictAppTests {
             ("settings.support.section", "Υποστήριξη"), ("settings.support.reportBug", "Αναφορά σφάλματος"),
             ("settings.support.credits", "Συντελεστές"), ("credits.title", "Συντελεστές"),
             ("settings.writeReview", "Γράψτε μια κριτική"), ("settings.version", "Έκδοση"),
-            ("settings.learningMode.section", "Λειτουργία εκμάθησης"), ("common.comingSoon", "Έρχεται σύντομα"),
+            ("learn.picker.title", "Ποια γλώσσα θέλετε να μάθετε;"), ("common.yes", "Ναι"), ("common.no", "Όχι"),
             ("about.section", "Πληροφορίες"), ("about.tagline", "Λεξικό εκτός σύνδεσης"),
             ("app.loading", "Φόρτωση λεξικού…"), ("common.loading", "Φόρτωση…"),
             ("language.en.name", "Αγγλικά"), ("language.ru.name", "Ρωσικά"), ("language.es.name", "Ισπανικά"),
@@ -5953,8 +5956,8 @@ extension DictAppTests {
             ("readingMode.a11y.enable", "Ενεργοποίηση λειτουργίας ανάγνωσης"),
             ("readingMode.a11y.disable", "Απενεργοποίηση λειτουργίας ανάγνωσης"),
             ("definition.a11y.speakWord", "Εκφώνηση λέξης"),
-            ("definition.a11y.addBookmark", "Προσθήκη σελιδοδείκτη"),
-            ("definition.a11y.removeBookmark", "Αφαίρεση σελιδοδείκτη"),
+            ("definition.a11y.learn", "Μάθηση"),
+            ("definition.a11y.stopLearning", "Διακοπή μάθησης"),
             ("error.database.title", "Σφάλμα βάσης δεδομένων"),
         ]
         for (key, greek) in cases {
@@ -8362,46 +8365,53 @@ final class UserDatabaseTests: XCTestCase {
                        "relevance mode: exact matches from both stores first")
     }
 
-    /// The interim Bookmarks tab and star (until #158) read and write My
-    /// words by `(source, word)`: the same headword in another source keeps
-    /// its own star, the tab skips a key whose entry is gone, and removing a
-    /// word on the tab clears its star.
+    /// The Learn button and the interim My words list (#158) work on the
+    /// word (`WordKey`): Learn on a word of a learned language adds its
+    /// entry to My words with two cards, the same headword from another
+    /// dictionary of the language shows as learned, the list skips a key
+    /// whose entry is gone, and its swipe (Stop learning) clears the button
+    /// and pauses the cards.
     @MainActor
-    func testStarAndBookmarksTabUseMyWords() async throws {
+    func testLearnButtonAndMyWordsUseTheWordKey() async throws {
         try await open(Self.dogRows)
         let freeDictEntry = try await db.entry(for: EntryKey(source: "freedict-eng-spa", word: "dog"))
         let wordNetEntry = try await db.entry(for: EntryKey(source: "wordnet", word: "dog"))
         let freeDictDog = try XCTUnwrap(freeDictEntry)
         let wordNetDog = try XCTUnwrap(wordNetEntry)
+        let settings = SettingsService(store: InMemoryKeyValueStore())
+        settings.learningLanguages = ["eng"]
+        let languages = LearningLanguageService(settings: settings)
 
-        let star = DefinitionViewModel(entry: freeDictDog, hasVoice: { _ in false })
-        await star.onAppear()
-        XCTAssertFalse(star.isBookmarked)
-        await star.toggleBookmark()
-        XCTAssertTrue(star.isBookmarked)
-        XCTAssertNil(star.errorMessage)
+        let button = DefinitionViewModel(entry: freeDictDog, languages: languages, hasVoice: { _ in false })
+        await button.onAppear()
+        XCTAssertEqual(button.learnAction, .learn)
+        await button.toggleLearn()
+        XCTAssertEqual(button.learnAction, .stopLearning)
+        XCTAssertEqual(button.learning?.wordCards.count, 2, "two new cards")
+        XCTAssertNil(button.errorMessage)
         let stored = try await db.isInMyWords(EntryKey(source: "freedict-eng-spa", word: "dog"))
         XCTAssertTrue(stored)
 
-        let otherStar = DefinitionViewModel(entry: wordNetDog, hasVoice: { _ in false })
-        await otherStar.onAppear()
-        XCTAssertFalse(otherStar.isBookmarked, "the key is (source, word), not the word")
+        let otherButton = DefinitionViewModel(entry: wordNetDog, languages: languages, hasVoice: { _ in false })
+        await otherButton.onAppear()
+        XCTAssertEqual(otherButton.learnAction, .stopLearning, "the same word from another dictionary")
         let viewed = try await historyItem("dog")
         XCTAssertEqual(viewed.source, "wordnet", "opening a definition records its source")
 
         try await db.addToMyWords(EntryKey(source: "freedict-eng-spa", word: "wolf"))
-        let tab = BookmarksViewModel()
-        await tab.load()
-        XCTAssertEqual(Self.keys(tab.entries), [EntryKey(freeDictDog)], "a key that does not resolve is skipped")
-        XCTAssertNil(tab.errorMessage)
+        let list = MyWordsViewModel()
+        await list.load()
+        XCTAssertEqual(Self.keys(list.entries), [EntryKey(freeDictDog)], "a key that does not resolve is skipped")
+        XCTAssertNil(list.errorMessage)
         let wolfStored = try await db.isInMyWords(EntryKey(source: "freedict-eng-spa", word: "wolf"))
         XCTAssertTrue(wolfStored, "and stays stored")
 
-        await tab.remove(freeDictDog)
-        XCTAssertEqual(tab.entries, [])
-        let reopened = DefinitionViewModel(entry: freeDictDog, hasVoice: { _ in false })
+        await list.stopLearning(freeDictDog)
+        XCTAssertEqual(list.entries, [])
+        let reopened = DefinitionViewModel(entry: freeDictDog, languages: languages, hasVoice: { _ in false })
         await reopened.onAppear()
-        XCTAssertFalse(reopened.isBookmarked, "removing on the tab clears the star")
+        XCTAssertEqual(reopened.learnAction, .learn, "Stop learning on the list clears the button")
+        XCTAssertEqual(reopened.learning?.isPaused, true, "and pauses the cards")
     }
 
     /// No user table shares a name with a table of the bundled dictionary
@@ -18066,5 +18076,658 @@ final class LearningStatsStoreTests: XCTestCase {
         XCTAssertEqual(streak.mark(on: monday), .met, "2 of the current goal 2")
         XCTAssertEqual(streak.mark(on: tuesday), .frozen, "1 of 2: Monday's freeze")
         XCTAssertEqual(streak.current, 1)
+    }
+}
+
+// MARK: - 0131: the Learn tab (#158)
+//
+// 0131-learning.md, Test plan: the unit rows of #158. Choosing a pair and
+// stopping a language, the Learn button and the Learn home's sections, on a
+// temp user database with `LearningStoreTests`' Greek and English rows. The
+// view models read today from the real clock.
+
+/// 0237's side of a pair, recorded: each install as `lang-via`, failing
+/// while `failure` is set, as a download without network would; the sizes
+/// still to download are set per pair.
+final class FakePairPacks: PairPacksInstalling, @unchecked Sendable {
+    let languagesWithLists: Set<String>
+    private let lock = NSLock()
+    private var installs: [String] = []
+    private var error: (any Error)?
+    private var sizeByPair: [LearningPair: Int64] = [:]
+
+    init(languagesWithLists: Set<String>) {
+        self.languagesWithLists = languagesWithLists
+    }
+
+    var installed: [String] { lock.withLock { installs } }
+
+    var failure: (any Error)? {
+        get { lock.withLock { error } }
+        set { lock.withLock { error = newValue } }
+    }
+
+    var sizes: [LearningPair: Int64] {
+        get { lock.withLock { sizeByPair } }
+        set { lock.withLock { sizeByPair = newValue } }
+    }
+
+    func downloadSize(of pair: LearningPair) async -> Int64 {
+        lock.withLock { sizeByPair[pair] ?? 0 }
+    }
+
+    func installPair(lang: String, via: String) async throws {
+        try lock.withLock {
+            installs.append("\(lang)-\(via)")
+            if let error { throw error }
+        }
+    }
+}
+
+/// A temp user database on `LearningStoreTests.rows` and the language
+/// services on an in-memory store, Greek with lists, English without, in an
+/// English UI. Its dictionaries offer Greek via English, Greek via Russian
+/// (limited, meanings in English) and English via English.
+@MainActor
+class LearnTabTestCase: XCTestCase {
+    var tempDir: URL!
+    var db: DatabaseService { .shared }
+    var settings: SettingsService!
+    var packs: FakePairPacks!
+    var languages: LearningLanguageService!
+    var today: LearnDay { LearningClock().today }
+
+    let grafoFD = EntryKey(source: "freedict-ell-eng", word: "γράφω")
+    let grafoWN = EntryKey(source: "wordnet-ell-eng", word: "γράφω")
+    let spiti = EntryKey(source: "freedict-ell-eng", word: "σπίτι")
+    let house = EntryKey(source: "wordnet", word: "house")
+    let grafo = LearningFixture.grafo
+    let houseKey = WordKey(lang: "eng", word: "house")
+
+    let greekViaEnglish = LearningPair(lang: "ell", via: "eng")
+    let greekViaRussian = LearningPair(lang: "ell", via: "rus", meaningsLang: "eng")
+    let englishViaEnglish = LearningPair(lang: "eng", via: "eng")
+
+    override func setUp() async throws {
+        try await super.setUp()
+        await DictAppTests.waitForHostAppLaunch()
+        tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        let url = try TestDictionary.make(rows: LearningStoreTests.rows, metadata: LearningStoreTests.metadata,
+                                          at: tempDir.appendingPathComponent("dictionary.sqlite"))
+        try await db.setup(userPath: tempDir.appendingPathComponent("user.sqlite").path, dictionaryURL: url)
+        settings = SettingsService(store: InMemoryKeyValueStore())
+        packs = FakePairPacks(languagesWithLists: ["ell"])
+        languages = service(uiLanguage: "en")
+    }
+
+    override func tearDown() async throws {
+        try? FileManager.default.removeItem(at: tempDir)
+        try await super.tearDown()
+    }
+
+    /// The language service on this case's store and packs, in `uiLanguage`.
+    func service(uiLanguage: String) -> LearningLanguageService {
+        LearningLanguageService(settings: settings, packs: packs, uiLanguage: { uiLanguage })
+    }
+
+    func entry(_ key: EntryKey, file: StaticString = #filePath, line: UInt = #line) async throws -> DictionaryEntry {
+        let entry = try await db.entry(for: key)
+        return try XCTUnwrap(entry, "\(key) resolves", file: file, line: line)
+    }
+
+    func definition(_ key: EntryKey) async throws -> DefinitionViewModel {
+        let vm = DefinitionViewModel(entry: try await entry(key), languages: languages, hasVoice: { _ in false })
+        await vm.onAppear()
+        return vm
+    }
+
+    /// Each card of the word as `kind:step:suspended`.
+    func cards(_ key: WordKey) async throws -> [String] {
+        let state = try await db.learningState(of: key)
+        return (state?.cards ?? []).map { "\($0.key.kind.rawValue):\($0.step):\($0.isSuspended)" }.sorted()
+    }
+
+    func execute(_ sql: String, _ arguments: [String] = []) async throws {
+        try await db.writeForTesting { try $0.execute(sql: sql, arguments: StatementArguments(arguments)) }
+    }
+
+    func answerRight(_ key: WordKey, kind: CardKind = .recognition) async throws {
+        try await db.recordAnswer(AnswerRecord(card: CardKey(word: key, kind: kind), exercise: .recognition,
+                                               mode: .trainer, runID: UUID(), outcome: .right), today: today, goal: 20)
+    }
+}
+
+final class LearningLanguageServiceTests: LearnTabTestCase {
+    /// Choosing a pair appends its language once and makes it the chosen
+    /// one, stores its via, enrols its My words only, and installs the
+    /// pair's packs (0237 skips those installed).
+    func testChoosingAPairStoresItsViaAndInstallsItsPacks() async throws {
+        try await db.addToMyWords(grafoFD)
+        try await db.addToMyWords(house)
+
+        try await languages.learn(greekViaEnglish).value
+        XCTAssertEqual(settings.learningLanguages, ["ell"])
+        XCTAssertEqual(settings.learningVia, ["ell": "eng"])
+        XCTAssertEqual(languages.chosen, "ell")
+        XCTAssertEqual(packs.installed, ["ell-eng"])
+        let greekCards = try await cards(grafo)
+        XCTAssertEqual(greekCards, ["production:0:false", "recognition:0:false"], "its My words are enrolled")
+        let englishCards = try await cards(houseKey)
+        XCTAssertEqual(englishCards, [], "English is not chosen")
+
+        try await languages.learn(englishViaEnglish).value
+        XCTAssertEqual(settings.learningLanguages, ["ell", "eng"])
+        XCTAssertEqual(settings.learningVia, ["ell": "eng", "eng": "eng"])
+        XCTAssertEqual(languages.chosen, "eng")
+        XCTAssertEqual(packs.installed, ["ell-eng", "eng-eng"])
+        let houseCards = try await cards(houseKey)
+        XCTAssertEqual(houseCards.count, 2)
+
+        try await languages.learn(greekViaRussian).value
+        XCTAssertEqual(settings.learningLanguages, ["ell", "eng"], "learned once, in the order chosen")
+        XCTAssertEqual(settings.learningVia["ell"], "rus", "one via per language: the last chosen")
+        XCTAssertEqual(languages.chosen, "ell")
+        let pair = try await languages.pair(for: "ell")
+        XCTAssertEqual(pair, greekViaRussian)
+        XCTAssertEqual(pair?.meaningsLang, "eng", "the meanings language comes from the offered pair")
+    }
+
+    /// Learn on a word: the language's stored via while offered, else its
+    /// default (the UI language's pair, limited or not, else English); a
+    /// language without a pair is learned alone, with nothing to install.
+    func testLearnLanguageTakesItsPair() async throws {
+        let english = try await languages.pair(for: "ell")
+        XCTAssertEqual(english, greekViaEnglish, "English UI: Greek via English")
+        let russian = try await service(uiLanguage: "ru").pair(for: "ell")
+        XCTAssertEqual(russian, greekViaRussian, "Russian UI: Greek via Russian, limited")
+        XCTAssertEqual(russian?.isLimited, true)
+        let spanish = try await service(uiLanguage: "es").pair(for: "ell")
+        XCTAssertEqual(spanish, greekViaEnglish, "no Greek via Spanish: English")
+
+        settings.learningVia = ["ell": "rus"]
+        try await languages.learn(language: "ell")?.value
+        XCTAssertEqual(packs.installed, ["ell-rus"], "the stored via wins over the default")
+        settings.learningVia = ["ell": "spa"]
+        let fallback = try await languages.pair(for: "ell")
+        XCTAssertEqual(fallback, greekViaEnglish, "a stored via no longer offered: the default")
+
+        let other = try await languages.learn(language: "und")
+        XCTAssertNil(other, "Other has no pair: nothing to install")
+        XCTAssertEqual(settings.learningLanguages, ["ell", "und"])
+        XCTAssertEqual(languages.chosen, "und")
+        XCTAssertNil(settings.learningVia["und"])
+        XCTAssertEqual(packs.installed, ["ell-rus"])
+    }
+
+    /// #162's via change writes `learning_via` and installs the new pair's
+    /// packs; it changes no card.
+    func testChangingTheViaKeepsTheCards() async throws {
+        try await db.addToMyWords(grafoFD)
+        try await languages.learn(greekViaEnglish).value
+        try await answerRight(grafo)
+        let before = try await cards(grafo)
+
+        try await languages.setVia("rus", for: "ell").value
+        XCTAssertEqual(settings.learningVia, ["ell": "rus"])
+        XCTAssertEqual(packs.installed, ["ell-eng", "ell-rus"])
+        let after = try await cards(grafo)
+        XCTAssertEqual(after, before)
+        XCTAssertEqual(settings.learningLanguages, ["ell"])
+    }
+
+    /// Stopping a language changes no data and keeps its via; choosing it
+    /// again resumes.
+    func testStopChangesNoData() async throws {
+        try await db.addToMyWords(grafoFD)
+        try await languages.learn(greekViaRussian)
+        try await answerRight(grafo)
+        let before = try await cards(grafo)
+
+        languages.stop("ell")
+        XCTAssertEqual(settings.learningLanguages, [])
+        XCTAssertNil(languages.chosen)
+        XCTAssertEqual(settings.learningVia, ["ell": "rus"], "the via is kept")
+        let stopped = try await cards(grafo)
+        XCTAssertEqual(stopped, before)
+        let inMyWords = try await db.isInMyWords(grafoFD)
+        XCTAssertTrue(inMyWords)
+
+        try await languages.learn(language: "ell")
+        let resumed = try await cards(grafo)
+        XCTAssertEqual(resumed, before, "choosing it again keeps the progress")
+        XCTAssertEqual(packs.installed.last, "ell-rus", "with the via chosen then")
+    }
+
+    /// 0237's install fails (no network): the pair stays learned and
+    /// chosen, its My words stay enrolled, and only the returned install
+    /// reports the error.
+    func testFailedInstallKeepsTheLanguage() async throws {
+        try await db.addToMyWords(spiti)
+        packs.failure = URLError(.notConnectedToInternet)
+
+        let install = try await languages.learn(greekViaEnglish)
+        do {
+            try await install.value
+            XCTFail("the install should report its failure")
+        } catch {
+            XCTAssertEqual((error as? URLError)?.code, .notConnectedToInternet)
+        }
+        XCTAssertEqual(packs.installed, ["ell-eng"])
+        XCTAssertEqual(settings.learningLanguages, ["ell"], "the language stays learned")
+        XCTAssertEqual(settings.learningVia, ["ell": "eng"])
+        XCTAssertEqual(languages.chosen, "ell")
+        let enrolled = try await cards(WordKey(lang: "ell", word: "σπίτι"))
+        XCTAssertEqual(enrolled, ["production:0:false", "recognition:0:false"], "its My words stay enrolled")
+
+        packs.failure = nil
+        try await languages.learn(greekViaEnglish).value
+        XCTAssertEqual(packs.installed, ["ell-eng", "ell-eng"], "choosing it again retries the install")
+        XCTAssertEqual(settings.learningLanguages, ["ell"], "still learned once")
+    }
+
+    /// Stopping the chosen language shows the first learned one; stopping a
+    /// language that is not learned changes nothing.
+    func testStoppingTheChosenFallsBackToTheFirstLearned() async throws {
+        try await languages.learn(greekViaEnglish)
+        try await languages.learn(englishViaEnglish)
+        XCTAssertEqual(languages.chosen, "eng")
+
+        languages.stop("spa")
+        XCTAssertEqual(settings.learningLanguages, ["ell", "eng"], "Spanish was not learned")
+        XCTAssertEqual(languages.chosen, "eng")
+
+        languages.stop("eng")
+        XCTAssertEqual(settings.learningLanguages, ["ell"])
+        XCTAssertEqual(languages.chosen, "ell", "the stored choice is no longer learned: the first learned")
+        XCTAssertFalse(languages.isLearned("eng"))
+    }
+}
+
+final class DefinitionViewModelLearnTests: LearnTabTestCase {
+    /// Learn adds the entry to My words with two cards; Stop learning
+    /// removes it and pauses the cards with their progress; Learn resumes.
+    func testToggleLearnAddsThenPauses() async throws {
+        settings.learningLanguages = ["ell"]
+        let vm = try await definition(grafoFD)
+        XCTAssertEqual(vm.learnAction, .learn)
+
+        await vm.toggleLearn()
+        XCTAssertNil(vm.errorMessage)
+        XCTAssertEqual(vm.learnAction, .stopLearning)
+        XCTAssertNil(vm.question, "a learned language asks nothing")
+        let added = try await db.isInMyWords(grafoFD)
+        XCTAssertTrue(added)
+        try await answerRight(grafo)
+
+        await vm.toggleLearn()
+        XCTAssertEqual(vm.learnAction, .learn)
+        let removed = try await db.isInMyWords(grafoFD)
+        XCTAssertFalse(removed)
+        let paused = try await cards(grafo)
+        XCTAssertEqual(paused, ["production:0:true", "recognition:1:true"], "paused with the progress kept")
+
+        await vm.toggleLearn()
+        XCTAssertEqual(vm.learnAction, .stopLearning)
+        let resumed = try await cards(grafo)
+        XCTAssertEqual(resumed, ["production:0:false", "recognition:1:false"])
+
+        let otherDictionary = try await definition(grafoWN)
+        XCTAssertEqual(otherDictionary.learnAction, .stopLearning, "the same word from El–En · WN")
+    }
+
+    /// Learn on a word of a language not learned asks "Learn %@ via %@?"
+    /// with its default pair: No only adds it to My words; Yes learns the
+    /// pair and the word.
+    func testNoOnlyAddsToMyWords() async throws {
+        let houseVM = try await definition(house)
+        await houseVM.toggleLearn()
+        XCTAssertEqual(houseVM.question, .pair(englishViaEnglish))
+        let notYet = try await db.isInMyWords(house)
+        XCTAssertFalse(notYet, "nothing is written before the answer")
+
+        await houseVM.answer(.pair(englishViaEnglish), yes: false)
+        XCTAssertNil(houseVM.question)
+        XCTAssertEqual(houseVM.learnAction, .removeFromMyWords)
+        XCTAssertNil(houseVM.learning, "no cards")
+        XCTAssertEqual(settings.learningLanguages, [])
+        XCTAssertEqual(settings.learningVia, [:])
+        XCTAssertEqual(packs.installed, [], "No installs nothing")
+        let saved = try await db.isInMyWords(house)
+        XCTAssertTrue(saved)
+
+        let spitiVM = try await definition(spiti)
+        await spitiVM.toggleLearn()
+        XCTAssertEqual(spitiVM.question, .pair(greekViaEnglish))
+        await spitiVM.answer(.pair(greekViaEnglish), yes: true)
+        XCTAssertEqual(settings.learningLanguages, ["ell"])
+        XCTAssertEqual(settings.learningVia, ["ell": "eng"])
+        XCTAssertEqual(packs.installed, ["ell-eng"])
+        XCTAssertEqual(spitiVM.learnAction, .stopLearning)
+        XCTAssertEqual(spitiVM.learning?.wordCards.count, 2)
+
+        await houseVM.toggleLearn()
+        XCTAssertEqual(houseVM.learnAction, .learn, "Remove from My words")
+        let gone = try await db.isInMyWords(house)
+        XCTAssertFalse(gone)
+    }
+
+    /// A Russian UI asks for Greek via Russian, the limited pair, with its
+    /// warning as the alert's message; Yes stores the via.
+    func testLearnGreekInRussianUIAsksForTheLimitedPair() async throws {
+        languages = service(uiLanguage: "ru")
+        let vm = try await definition(grafoFD)
+        await vm.toggleLearn()
+        XCTAssertEqual(vm.question, .pair(greekViaRussian))
+        let ru = Locale(identifier: "ru")
+        XCTAssertEqual(LearnViewModel.learnPairQuestion(greekViaRussian, locale: ru), "Учить греческий через русский?")
+        XCTAssertEqual(LearnViewModel.limitedWarning(greekViaRussian, locale: ru),
+                       "Слова тренируются с переводом на английский.")
+
+        await vm.answer(.pair(greekViaRussian), yes: true)
+        XCTAssertNil(vm.errorMessage)
+        XCTAssertEqual(settings.learningVia, ["ell": "rus"])
+        XCTAssertEqual(packs.installed, ["ell-rus"])
+        XCTAssertEqual(vm.learnAction, .stopLearning)
+    }
+
+    /// A word whose language has no pair (an import without languages)
+    /// asks "Learn lists in other languages?"; Yes learns it in Other, with
+    /// no via and nothing to install.
+    func testWordWithoutAPairIsLearnedInOther() async throws {
+        let url = try TestDictionary.make(
+            rows: [TestDictionary.Row(word: "zork", definition: "a made-up word", pos: "noun", source: "qa-und")],
+            metadata: [TestDictionary.Metadata(source: "qa-und", displayName: "QA", fromLang: "und", toLang: "und")],
+            at: tempDir.appendingPathComponent("und.sqlite"))
+        try await db.setup(userPath: tempDir.appendingPathComponent("user-und.sqlite").path, dictionaryURL: url)
+        let vm = try await definition(EntryKey(source: "qa-und", word: "zork"))
+        await vm.toggleLearn()
+        XCTAssertEqual(vm.question, .other(lang: "und"))
+
+        await vm.answer(.other(lang: "und"), yes: true)
+        XCTAssertNil(vm.errorMessage)
+        XCTAssertEqual(settings.learningLanguages, ["und"])
+        XCTAssertEqual(settings.learningVia, [:])
+        XCTAssertEqual(packs.installed, [])
+        XCTAssertEqual(vm.learnAction, .stopLearning)
+        XCTAssertEqual(vm.learning?.wordCards.count, 2)
+    }
+
+    /// A word saved with No waits in My words without cards; Yes on another
+    /// word of its language later enrols it too (0131, Languages).
+    func testYesLaterEnrolsTheWordsSavedWithNo() async throws {
+        let grafoVM = try await definition(grafoFD)
+        await grafoVM.toggleLearn()
+        XCTAssertEqual(grafoVM.question, .pair(greekViaEnglish))
+        await grafoVM.answer(.pair(greekViaEnglish), yes: false)
+        let waiting = try await cards(grafo)
+        XCTAssertEqual(waiting, [], "No: no cards")
+
+        let spitiVM = try await definition(spiti)
+        await spitiVM.toggleLearn()
+        XCTAssertEqual(spitiVM.question, .pair(greekViaEnglish), "Greek is still not learned: Learn asks again")
+        await spitiVM.answer(.pair(greekViaEnglish), yes: true)
+        XCTAssertNil(spitiVM.errorMessage)
+
+        let enrolled = try await cards(grafo)
+        XCTAssertEqual(enrolled, ["production:0:false", "recognition:0:false"], "γράφω is enrolled with Greek")
+        let spitiCards = try await cards(WordKey(lang: "ell", word: "σπίτι"))
+        XCTAssertEqual(spitiCards, ["production:0:false", "recognition:0:false"])
+        let reopened = try await definition(grafoWN)
+        XCTAssertEqual(reopened.learnAction, .stopLearning, "γράφω, from either dictionary, is now in learning")
+    }
+
+    /// A word of a stopped language, still in My words, reads "Remove from
+    /// My words"; the tap removes every row of the word and pauses its
+    /// cards with their progress, and Learn then asks for the language
+    /// again, with the via it had.
+    func testStoppedLanguageReadsRemoveFromMyWords() async throws {
+        settings.learningLanguages = ["ell"]
+        settings.learningVia = ["ell": "rus"]
+        let vm = try await definition(grafoFD)
+        await vm.toggleLearn()
+        try await db.addToMyWords(grafoWN)
+        try await answerRight(grafo)
+        languages.stop("ell")
+
+        let stopped = try await definition(grafoWN)
+        XCTAssertEqual(stopped.learnAction, .removeFromMyWords)
+        await stopped.toggleLearn()
+        XCTAssertNil(stopped.errorMessage)
+        XCTAssertNil(stopped.question, "removing asks nothing")
+        XCTAssertEqual(stopped.learnAction, .learn)
+        for key in [grafoFD, grafoWN] {
+            let kept = try await db.isInMyWords(key)
+            XCTAssertFalse(kept, "\(key.source): every My words row of the word goes")
+        }
+        let paused = try await cards(grafo)
+        XCTAssertEqual(paused, ["production:0:true", "recognition:1:true"], "paused with the progress kept")
+
+        await stopped.toggleLearn()
+        XCTAssertEqual(stopped.question, .pair(greekViaRussian), "Greek is no longer learned: Learn asks, via Russian")
+        let notWritten = try await db.isInMyWords(grafoWN)
+        XCTAssertFalse(notWritten, "nothing is written before the answer")
+    }
+
+    /// A tap before the screen has loaded the word's state writes nothing.
+    func testLearnBeforeTheStateLoadsDoesNothing() async throws {
+        settings.learningLanguages = ["ell"]
+        let vm = DefinitionViewModel(entry: try await entry(grafoFD), languages: languages, hasVoice: { _ in false })
+        await vm.toggleLearn()
+        XCTAssertNil(vm.errorMessage)
+        XCTAssertNil(vm.question)
+        XCTAssertEqual(vm.learnAction, .learn)
+        let inMyWords = try await db.isInMyWords(grafoFD)
+        XCTAssertFalse(inMyWords)
+        let noCards = try await cards(grafo)
+        XCTAssertEqual(noCards, [])
+    }
+}
+
+final class LearnViewModelTests: LearnTabTestCase {
+    private func home() -> LearnViewModel {
+        LearnViewModel(settings: settings, languages: languages)
+    }
+
+    /// No learned language: the picker's pairs, languages with lists first,
+    /// each language's default via first, with the sizes to download;
+    /// choosing a pair shows its home with its My words enrolled.
+    func testPickerThenHome() async throws {
+        try await db.addToMyWords(grafoFD)
+        packs.sizes = [greekViaEnglish: 11_900_000]
+        let vm = home()
+        await vm.load(locale: Locale(identifier: "en"))
+        XCTAssertNil(vm.errorMessage)
+        XCTAssertTrue(vm.isLoaded)
+        XCTAssertEqual(vm.learned, [])
+        XCTAssertEqual(vm.pickerRows, [greekViaEnglish, greekViaRussian, englishViaEnglish])
+        XCTAssertEqual(vm.downloadSizes[greekViaEnglish], 11_900_000)
+        XCTAssertEqual(vm.downloadSizes[englishViaEnglish], 0)
+
+        await vm.choose(greekViaRussian, locale: Locale(identifier: "en"))
+        XCTAssertEqual(vm.learned, ["ell"])
+        XCTAssertEqual(vm.language, "ell")
+        XCTAssertEqual(vm.pair, greekViaRussian)
+        XCTAssertEqual(settings.learningVia, ["ell": "rus"])
+        XCTAssertEqual(vm.today, .counts(due: 0, newLeft: 1))
+        XCTAssertEqual(vm.myWordsCount, 1)
+    }
+
+    /// A Russian UI puts Greek via Russian first among Greek's pairs; an
+    /// import with both languages adds its pair, needing no pack, and one
+    /// without adds none.
+    func testPickerRowsFollowTheUILanguageAndImports() async throws {
+        try await execute("INSERT INTO imported_sources(source, from_lang, to_lang) VALUES ('my-da', 'dan', 'eng')")
+        try await execute("INSERT INTO imported_sources(source, from_lang, to_lang) VALUES ('my-und', 'und', 'eng')")
+        try await execute("INSERT INTO imported_sources(source) VALUES ('my-none')")
+        languages = service(uiLanguage: "ru")
+        let vm = home()
+        await vm.load(locale: Locale(identifier: "ru"))
+        XCTAssertNil(vm.errorMessage)
+        XCTAssertEqual(vm.pickerRows, [greekViaRussian, greekViaEnglish, LearningPair(lang: "eng", via: "eng"),
+                                       LearningPair(lang: "dan", via: "eng")],
+                       "Greek has lists; its default via first; then English and Danish by their Russian names")
+    }
+
+    /// The chosen language's pair follows the switch.
+    func testHomeHoldsTheChosenLanguagesPair() async throws {
+        settings.learningLanguages = ["ell", "eng"]
+        settings.learningVia = ["ell": "rus"]
+        let vm = home()
+        await vm.load(locale: Locale(identifier: "en"))
+        XCTAssertEqual(vm.pair, greekViaRussian)
+        await vm.select("eng")
+        XCTAssertEqual(vm.pair, englishViaEnglish, "no via stored: the default")
+    }
+
+    /// Pair names, the Learn question and the limited warning in the five
+    /// UI languages: names inside a sentence are in lower case but in
+    /// English; an Arabic pair name starts with U+200F.
+    func testPairStringsInEveryUILanguage() {
+        let cases: [(code: String, pair: String, question: String, warning: String)] = [
+            ("en", "Greek via Russian", "Learn Greek via Russian?", "Words are practised in English."),
+            ("ru", "Греческий через русский", "Учить греческий через русский?",
+             "Слова тренируются с переводом на английский."),
+            ("es", "Griego desde el ruso", "¿Aprender griego desde el ruso?", "Las palabras se practican en inglés."),
+            ("el", "Ελληνικά από τα ρωσικά", "Να μάθετε ελληνικά από τα ρωσικά;", "Οι λέξεις εξασκούνται στα αγγλικά."),
+            ("ar", "\u{200F}اليونانية عبر الروسية", "تعلّم اليونانية عبر الروسية؟", "تُمارَس الكلمات باللغة الإنجليزية."),
+        ]
+        for item in cases {
+            let locale = Locale(identifier: item.code)
+            XCTAssertEqual(LearnViewModel.pairName(greekViaRussian, locale: locale), item.pair, item.code)
+            XCTAssertEqual(LearnViewModel.learnPairQuestion(greekViaRussian, locale: locale), item.question, item.code)
+            XCTAssertEqual(LearnViewModel.limitedWarning(greekViaRussian, locale: locale), item.warning, item.code)
+            XCTAssertNil(LearnViewModel.limitedWarning(greekViaEnglish, locale: locale), "\(item.code): a full pair")
+        }
+    }
+
+    /// Nothing to learn: "Choose lists" with built-in lists, "Import a
+    /// list" without; nothing due and no new word left: all done.
+    func testEmptyStatesAndAllDone() async throws {
+        settings.learningLanguages = ["ell", "eng"]
+        let vm = home()
+        await vm.load(locale: Locale(identifier: "en"))
+        XCTAssertEqual(vm.today, .chooseLists)
+        await vm.select("eng")
+        XCTAssertEqual(vm.today, .addWords)
+
+        try await db.learnWord(house, today: today)
+        settings.learningNewPerDay = 0
+        await vm.load(locale: Locale(identifier: "en"))
+        XCTAssertEqual(vm.today, .allDone)
+    }
+
+    /// The counts are the chosen language's; the switch is remembered.
+    func testCountsFollowTheChosenLanguage() async throws {
+        settings.learningLanguages = ["ell", "eng"]
+        try await db.learnWord(grafoFD, today: today)
+        try await db.learnWord(house, today: today)
+        try await execute("UPDATE learn_card SET step = 1, last_day = ?, due_day = ? WHERE lang = 'eng'",
+                          [today.adding(days: -1).rawValue, today.rawValue])
+        try await execute("UPDATE learn_word SET introduced_day = ? WHERE lang = 'eng'", [today.adding(days: -1).rawValue])
+
+        let vm = home()
+        await vm.load(locale: Locale(identifier: "en"))
+        XCTAssertEqual(vm.language, "ell")
+        XCTAssertEqual(vm.today, .counts(due: 0, newLeft: 1))
+        XCTAssertEqual(vm.myWordsCount, 2, "My words counts every language")
+
+        await vm.select("eng")
+        XCTAssertEqual(vm.today, .counts(due: 1, newLeft: 0), "one word due, both its cards")
+        XCTAssertEqual(settings.learningLanguage, "eng")
+        let reopened = home()
+        await reopened.load(locale: Locale(identifier: "en"))
+        XCTAssertEqual(reopened.language, "eng")
+    }
+
+    /// The switch ignores a language that is not learned; a stored choice
+    /// that is no longer learned shows the first learned language.
+    func testSwitchOnlyTakesLearnedLanguages() async throws {
+        settings.learningLanguages = ["ell", "eng"]
+        settings.learningLanguage = "spa"
+        let vm = home()
+        await vm.load(locale: Locale(identifier: "en"))
+        XCTAssertEqual(vm.language, "ell", "Spanish is not learned: the first learned language")
+        XCTAssertEqual(vm.today, .chooseLists)
+
+        await vm.select("spa")
+        XCTAssertEqual(vm.language, "ell")
+        XCTAssertEqual(settings.learningLanguage, "spa", "nothing is written")
+        XCTAssertEqual(vm.today, .chooseLists)
+        XCTAssertNil(vm.errorMessage)
+    }
+
+    /// Paused words do not count: with every word of the language stopped,
+    /// Today shows the empty state again, and My words no longer lists them.
+    func testPausedWordsGiveTheEmptyState() async throws {
+        settings.learningLanguages = ["ell"]
+        try await db.learnWord(grafoFD, today: today)
+        let vm = home()
+        await vm.load(locale: Locale(identifier: "en"))
+        XCTAssertEqual(vm.today, .counts(due: 0, newLeft: 1))
+        XCTAssertEqual(vm.myWordsCount, 1)
+
+        try await db.stopLearning(grafoWN)
+        await vm.load(locale: Locale(identifier: "en"))
+        XCTAssertEqual(vm.today, .chooseLists, "a paused word is not in learning")
+        XCTAssertEqual(vm.myWordsCount, 0)
+    }
+
+    /// New words left are the daily limit minus the words of the language
+    /// started today, never below zero; with nothing due, all done.
+    func testNewWordsLeftFollowTheDailyLimit() async throws {
+        settings.learningLanguages = ["ell"]
+        settings.learningNewPerDay = 1
+        try await db.learnWord(grafoFD, today: today)
+        try await db.learnWord(spiti, today: today)
+        let vm = home()
+        await vm.load(locale: Locale(identifier: "en"))
+        XCTAssertEqual(vm.today, .counts(due: 0, newLeft: 1), "two new words, a limit of 1")
+
+        for (kind, exercise) in [(CardKind.recognition, ExerciseKind.recognition), (.production, .productionChoice)] {
+            try await db.recordAnswer(AnswerRecord(card: CardKey(word: grafo, kind: kind), exercise: exercise,
+                                                   mode: .session, runID: UUID(), outcome: .right), today: today,
+                                      goal: 20)
+        }
+        await vm.load(locale: Locale(identifier: "en"))
+        XCTAssertEqual(vm.today, .allDone, "γράφω started today uses the limit; both its cards are due tomorrow")
+
+        settings.learningNewPerDay = 0
+        await vm.load(locale: Locale(identifier: "en"))
+        XCTAssertEqual(vm.today, .allDone, "more started than the limit: none left, not a negative count")
+        XCTAssertNil(vm.errorMessage)
+    }
+}
+
+/// The interim My words list (#158, until E3 #154).
+final class MyWordsViewModelTests: LearnTabTestCase {
+    /// The swipe on one row of a word saved from two dictionaries stops the
+    /// word: both rows leave the list and its cards are paused.
+    func testSwipeRemovesEveryRowOfTheWord() async throws {
+        settings.learningLanguages = ["ell"]
+        try await db.learnWord(grafoFD, today: today)
+        try await db.learnWord(grafoWN, today: today)
+        try await db.learnWord(spiti, today: today)
+        let vm = MyWordsViewModel()
+        await vm.load()
+        XCTAssertEqual(Set(vm.entries.map(\.source)), ["freedict-ell-eng", "wordnet-ell-eng"])
+        XCTAssertEqual(vm.entries.count, 3)
+
+        let wnRow = try XCTUnwrap(vm.entries.first { $0.source == "wordnet-ell-eng" })
+        await vm.stopLearning(wnRow)
+        XCTAssertNil(vm.errorMessage)
+        XCTAssertEqual(vm.entries.map(\.word), ["σπίτι"], "both γράφω rows go")
+        let paused = try await cards(grafo)
+        XCTAssertEqual(paused, ["production:0:true", "recognition:0:true"])
+        let other = try await cards(WordKey(lang: "ell", word: "σπίτι"))
+        XCTAssertEqual(other, ["production:0:false", "recognition:0:false"], "σπίτι is untouched")
+    }
+
+    /// Empty: no rows, no error.
+    func testEmpty() async throws {
+        let vm = MyWordsViewModel()
+        await vm.load()
+        XCTAssertEqual(vm.entries, [])
+        XCTAssertNil(vm.errorMessage)
     }
 }

@@ -1,7 +1,7 @@
 # Learning words with spaced repetition
 
 > Spec written by Claude (AI) for LibreDict.
-> Status: Approved by Kirill on 2026-11-04 · Epic: #131 · Tickets: #157 (done), #158, #159, #160, #161, #162 · Updated: 2026-11-06
+> Status: Approved by Kirill on 2026-11-04 · Epic: #131 · Tickets: #157 (done), #158 (done), #159, #160, #161, #162 · Updated: 2026-11-06
 
 Read [0000-overview.md](0000-overview.md) and [0129-dictionary-file.md](0129-dictionary-file.md) first. This epic is designed together with [0166-learning-statistics.md](0166-learning-statistics.md) (E10, #166), which computes the daily goal, the streak and every number from this epic's answer log. Word lists are E3 (#130, [0130-word-lists.md](0130-word-lists.md), drafted at the same time). This spec follows E3's interface ("For E4 and E10" there); "Depends on E3" records how, and the three points where it differs. The conjugation drill (E5, #132) reuses the cards, the scheduler and the log ("For E5").
 
@@ -788,3 +788,10 @@ Unit classes go in `DictAppTests.swift`. Async tests, and classes that are mostl
 - 2026-11-06: #157: `introduce` lands here for #161; `WordListItem.translationLang` is declared here as #154 declares it, and stays `""` until #154 reads `wordlist.translation_lang`.
 - 2026-11-06: Review fix (CodeRabbit, PR #253): `dueCards` also returns the unanswered word card of a started word, so a session closed between a word's two cards cannot strand the second one.
 - 2026-11-07: #157, rebased on 0237 (#252): `learningPairs()` reads the directions of the bundle and of the catalog (`DictionarySchemas.sourceLanguageSQL`), so a pack not yet downloaded offers its pairs; the limited pair stays `LearningPairs.limitedPairs` until #158 reads `catalog_pair`. Review note (CodeRabbit, PR #253): the interim `translationLang` of built-in items before #154.
+- 2026-11-06: #158: `common.yes` and `common.no` are new keys, as the catalog had no Yes and No buttons to reuse; `listImport.language.other` and `listImport.learnOther` come early from #155, for Other's name and its alert.
+- 2026-11-06: #158: "Import a list" shows disabled until #155's import screen.
+- 2026-11-06: #158: Today's due count counts words, not cards: a word with both cards due counts once.
+- 2026-11-06: #158: UI tests as built: `LearnTabTests.testChooseGreekOffersItsLists` is `testChooseGreekShowsItsHome` ("Choose lists" waits for #154), `testChooseListsWhenNothingToLearn` and `LearnViewModelTests.testEmptyStateFollowsTheCheckedLists` wait for #154, `LearningSettingsFlowTests.testStopAndResumeALanguage` for #162, and `GreekLocalizationTests.testLearnTabInGreek` is `testSearchHistoryLearnAreLocalizedInGreek`.
+- 2026-11-06: #158: the Russian limited-pair warning reads "Слова тренируются с переводом на английский.", with the meanings language as a name in the sentence.
+- 2026-11-06: #158: in Russian, Greek and Spanish a language name inside a sentence ("Learn %@ via %@?", a pair's row, the warning) is lowercase, as those languages write it; English capitalises it.
+- 2026-11-06: #158: until #241 and #242, `PendingPairPacks` stands in for 0237's catalog and install: Greek and English have lists, and nothing downloads.

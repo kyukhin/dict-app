@@ -9,16 +9,16 @@ struct AccessibilityIdentifiers {
         // button. `searchTab` is the language-independent "Search screen is
         // up" anchor (`XCUIApplication.waitForDictionariesReady`).
         static let searchTab = "search_tab"
+        static let learnTab = "learn_tab"
         static let historyTab = "history_tab"
-        static let bookmarksTab = "bookmarks_tab"
         static let settingsTab = "settings_tab"
 
         // iPadOS 26 tab-button identifiers (Issue #104): the floating tab strip
         // has no `UITabBar`, and its buttons carry the tab's SF Symbol as their
         // identifier. Must match `ContentView`'s `.tabItem` `systemImage`s.
         static let searchSymbol = "magnifyingglass"
+        static let learnSymbol = "graduationcap"
         static let historySymbol = "clock"
-        static let bookmarksSymbol = "bookmark"
         static let settingsSymbol = "gearshape"
     }
 
@@ -66,7 +66,9 @@ struct AccessibilityIdentifiers {
     // MARK: - Definition View
     struct Definition {
         static let definitionView = "definition_view"
-        static let bookmarkButton = "bookmark_button"
+        /// 0131, #158: the Learn button, where the bookmark star was. Its
+        /// label is "Learn", "Stop learning" or "Remove from My words".
+        static let learnButton = "learn_button"
         static let definitionContent = "definition_content"
     }
 
@@ -115,11 +117,39 @@ struct AccessibilityIdentifiers {
         }
     }
 
-    // MARK: - Bookmarks View
-    struct Bookmarks {
-        static let bookmarksList = "bookmarks_list"
-        static func bookmarkItem(id: String) -> String {
-            return "bookmark_item_\(id)"
+    // MARK: - Learn tab (0131, #158)
+    struct Learn {
+        /// The home's list, once a language is learned.
+        static let view = "learn_view"
+        static let dueCount = "learn_due_count"
+        static let newCount = "learn_new_count"
+        static let allDone = "learn_all_done"
+        static let myWordsRow = "learn_my_words_row"
+        /// The segmented switch; its segments are labelled by language name.
+        static let languageSwitch = "learn_language_switch"
+        static let importList = "learn_import_list"
+        static let addWordsHint = "learn_add_words_hint"
+        /// "Which language do you want to learn?", while none is learned.
+        static let languagePicker = "language_picker"
+        /// A picker row, a pair by ISO 639-3 codes: `language_picker_row_ell-eng`.
+        static func languagePickerRow(_ lang: String, via: String) -> String {
+            return "language_picker_row_\(lang)-\(via)"
+        }
+        /// A limited pair's warning under its row: `language_picker_limited_ell-rus`.
+        static func languagePickerLimited(_ lang: String, via: String) -> String {
+            return "language_picker_limited_\(lang)-\(via)"
+        }
+        /// The size to download under a row, only when something is missing.
+        static func languagePickerSize(_ lang: String, via: String) -> String {
+            return "language_picker_size_\(lang)-\(via)"
+        }
+    }
+
+    // MARK: - My words (0131, #158: the former Bookmarks list)
+    struct MyWords {
+        static let list = "my_words_list"
+        static func item(word: String) -> String {
+            return "my_words_item_\(word)"
         }
     }
 
