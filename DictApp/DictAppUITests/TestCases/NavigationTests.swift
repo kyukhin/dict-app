@@ -47,12 +47,12 @@ final class NavigationTests: XCTestCase {
         XCTAssertTrue(historyPage.verifyHistoryListExists(), "History list should be visible")
     }
 
-    func testBookmarksTabNavigation() throws {
-        // Test navigation to Bookmarks tab
-        let bookmarksPage = tabBarPage.tapBookmarksTab()
+    func testLearnTabNavigation() throws {
+        // 0131, #158: the Learn tab shows the language picker or the Learn home.
+        let learnPage = tabBarPage.tapLearnTab()
 
-        XCTAssertTrue(tabBarPage.verifyBookmarksTabSelected(), "Bookmarks tab should be selected")
-        XCTAssertTrue(bookmarksPage.verifyBookmarksListExists(), "Bookmarks list should be visible")
+        XCTAssertTrue(tabBarPage.verifyLearnTabSelected(), "Learn tab should be selected")
+        XCTAssertTrue(learnPage.waitForLearnToLoad(), "the language picker or the Learn home should be visible")
     }
 
     func testManageTabNavigation() throws {
@@ -123,9 +123,9 @@ final class NavigationTests: XCTestCase {
         let historyPage = tabBarPage.tapHistoryTab()
         XCTAssertTrue(historyPage.verifyHistoryListExists(), "History tab should be functional")
 
-        // Move to Bookmarks
-        let bookmarksPage = tabBarPage.tapBookmarksTab()
-        XCTAssertTrue(bookmarksPage.verifyBookmarksListExists(), "Bookmarks tab should be functional")
+        // Move to Learn
+        let learnPage = tabBarPage.tapLearnTab()
+        XCTAssertTrue(learnPage.waitForLearnToLoad(), "Learn tab should be functional")
 
         // Move to Manage
         tabBarPage.tapManageTab()
@@ -171,10 +171,10 @@ final class NavigationTests: XCTestCase {
         XCTAssertTrue(historyPage.verifyHistoryListExists(), "History should load")
         XCTAssertTrue(tabBarPage.verifyHistoryTabSelected(), "History tab should be selected")
 
-        // Switch to Bookmarks tab
-        let bookmarksPage = tabBarPage.tapBookmarksTab()
-        XCTAssertTrue(bookmarksPage.verifyBookmarksListExists(), "Bookmarks should load")
-        XCTAssertTrue(tabBarPage.verifyBookmarksTabSelected(), "Bookmarks tab should be selected")
+        // Switch to Learn tab
+        let learnPage = tabBarPage.tapLearnTab()
+        XCTAssertTrue(learnPage.waitForLearnToLoad(), "Learn should load")
+        XCTAssertTrue(tabBarPage.verifyLearnTabSelected(), "Learn tab should be selected")
     }
 
     func testRapidTabSwitching() throws {
@@ -182,8 +182,8 @@ final class NavigationTests: XCTestCase {
 
         for _ in 0..<3 {
             tabBarPage.tapSearchTab()
+            tabBarPage.tapLearnTab()
             tabBarPage.tapHistoryTab()
-            tabBarPage.tapBookmarksTab()
             tabBarPage.tapManageTab()
         }
 

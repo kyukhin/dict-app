@@ -15,8 +15,9 @@ class DefinitionPage: BasePage {
         return app.descendants(matching: .any)[AccessibilityIdentifiers.Definition.definitionView]
     }
 
-    private var bookmarkButton: XCUIElement {
-        waitForButton(AccessibilityIdentifiers.Definition.bookmarkButton)
+    /// 0131, #158: "Learn", "Stop learning" or "Remove from My words".
+    var learnButton: XCUIElement {
+        waitForButton(AccessibilityIdentifiers.Definition.learnButton)
     }
 
     private var definitionContent: XCUIElement {
@@ -36,8 +37,35 @@ class DefinitionPage: BasePage {
 
     // MARK: - Actions
 
-    func tapBookmarkButton() {
-        bookmarkButton.tap()
+    func tapLearnButton() {
+        learnButton.tap()
+    }
+
+    /// Learn, in an English UI: taps the button and, when it asks "Learn
+    /// %@?", answers Yes (`yes`) or No. Waits for the button to read "Stop
+    /// learning" (Yes, or a learned language) or "Remove from My words" (No).
+    func learn(answeringLanguageAlertWith yes: Bool = true) {
+        learnButton.tap()
+        let alert = app.alerts.firstMatch
+        if alert.waitForExistence(timeout: TestData.Timeouts.short) {
+            answerLearnLanguageAlert(yes ? "Yes" : "No")
+        }
+        let expected = yes ? "Stop learning" : "Remove from My words"
+        XCTAssertTrue(waitForLearnButtonLabel(expected), "after Learn the button reads '\(expected)'; got '\(learnButton.label)'")
+    }
+
+    /// Taps `button` ("Yes", "Ναι") on the "Learn %@?" alert.
+    func answerLearnLanguageAlert(_ button: String) {
+        let alert = app.alerts.firstMatch
+        XCTAssertTrue(alert.waitForExistence(timeout: TestData.Timeouts.medium), "the 'Learn %@?' alert")
+        alert.buttons[button].tap()
+        _ = alert.waitForNonExistence(timeout: TestData.Timeouts.medium)
+    }
+
+    func waitForLearnButtonLabel(_ label: String, timeout: TimeInterval = TestData.Timeouts.medium) -> Bool {
+        let expectation = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label == %@", label),
+                                                    object: app.buttons[AccessibilityIdentifiers.Definition.learnButton])
+        return XCTWaiter.wait(for: [expectation], timeout: timeout) == .completed
     }
 
     @discardableResult
@@ -66,8 +94,8 @@ class DefinitionPage: BasePage {
         return definitionView.exists
     }
 
-    func verifyBookmarkButtonExists() -> Bool {
-        return bookmarkButton.exists
+    func verifyLearnButtonExists() -> Bool {
+        return learnButton.exists
     }
 
     func verifyDefinitionContentExists() -> Bool {
@@ -78,12 +106,6 @@ class DefinitionPage: BasePage {
         let element = definitionContent
         if element.label.range(of: text, options: .caseInsensitive) != nil { return true }
         return element.staticTexts.containing(NSPredicate(format: "label CONTAINS[c] %@", text)).count > 0
-    }
-
-    func verifyBookmarkButtonState(isBookmarked: Bool) -> Bool {
-        // This would depend on how the bookmark button changes state
-        // For now, we'll just verify it exists and is enabled
-        return bookmarkButton.exists && bookmarkButton.isEnabled
     }
 
     func getDefinitionText() -> String {

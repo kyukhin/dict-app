@@ -1,5 +1,5 @@
 // ContentView.swift
-// Root tab view.
+// Root tab view: Search · Learn · History · Settings (0131, #158).
 
 import SwiftUI
 
@@ -12,17 +12,17 @@ struct ContentView: View {
                 }
                 .accessibilityIdentifier("search_tab")
 
+            LearnView()
+                .tabItem {
+                    Label("tab.learn", systemImage: "graduationcap")
+                }
+                .accessibilityIdentifier("learn_tab")
+
             HistoryView()
                 .tabItem {
                     Label("tab.history", systemImage: "clock")
                 }
                 .accessibilityIdentifier("history_tab")
-
-            BookmarksView()
-                .tabItem {
-                    Label("tab.bookmarks", systemImage: "bookmark")
-                }
-                .accessibilityIdentifier("bookmarks_tab")
 
             SettingsView()
                 .tabItem {

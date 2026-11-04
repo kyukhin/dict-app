@@ -2,7 +2,7 @@ import XCTest
 
 /// UI coverage for Issue #88: the app presents a fully localized **Greek**
 /// interface. Tabs are reached through `app.tabButton(_:)`: by index in a tab
-/// bar (Search 0, History 1, Bookmarks 2, Settings 3; Greek is LTR), by SF
+/// bar (Search 0, Learn 1, History 2, Settings 3; Greek is LTR), by SF
 /// Symbol on the iPadOS 26 tab strip, as in `SpanishLocalizationTests`.
 ///
 /// Launch path: `-AppleLanguages (el) -resetData`. `-resetData` drops any
@@ -25,8 +25,8 @@ final class GreekLocalizationTests: XCTestCase {
     /// Pinned Greek tab labels (DESIGN_DOC.md §4b).
     enum GreekTab {
         static let search = "Αναζήτηση"
+        static let learn = "Μάθηση"
         static let history = "Ιστορικό"
-        static let bookmarks = "Σελιδοδείκτες"
         static let settings = "Ρυθμίσεις"
     }
 
@@ -38,12 +38,14 @@ final class GreekLocalizationTests: XCTestCase {
     /// system words a Greek process must not show. Compared case-insensitively
     /// and exactly, so a gloss such as "dog" never trips it.
     private static let englishDenylist: Set<String> = [
-        "search", "history", "bookmarks", "settings", "dictionary", "recent", "search words...",
+        "search", "learn", "history", "settings", "dictionary", "recent", "search words...",
         "interface language", "language", "result sorting", "sort by", "relevance", "preferred dictionary first",
         "dictionaries", "dictionary order", "manage dictionaries", "about", "offline dictionary",
-        "learning mode", "coming soon", "support", "report a bug", "write a review", "credits", "version",
-        "no history", "no bookmarks", "clear", "direction", "source id", "entries", "license",
-        "turn on reading mode", "turn off reading mode", "speak word", "add bookmark", "remove bookmark",
+        "support", "report a bug", "write a review", "credits", "version",
+        "no history", "clear", "direction", "source id", "entries", "license",
+        "turn on reading mode", "turn off reading mode", "speak word", "stop learning", "remove from my words",
+        "which language do you want to learn?", "with word lists", "today", "my words", "learning language",
+        "choose lists or tap learn on a word", "greek", "english",
         "loading dictionary...", "loading…", "back", "cancel", "greek – english",
     ]
 
@@ -94,7 +96,7 @@ final class GreekLocalizationTests: XCTestCase {
 
     // MARK: - Tests
 
-    /// AC1, AC2: the tab bar reads Αναζήτηση / Ιστορικό / Σελιδοδείκτες /
+    /// AC1, AC2: the tab bar reads Αναζήτηση / Μάθηση / Ιστορικό /
     /// Ρυθμίσεις in that order, and no English tab label is left.
     func testAppLaunchesInGreek() throws {
         for tab in Tab.allCases {
@@ -103,7 +105,7 @@ final class GreekLocalizationTests: XCTestCase {
             XCTAssertEqual(button.label, tab.greekLabel, "tab \(tab.rawValue) must read its Greek label")
         }
         let gone = NSPredicate(format: "exists == FALSE")
-        for english in ["Search", "History", "Bookmarks", "Settings"] {
+        for english in ["Search", "Learn", "History", "Settings"] {
             expectation(for: gone, evaluatedWith: app.tabButton(labeled: english), handler: nil)
         }
         waitForExpectations(timeout: TestData.Timeouts.medium) { error in
@@ -145,7 +147,9 @@ final class GreekLocalizationTests: XCTestCase {
             previousY = option.frame.minY
         }
         attachScreenshot("10-language-picker")
-        try assertNoEnglishLeak(on: "language picker")
+        // The English option's native name "English" is meant to be there
+        // (checked above, with its Greek name): sweep the other rows only.
+        try assertNoEnglishLeak(on: "language picker", skippingIdentifierPrefixes: ["ui_language_option_en"])
 
         // Re-picking the current language only pops back: no rebuild, the UI
         // stays Greek and on the Settings tab.
@@ -202,7 +206,7 @@ final class GreekLocalizationTests: XCTestCase {
         attachScreenshot("05-settings-top")
         try assertNoEnglishLeak(on: "Settings (top)")
 
-        for text in ["Λειτουργία εκμάθησης", "Έρχεται σύντομα", "Υποστήριξη", "Αναφορά σφάλματος",
+        for text in ["Υποστήριξη", "Αναφορά σφάλματος",
                      "Γράψτε μια κριτική", "Συντελεστές", "Πληροφορίες", "Λεξικό εκτός σύνδεσης", "Έκδοση"] {
             XCTAssertTrue(scrollAndFind(text), "Settings must show '\(text)'")
         }
@@ -290,9 +294,11 @@ final class GreekLocalizationTests: XCTestCase {
         }
     }
 
-    /// AC2: Search root, the empty History and Bookmarks, a Greek search for
-    /// "σκύλος", its definition, then History and Bookmarks listing it.
-    func testSearchHistoryBookmarksAreLocalizedInGreek() throws {
+    /// AC2 and 0131 #158 (`testLearnTabInGreek`): Search root, the empty
+    /// History, the Learn tab's pair picker, a Greek search for "σκύλος",
+    /// its definition and Learn with "Learn Greek via English?", then History, the Learn
+    /// home and My words listing it.
+    func testSearchHistoryLearnAreLocalizedInGreek() throws {
         // Search root.
         XCTAssertTrue(app.navigationBars["Λεξικό"].waitForExistence(timeout: TestData.Timeouts.long))
         let field = app.searchFields.firstMatch
@@ -309,12 +315,15 @@ final class GreekLocalizationTests: XCTestCase {
         XCTAssertTrue(waitForText("Οι λέξεις που αναζητάτε θα εμφανίζονται εδώ."), "History empty description")
         attachScreenshot("07a-history-empty")
         try assertNoEnglishLeak(on: "History (empty)")
-        openTab(.bookmarks)
-        XCTAssertTrue(waitForText("Χωρίς σελιδοδείκτες"), "Bookmarks empty title")
-        XCTAssertTrue(waitForText("Προσθέστε λέξεις στους σελιδοδείκτες για να τις αποθηκεύσετε εδώ."),
-                      "Bookmarks empty description")
-        attachScreenshot("08a-bookmarks-empty")
-        try assertNoEnglishLeak(on: "Bookmarks (empty)")
+        openTab(.learn)
+        XCTAssertTrue(waitForText("Ποια γλώσσα θέλετε να μάθετε;"), "the language picker asks in Greek")
+        XCTAssertTrue(waitForText("Με λίστες λέξεων"), "the languages with lists are captioned in Greek")
+        let learnPage = LearnPage(app: app)
+        XCTAssertEqual(learnPage.pickerRow("ell", via: "eng").label, "Ελληνικά από τα αγγλικά")
+        XCTAssertEqual(learnPage.pickerRow("eng", via: "ell").label, "Αγγλικά από τα ελληνικά",
+                       "a Greek UI learns English via Greek by default")
+        attachScreenshot("08a-learn-picker")
+        try assertNoEnglishLeak(on: "Learn (picker)")
 
         // Greek search.
         openTab(.search)
@@ -347,16 +356,23 @@ final class GreekLocalizationTests: XCTestCase {
         XCTAssertTrue(app.navigationBars["σκύλος"].waitForExistence(timeout: TestData.Timeouts.medium))
         XCTAssertTrue(definition.buttons["Εκφώνηση λέξης"].waitForExistence(timeout: TestData.Timeouts.medium),
                       "speaker button is labeled 'Εκφώνηση λέξης'")
-        let bookmark = app.buttons[AccessibilityIdentifiers.Definition.bookmarkButton].firstMatch
-        XCTAssertTrue(bookmark.waitForExistence(timeout: TestData.Timeouts.medium))
-        XCTAssertEqual(bookmark.label, "Προσθήκη σελιδοδείκτη")
+        let learn = app.buttons[AccessibilityIdentifiers.Definition.learnButton].firstMatch
+        XCTAssertTrue(learn.waitForExistence(timeout: TestData.Timeouts.medium))
+        XCTAssertTrue(waitForLabel(of: learn, toBe: "Μάθηση"), "the Learn button reads 'Μάθηση'; got '\(learn.label)'")
         let content = app.descendants(matching: .any)[AccessibilityIdentifiers.Definition.definitionContent].firstMatch
         XCTAssertTrue(content.label.contains("dog"), "definition shows the English gloss; got '\(content.label.prefix(80))'")
         attachScreenshot("02-definition-skylos")
         try assertNoEnglishLeak(on: "Definition", skippingIdentifierPrefixes: ["definition_content"])
-        bookmark.tap()
-        XCTAssertTrue(waitForLabel(of: bookmark, toBe: "Αφαίρεση σελιδοδείκτη"),
-                      "after bookmarking the button reads 'Αφαίρεση σελιδοδείκτη'; got '\(bookmark.label)'")
+        learn.tap()
+        let alert = app.alerts.firstMatch
+        XCTAssertTrue(alert.waitForExistence(timeout: TestData.Timeouts.medium), "Learn on a Greek word asks first")
+        XCTAssertTrue(alert.staticTexts["Να μάθετε ελληνικά από τα αγγλικά;"].exists,
+                      "the alert reads 'Να μάθετε ελληνικά από τα αγγλικά;'")
+        XCTAssertTrue(alert.buttons["Όχι"].exists, "No reads 'Όχι'")
+        attachScreenshot("02a-learn-greek-alert")
+        alert.buttons["Ναι"].tap()
+        XCTAssertTrue(waitForLabel(of: learn, toBe: "Διακοπή μάθησης"),
+                      "after Learn the button reads 'Διακοπή μάθησης'; got '\(learn.label)'")
 
         // History lists the lookup.
         openTab(.history)
@@ -367,13 +383,22 @@ final class GreekLocalizationTests: XCTestCase {
         attachScreenshot("07-history")
         try assertNoEnglishLeak(on: "History", skippingCellContent: true)
 
-        // Bookmarks lists the bookmark.
-        openTab(.bookmarks)
-        let list = app.descendants(matching: .any)[AccessibilityIdentifiers.Bookmarks.bookmarksList].firstMatch
-        XCTAssertTrue(list.waitForExistence(timeout: TestData.Timeouts.long), "Bookmarks must list the bookmark")
-        XCTAssertTrue(list.staticTexts["σκύλος"].waitForExistence(timeout: TestData.Timeouts.medium))
-        attachScreenshot("08-bookmarks")
-        try assertNoEnglishLeak(on: "Bookmarks", skippingCellContent: true)
+        // The Learn home: Greek learned, σκύλος new.
+        openTab(.learn)
+        XCTAssertTrue(learnPage.waitForHome(), "Yes learned Greek: the home")
+        XCTAssertTrue(waitForText("Σήμερα"), "the Today section")
+        XCTAssertTrue(waitForLabel(of: learnPage.newCount, toBe: "Απομένει 1 νέα λέξη σήμερα"),
+                      "one new word; got '\(learnPage.newCount.label)'")
+        XCTAssertEqual(learnPage.dueCount.label, "0 λέξεις για επανάληψη")
+        attachScreenshot("08b-learn-home")
+        try assertNoEnglishLeak(on: "Learn (home)")
+
+        // My words lists the word.
+        let myWords = learnPage.tapMyWords()
+        XCTAssertTrue(app.navigationBars["Οι λέξεις μου"].waitForExistence(timeout: TestData.Timeouts.medium))
+        XCTAssertTrue(myWords.waitForWord("σκύλος"), "My words must list σκύλος")
+        attachScreenshot("08-my-words")
+        try assertNoEnglishLeak(on: "My words", skippingCellContent: true)
     }
 
     /// Issue #144: the inflection table of γράφω in Greek: its title, the
@@ -680,11 +705,11 @@ final class GreekLocalizationTests: XCTestCase {
 private extension TabBarPage.Tab {
     var greekLabel: String {
         typealias Labels = GreekLocalizationTests.GreekTab
-        return [Labels.search, Labels.history, Labels.bookmarks, Labels.settings][rawValue]
+        return [Labels.search, Labels.learn, Labels.history, Labels.settings][rawValue]
     }
 
     /// Navigation title of the tab's root screen.
     var greekTitle: String {
-        ["Λεξικό", "Ιστορικό", "Σελιδοδείκτες", "Ρυθμίσεις"][rawValue]
+        ["Λεξικό", "Μάθηση", "Ιστορικό", "Ρυθμίσεις"][rawValue]
     }
 }

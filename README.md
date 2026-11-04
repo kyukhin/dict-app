@@ -17,7 +17,7 @@
 - **Dictionary order:** one row per language pair; switch pairs on or off, drag to reorder, tap (i) for each source's provider, version, size and license.
 - **Instant first launch:** every dictionary is searchable right after install, with nothing to unpack.
 - **Reading Mode:** keeps the screen awake while you read.
-- **History and bookmarks**, pronunciation with text-to-speech, and import of your own `.json` / `.sqlite` dictionaries.
+- **History and My words** (Learn on any word), pronunciation with text-to-speech, and import of your own `.json` / `.sqlite` dictionaries.
 - **Private:** no accounts, no analytics, no third-party SDKs.
 
 ## Screenshots
@@ -78,7 +78,7 @@ dict-app/
 │   ├── DictApp/
 │   │   ├── Models/          # Entries, app version, constants, UI languages
 │   │   ├── Services/        # Database, settings, localization, speech, support
-│   │   ├── ViewModels/      # Search, Definition, History, Bookmarks, Settings
+│   │   ├── ViewModels/      # Search, Definition, History, Learn, Settings
 │   │   ├── Views/           # SwiftUI screens
 │   │   └── Resources/       # dictionaries.sqlite, empty-pack.sqlite, Localizable.xcstrings
 │   ├── DictAppTests/        # Unit tests

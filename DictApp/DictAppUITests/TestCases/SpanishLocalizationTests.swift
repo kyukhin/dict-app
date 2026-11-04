@@ -83,7 +83,7 @@ final class SpanishLocalizationTests: XCTestCase {
         XCTAssertTrue(selectLanguage(code: "es"),
                       "Must be able to switch to Spanish via the picker")
 
-        for spanish in ["Buscar", "Historial", "Marcadores", "Ajustes"] {
+        for spanish in ["Buscar", "Aprender", "Historial", "Ajustes"] {
             XCTAssertTrue(
                 tabButton(label: spanish).waitForExistence(timeout: 5),
                 "Tab bar must show the Spanish label '\(spanish)'"
@@ -94,7 +94,7 @@ final class SpanishLocalizationTests: XCTestCase {
         // rebuild can still be tearing down the previous tree, so an instant
         // `.exists` check can catch a button mid-transition.
         let gone = NSPredicate(format: "exists == FALSE")
-        for english in ["Search", "History", "Bookmarks", "Settings"] {
+        for english in ["Search", "Learn", "History", "Settings"] {
             expectation(for: gone, evaluatedWith: tabButton(label: english), handler: nil)
         }
         waitForExpectations(timeout: 5) { error in

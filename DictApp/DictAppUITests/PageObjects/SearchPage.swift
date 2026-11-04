@@ -153,6 +153,19 @@ class SearchPage: BasePage {
         return DefinitionPage(app: app)
     }
 
+    /// Taps the result row of `word` from `source`, found by its badge's id
+    /// (0131, #158: the same word from two dictionaries).
+    @discardableResult
+    func tapResult(word: String, source: String) -> DefinitionPage {
+        let cell = resultsList.cells
+            .containing(.any, identifier: AccessibilityIdentifiers.Search.sourceBadge(source: source))
+            .containing(NSPredicate(format: "label == %@", word))
+            .firstMatch
+        XCTAssertTrue(cell.waitForExistence(timeout: TestData.Timeouts.long), "result '\(word)' from \(source)")
+        cell.tap()
+        return DefinitionPage(app: app)
+    }
+
     @discardableResult
     func tapSearchResultWithId(_ id: String) -> DefinitionPage {
         let resultElement = app.cells[AccessibilityIdentifiers.Search.searchResult(id: id)]

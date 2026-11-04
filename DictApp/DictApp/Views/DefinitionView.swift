@@ -79,13 +79,30 @@ struct DefinitionView: View {
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
                 ReadingModeToolbarButton()
+                // 0131, #158: the Learn button, where the bookmark star was.
                 Button {
-                    Task { await vm.toggleBookmark() }
+                    Task { await vm.toggleLearn() }
                 } label: {
-                    Image(systemName: vm.isBookmarked ? "bookmark.fill" : "bookmark")
+                    Image(systemName: vm.learnAction == .learn ? "graduationcap" : "graduationcap.fill")
                 }
-                .accessibilityLabel(Text(vm.isBookmarked ? "definition.a11y.removeBookmark" : "definition.a11y.addBookmark"))
-                .accessibilityIdentifier("bookmark_button")
+                .accessibilityLabel(Text(learnButtonLabel))
+                .accessibilityIdentifier("learn_button")
+            }
+        }
+        .alert(Text(questionTitle),
+               isPresented: Binding(get: { vm.question != nil },
+                                    set: { if !$0 { vm.question = nil } }),
+               presenting: vm.question) { question in
+            Button("common.yes") {
+                Task { await vm.answer(question, yes: true) }
+            }
+            Button("common.no") {
+                Task { await vm.answer(question, yes: false) }
+            }
+        } message: { question in
+            // A limited pair's warning: "Words are practised in English."
+            if case let .pair(pair) = question, let warning = LearnViewModel.limitedWarning(pair, locale: locale) {
+                Text(warning)
             }
         }
         .task {
@@ -110,6 +127,25 @@ struct DefinitionView: View {
                     AppStore.requestReview(in: scene)
                 }
             }
+        }
+    }
+
+    private var learnButtonLabel: LocalizedStringKey {
+        switch vm.learnAction {
+        case .learn: return "definition.a11y.learn"
+        case .stopLearning: return "definition.a11y.stopLearning"
+        case .removeFromMyWords: return "definition.a11y.removeFromMyWords"
+        }
+    }
+
+    /// "Learn Spanish via English?", or 0130's "Learn lists in other
+    /// languages?" for a language without a pair.
+    private var questionTitle: String {
+        switch vm.question {
+        case let .pair(pair)?: return LearnViewModel.learnPairQuestion(pair, locale: locale)
+        case .other?: return SettingsViewModel.localizedBundle(for: locale)
+            .localizedString(forKey: "listImport.learnOther", value: nil, table: nil)
+        case nil: return ""
         }
     }
 

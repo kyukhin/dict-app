@@ -25,7 +25,7 @@ final class ReadingModeTests: XCTestCase {
         // Issue #237: no first-launch sheet.
         app.launchArguments += [UITestHelpers.skipWelcome]
         // Force portrait — sim orientation persists across sessions on Intel
-        // x86_64 (see BookmarkFlowTests); the frame assertions below assume it.
+        // x86_64 (see MyWordsFlowTests); the frame assertions below assume it.
         XCUIDevice.shared.orientation = .portrait
         app.launch()
 
@@ -97,7 +97,7 @@ final class ReadingModeTests: XCTestCase {
     }
 
     func testStateSurvivesPushAndResetsOnBackground() throws {
-        let term = TestData.bookmarkTestWords[0] // "apple"
+        let term = TestData.learnTestWords[0] // "apple"
         let definitionPage = enableOnRootAndOpenDefinition(term)
 
         // The pushed Definition renders its own button instance bound to the
@@ -106,8 +106,8 @@ final class ReadingModeTests: XCTestCase {
                       "Reading mode toggle should exist on the Definition toolbar")
         XCTAssertTrue(definitionPage.isReadingModeSelected(),
                       "Reading mode must stay on across the Search → Definition push")
-        XCTAssertTrue(definitionPage.verifyBookmarkButtonExists(),
-                      "Bookmark button must still be present next to the new toggle")
+        XCTAssertTrue(definitionPage.verifyLearnButtonExists(),
+                      "Learn button must still be present next to the toggle")
 
         // Background → foreground: scenePhase .background resets the mode.
         XCUIDevice.shared.press(.home)
@@ -124,8 +124,8 @@ final class ReadingModeTests: XCTestCase {
                       "Definition should still be presented after re-activation")
         XCTAssertTrue(definitionPage.waitForReadingModeSelected(false, timeout: TestData.Timeouts.long),
                       "Reading mode must be off after the app was backgrounded")
-        XCTAssertTrue(definitionPage.verifyBookmarkButtonExists(),
-                      "Bookmark button must survive the background/foreground cycle")
+        XCTAssertTrue(definitionPage.verifyLearnButtonExists(),
+                      "Learn button must survive the background/foreground cycle")
 
         // Deliberate re-enable still works after the automatic reset.
         definitionPage.tapReadingModeToggle()
@@ -144,37 +144,37 @@ final class ReadingModeTests: XCTestCase {
                       "Search root toggle must reflect the state set on Definition")
     }
 
-    func testBookmarkStaysOutermostOnDefinition() throws {
-        let term = TestData.bookmarkTestWords[1] // "test"
+    func testLearnButtonStaysOutermostOnDefinition() throws {
+        let term = TestData.learnTestWords[1] // "test"
         let searchPage = tabBarPage.tapSearchTab()
         searchPage.searchFor(term)
         XCTAssertTrue(searchPage.waitForResults(), "Search results should appear for '\(term)'")
         let definitionPage = searchPage.tapSearchResult(at: 0)
         XCTAssertTrue(definitionPage.waitForDefinitionToLoad(), "Definition should load")
 
-        let bookmark = app.buttons[AccessibilityIdentifiers.Definition.bookmarkButton]
-        XCTAssertTrue(bookmark.waitForExistence(timeout: TestData.Timeouts.medium),
-                      "Bookmark button should exist on Definition")
+        let learn = app.buttons[AccessibilityIdentifiers.Definition.learnButton]
+        XCTAssertTrue(learn.waitForExistence(timeout: TestData.Timeouts.medium),
+                      "Learn button should exist on Definition")
         XCTAssertTrue(definitionPage.verifyReadingModeToggleExists(),
                       "Reading mode toggle should exist on Definition")
 
         let toggleFrame = definitionPage.readingModeToggle.frame
-        let bookmarkFrame = bookmark.frame
+        let learnFrame = learn.frame
         let nav = app.navigationBars.firstMatch
-        XCTAssertTrue(nav.frame.contains(toggleFrame) && nav.frame.contains(bookmarkFrame),
+        XCTAssertTrue(nav.frame.contains(toggleFrame) && nav.frame.contains(learnFrame),
                       "Both toolbar buttons should sit inside the navigation bar")
-        // ToolbarItemGroup order guard (en/LTR): reading mode first, bookmark
-        // outermost-right, so `bookmark_button`-based suites are unaffected.
-        XCTAssertGreaterThanOrEqual(bookmarkFrame.minX, toggleFrame.maxX,
-                                    "Bookmark \(bookmarkFrame) must stay to the right of the toggle \(toggleFrame)")
-        XCTAssertFalse(toggleFrame.intersects(bookmarkFrame), "Toolbar buttons must not overlap")
+        // ToolbarItemGroup order guard (en/LTR): reading mode first, Learn
+        // outermost-right, where the bookmark star was (0131, #158).
+        XCTAssertGreaterThanOrEqual(learnFrame.minX, toggleFrame.maxX,
+                                    "Learn \(learnFrame) must stay to the right of the toggle \(toggleFrame)")
+        XCTAssertFalse(toggleFrame.intersects(learnFrame), "Toolbar buttons must not overlap")
 
-        // Reading mode toggle must not hijack the bookmark: toggling one leaves
-        // the other's state untouched.
+        // Reading mode toggle must not hijack the Learn button: toggling one
+        // leaves the other's state untouched.
         definitionPage.tapReadingModeToggle()
         XCTAssertTrue(definitionPage.waitForReadingModeSelected(true))
-        XCTAssertTrue(bookmark.exists && bookmark.isEnabled,
-                      "Bookmark button must remain present and enabled after toggling reading mode")
-        XCTAssertFalse(bookmark.isSelected, "Toggling reading mode must not mark the bookmark as selected")
+        XCTAssertTrue(learn.exists && learn.isEnabled,
+                      "Learn button must remain present and enabled after toggling reading mode")
+        XCTAssertEqual(learn.label, "Learn", "Toggling reading mode must not change the Learn button")
     }
 }

@@ -9,7 +9,7 @@ import XCTest
 /// out of scope because its UI varies across iOS versions and is unreliable
 /// in CI.
 ///
-/// Modeled on `BookmarkFlowTests` and `DictionaryFilterTests` (the reliable
+/// Modeled on `MyWordsFlowTests` (the former `BookmarkFlowTests`) and `DictionaryFilterTests` (the reliable
 /// UI suites in this project). Each test launches with `-resetData` to start
 /// from a clean state.
 final class ImportDictionaryTests: XCTestCase {
