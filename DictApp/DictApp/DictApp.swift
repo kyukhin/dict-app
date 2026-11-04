@@ -103,6 +103,10 @@ struct DictApp: App {
             if CommandLine.arguments.contains("-resetData") {
                 try await DatabaseService.shared.clearMyWords()
                 try await DatabaseService.shared.clearHistory()
+                // 0130: imported word lists and the lists new words come
+                // from. The install's shuffle seed stays.
+                try await DatabaseService.shared.clearUserLists()
+                SettingsService.shared.learningListIDs = []
                 // Reset per-source enable/disable preference to first-launch default.
                 SettingsService.shared.enabledSources = nil
                 // Issue #74: also drop the persisted dictionary order so the

@@ -223,6 +223,19 @@ actor DatabaseService {
     /// happened since it started.
     private var reopenGeneration = 0
 
+    /// `nextNewWords`' arrangements before enrolled words drop out (0130),
+    /// per language, set of lists and order, until a list changes or the
+    /// service reopens. `listGeneration` counts those changes, so an
+    /// arrangement read across one is not cached.
+    private var arrangements: [ArrangementKey: [WordListItem]] = [:]
+    private var listGeneration = 0
+
+    private struct ArrangementKey: Hashable {
+        let lang: String
+        let lists: Set<WordListID>
+        let order: NewWordOrder
+    }
+
     private init() {}
 
     // MARK: - Setup (Issue #138)
@@ -263,6 +276,7 @@ actor DatabaseService {
         dictionaryURI = uri
         // A move belongs to the pool it writes; a new pool starts without one.
         legacyMove = nil
+        wordListsDidChange()
     }
 
     /// The read-only, immutable `ATTACH` URI of the dictionary file at
@@ -399,7 +413,8 @@ actor DatabaseService {
 
     /// The user database schema. Migrations are append-only once merged to
     /// master; each epic registers its own, named `<epic>-<n>-<what>`.
-    private static var migrator: DatabaseMigrator {
+    /// Internal so a unit test can migrate step by step.
+    static var migrator: DatabaseMigrator {
         var migrator = DatabaseMigrator()
         migrator.registerMigration("129-1-core") { db in
             try db.execute(sql: """
@@ -470,6 +485,35 @@ actor DatabaseService {
                     key         TEXT    PRIMARY KEY,
                     value       TEXT    NOT NULL
                 );
+                """)
+        }
+        // Imported word lists (0130-word-lists.md, "User database"). My
+        // words stays in `my_words`. Deleting a list deletes its words: GRDB
+        // turns foreign keys on.
+        migrator.registerMigration("130-1-word-lists") { db in
+            try db.execute(sql: """
+                CREATE TABLE user_list (
+                    id          TEXT PRIMARY KEY,       -- 'user-' + lowercase UUID
+                    title       TEXT NOT NULL,
+                    lang        TEXT NOT NULL,          -- ISO 639-3; 'und' for Other
+                    origin      TEXT NOT NULL,          -- 'file', 'anki' or 'paste'
+                    created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+                );
+                CREATE TABLE user_list_item (
+                    list_id     TEXT NOT NULL REFERENCES user_list(id) ON DELETE CASCADE,
+                    term        TEXT NOT NULL COLLATE NOCASE,
+                    headword    TEXT,
+                    translation TEXT NOT NULL DEFAULT '',
+                    endings     TEXT NOT NULL DEFAULT '',
+                    pos         TEXT NOT NULL DEFAULT '',
+                    tags        TEXT NOT NULL DEFAULT '',
+                    level       TEXT NOT NULL DEFAULT '',
+                    level_ord   INTEGER NOT NULL DEFAULT 0,  -- 1 … 6 = A1 … C2; other level names 7, 8, … in order of first appearance; 0 = none
+                    rank        INTEGER,
+                    seq         INTEGER NOT NULL,
+                    sort_key    TEXT NOT NULL,
+                    PRIMARY KEY (list_id, term)
+                ) WITHOUT ROWID;
                 """)
         }
         return migrator
@@ -1083,6 +1127,360 @@ actor DatabaseService {
         }
     }
 
+    // MARK: - Word lists (0130, #151)
+    //
+    // 0130-word-lists.md, "Swift". Built-in lists are the `wordlist` tables
+    // of the attached dictionary files: each language's pack fills its own
+    // (0237), and a file without the tables has no lists. Imported lists are
+    // `user_list` and `user_list_item`; My words is `my_words`. The order of
+    // new words and the linking rules are the pure `LearningOrder` and
+    // `ListLinking`.
+
+    /// The `user_meta` key of the install's shuffle seed: a random `UInt64`,
+    /// written on first use and kept by `-resetData`.
+    static let wordListSeedKey = "wordlists.seed"
+
+    /// The columns `wordlist_item` and `user_list_item` share.
+    private static let listItemColumns =
+        "term, headword, translation, endings, pos, tags, level, level_ord, rank, seq, sort_key"
+
+    /// A built-in list's words in `order` (SQL on the item columns): the
+    /// primary-key prefix `series`, then the list's level. Arguments: the
+    /// series and the level's `level_ord`.
+    static func wordListItemsSQL(schema: String, order: String) -> String {
+        "SELECT \(listItemColumns) FROM \(schema).wordlist_item WHERE series = ? AND level_ord = ? ORDER BY \(order)"
+    }
+
+    /// A word's frequency rank, as #155's import reads it: the primary key.
+    /// Arguments: the language and the key (folded Greek, lowercase English).
+    static func wordRankSQL(schema: String) -> String {
+        "SELECT rank FROM \(schema).word_rank WHERE lang = ? AND key = ?"
+    }
+
+    /// The Greek lemmas whose table holds a word's exact spelling: a probe of
+    /// the `form_lookup` primary-key prefix, then each lemma's cells by the
+    /// `paradigm` primary-key prefix. Arguments: the folded word, the word.
+    /// No `lemma.lang` filter: every lemma is Greek, and the filter makes
+    /// SQLite walk all of them by the `(lang, word, pos)` index.
+    static func greekFormLemmasSQL(schema: String) -> String {
+        """
+        SELECT DISTINCT l.word FROM \(schema).form_lookup f JOIN \(schema).lemma l ON l.id = f.lemma_id
+        WHERE f.form_norm = ?
+          AND EXISTS (SELECT 1 FROM \(schema).paradigm p WHERE p.lemma_id = l.id AND p.form = ?)
+        ORDER BY l.word
+        """
+    }
+
+    /// Every list: the built-in lists of the attached files by language and
+    /// level, My words (its count counts keys), then the imported lists,
+    /// newest first. The view models keep the learned languages' lists.
+    func wordLists() async throws -> [WordList] {
+        let pool = try await userPool()
+        return try await read(pool) { db in
+            var builtIn: [(list: WordList, level: Int)] = []
+            for schema in try Self.wordListSchemas(db) {
+                builtIn += try Row.fetchAll(db, sql: "SELECT id, lang, level, level_ord, word_count FROM \(schema).wordlist")
+                    .map { row in
+                        (WordList(id: WordListID(rawValue: row["id"]), kind: .builtIn, lang: row["lang"],
+                                  level: row["level"], title: "", count: row["word_count"]), row["level_ord"])
+                    }
+            }
+            builtIn.sort { ($0.list.lang, $0.level, $0.list.id.rawValue) < ($1.list.lang, $1.level, $1.list.id.rawValue) }
+            let myWords = WordList(id: .myWords, kind: .myWords, lang: WordList.myWordsLanguage, level: "", title: "",
+                                   count: try Self.myWordsItems(db).count)
+            let imported = try Row.fetchAll(db, sql: """
+                SELECT l.id, l.title, l.lang, (SELECT COUNT(*) FROM user_list_item i WHERE i.list_id = l.id) AS n
+                FROM user_list l ORDER BY l.created_at DESC, l.id
+                """).map { row in
+                    WordList(id: WordListID(rawValue: row["id"]), kind: .user, lang: row["lang"], level: "",
+                             title: row["title"], count: row["n"])
+                }
+            return builtIn.map(\.list) + [myWords] + imported
+        }
+    }
+
+    /// A list's words, alphabetical (`sort_key`, then `term`); My words
+    /// newest first, one item per `WordKey`. An unknown id has none.
+    func wordListItems(_ id: WordListID) async throws -> [WordListItem] {
+        let pool = try await userPool()
+        return try await read(pool) { db in try Self.listItems(id, order: "sort_key, term", in: db) }
+    }
+
+    /// The next `count` new words of language `lang` (0130, "Order of new
+    /// words"): the lists of `lists` in that language, in Lists screen order,
+    /// arranged by `LearningOrder` with the install's seed; then the words
+    /// whose key is in `enrolled` drop out, and in frequency order the
+    /// neighbour pass runs again on the rest, so a word that drops out never
+    /// leaves two alphabetical neighbours side by side. My words and ids of
+    /// lists that no longer exist are skipped; no list of `lang` gives no
+    /// words. The arrangement is cached per language, set and order until a
+    /// list changes.
+    func nextNewWords(in lang: String, from lists: Set<WordListID>, count: Int,
+                      excluding enrolled: Set<WordKey>, order: NewWordOrder) async throws -> [WordListItem] {
+        let pool = try await userPool()
+        let key = ArrangementKey(lang: lang, lists: lists, order: order)
+        let arranged: [WordListItem]
+        if let cached = arrangements[key] {
+            arranged = cached
+        } else {
+            let generation = listGeneration
+            let installSeed = try await wordListSeed(pool)
+            arranged = try await read(pool) { db in
+                let ids = try Self.listsInScreenOrder(lists, lang: lang, in: db)
+                let items = try ids.flatMap { try Self.listItems($0, order: "seq", in: db) }
+                return LearningOrder.arrange(
+                    items, order: order, seed: LearningOrder.seed(installSeed: installSeed, lists: ids, order: order))
+            }
+            if generation == listGeneration { arrangements[key] = arranged }
+        }
+        var rest = arranged.filter { !enrolled.contains($0.key) }
+        if order == .frequency && rest.count < arranged.count {
+            rest = LearningOrder.separateNeighbours(rest)
+        }
+        return Array(rest.prefix(max(0, count)))
+    }
+
+    /// The entry a list word opens: its headword in the first source of
+    /// `sourceOrder` whose language is the word's and that has it (the
+    /// source's file, then the imports, as `entry(for:)`), then in the other
+    /// sources of that language. A source of no known language counts as
+    /// `und`, as in the My words key, so a My words row of such an import
+    /// opens through `sourceOrder`. nil for a standalone word. The caller
+    /// passes Dictionary Order's sources, enabled first.
+    func entry(for item: WordListItem, sourceOrder: [String]) async throws -> DictionaryEntry? {
+        guard let headword = item.headword else { return nil }
+        let pool = try await userPool()
+        return try await read(pool) { db in
+            let languages = try Self.sourceLanguages(db)
+            let given = Set(sourceOrder)
+            let sources = sourceOrder + languages.keys.filter { !given.contains($0) }.sorted()
+            for source in sources where (languages[source] ?? "und") == item.key.lang {
+                if let entry = try Self.entry(for: EntryKey(source: source, word: headword), in: db) { return entry }
+            }
+            return nil
+        }
+    }
+
+    /// The link of each of `terms`, words of a list in `lang`, to a headword
+    /// of that language's dictionaries (`ListLinking`); nil for a standalone
+    /// word. One read, for #155's import.
+    func links(for terms: [String], lang: String) async throws -> [ListLinking.Link?] {
+        let pool = try await userPool()
+        return try await read(pool) { db in
+            let lookup = try Self.linkLookup(lang: lang, in: db)
+            return try terms.map { try ListLinking.link($0, lang: lang, lookup: lookup) }
+        }
+    }
+
+    /// The headword language of `source` (ISO 639-3), as `sourceLanguages`
+    /// reads it; nil when nothing names it.
+    func sourceLanguage(of source: String) async throws -> String? {
+        let pool = try await userPool()
+        return try await read(pool) { db in try Self.sourceLanguages(db)[source] }
+    }
+
+    /// Deletes every imported list and its words (`-resetData`). The shuffle
+    /// seed stays.
+    func clearUserLists() async throws {
+        let pool = try await userPool()
+        try await pool.write { db in
+            try db.execute(sql: "DELETE FROM user_list")
+        }
+        wordListsDidChange()
+    }
+
+    /// Drops the cached arrangements: a list changed, or the service reopened.
+    private func wordListsDidChange() {
+        arrangements = [:]
+        listGeneration += 1
+    }
+
+    /// The install's shuffle seed, written on first use.
+    private func wordListSeed(_ pool: DatabasePool) async throws -> UInt64 {
+        let key = Self.wordListSeedKey
+        let stored = try await read(pool) { db in
+            try String.fetchOne(db, sql: "SELECT value FROM user_meta WHERE key = ?", arguments: [key])
+        }
+        if let seed = stored.flatMap(UInt64.init) { return seed }
+        return try await pool.write { db in
+            try db.execute(sql: "INSERT OR IGNORE INTO user_meta(key, value) VALUES (?, ?)",
+                           arguments: [key, String(UInt64.random(in: 0...UInt64.max))])
+            let value = try String.fetchOne(db, sql: "SELECT value FROM user_meta WHERE key = ?", arguments: [key])
+            return value.flatMap(UInt64.init) ?? 0
+        }
+    }
+
+    /// The attached dictionary files' schema names, quoted: `dict`, and each
+    /// language pack's under 0237. Not the user database's own, nor a 1.x
+    /// file attached for its move.
+    private static func dictionarySchemas(_ db: Database) throws -> [String] {
+        try Row.fetchAll(db, sql: "PRAGMA database_list")
+            .map { $0["name"] as String }
+            .filter { !["main", "temp", "legacy"].contains($0) }
+            .map(\.quotedDatabaseIdentifier)
+    }
+
+    /// The attached files that have the word list tables.
+    private static func wordListSchemas(_ db: Database) throws -> [String] {
+        try dictionarySchemas(db).filter { schema in
+            try Bool.fetchOne(db, sql: """
+                SELECT EXISTS (SELECT 1 FROM \(schema).sqlite_master WHERE type = 'table' AND name = 'wordlist')
+                """) ?? false
+        }
+    }
+
+    /// Each source's headword language: a dictionary file's
+    /// `dict_metadata.from_lang`, else an import's `imported_sources.from_lang`
+    /// once imports record it (#208). An import under a dictionary's ID has
+    /// that dictionary's language.
+    private static func sourceLanguages(_ db: Database) throws -> [String: String] {
+        var languages: [String: String] = [:]
+        for row in try Row.fetchAll(db, sql: "SELECT source, from_lang FROM imported_sources WHERE from_lang IS NOT NULL") {
+            languages[row["source"] as String] = row["from_lang"] as String
+        }
+        for schema in try dictionarySchemas(db) {
+            for row in try Row.fetchAll(db, sql: "SELECT source, from_lang FROM \(schema).dict_metadata") {
+                languages[row["source"] as String] = row["from_lang"] as String
+            }
+        }
+        return languages
+    }
+
+    /// One row of `wordlist_item` or `user_list_item`, a word of list `list`
+    /// in language `lang`.
+    private static func listItem(_ row: Row, list: WordListID, lang: String) -> WordListItem {
+        let term: String = row["term"]
+        return WordListItem(
+            listID: list, key: WordKey(lang: lang, word: term), term: term, headword: row["headword"],
+            translation: row["translation"], endings: row["endings"], partOfSpeech: row["pos"], tags: row["tags"],
+            level: row["level"], levelOrder: row["level_ord"], rank: row["rank"], seq: row["seq"],
+            sortKey: row["sort_key"])
+    }
+
+    /// The words of list `id` in `order` (SQL on the item columns), My words
+    /// newest first; none for an unknown id.
+    private static func listItems(_ id: WordListID, order: String, in db: Database) throws -> [WordListItem] {
+        switch id.kind {
+        case .myWords:
+            return try myWordsItems(db)
+        case .user:
+            guard let lang = try String.fetchOne(db, sql: "SELECT lang FROM user_list WHERE id = ?",
+                                                 arguments: [id.rawValue]) else { return [] }
+            return try Row.fetchAll(db, sql: """
+                SELECT \(listItemColumns) FROM user_list_item WHERE list_id = ? ORDER BY \(order)
+                """, arguments: [id.rawValue]).map { listItem($0, list: id, lang: lang) }
+        case .builtIn:
+            for schema in try wordListSchemas(db) {
+                guard let list = try Row.fetchOne(db, sql: "SELECT lang, series, level_ord FROM \(schema).wordlist WHERE id = ?",
+                                                  arguments: [id.rawValue]) else { continue }
+                let lang: String = list["lang"]
+                return try Row.fetchAll(db, sql: wordListItemsSQL(schema: schema, order: order),
+                                        arguments: [list["series"] as String, list["level_ord"] as Int])
+                    .map { listItem($0, list: id, lang: lang) }
+            }
+            return []
+        }
+    }
+
+    /// My words, one item per `WordKey` (0130): when rows of two
+    /// dictionaries share a key (γράφω from El–En · FD and El–En · WN), the
+    /// row added first, then by source, stands for the word. Newest first.
+    private static func myWordsItems(_ db: Database) throws -> [WordListItem] {
+        let languages = try sourceLanguages(db)
+        var keys = Set<WordKey>()
+        var items: [WordListItem] = []
+        for row in try Row.fetchAll(db, sql: "SELECT source, word FROM my_words ORDER BY added_at, source, word") {
+            let word: String = row["word"]
+            let key = WordKey(lang: languages[row["source"] as String] ?? "und", word: word)
+            guard keys.insert(key).inserted else { continue }
+            items.append(WordListItem(
+                listID: .myWords, key: key, term: word, headword: word, translation: "", endings: "",
+                partOfSpeech: "", tags: "", level: "", levelOrder: 0, rank: nil, seq: items.count,
+                sortKey: WordListItem.sortKey(of: word)))
+        }
+        return items.reversed()
+    }
+
+    /// The lists of `ids` in language `lang`, in Lists screen order (a set
+    /// has none): built-in lists by level, then imported lists newest first.
+    /// My words and ids of lists that no longer exist drop out.
+    private static func listsInScreenOrder(_ ids: Set<WordListID>, lang: String, in db: Database) throws -> [WordListID] {
+        var builtIn: [(id: WordListID, level: Int)] = []
+        for schema in try wordListSchemas(db) {
+            for row in try Row.fetchAll(db, sql: "SELECT id, level_ord FROM \(schema).wordlist WHERE lang = ?",
+                                        arguments: [lang]) {
+                let id = WordListID(rawValue: row["id"])
+                if ids.contains(id) { builtIn.append((id, row["level_ord"])) }
+            }
+        }
+        let imported = try String.fetchAll(db, sql: "SELECT id FROM user_list WHERE lang = ? ORDER BY created_at DESC, id",
+                                           arguments: [lang])
+            .map(WordListID.init(rawValue:))
+            .filter(ids.contains)
+        return builtIn.sorted { ($0.level, $0.id.rawValue) < ($1.level, $1.id.rawValue) }.map(\.id) + imported
+    }
+
+    /// The dictionary reads `ListLinking` needs for a list in `lang`, over
+    /// every dictionary with headwords in that language: the attached
+    /// files' and the imported ones.
+    private static func linkLookup(lang: String, in db: Database) throws -> ListLinking.Lookup {
+        let sources = try sourceLanguages(db).filter { $0.value == lang }.map(\.key).sorted()
+        let schemas = try dictionarySchemas(db)
+        let inSources = "source IN (" + sources.map { _ in "?" }.joined(separator: ", ") + ")"
+        // Each store's entries and its FTS index, whose hidden column is
+        // named after the table.
+        let stores = schemas.map { (fts: "\($0).entries_fts", match: "entries_fts", entries: "\($0).entries") }
+            + [(fts: "imported_fts", match: "imported_fts", entries: "imported_entries")]
+        return ListLinking.Lookup(
+            headwords: { spelling in
+                guard !sources.isEmpty else { return [] }
+                return try stores.flatMap { store in
+                    try String.fetchAll(db, sql: "SELECT word FROM \(store.entries) WHERE word = ? COLLATE NOCASE AND \(inSources)",
+                                        arguments: StatementArguments([spelling] + sources))
+                }
+            },
+            nearCandidates: { spelling in
+                guard !sources.isEmpty else { return [] }
+                // The FTS index finds the rows that fold alike; a near
+                // spelling has as many scalars.
+                var arguments: StatementArguments = [
+                    "word_normalized : " + Search.ftsString(Search.foldGreek(spelling)),
+                    spelling.precomposedStringWithCanonicalMapping.unicodeScalars.count,
+                ]
+                arguments += StatementArguments(sources)
+                return try stores.flatMap { store in
+                    try String.fetchAll(db, sql: """
+                        SELECT e.word FROM \(store.fts) fts JOIN \(store.entries) e ON e.id = fts.rowid
+                        WHERE \(store.match) MATCH ? AND length(e.word) = ? AND e.\(inSources)
+                        """, arguments: arguments)
+                }
+            },
+            formLemmas: { spelling in
+                switch lang {
+                case "ell":
+                    let form = spelling.precomposedStringWithCanonicalMapping
+                    return try schemas.flatMap { schema in
+                        try String.fetchAll(db, sql: greekFormLemmasSQL(schema: schema),
+                                            arguments: [Search.foldGreek(form), form])
+                    }
+                case "eng":
+                    let exceptions = try schemas.flatMap { schema in
+                        try Row.fetchAll(db, sql: "SELECT pos, base FROM \(schema).morphy_exception WHERE form = ?",
+                                         arguments: [spelling.lowercased()])
+                            .compactMap { row in
+                                Morphy.PartOfSpeech(rawValue: row["pos"]).map { Morphy.Exception(pos: $0, base: row["base"]) }
+                            }
+                    }
+                    // Morphy's order: verb, noun, adjective, adverb.
+                    return Morphy.PartOfSpeech.allCases.flatMap { pos in
+                        exceptions.filter { $0.pos == pos }.map(\.base).sorted()
+                    }
+                default:
+                    return []
+                }
+            })
+    }
+
     // MARK: - Metadata & Statistics
 
     /// Metadata of every bundled dictionary, in dictionary file order.
@@ -1303,7 +1701,10 @@ actor DatabaseService {
     /// is read-only. The app never calls it.
     func writeForTesting<T: Sendable>(_ body: @escaping @Sendable (Database) throws -> T) async throws -> T {
         guard let pool = dbPool else { throw DBError.notConnected }
-        return try await pool.write(body)
+        let result = try await pool.write(body)
+        // The write may have changed a list (0130).
+        wordListsDidChange()
+        return result
     }
     #endif
 
