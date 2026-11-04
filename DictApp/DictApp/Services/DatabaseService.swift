@@ -516,6 +516,66 @@ actor DatabaseService {
                 ) WITHOUT ROWID;
                 """)
         }
+        // Learning (0131, #157). Enrols nothing: a language's My words are
+        // enrolled when the language is chosen (`enrolMyWords`).
+        migrator.registerMigration("131-1-learning") { db in
+            try db.execute(sql: """
+                -- A word in learning: one row per WordKey (0130).
+                CREATE TABLE learn_word (
+                    lang            TEXT NOT NULL,
+                    word            TEXT NOT NULL,
+                    term            TEXT NOT NULL,
+                    endings         TEXT NOT NULL DEFAULT '',
+                    pos             TEXT NOT NULL DEFAULT '',
+                    translation     TEXT NOT NULL DEFAULT '',
+                    -- its language ('eng' for Kirill's lists); '' = an
+                    -- import's, shown in every pair
+                    translation_lang TEXT NOT NULL DEFAULT '',
+                    source          TEXT,
+                    headword        TEXT,
+                    list_id         TEXT,
+                    added_at        TEXT NOT NULL DEFAULT (datetime('now')),
+                    introduced_day  TEXT,
+                    PRIMARY KEY (lang, word)
+                ) WITHOUT ROWID;
+
+                -- A card: two per word; E5 adds conjugation cards.
+                CREATE TABLE learn_card (
+                    lang       TEXT NOT NULL,
+                    word       TEXT NOT NULL,
+                    kind       TEXT NOT NULL,
+                    facet      TEXT NOT NULL DEFAULT '',
+                    step       INTEGER NOT NULL DEFAULT 0,
+                    due_day    TEXT NOT NULL,
+                    last_day   TEXT,
+                    suspended  INTEGER NOT NULL DEFAULT 0,
+                    PRIMARY KEY (lang, word, kind, facet)
+                ) WITHOUT ROWID;
+                CREATE INDEX learn_card_due ON learn_card(lang, due_day) WHERE suspended = 0;
+
+                -- The answer log: one row per exercise item, append-only.
+                CREATE TABLE learn_review (
+                    id           INTEGER PRIMARY KEY,
+                    answered_at  TEXT NOT NULL DEFAULT (datetime('now')),
+                    day          TEXT NOT NULL,
+                    lang         TEXT NOT NULL,
+                    word         TEXT NOT NULL,
+                    kind         TEXT NOT NULL,
+                    facet        TEXT NOT NULL DEFAULT '',
+                    exercise     TEXT NOT NULL,
+                    mode         TEXT NOT NULL,
+                    run_id       TEXT NOT NULL,
+                    outcome      TEXT NOT NULL,
+                    step_before  INTEGER NOT NULL,
+                    step_after   INTEGER NOT NULL,
+                    introduced   INTEGER NOT NULL DEFAULT 0,
+                    duration_ms  INTEGER NOT NULL DEFAULT 0,
+                    detail       TEXT
+                );
+                CREATE INDEX learn_review_day ON learn_review(day);
+                CREATE INDEX learn_review_word ON learn_review(lang, word);
+                """)
+        }
         return migrator
     }
 
@@ -1481,6 +1541,252 @@ actor DatabaseService {
             })
     }
 
+    // MARK: - Learning (0131, #157)
+    //
+    // Words, cards and the answer log, in the user database, keyed by
+    // `WordKey`, never by row ids. Every method takes `today` from the
+    // caller, so the store reads no clock. Reads go through `read`. Writes
+    // are user-database writes, never retried, except the three that read
+    // the sources' languages from the dictionary file (`learnWord`,
+    // `stopLearning`, `enrolMyWords`): they run through `dictionaryWrite`,
+    // like the import (#213). Word-level logic (started, paused, mistakes,
+    // a word's state) reads and writes word cards only
+    // (`LearningSQL.wordKinds`), never E5's conjugation cards.
+
+    // ponytail: replaced by PackCatalog.pairs (#241)
+    /// The pairs the dictionaries offer (0131, "Languages and pairs"), each
+    /// with its sources in file order: the directions of the bundle's
+    /// `dict_metadata`, then those of imports with both languages (#208),
+    /// and the limited pairs. #241's catalog adds the packs' pairs; the
+    /// imports' stay E4's.
+    func learningPairs() async throws -> [LearningPair: [String]] {
+        let pool = try await userPool()
+        return try await read(pool) { db in
+            LearningPairs.offered(try Row.fetchAll(db, sql: """
+                SELECT source, from_lang, to_lang FROM (
+                    SELECT 0 AS file, rowid AS n, source, from_lang, to_lang FROM dict.dict_metadata
+                    UNION ALL
+                    SELECT 1, rowid, source, from_lang, to_lang FROM imported_sources
+                    WHERE source NOT IN (SELECT source FROM dict.dict_metadata))
+                ORDER BY file, n
+                """).map { row -> (source: String, from: String?, to: String?) in
+                    (row["source"], row["from_lang"], row["to_lang"])
+                })
+        }
+    }
+
+    /// Learn on a word of a learned language. In one transaction: the My
+    /// words row, the word under `wordKey(for: key)` and its two new cards,
+    /// or its paused word cards resumed with their progress.
+    func learnWord(_ key: EntryKey, today: LearnDay) async throws {
+        let pool = try await userPool()
+        try await dictionaryWrite(pool) { db in
+            let word = WordKey(lang: try Self.sourceLanguages(db)[key.source] ?? "und", word: key.word)
+            try db.execute(sql: "INSERT OR IGNORE INTO my_words(source, word) VALUES (?, ?)",
+                           arguments: [key.source, key.word])
+            try db.execute(sql: """
+                INSERT OR IGNORE INTO learn_word(lang, word, term, source, headword) VALUES (?, ?, ?, ?, ?)
+                """, arguments: [word.lang, word.word, key.word, key.source, key.word])
+            try db.execute(sql: LearningSQL.createWordCards, arguments: [word.lang, word.word, today.rawValue])
+            try db.execute(sql: """
+                UPDATE learn_card SET suspended = 0
+                WHERE lang = ? AND word = ? AND suspended = 1 AND kind IN \(LearningSQL.wordKinds)
+                """, arguments: [word.lang, word.word])
+        }
+    }
+
+    /// A language was chosen: its My words not in learning yet are enrolled,
+    /// in one transaction. Choosing it again adds nothing.
+    func enrolMyWords(lang: String, today: LearnDay) async throws {
+        let pool = try await userPool()
+        try await dictionaryWrite(pool) { db in
+            try db.execute(sql: LearningSQL.enrolMyWords, arguments: [lang])
+            try db.execute(sql: LearningSQL.createLanguageCards, arguments: [lang, today.rawValue])
+        }
+    }
+
+    /// Stop learning, the My words swipe and "Remove from My words". In one
+    /// transaction: every My words row of the word's key, whatever its
+    /// source, deleted, and every word card of the key paused with its
+    /// progress.
+    func stopLearning(_ key: EntryKey) async throws {
+        let pool = try await userPool()
+        try await dictionaryWrite(pool) { db in
+            let word = WordKey(lang: try Self.sourceLanguages(db)[key.source] ?? "und", word: key.word)
+            try db.execute(sql: LearningSQL.deleteMyWordsOfKey, arguments: [word.lang, word.word])
+            try db.execute(sql: """
+                UPDATE learn_card SET suspended = 1 WHERE lang = ? AND word = ? AND kind IN \(LearningSQL.wordKinds)
+                """, arguments: [word.lang, word.word])
+        }
+    }
+
+    /// The word and its word cards, paused ones included; nil when it was
+    /// never enrolled.
+    func learningState(of key: WordKey) async throws -> WordLearningState? {
+        let pool = try await userPool()
+        return try await read(pool) { db in
+            guard let row = try Row.fetchOne(db, sql: "SELECT * FROM learn_word WHERE lang = ? AND word = ?",
+                                             arguments: [key.lang, key.word]) else { return nil }
+            let cards = try Row.fetchAll(db, sql: """
+                SELECT * FROM learn_card WHERE lang = ? AND word = ? AND kind IN \(LearningSQL.wordKinds)
+                ORDER BY kind DESC, facet
+                """, arguments: [key.lang, key.word]).map(Self.cardState)
+            return WordLearningState(word: try Self.learnWord(row), cards: cards)
+        }
+    }
+
+    /// Every word in learning, paused ones included: the exclusion set for
+    /// E3's `nextNewWords`, so a stopped word never comes back as new.
+    func enrolledKeys() async throws -> Set<WordKey> {
+        let pool = try await userPool()
+        return try await read(pool) { db in
+            Set(try Row.fetchAll(db, sql: "SELECT lang, word FROM learn_word").map {
+                WordKey(lang: $0["lang"], word: $0["word"])
+            })
+        }
+    }
+
+    /// Grades one answer. In one transaction: the card read, scheduled and
+    /// updated, the word's `introduced_day` set on the first answer to one
+    /// of its word cards, and the log row inserted. #163 adds the day's goal (`learn_day`, 0166).
+    @discardableResult
+    func recordAnswer(_ answer: AnswerRecord, today: LearnDay,
+                      scheduler: any Scheduler = FixedLadder()) async throws -> CardState {
+        let pool = try await userPool()
+        return try await pool.write { db in
+            let key = answer.card
+            let keyArguments: StatementArguments = [key.word.lang, key.word.word, key.kind.rawValue, key.facet]
+            guard let row = try Row.fetchOne(db, sql: """
+                SELECT * FROM learn_card WHERE lang = ? AND word = ? AND kind = ? AND facet = ?
+                """, arguments: keyArguments) else { throw DBError.cardMissing }
+            let card = try Self.cardState(row)
+            let next = scheduler.next(card, outcome: answer.outcome, today: today)
+            try db.execute(sql: """
+                UPDATE learn_card SET step = ?, due_day = ?, last_day = ?
+                WHERE lang = ? AND word = ? AND kind = ? AND facet = ?
+                """, arguments: [next.step, next.dueDay.rawValue, next.lastDay?.rawValue] + keyArguments)
+            var introduced = false
+            if CardKind.wordKinds.contains(key.kind) {
+                try db.execute(sql: """
+                    UPDATE learn_word SET introduced_day = ? WHERE lang = ? AND word = ? AND introduced_day IS NULL
+                    """, arguments: [today.rawValue, key.word.lang, key.word.word])
+                introduced = db.changesCount > 0
+            }
+            try db.execute(sql: """
+                INSERT INTO learn_review(day, lang, word, kind, facet, exercise, mode, run_id, outcome,
+                                         step_before, step_after, introduced, duration_ms, detail)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, arguments: [
+                    today.rawValue, key.word.lang, key.word.word, key.kind.rawValue, key.facet,
+                    answer.exercise.rawValue, answer.mode.rawValue, answer.runID.uuidString, answer.outcome.rawValue,
+                    card.step, next.step, introduced, answer.durationMs, answer.detail,
+                ])
+            return next
+        }
+    }
+
+    /// Answered, unpaused cards of `lang` and `kinds` due by `today`, the
+    /// most overdue first, then the lowest rung. A `limit` below zero gives
+    /// none (SQLite reads a negative `LIMIT` as no limit).
+    func dueCards(lang: String, today: LearnDay, kinds: [CardKind] = CardKind.wordKinds,
+                  limit: Int? = nil) async throws -> [CardState] {
+        let pool = try await userPool()
+        return try await read(pool) { db in
+            try Row.fetchAll(db, sql: """
+                SELECT * FROM learn_card
+                WHERE lang = ? AND due_day <= ? AND suspended = 0 AND last_day IS NOT NULL
+                  AND kind IN (\(kinds.map { _ in "?" }.joined(separator: ", ")))
+                ORDER BY due_day, step, word, kind, facet
+                LIMIT ?
+                """, arguments: [lang, today.rawValue] + StatementArguments(kinds.map(\.rawValue)) + [limit.map { max($0, 0) } ?? -1])
+                .map(Self.cardState)
+        }
+    }
+
+    /// The new pool's first part: words of `lang` in learning, never
+    /// answered and not paused, oldest `added_at` first. A `limit` below
+    /// zero (more words started today than the daily limit) gives none.
+    func newPool(lang: String, limit: Int) async throws -> [LearnWord] {
+        let pool = try await userPool()
+        return try await read(pool) { db in
+            try Row.fetchAll(db, sql: """
+                SELECT * FROM learn_word w
+                WHERE w.lang = ? AND w.introduced_day IS NULL
+                  AND NOT EXISTS (SELECT 1 FROM learn_card c
+                                  WHERE c.lang = w.lang AND c.word = w.word AND c.suspended = 1
+                                    AND c.kind IN \(LearningSQL.wordKinds))
+                ORDER BY w.added_at, w.word
+                LIMIT ?
+                """, arguments: [lang, max(limit, 0)]).map(Self.learnWord)
+        }
+    }
+
+    /// Words of `lang` started on `day`: the daily limit is per language.
+    func startedCount(on day: LearnDay, lang: String) async throws -> Int {
+        let pool = try await userPool()
+        return try await read(pool) { db in
+            try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM learn_word WHERE lang = ? AND introduced_day = ?",
+                             arguments: [lang, day.rawValue]) ?? 0
+        }
+    }
+
+    /// Answers on `day` in every language: the goal is shared.
+    func answeredCount(on day: LearnDay) async throws -> Int {
+        let pool = try await userPool()
+        return try await read(pool) { db in
+            try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM learn_review WHERE day = ?", arguments: [day.rawValue]) ?? 0
+        }
+    }
+
+    /// Unpaused word cards of `lang` whose last answer was wrong, on `since`
+    /// or later: a wrong answer since the day and no right one after it.
+    /// The latest mistake first.
+    func mistakeCards(since: LearnDay, lang: String) async throws -> [CardState] {
+        let pool = try await userPool()
+        return try await read(pool) { db in
+            try Row.fetchAll(db, sql: """
+                SELECT c.* FROM learn_card c
+                JOIN learn_review r ON r.id = (
+                    SELECT MAX(x.id) FROM learn_review x
+                    WHERE x.lang = c.lang AND x.word = c.word AND x.kind = c.kind AND x.facet = c.facet)
+                WHERE c.lang = ? AND c.suspended = 0 AND c.kind IN \(LearningSQL.wordKinds)
+                  AND r.outcome = 'wrong' AND r.day >= ?
+                ORDER BY r.id DESC
+                """, arguments: [lang, since.rawValue]).map(Self.cardState)
+        }
+    }
+
+    /// `-resetData` (DEBUG): every learning row.
+    func clearLearning() async throws {
+        let pool = try await userPool()
+        try await pool.write { db in
+            try db.execute(sql: "DELETE FROM learn_review; DELETE FROM learn_card; DELETE FROM learn_word")
+        }
+    }
+
+    private static func learnDay(_ text: String) throws -> LearnDay {
+        guard let day = LearnDay(rawValue: text) else { throw DBError.learningRowUnreadable }
+        return day
+    }
+
+    private static func cardState(_ row: Row) throws -> CardState {
+        guard let kind = CardKind(rawValue: row["kind"]) else { throw DBError.learningRowUnreadable }
+        let lastDay: String? = row["last_day"]
+        return CardState(key: CardKey(word: WordKey(lang: row["lang"], word: row["word"]), kind: kind, facet: row["facet"]),
+                         step: row["step"], dueDay: try learnDay(row["due_day"]),
+                         lastDay: try lastDay.map(learnDay), isSuspended: row["suspended"])
+    }
+
+    private static func learnWord(_ row: Row) throws -> LearnWord {
+        let source: String? = row["source"], headword: String? = row["headword"]
+        let introducedDay: String? = row["introduced_day"]
+        return LearnWord(key: WordKey(lang: row["lang"], word: row["word"]), term: row["term"],
+                         endings: row["endings"], partOfSpeech: row["pos"], translation: row["translation"],
+                         translationLang: row["translation_lang"],
+                         entry: source.flatMap { source in headword.map { EntryKey(source: source, word: $0) } },
+                         listID: row["list_id"], introducedDay: try introducedDay.map(learnDay))
+    }
+
     // MARK: - Metadata & Statistics
 
     /// Metadata of every bundled dictionary, in dictionary file order.
@@ -1711,13 +2017,74 @@ actor DatabaseService {
     enum DBError: Error, LocalizedError {
         case notConnected
         case dictionaryMissing
+        /// `recordAnswer` for a card that does not exist.
+        case cardMissing
+        /// A learning row with a day or a kind this build cannot read.
+        case learningRowUnreadable
         var errorDescription: String? {
             switch self {
             case .notConnected: return "Database is not connected. Call setup() first."
             case .dictionaryMissing: return "The bundled dictionary file is missing."
+            case .cardMissing: return "The card is not in learning."
+            case .learningRowUnreadable: return "A learning row could not be read."
             }
         }
     }
+}
+
+// MARK: - Learning SQL (0131, #157)
+
+/// The learning statements that work on keys, so the My words key exists
+/// once in SQL (0130, "For E4 and E10", item 2).
+enum LearningSQL {
+    /// The word cards' kinds as an SQL list: `('recognition', 'production')`.
+    static let wordKinds = "(" + CardKind.wordKinds.map { "'\($0.rawValue)'" }.joined(separator: ", ") + ")"
+
+    /// Every My words row with its `WordKey` (`lang`, `word`), its
+    /// `source`, its word as `term` and its `added_at`.
+    static let myWordsKeys = """
+        SELECT COALESCE(d.from_lang, s.from_lang, 'und') AS lang, lower(m.word) AS word,
+               m.source AS source, m.word AS term, m.added_at AS added_at
+        FROM my_words m
+        LEFT JOIN (\(DictionarySchemas.sourceLanguageSQL)) d ON d.source = m.source
+        LEFT JOIN imported_sources s ON s.source = m.source
+        """
+
+    /// Enrols the My words of the language `?1` not in learning yet: one
+    /// word per key, from the row added first (`added_at`, then `source`),
+    /// dated by it, so the oldest come first among new words.
+    static let enrolMyWords = """
+        INSERT INTO learn_word(lang, word, term, source, headword, added_at)
+        SELECT lang, word, term, source, term, added_at FROM (
+            SELECT k.*, ROW_NUMBER() OVER (PARTITION BY k.lang, k.word ORDER BY k.added_at, k.source) AS n
+            FROM (\(myWordsKeys)) k
+            WHERE k.lang = ?1
+        ) m
+        WHERE m.n = 1 AND NOT EXISTS (SELECT 1 FROM learn_word w WHERE w.lang = m.lang AND w.word = m.word)
+        """
+
+    /// The two cards of the word (`?1`, `?2`), new and due on `?3`, unless
+    /// it has them.
+    static let createWordCards = """
+        INSERT OR IGNORE INTO learn_card(lang, word, kind, due_day)
+        VALUES (?1, ?2, 'recognition', ?3), (?1, ?2, 'production', ?3)
+        """
+
+    /// The two cards of every word of the language `?1` that lacks them,
+    /// new and due on `?2`.
+    static let createLanguageCards = """
+        INSERT OR IGNORE INTO learn_card(lang, word, kind, due_day)
+        SELECT w.lang, w.word, k.kind, ?2
+        FROM learn_word w, (SELECT 'recognition' AS kind UNION ALL SELECT 'production') k
+        WHERE w.lang = ?1
+        """
+
+    /// Deletes every My words row of the key (`?1`, `?2`), whatever its
+    /// source.
+    static let deleteMyWordsOfKey = """
+        DELETE FROM my_words WHERE lower(word) = ?2 AND source IN (
+            SELECT source FROM (\(myWordsKeys)) WHERE lang = ?1 AND word = ?2)
+        """
 }
 
 // MARK: - 1.x migration (Issue #139)

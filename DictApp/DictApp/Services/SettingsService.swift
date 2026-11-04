@@ -220,6 +220,144 @@ final class SettingsService {
             }
         }
     }
+
+    // MARK: - Learning (0131, #157; UI in #162)
+    //
+    // Numbers are stored as text, switches as "1" / "0". Values outside
+    // their range are clamped when read. E3's checked lists are its own key,
+    // `learning_lists` (0130).
+
+    static let learningNewPerDayRange = 0...50
+    static let learningDailyGoalRange = 5...200
+    /// Minutes after midnight.
+    static let learningReminderRange = 0...(24 * 60 - 1)
+
+    private enum LearningKey {
+        static let newPerDay = "learning_new_per_day"
+        static let dailyGoal = "learning_daily_goal"
+        static let newOrder = "learning_new_order"
+        static let answerMode = "learning_answer_mode"
+        static let sounds = "learning_sounds"
+        static let haptics = "learning_haptics"
+        static let reminder = "learning_reminder"
+        static let languages = "learning_languages"
+        static let language = "learning_language"
+        static let via = "learning_via"
+        /// E3's (0130); cleared with the others by `-resetData`.
+        static let lists = "learning_lists"
+        static let all = [newPerDay, dailyGoal, newOrder, answerMode, sounds, haptics,
+                          reminder, languages, language, via, lists]
+    }
+
+    /// The daily limit of new words, per language.
+    var learningNewPerDay: Int {
+        get { int(LearningKey.newPerDay, in: Self.learningNewPerDayRange) ?? 10 }
+        set { store.set(String(newValue.clamped(to: Self.learningNewPerDayRange)), forKey: LearningKey.newPerDay) }
+    }
+
+    /// Exercises a day, for E10's goal ring, streak and the reminder.
+    var learningDailyGoal: Int {
+        get { int(LearningKey.dailyGoal, in: Self.learningDailyGoalRange) ?? 20 }
+        set { store.set(String(newValue.clamped(to: Self.learningDailyGoalRange)), forKey: LearningKey.dailyGoal) }
+    }
+
+    var learningNewOrder: NewWordOrder {
+        get { NewWordOrder(rawValue: store.string(forKey: LearningKey.newOrder) ?? "") ?? .frequency }
+        set { store.set(newValue.rawValue, forKey: LearningKey.newOrder) }
+    }
+
+    var learningAnswerMode: AnswerMode {
+        get { AnswerMode(rawValue: store.string(forKey: LearningKey.answerMode) ?? "") ?? .lenient }
+        set { store.set(newValue.rawValue, forKey: LearningKey.answerMode) }
+    }
+
+    var learningSounds: Bool {
+        get { store.string(forKey: LearningKey.sounds) != "0" }
+        set { store.set(newValue ? "1" : "0", forKey: LearningKey.sounds) }
+    }
+
+    var learningHaptics: Bool {
+        get { store.string(forKey: LearningKey.haptics) != "0" }
+        set { store.set(newValue ? "1" : "0", forKey: LearningKey.haptics) }
+    }
+
+    /// The daily reminder's time in minutes after midnight; nil = off.
+    var learningReminder: Int? {
+        get { int(LearningKey.reminder, in: Self.learningReminderRange) }
+        set { store.set(newValue.map { String($0.clamped(to: Self.learningReminderRange)) }, forKey: LearningKey.reminder) }
+    }
+
+    /// The learned languages (ISO 639-3), in the order chosen. Empty: the
+    /// Learn tab shows the language picker.
+    var learningLanguages: [String] {
+        get {
+            guard let data = store.data(forKey: LearningKey.languages),
+                  let languages = try? JSONDecoder().decode([String].self, from: data) else { return [] }
+            return languages
+        }
+        set {
+            if newValue.isEmpty {
+                store.removeObject(forKey: LearningKey.languages)
+            } else {
+                store.set(try? JSONEncoder().encode(newValue), forKey: LearningKey.languages)
+            }
+        }
+    }
+
+    /// The language chosen on the Learn home, as stored; nil = the first
+    /// learned language (`LearningLanguages.chosen`).
+    var learningLanguage: String? {
+        get { store.string(forKey: LearningKey.language) }
+        set { store.set(newValue, forKey: LearningKey.language) }
+    }
+
+    /// Each learned language's via (ISO 639-3), `{"ell":"eng","eng":"spa"}`.
+    /// Written when a pair is chosen or its via changed, kept when the
+    /// language is stopped. A language without one, or whose pair is no
+    /// longer offered, takes its default via (`LearningPairs.pair`).
+    var learningVia: [String: String] {
+        get {
+            guard let data = store.data(forKey: LearningKey.via),
+                  let via = try? JSONDecoder().decode([String: String].self, from: data) else { return [:] }
+            return via
+        }
+        set {
+            if newValue.isEmpty {
+                store.removeObject(forKey: LearningKey.via)
+            } else {
+                let encoder = JSONEncoder()
+                encoder.outputFormatting = .sortedKeys
+                store.set(try? encoder.encode(newValue), forKey: LearningKey.via)
+            }
+        }
+    }
+
+    #if DEBUG
+    /// `-learningLanguages ell,eng:spa` (0131, Test seams): the learned
+    /// languages in order, and the via of each item that names one.
+    func setLearningLanguages(argument: String) {
+        let items = argument.split(separator: ",").map { $0.split(separator: ":", maxSplits: 1).map(String.init) }
+        learningLanguages = items.compactMap(\.first)
+        for item in items where item.count == 2 {
+            learningVia[item[0]] = item[1]
+        }
+    }
+    #endif
+
+    /// `-resetData` (DEBUG): every `learning_*` key back to its default.
+    func resetLearning() {
+        LearningKey.all.forEach(store.removeObject(forKey:))
+    }
+
+    /// The stored number at `key`, clamped to `range`; nil when absent or
+    /// not a number.
+    private func int(_ key: String, in range: ClosedRange<Int>) -> Int? {
+        store.string(forKey: key).flatMap(Int.init).map { $0.clamped(to: range) }
+    }
+}
+
+private extension Int {
+    func clamped(to range: ClosedRange<Int>) -> Int { Swift.min(Swift.max(self, range.lowerBound), range.upperBound) }
 }
 
 // MARK: - Default dictionary order (Issue #74)

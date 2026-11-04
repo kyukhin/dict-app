@@ -107,6 +107,9 @@ struct DictApp: App {
                 // from. The install's shuffle seed stays.
                 try await DatabaseService.shared.clearUserLists()
                 SettingsService.shared.learningListIDs = []
+                // 0131: the learning tables and the `learning_*` keys.
+                try await DatabaseService.shared.clearLearning()
+                SettingsService.shared.resetLearning()
                 // Reset per-source enable/disable preference to first-launch default.
                 SettingsService.shared.enabledSources = nil
                 // Issue #74: also drop the persisted dictionary order so the
@@ -119,6 +122,12 @@ struct DictApp: App {
                 // clean (they persist across launches and would otherwise
                 // accumulate past the threshold mid-suite).
                 ReviewRequestService.shared.resetPersistedState()
+            }
+
+            // 0131, Test seams: the learned languages and their vias
+            // (`-learningLanguages ell,eng:spa`), skipping the picker.
+            if let argument = Self.launchValue(after: "-learningLanguages") {
+                SettingsService.shared.setLearningLanguages(argument: argument)
             }
 
             // UI-test hook: scrub the rows and the `imported_sources` row left
@@ -151,4 +160,13 @@ struct DictApp: App {
             setupError = error.localizedDescription
         }
     }
+
+    #if DEBUG
+    /// The launch argument after `flag` (`-learningLanguages ell,eng`).
+    private static func launchValue(after flag: String) -> String? {
+        let arguments = CommandLine.arguments
+        guard let index = arguments.firstIndex(of: flag), arguments.indices.contains(index + 1) else { return nil }
+        return arguments[index + 1]
+    }
+    #endif
 }

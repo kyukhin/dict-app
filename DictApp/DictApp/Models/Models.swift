@@ -138,6 +138,16 @@ extension DatabaseService {
     }
 }
 
+// MARK: - DictionarySchemas (0237)
+
+// ponytail: replaced by #241
+/// A source's language for the My words key (0130, 0131): `source,
+/// from_lang` rows of the bundle's `dict_metadata`. #241 adds
+/// `dict.catalog_source`, so a pack not yet downloaded keeps its language.
+enum DictionarySchemas {
+    static let sourceLanguageSQL = "SELECT source, from_lang FROM dict.dict_metadata"
+}
+
 // MARK: - Search by any form (Issue #142)
 
 /// Why the form step added a row to Search: the query is an inflected form
