@@ -1,6 +1,6 @@
 // LearnViewModel.swift
-// The Learn tab (0131-learning.md, #158): the pair picker, the Learn home
-// and the interim My words list. The runs come with #159 and #161.
+// The Learn tab (0131-learning.md, #158): the pair picker and the Learn
+// home, with E3's Lists section (#154). The runs come with #159 and #161.
 
 import Foundation
 
@@ -31,6 +31,12 @@ final class LearnViewModel: ObservableObject {
     @Published private(set) var today: Today?
     /// My words that resolve, in every language.
     @Published private(set) var myWordsCount = 0
+    /// The Lists section (0130, #154): the chosen language's checked lists,
+    /// in the Lists screen's order.
+    @Published private(set) var checkedLists: [WordList] = []
+    /// The chosen language has lists, built-in or imported: the Lists
+    /// section offers New words from.
+    @Published private(set) var hasLists = false
     /// False until the first load ends, so the picker never flashes before the home.
     @Published private(set) var isLoaded = false
     @Published var errorMessage: String?
@@ -50,6 +56,15 @@ final class LearnViewModel: ObservableObject {
 
     /// The languages with built-in lists: the picker's first group.
     var languagesWithLists: Set<String> { languages.packs.languagesWithLists }
+
+    /// My words as a list, for its row (E3's list screen, #154).
+    var myWordsList: WordList {
+        WordList(id: .myWords, kind: .myWords, lang: WordList.myWordsLanguage, level: "", title: "", count: myWordsCount)
+    }
+
+    /// The Lists section's "New words from" row: once a list is checked or a
+    /// word is in learning, while Today no longer offers "Choose lists".
+    var showsNewWordsFrom: Bool { hasLists && today != .chooseLists }
 
     /// Reads the learned languages, then the picker's rows or the home.
     /// `locale` names the languages for the picker's order.
@@ -106,15 +121,26 @@ final class LearnViewModel: ObservableObject {
         let day = clock.today
         pair = try await languages.pair(for: language)
         myWordsCount = try await db.fetchMyWords().count
-        // ponytail: #154 also counts the language's checked lists here
-        guard try await db.learningWordCount(lang: language) > 0 else {
-            today = languagesWithLists.contains(language) ? .chooseLists : .addWords
+        let lists = try await db.wordLists()
+        let checked = settings.learningListIDs
+        checkedLists = WordListsViewModel.sections(lists, learned: [language], uiLanguage: "")
+            .flatMap(\.lists)
+            .filter { $0.kind != .myWords && checked.contains($0.id) }
+        hasLists = languagesWithLists.contains(language) || lists.contains { $0.kind == .user && $0.lang == language }
+        // Nothing to learn yet: no word in learning and no list checked.
+        guard try await db.learningWordCount(lang: language) > 0 || !checkedLists.isEmpty else {
+            today = hasLists ? .chooseLists : .addWords
             return
         }
         let due = Set(try await db.dueCards(lang: language, today: day).map(\.key.word)).count
         let left = settings.learningNewPerDay - (try await db.startedCount(on: day, lang: language))
-        // ponytail: #161 adds the checked lists' next words
-        let newLeft = try await db.newPool(lang: language, limit: left).count
+        // My words not started first, then the checked lists' next words.
+        let pool = try await db.newPool(lang: language, limit: left).count
+        let fromLists = left > pool
+            ? try await db.nextNewWords(in: language, from: checked, count: left - pool,
+                                        excluding: try await db.enrolledKeys(), order: settings.learningNewOrder).count
+            : 0
+        let newLeft = pool + fromLists
         today = due == 0 && newLeft == 0 ? .allDone : .counts(due: due, newLeft: newLeft)
     }
 
@@ -157,42 +183,5 @@ final class LearnViewModel: ObservableObject {
     /// `key` from the in-app language's table (`locale`), not the device's.
     private nonisolated static func localized(_ key: String, locale: Locale) -> String {
         SettingsViewModel.localizedBundle(for: locale).localizedString(forKey: key, value: key, table: nil)
-    }
-}
-
-// MARK: - My words, interim (#158, until E3 #154)
-
-/// Today's Bookmarks list, moved: My words that resolve, newest first. A
-/// key that no longer resolves stays stored and is skipped (#138).
-@MainActor
-final class MyWordsViewModel: ObservableObject {
-    @Published private(set) var entries: [DictionaryEntry] = []
-    @Published var errorMessage: String?
-
-    private let db: DatabaseService
-
-    init(db: DatabaseService = .shared) {
-        self.db = db
-    }
-
-    func load() async {
-        do {
-            entries = try await db.fetchMyWords()
-            errorMessage = nil
-        } catch {
-            errorMessage = error.localizedDescription
-        }
-    }
-
-    /// The swipe is Stop learning: every My words row of the word leaves,
-    /// whatever its dictionary, and its cards are paused.
-    func stopLearning(_ entry: DictionaryEntry) async {
-        do {
-            try await db.stopLearning(EntryKey(entry))
-            entries = try await db.fetchMyWords()
-            errorMessage = nil
-        } catch {
-            errorMessage = error.localizedDescription
-        }
     }
 }

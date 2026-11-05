@@ -23,6 +23,7 @@ import XCTest
 ///      the iPadOS 26 search drawer.
 ///   4) The Learn tab (0131, #158) in the tab bar or the iPadOS 26 strip,
 ///      in both orientations.
+///   5) The word lists (0130, #154) in both orientations.
 ///
 /// All tests skip cleanly on non-iPad destinations.
 final class iPadSpecificTests: XCTestCase {
@@ -45,6 +46,10 @@ final class iPadSpecificTests: XCTestCase {
         app = XCUIApplication()
         app.launchArguments.append("-disableReviewPrompt")
         app.launchArguments.append("-resetData")
+        // 0130, #154: Greek learned, with the fixture's imported lists.
+        if name.contains("testWordListsOnIPad") {
+            app.launchArguments += ["-learningLanguages", "ell", "-wordListFixture", "lists"]
+        }
 
         // iOS 26 surfaces an "Enable Dictation?" springboard alert the first
         // time `.searchable()` is activated. XCUI's default handler taps the
@@ -221,6 +226,29 @@ final class iPadSpecificTests: XCTestCase {
             let learnPage = tabBarPage.tapLearnTab()
             XCTAssertTrue(learnPage.waitForPicker(), "the language picker in \(orientation.rawValue)")
             XCTAssertTrue(learnPage.pickerRow("ell", via: "eng").exists, "Greek via English is offered")
+        }
+    }
+
+    /// 0130, #154: the Lists screen, a list's screen and New words from in
+    /// both orientations; a word opens its Definition.
+    func testWordListsOnIPad() throws {
+        let tabBarPage = TabBarPage(app: app)
+        for orientation in [UIDeviceOrientation.portrait, .landscapeLeft] {
+            XCUIDevice.shared.orientation = orientation
+            tabBarPage.tap(.search)
+            let learnPage = tabBarPage.tapLearnTab()
+            XCTAssertTrue(learnPage.waitForHome(), "the Learn home in \(orientation.rawValue)")
+            let page = learnPage.tapAllLists()
+            XCTAssertTrue(page.row("user-fixture-greek").waitForExistence(timeout: TestData.Timeouts.medium))
+            XCTAssertEqual(page.count("user-fixture-greek").label, "5 words")
+            page.openList("user-fixture-greek")
+            XCTAssertTrue(page.learnButton.exists, "Learn this list in \(orientation.rawValue)")
+            page.tapWord("σπίτι")
+            XCTAssertTrue(DefinitionPage(app: app).waitForDefinitionToLoad(), "σπίτι's Definition")
+            learnPage.popToRoot()
+            let newWordsFrom = learnPage.tapChooseLists()
+            XCTAssertTrue(newWordsFrom.newWordsFromRow("user-fixture-greek").exists)
+            learnPage.popToRoot()
         }
     }
 }

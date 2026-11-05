@@ -106,6 +106,32 @@ final class LearningLanguageService {
                            uiLanguage: uiLanguage())
     }
 
+    /// Where `lang`'s words find their meanings (`LearningPairs.sourceOrder`):
+    /// the dictionaries from `lang` into `meaningsLang`, the pair's, first,
+    /// then the rest of Dictionary Order, enabled ones first in each part.
+    /// Until an order is stored, Dictionary Order is the default the
+    /// Settings screen derives (#74, #92). Without a pair (`meaningsLang`
+    /// nil, Other), Dictionary Order, enabled first.
+    func sourceOrder(lang: String, meaningsLang: String?) async throws -> [String] {
+        let pairs = try await db.learningPairs()
+        let order: [String]
+        if let stored = settings.dictionaryOrder {
+            order = stored
+        } else {
+            let sources = try await db.fetchSourceStats().map(\.source)
+            order = DictionaryGrouping.groupedOrder(DictionaryDefaults.defaultOrder(forLanguageCode: uiLanguage(),
+                                                                                    sources: sources))
+        }
+        let enabled = settings.enabledSources
+        guard let meaningsLang else {
+            func isOn(_ source: String) -> Bool { enabled?.contains(source) ?? true }
+            return order.filter(isOn) + order.filter { !isOn($0) }
+        }
+        // A limited pair's dictionaries are those of (lang, meanings).
+        return LearningPairs.sourceOrder(pair: LearningPair(lang: lang, via: meaningsLang), pairSources: pairs,
+                                         dictionaryOrder: order, enabled: enabled)
+    }
+
     /// Chooses `pair`: its language appended to the learned languages
     /// (once) and made the chosen one, its via stored, its My words not in
     /// learning yet enrolled, and the install of the pair's missing packs

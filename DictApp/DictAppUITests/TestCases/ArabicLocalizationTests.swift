@@ -53,6 +53,10 @@ final class ArabicLocalizationTests: XCTestCase {
         app.launchArguments += ["-AppleLanguages", "(ar)"]
         app.launchArguments += ["-AppleLocale", "ar"]
         app.launchArguments.append("-resetData")
+        // 0130, #154: Greek learned, with the fixture's imported lists.
+        if name.contains("testWordListsAreRightToLeft") {
+            app.launchArguments += ["-learningLanguages", "ell", "-wordListFixture", "lists"]
+        }
         // Force portrait — sim orientation persists across sessions on Intel x86_64,
         // and landscape no-ops swipeUp against SwiftUI Form/List scroll views.
         // See project memory project_xcuitest_orientation_landscape_swipe.
@@ -488,6 +492,44 @@ final class ArabicLocalizationTests: XCTestCase {
             XCTAssertGreaterThan(title.frame.midX, app.windows.firstMatch.frame.midX, "RTL: the title on the right")
         }
         attachScreenshot("learn home (ar)")
+    }
+
+    /// 0130, #154: the list screens in Arabic, mirrored. "كل القوائم" opens
+    /// "القوائم"; a list's title and count sit on the right; its screen
+    /// reads "تعلّم هذه القائمة" with its words on the right; New words from
+    /// reads "كلمات جديدة من".
+    func testWordListsAreRightToLeft() throws {
+        tapTab(ArabicTab.learn)
+        let learnPage = LearnPage(app: app)
+        XCTAssertTrue(learnPage.waitForHome(), "Greek learned: the home")
+        let page = learnPage.tapAllLists()
+        XCTAssertTrue(app.navigationBars["القوائم"].waitForExistence(timeout: TestData.Timeouts.medium))
+        let midX = app.windows.firstMatch.frame.midX
+        let title = page.row("user-fixture-greek").staticTexts["Greek fixture"].firstMatch
+        XCTAssertTrue(title.waitForExistence(timeout: TestData.Timeouts.medium), "the Greek import's row")
+        XCTAssertGreaterThan(title.frame.midX, midX, "RTL: the title on the right")
+        let count = page.count("user-fixture-greek")
+        XCTAssertTrue(count.label.contains("كلمات"), "the count in Arabic; got '\(count.label)'")
+        XCTAssertGreaterThan(count.frame.maxX, midX, "RTL: the count under the title, on the right")
+        XCTAssertTrue(staticTextContaining("قوائمي"), "the My lists section")
+        attachScreenshot("lists (ar)")
+
+        page.openList("user-fixture-greek")
+        XCTAssertEqual(page.learnButton.label, "تعلّم هذه القائمة")
+        let word = page.word("σπίτι")
+        XCTAssertTrue(word.waitForExistence(timeout: TestData.Timeouts.medium))
+        XCTAssertEqual(word.value as? String, "house")
+        let term = app.staticTexts["σπίτι το"].firstMatch
+        if term.exists {
+            XCTAssertGreaterThan(term.frame.midX, midX, "RTL: the term on the right")
+        }
+        attachScreenshot("list (ar)")
+        page.goBack()
+        page.goBack()
+
+        learnPage.tapChooseLists()
+        XCTAssertTrue(app.navigationBars["كلمات جديدة من"].waitForExistence(timeout: TestData.Timeouts.medium))
+        attachScreenshot("new words from (ar)")
     }
 
     /// The pushed detail's navigation bar (its `identifier` is the title)

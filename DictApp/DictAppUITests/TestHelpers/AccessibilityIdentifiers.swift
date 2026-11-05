@@ -129,6 +129,14 @@ struct AccessibilityIdentifiers {
         static let languageSwitch = "learn_language_switch"
         static let importList = "learn_import_list"
         static let addWordsHint = "learn_add_words_hint"
+        /// 0130, #154: Today's "Choose lists", which opens New words from.
+        static let chooseLists = "learn_choose_lists"
+        /// The Lists section: "New words from", "All lists", a checked list.
+        static let newWordsFromRow = "learn_new_words_from_row"
+        static let allListsRow = "learn_all_lists_row"
+        static func listRow(_ id: String) -> String {
+            return "learn_list_row_\(id)"
+        }
         /// "Which language do you want to learn?", while none is learned.
         static let languagePicker = "language_picker"
         /// A picker row, a pair by ISO 639-3 codes: `language_picker_row_ell-eng`.
@@ -145,12 +153,31 @@ struct AccessibilityIdentifiers {
         }
     }
 
-    // MARK: - My words (0131, #158: the former Bookmarks list)
+    // MARK: - My words (0131, #158: the former Bookmarks list; E3's list screen since #154)
     struct MyWords {
-        static let list = "my_words_list"
-        static func item(word: String) -> String {
-            return "my_words_item_\(word)"
-        }
+        static let list = WordLists.items
+        /// A row; its label is the word.
+        static let item = WordLists.item
+    }
+
+    // MARK: - Word lists (0130, #154)
+    struct WordLists {
+        /// The Lists screen.
+        static let lists = "word_lists"
+        static func row(_ id: String) -> String { "word_list_row_\(id)" }
+        static func count(_ id: String) -> String { "word_list_count_\(id)" }
+        /// The "Learning" badge of a checked list.
+        static func active(_ id: String) -> String { "word_list_active_\(id)" }
+        static let importButton = "word_list_import_button"
+        /// A list's screen and a word row (label: the term; value: its meaning).
+        static let items = "word_list_items"
+        static let item = "word_list_item"
+        static let itemTranslation = "word_list_item_translation"
+        static let learnButton = "word_list_learn_button"
+        /// New words from; a row is selected while its list is checked.
+        static let newWordsFrom = "new_words_from"
+        static func newWordsFromRow(_ id: String) -> String { "new_words_from_row_\(id)" }
+        static let newWordsFromNone = "new_words_from_none"
     }
 
     // MARK: - Settings View

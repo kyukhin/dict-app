@@ -1325,6 +1325,10 @@ struct WordListItem: Identifiable, Hashable, Sendable {
     let headword: String?
     /// The list's translation; may be empty (the English lists, My words).
     let translation: String
+    /// The language of `translation`, a built-in list's `translation_lang`
+    /// (`eng` for Kirill's lists); `""` for imported lists and My words,
+    /// whose translations show in every pair (0131, "Meanings").
+    var translationLang = ""
     let endings: String
     let partOfSpeech: String
     let tags: String
@@ -1362,6 +1366,15 @@ struct WordListItem: Identifiable, Hashable, Sendable {
             return false
         }
     }
+}
+
+/// A row of My words' list screen (#154): the word and the entry that
+/// stands for it, whose snippet the row shows and whose Definition it opens.
+struct MyWordsEntry: Identifiable, Hashable {
+    let item: WordListItem
+    let entry: DictionaryEntry
+
+    var id: WordKey { item.key }
 }
 
 /// The order new words come in within a level (the setting is E4's).

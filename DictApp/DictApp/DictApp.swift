@@ -138,6 +138,10 @@ struct DictApp: App {
             if let argument = Self.launchValue(after: "-learningLanguages") {
                 SettingsService.shared.setLearningLanguages(argument: argument)
             }
+            // 0130, #154: imported lists for the list screens' UI tests.
+            if let name = Self.launchValue(after: "-wordListFixture") {
+                _ = try await DatabaseService.shared.writeWordListFixture(name)
+            }
 
             // UI-test hook: scrub the rows and the `imported_sources` row left
             // over from a previous fixture import. The import end-to-end tests
