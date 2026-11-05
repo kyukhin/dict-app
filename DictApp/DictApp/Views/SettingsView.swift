@@ -218,9 +218,9 @@ private struct UILanguagePickerView: View {
 
 // MARK: - Learning (0131, #162)
 
-/// The Learning section: the learned languages, new words per day, the
-/// daily goal, the new words order, typed answers, sounds, haptics and the
-/// daily reminder. E3's "New words from" row joins it with #154.
+/// The Learning section: the learned languages, new words per day, E3's
+/// New words from (0130, #154), the daily goal, the new words order, typed
+/// answers, sounds, haptics and the daily reminder.
 struct LearningSettingsSection: View {
     @ObservedObject var vm: LearningSettingsViewModel
     @Environment(\.locale) private var locale
@@ -249,6 +249,13 @@ struct LearningSettingsSection: View {
                 }
             }
             .accessibilityIdentifier("settings_learning_new_per_day")
+
+            NavigationLink {
+                NewWordsFromView()
+            } label: {
+                Text("newWordsFrom.title")
+            }
+            .accessibilityIdentifier("settings_learning_new_words_from")
 
             Stepper(value: $vm.dailyGoal, in: SettingsService.learningDailyGoalRange, step: 5) {
                 LabeledContent("settings.learning.goal") {

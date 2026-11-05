@@ -25,6 +25,21 @@ class LearnPage: BasePage {
     var startButton: XCUIElement { app.buttons[IDs.startButton].firstMatch }
     var mistakesRow: XCUIElement { app.buttons[IDs.mistakesRow].firstMatch }
 
+    /// 0130, #154: Today's "Choose lists" and the Lists section's rows.
+    var chooseLists: XCUIElement { element(IDs.chooseLists) }
+    var newWordsFromRow: XCUIElement { element(IDs.newWordsFromRow) }
+    var allListsRow: XCUIElement { element(IDs.allListsRow) }
+
+    /// The Lists section's row of the checked list `id`.
+    func listRow(_ id: String) -> XCUIElement {
+        element(IDs.listRow(id))
+    }
+
+    /// The progress bar of the checked list `id` in the Lists section.
+    func listProgress(_ id: String) -> XCUIElement {
+        element(IDs.listProgress(id))
+    }
+
     /// The picker's row of the pair `lang` via `via`.
     func pickerRow(_ lang: String, via: String) -> XCUIElement {
         app.buttons[IDs.languagePickerRow(lang, via: via)].firstMatch
@@ -42,7 +57,7 @@ class LearnPage: BasePage {
 
     // MARK: - Actions
 
-    /// Pops what the tab has pushed (My words, a Definition) until the home
+    /// Pops what the tab has pushed (lists, a Definition) until the home
     /// or the picker shows: selecting a tab does not pop its stack on most
     /// devices (see `TabBarPage.popDetailToRootIfNeeded`). Taps the leading
     /// nav-bar button, the back button, by index.
@@ -110,6 +125,28 @@ class LearnPage: BasePage {
         row.tap()
         let page = ExercisePage(app: app)
         XCTAssertTrue(page.view.waitForExistence(timeout: TestData.Timeouts.medium), "the run")
+        return page
+    }
+
+    /// "All lists": the Lists screen.
+    @discardableResult
+    func tapAllLists() -> WordListsPage {
+        let row = allListsRow
+        XCTAssertTrue(row.waitForExistence(timeout: TestData.Timeouts.medium), "the Lists section's All lists")
+        app.scrollToElement(row)
+        row.tap()
+        let page = WordListsPage(app: app)
+        XCTAssertTrue(page.waitForLists(), "All lists opens the Lists screen")
+        return page
+    }
+
+    /// "Choose lists": New words from.
+    @discardableResult
+    func tapChooseLists() -> WordListsPage {
+        XCTAssertTrue(chooseLists.waitForExistence(timeout: TestData.Timeouts.medium), "Today offers Choose lists")
+        chooseLists.tap()
+        let page = WordListsPage(app: app)
+        XCTAssertTrue(page.waitForNewWordsFrom(), "Choose lists opens New words from")
         return page
     }
 

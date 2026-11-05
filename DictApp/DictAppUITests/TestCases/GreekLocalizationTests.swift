@@ -84,6 +84,12 @@ final class GreekLocalizationTests: XCTestCase {
             return false
         }
 
+        // 0130, #154: Greek and English learned, their lists in the packs,
+        // with the fixture's imported lists.
+        if name.contains("testWordListsInGreek") {
+            app.launchArguments += ["-learningLanguages", "ell,eng", "-wordListFixture", "lists"]
+        }
+
         // Sim orientation persists across sessions; landscape breaks swipes.
         XCUIDevice.shared.orientation = .portrait
         app.launch()
@@ -399,6 +405,62 @@ final class GreekLocalizationTests: XCTestCase {
         XCTAssertTrue(myWords.waitForWord("σκύλος"), "My words must list σκύλος")
         attachScreenshot("08-my-words")
         try assertNoEnglishLeak(on: "My words", skippingCellContent: true)
+    }
+
+    /// 0130, #154: the list screens in Greek. "Όλες οι λίστες" opens
+    /// "Λίστες": the English section first (the UI language's goes last),
+    /// then "Ελληνικά Α1" with "756 λέξεις" for Α2, then "Οι λίστες μου";
+    /// a list's screen reads "Μάθετε αυτή τη λίστα"; the Greek import heads
+    /// its levels Α1 and Α2 in Greek letters; "Επιλογή λιστών" opens "Νέες
+    /// λέξεις από". No English is left.
+    func testWordListsInGreek() throws {
+        openTab(.learn)
+        let learnPage = LearnPage(app: app)
+        XCTAssertTrue(learnPage.waitForHome(timeout: TestData.Timeouts.long), "Greek learned: the home")
+        try assertNoEnglishLeak(on: "Learn (home, lists)")
+        let page = learnPage.tapAllLists()
+        XCTAssertTrue(app.navigationBars["Λίστες"].waitForExistence(timeout: TestData.Timeouts.medium))
+        XCTAssertTrue(page.row("cefr-eng-a1").waitForExistence(timeout: TestData.Timeouts.medium), "English first")
+        XCTAssertTrue(app.staticTexts["Αγγλικά Α1"].exists, "English A1 in Greek letters")
+        attachScreenshot("10-lists")
+        try assertNoEnglishLeak(on: "Lists", skippingCellContent: true)
+        let greekA1 = page.row("ky-ell-a1")
+        XCTAssertTrue(app.scrollToElement(greekA1), "Greek A1")
+        XCTAssertTrue(app.staticTexts["Ελληνικά Α1"].exists)
+        let englishC2 = page.row("cefr-eng-c2")
+        if englishC2.exists {
+            XCTAssertLessThan(englishC2.frame.minY, greekA1.frame.minY, "the UI language's section last")
+        }
+        XCTAssertTrue(app.scrollToElement(page.row("ky-ell-a2")))
+        XCTAssertEqual(page.count("ky-ell-a2").label, "756 λέξεις")
+        XCTAssertTrue(app.scrollToElement(page.row("user-fixture-greek")), "My lists")
+        XCTAssertTrue(waitForText("Οι λίστες μου"), "the My lists section")
+        XCTAssertEqual(page.count("user-fixture-greek").label, "5 λέξεις")
+
+        page.openList("ky-ell-a2")
+        XCTAssertTrue(app.navigationBars["Ελληνικά Α2"].waitForExistence(timeout: TestData.Timeouts.medium))
+        XCTAssertEqual(page.learnButton.label, "Μάθετε αυτή τη λίστα")
+        page.learnButton.tap()
+        XCTAssertTrue(waitForLabel(of: page.learnButton, toBe: "Μαθαίνετε αυτή τη λίστα"))
+        attachScreenshot("11-list")
+        try assertNoEnglishLeak(on: "List", skippingCellContent: true)
+        page.learnButton.tap()
+        page.goBack()
+
+        XCTAssertTrue(app.scrollToElement(page.row("user-fixture-greek")))
+        page.openList("user-fixture-greek")
+        XCTAssertTrue(waitForText("Α1") && waitForText("Α2"), "levels in Greek letters")
+        XCTAssertFalse(app.staticTexts["A1"].exists, "not the Latin A1")
+        page.goBack()
+        page.goBack()
+
+        let newWordsFrom = learnPage.tapChooseLists()
+        XCTAssertTrue(app.navigationBars["Νέες λέξεις από"].waitForExistence(timeout: TestData.Timeouts.medium))
+        attachScreenshot("12-new-words-from")
+        XCTAssertTrue(app.scrollToElement(newWordsFrom.noneChecked), "the footer, under 11 lists")
+        XCTAssertEqual(newWordsFrom.noneChecked.label,
+                       "Δεν έχει επιλεγεί λίστα. Οι νέες λέξεις έρχονται μόνο από όσες προσθέτετε με το «Μάθηση».")
+        try assertNoEnglishLeak(on: "New words from", skippingCellContent: true)
     }
 
     /// Issue #144: the inflection table of γράφω in Greek: its title, the

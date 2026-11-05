@@ -1,8 +1,9 @@
 import XCTest
 
 /// My words (0131, #158): the former Bookmarks list, behind the Learn home's
-/// "My words" row until E3's list screen (#154). Newest first; a tap opens
-/// the Definition; the swipe is Stop learning.
+/// "My words" row; since #154 E3's list screen for `my-words` (0130).
+/// Newest first, one row per word; a tap opens the Definition; the swipe is
+/// Stop learning.
 class MyWordsPage: BasePage {
 
     private var list: XCUIElement {
@@ -11,20 +12,25 @@ class MyWordsPage: BasePage {
         return app.descendants(matching: .any)[AccessibilityIdentifiers.MyWords.list].firstMatch
     }
 
+    /// The word rows, top to bottom.
+    private var items: XCUIElementQuery {
+        app.descendants(matching: .any).matching(identifier: AccessibilityIdentifiers.MyWords.item)
+    }
+
     /// The empty state's text (English).
     static let emptyText = "Tap Learn on any word to add it here."
 
     func item(_ word: String) -> XCUIElement {
-        app.descendants(matching: .any)[AccessibilityIdentifiers.MyWords.item(word: word)].firstMatch
+        items.matching(NSPredicate(format: "label == %@", word)).firstMatch
     }
 
     // MARK: - Actions
 
     @discardableResult
     func tapItem(at index: Int) -> DefinitionPage {
-        let cell = list.cells.element(boundBy: index)
-        XCTAssertTrue(cell.waitForExistence(timeout: TestData.Timeouts.medium), "My words item \(index)")
-        cell.tap()
+        let row = items.element(boundBy: index)
+        XCTAssertTrue(row.waitForExistence(timeout: TestData.Timeouts.medium), "My words item \(index)")
+        row.tap()
         return DefinitionPage(app: app)
     }
 
@@ -78,7 +84,8 @@ class MyWordsPage: BasePage {
         item(word).waitForNonExistence(timeout: timeout)
     }
 
+    /// The word rows shown (SwiftUI materialises only the visible ones).
     var count: Int {
-        list.exists ? list.cells.count : 0
+        list.exists ? items.count : 0
     }
 }

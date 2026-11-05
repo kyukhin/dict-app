@@ -5745,10 +5745,16 @@ extension DictAppTests {
         "dictionaryPair.title %@ %@",
         "dictionaryInfo.direction.value %@ %@",
         "sourceBadge.accessibilityLabel.single %@ %@",
+        "wordLists.listTitle %@ %@",
     ]
 
+    /// CEFR levels keep their Latin letters but in Greek (Α1 … Γ2, 0130).
+    private static let cefrLevelKeys: Set<String> = Set(WordListsViewModel.cefrLevels.map { "wordLists.level." + $0 })
+
     /// Keys whose translation is spelled as in English, per language.
-    private static let sameAsEnglishKeys: [String: Set<String>] = ["es": ["common.no"]]
+    private static let sameAsEnglishKeys: [String: Set<String>] = [
+        "es": cefrLevelKeys.union(["common.no"]), "ru": cefrLevelKeys, "ar": cefrLevelKeys,
+    ]
 
     /// The multiset of `%@` / `%lld` specifiers (with positional index) in a
     /// value, sorted so word order does not matter.
@@ -9674,7 +9680,7 @@ final class UserDatabaseTests: XCTestCase {
                        "relevance mode: exact matches from both stores first")
     }
 
-    /// The Learn button and the interim My words list (#158) work on the
+    /// The Learn button and My words' list screen (#158, #154) work on the
     /// word (`WordKey`): Learn on a word of a learned language adds its
     /// entry to My words with two cards, the same headword from another
     /// dictionary of the language shows as learned, the list skips a key
@@ -9708,15 +9714,16 @@ final class UserDatabaseTests: XCTestCase {
         XCTAssertEqual(viewed.source, "wordnet", "opening a definition records its source")
 
         try await db.addToMyWords(EntryKey(source: "freedict-eng-spa", word: "wolf"))
-        let list = MyWordsViewModel()
+        let list = WordListViewModel(list: .myWordsForTests, settings: settings, languages: languages)
         await list.load()
-        XCTAssertEqual(Self.keys(list.entries), [EntryKey(freeDictDog)], "a key that does not resolve is skipped")
+        XCTAssertEqual(Self.keys(list.myWords.map(\.entry)), [EntryKey(freeDictDog)],
+                       "a key that does not resolve is skipped")
         XCTAssertNil(list.errorMessage)
         let wolfStored = try await db.isInMyWords(EntryKey(source: "freedict-eng-spa", word: "wolf"))
         XCTAssertTrue(wolfStored, "and stays stored")
 
-        await list.stopLearning(freeDictDog)
-        XCTAssertEqual(list.entries, [])
+        await list.stopLearning(try XCTUnwrap(list.myWords.first))
+        XCTAssertEqual(list.myWords, [])
         let reopened = DefinitionViewModel(entry: freeDictDog, languages: languages, hasVoice: { _ in false })
         await reopened.onAppear()
         XCTAssertEqual(reopened.learnAction, .learn, "Stop learning on the list clears the button")
@@ -15324,6 +15331,8 @@ enum WordListFixture {
         var series: String
         var level: String
         var levelOrd: Int
+        /// The language of its words' translations (#154); '' = none.
+        var translationLang = ""
     }
 
     /// A word of a built-in series (`series`) or an imported list.
@@ -15336,6 +15345,8 @@ enum WordListFixture {
         var levelOrd = 0
         var rank: Int?
         var seq: Int
+        var endings = ""
+        var pos = ""
     }
 
     static var schemaURL: URL {
@@ -15365,16 +15376,18 @@ enum WordListFixture {
             for list in lists {
                 let count = items.filter { $0.series == list.series && $0.levelOrd == list.levelOrd }.count
                 try db.execute(sql: """
-                    INSERT INTO wordlist(id, lang, series, level, level_ord, word_count, data_source)
-                    VALUES (?, ?, ?, ?, ?, ?, 'test')
-                    """, arguments: [list.id, list.lang, list.series, list.level, list.levelOrd, count])
+                    INSERT INTO wordlist(id, lang, series, level, level_ord, word_count, data_source, translation_lang)
+                    VALUES (?, ?, ?, ?, ?, ?, 'test', ?)
+                    """, arguments: [list.id, list.lang, list.series, list.level, list.levelOrd, count,
+                                     list.translationLang])
             }
             for item in items {
                 try db.execute(sql: """
-                    INSERT INTO wordlist_item(series, term, headword, translation, level, level_ord, rank, seq, sort_key)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """, arguments: [item.series, item.term, item.headword, item.translation, item.level,
-                                     item.levelOrd, item.rank, item.seq, WordListItem.sortKey(of: item.term)])
+                    INSERT INTO wordlist_item(series, term, headword, translation, endings, pos, level, level_ord, rank,
+                                              seq, sort_key)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """, arguments: [item.series, item.term, item.headword, item.translation, item.endings, item.pos,
+                                     item.level, item.levelOrd, item.rank, item.seq, WordListItem.sortKey(of: item.term)])
             }
         }
         return url
@@ -15388,10 +15401,11 @@ enum WordListFixture {
                            arguments: [id, title, lang, createdAt])
             for item in items {
                 try db.execute(sql: """
-                    INSERT INTO user_list_item(list_id, term, headword, translation, level, level_ord, rank, seq, sort_key)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """, arguments: [id, item.term, item.headword, item.translation, item.level, item.levelOrd,
-                                     item.rank, item.seq, WordListItem.sortKey(of: item.term)])
+                    INSERT INTO user_list_item(list_id, term, headword, translation, endings, pos, level, level_ord, rank,
+                                               seq, sort_key)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """, arguments: [id, item.term, item.headword, item.translation, item.endings, item.pos, item.level,
+                                     item.levelOrd, item.rank, item.seq, WordListItem.sortKey(of: item.term)])
             }
         }
     }
@@ -15736,8 +15750,8 @@ final class WordListModelTests: XCTestCase {
     ]
 
     private static let lists: [WordListFixture.List] = [
-        .init(id: "ky-ell-a1", lang: "ell", series: "ky-ell", level: "A1", levelOrd: 1),
-        .init(id: "ky-ell-a2", lang: "ell", series: "ky-ell", level: "A2", levelOrd: 2),
+        .init(id: "ky-ell-a1", lang: "ell", series: "ky-ell", level: "A1", levelOrd: 1, translationLang: "eng"),
+        .init(id: "ky-ell-a2", lang: "ell", series: "ky-ell", level: "A2", levelOrd: 2, translationLang: "eng"),
         .init(id: "cefr-eng-c2", lang: "eng", series: "cefr-eng", level: "C2", levelOrd: 6),
     ]
 
@@ -22651,35 +22665,495 @@ final class LearnViewModelTests: LearnTabTestCase {
     }
 }
 
-/// The interim My words list (#158, until E3 #154).
-final class MyWordsViewModelTests: LearnTabTestCase {
-    /// The swipe on one row of a word saved from two dictionaries stops the
-    /// word: both rows leave the list and its cards are paused.
-    func testSwipeRemovesEveryRowOfTheWord() async throws {
+// MARK: - 0130: the list screens (#154)
+//
+// 0130-word-lists.md, Test plan: the unit rows of #154. The Lists screen,
+// New words from and a list's screen on a test file with Greek A1 and A2
+// (Kirill's English translations, `translation_lang` 'eng'), English A1 (no
+// translations) and the dictionaries of three pairs: Greek via English,
+// English via English and English via Spanish. The rows' meanings come
+// from #159's `meanings` (0131, "Meanings"); the bars from #163's
+// `ListProgress` (0166).
+
+extension WordList {
+    /// My words as the Learn home opens it.
+    static let myWordsForTests = WordList(id: .myWords, kind: .myWords, lang: WordList.myWordsLanguage, level: "",
+                                          title: "", count: 0)
+}
+
+extension WordListModelTests {
+    /// Kirill 2026-11-04: a built-in list records its translations'
+    /// language; imported lists and My words record none.
+    func testTranslationLanguage() async throws {
+        func file(_ name: String) throws -> URL {
+            try WordListFixture.make(
+                rows: [.init(word: "σπίτι", normalized: "σπιτι", definition: "house", source: "freedict-ell-eng")],
+                metadata: [.init(source: "freedict-ell-eng", displayName: "El–En FD", fromLang: "ell", toLang: "eng")],
+                lists: [.init(id: "ky-ell-a1", lang: "ell", series: "ky-ell", level: "A1", levelOrd: 1,
+                              translationLang: "eng"),
+                        .init(id: "cefr-eng-a1", lang: "eng", series: "cefr-eng", level: "A1", levelOrd: 1)],
+                items: [.init(series: "ky-ell", term: "σπίτι", headword: "σπίτι", translation: "house", level: "A1",
+                              levelOrd: 1, seq: 0),
+                        .init(series: "cefr-eng", term: "house", level: "A1", levelOrd: 1, seq: 0)],
+                at: tempDir.appendingPathComponent(name))
+        }
+        try await DatabaseService.shared.setup(userPath: userPath, dictionaryURL: try file("lists.sqlite"))
+        try await WordListFixture.saveUserList("user-1", title: "Mine", lang: "ell", createdAt: "2026-11-03 10:00:00",
+                                               items: [.init(term: "νερό", translation: "water", seq: 0)])
+        try await WordListFixture.addMyWord(source: "freedict-ell-eng", word: "σπίτι", addedAt: "2026-11-01 10:00:00")
+
+        let greek = try await DatabaseService.shared.wordListItems("ky-ell-a1")
+        XCTAssertEqual(greek.map(\.translationLang), ["eng"])
+        let english = try await DatabaseService.shared.wordListItems("cefr-eng-a1")
+        XCTAssertEqual(english.map(\.translationLang), [""])
+        let imported = try await DatabaseService.shared.wordListItems("user-1")
+        XCTAssertEqual(imported.map(\.translationLang), [""])
+        let myWords = try await DatabaseService.shared.wordListItems(.myWords)
+        XCTAssertEqual(myWords.map(\.translationLang), [""])
+    }
+}
+
+/// A `LearnTabTestCase` whose dictionary file also holds word lists:
+/// Greek A1 and A2 (`eng` translations), English A1 (none), and En–Es · FD.
+class WordListsTestCase: LearnTabTestCase {
+    let greekA1: WordListID = "ky-ell-a1"
+    let greekA2: WordListID = "ky-ell-a2"
+    let englishA1: WordListID = "cefr-eng-a1"
+    let englishViaSpanish = LearningPair(lang: "eng", via: "spa")
+
+    override func setUp() async throws {
+        try await super.setUp()
+        try await db.setup(userPath: tempDir.appendingPathComponent("user.sqlite").path,
+                           dictionaryURL: try Self.listFile(in: tempDir))
+        packs = FakePairPacks(languagesWithLists: ["ell", "eng"])
+        languages = service(uiLanguage: "en")
+    }
+
+    /// The test file in `directory`: `LearningStoreTests`' rows with house
+    /// in En–Es · FD and cat in WordNet, and the lists Greek A1 (σπίτι το,
+    /// γράφω, the standalone έχει αέρα), Greek A2 (the standalone αγάπη η)
+    /// and English A1 (house, cat).
+    static func listFile(in directory: URL, extraRows: [TestDictionary.Row] = [],
+                         extraMetadata: [TestDictionary.Metadata] = []) throws -> URL {
+        let rows = LearningStoreTests.rows + extraRows + [
+            TestDictionary.Row(word: "house", definition: "**noun**\n1. casalicio, casa", pos: "noun",
+                               source: "freedict-eng-spa"),
+            TestDictionary.Row(word: "cat", definition: "a feline", pos: "noun", source: "wordnet"),
+        ]
+        let metadata = LearningStoreTests.metadata + [
+            TestDictionary.Metadata(source: "freedict-eng-spa", displayName: "En–Es · FD", fromLang: "eng", toLang: "spa"),
+        ]
+        let lists: [WordListFixture.List] = [
+            .init(id: "ky-ell-a1", lang: "ell", series: "ky-ell", level: "A1", levelOrd: 1, translationLang: "eng"),
+            .init(id: "ky-ell-a2", lang: "ell", series: "ky-ell", level: "A2", levelOrd: 2, translationLang: "eng"),
+            .init(id: "cefr-eng-a1", lang: "eng", series: "cefr-eng", level: "A1", levelOrd: 1),
+        ]
+        let items: [WordListFixture.Item] = [
+            .init(series: "ky-ell", term: "σπίτι", headword: "σπίτι", translation: "house", level: "A1", levelOrd: 1,
+                  rank: 2, seq: 0, endings: "το", pos: "noun"),
+            .init(series: "ky-ell", term: "γράφω", headword: "γράφω", translation: "write", level: "A1", levelOrd: 1,
+                  rank: 1, seq: 1, pos: "verb"),
+            .init(series: "ky-ell", term: "έχει αέρα", translation: "it is windy", level: "A1", levelOrd: 1, seq: 2),
+            .init(series: "ky-ell", term: "αγάπη", translation: "love", level: "A2", levelOrd: 2, seq: 3, endings: "η",
+                  pos: "noun"),
+            .init(series: "cefr-eng", term: "house", headword: "house", level: "A1", levelOrd: 1, seq: 0, pos: "noun"),
+            .init(series: "cefr-eng", term: "cat", headword: "cat", level: "A1", levelOrd: 1, seq: 1, pos: "noun"),
+        ]
+        return try WordListFixture.make(rows: rows, metadata: metadata + extraMetadata, lists: lists, items: items,
+                                        at: directory.appendingPathComponent("lists-\(UUID().uuidString).sqlite"))
+    }
+
+    func listsViewModel() -> WordListsViewModel {
+        WordListsViewModel(settings: settings, languages: languages)
+    }
+
+    func listViewModel(_ id: WordListID) async throws -> WordListViewModel {
+        let all = try await db.wordLists()
+        let list = try XCTUnwrap(all.first { $0.id == id }, "\(id.rawValue) exists")
+        return WordListViewModel(list: list, settings: settings, languages: languages)
+    }
+
+    /// A Greek import with levels A1 and "Lesson 1", and an English one.
+    func saveImports() async throws {
+        try await WordListFixture.saveUserList(
+            "user-greek", title: "Greek lesson", lang: "ell", createdAt: "2026-11-01 10:00:00",
+            items: [.init(term: "νερό", translation: "water", level: "A1", levelOrd: 1, seq: 0),
+                    .init(term: "θάλασσα", translation: "sea", level: "Lesson 1", levelOrd: 7, seq: 1),
+                    .init(term: "ήλιος", translation: "sun", seq: 2)])
+        try await WordListFixture.saveUserList(
+            "user-english", title: "English words", lang: "eng", createdAt: "2026-11-02 10:00:00",
+            items: [.init(term: "sun", translation: "ήλιος", seq: 0)])
+    }
+}
+
+@MainActor
+final class WordListsViewModelTests: WordListsTestCase {
+    /// Kirill 2026-11-03: only the lists of learned languages, built-in or
+    /// imported, on Lists and New words from; a stopped language's checked
+    /// lists stay in `learning_lists`, hidden.
+    func testOnlyLearnedLanguages() async throws {
+        try await saveImports()
+        settings.learningLanguages = ["ell"]
+        let vm = listsViewModel()
+        await vm.load()
+        XCTAssertNil(vm.errorMessage)
+        XCTAssertEqual(vm.sections.map(\.kind), [.language("ell"), .myLists])
+        XCTAssertEqual(vm.sections.map { $0.lists.map(\.id) }, [[greekA1, greekA2], [.myWords, "user-greek"]])
+        XCTAssertEqual(vm.newWordsFromSections.map { $0.lists.map(\.id) }, [[greekA1, greekA2], ["user-greek"]],
+                       "New words from: no My words")
+
+        settings.learningLanguages = ["ell", "eng"]
+        vm.toggleChecked(englishA1)
+        languages.stop("eng")
+        await vm.load()
+        XCTAssertFalse(vm.sections.flatMap(\.lists).contains { $0.lang == "eng" }, "English stopped: its lists hide")
+        XCTAssertEqual(settings.learningListIDs, [englishA1], "its checkmark is kept")
+        XCTAssertFalse(vm.hasCheckedList, "no shown list is checked")
+    }
+
+    /// The UI language's section goes last; otherwise Greek, then English.
+    /// My lists: My words first, then the imports, newest first.
+    func testSectionsInOrder() async throws {
+        try await saveImports()
+        settings.learningLanguages = ["eng", "ell"]
+        for (ui, order) in [("en", ["ell", "eng"]), ("el", ["eng", "ell"]), ("ru", ["ell", "eng"])] {
+            languages = service(uiLanguage: ui)
+            let vm = listsViewModel()
+            await vm.load()
+            XCTAssertEqual(vm.sections.map(\.kind), order.map { .language($0) } + [.myLists], ui)
+            XCTAssertEqual(vm.sections.last?.lists.map(\.id), [.myWords, "user-english", "user-greek"], ui)
+        }
+    }
+
+    /// Titles: "Greek A1" (Greek: "Ελληνικά Α1", the level in Greek
+    /// letters), "My words", an import's own name; counts per list.
+    func testTitlesAndCounts() async throws {
+        try await saveImports()
+        settings.learningLanguages = ["ell"]
+        let vm = listsViewModel()
+        await vm.load()
+        let lists = vm.sections.flatMap(\.lists)
+        let en = Locale(identifier: "en")
+        XCTAssertEqual(lists.map { WordListsViewModel.title(of: $0, locale: en) },
+                       ["Greek A1", "Greek A2", "My words", "Greek lesson"])
+        XCTAssertEqual(lists.map(\.count), [3, 1, 0, 3])
+        let greekA1List = try XCTUnwrap(lists.first)
+        XCTAssertEqual(WordListsViewModel.title(of: greekA1List, locale: Locale(identifier: "el")), "Ελληνικά Α1")
+        XCTAssertEqual(WordListsViewModel.title(of: greekA1List, locale: Locale(identifier: "ar")), "\u{200F}اليونانية A1")
+        XCTAssertEqual(WordListsViewModel.levelName("C1", locale: Locale(identifier: "el")), "Γ1")
+        XCTAssertEqual(WordListsViewModel.levelName("Lesson 1", locale: Locale(identifier: "el")), "Lesson 1")
+        XCTAssertEqual(WordListsViewModel.sectionTitle(.myLists, locale: Locale(identifier: "ru")), "Мои списки")
+    }
+
+    /// #154: "Learn this list" checks its list in `learning_lists`; a
+    /// second tap unchecks it. The Lists screen's badges follow.
+    func testLearnThisListTogglesItsList() async throws {
+        settings.learningLanguages = ["ell"]
+        let list = try await listViewModel(greekA1)
+        await list.load()
+        XCTAssertFalse(list.isChecked)
+        XCTAssertTrue(list.canLearn)
+        list.toggleLearning()
+        XCTAssertTrue(list.isChecked)
+        XCTAssertEqual(settings.learningListIDs, [greekA1])
+
+        let lists = listsViewModel()
+        await lists.load()
+        XCTAssertEqual(lists.checked, [greekA1], "the Lists screen's badge")
+
+        list.toggleLearning()
+        XCTAssertFalse(list.isChecked)
+        XCTAssertEqual(settings.learningListIDs, [])
+        lists.refreshChecked()
+        XCTAssertEqual(lists.checked, [])
+
+        let myWords = WordListViewModel(list: .myWordsForTests, settings: settings, languages: languages)
+        XCTAssertFalse(myWords.canLearn, "My words is not on New words from")
+    }
+
+    /// Deleting a checked imported list unchecks it; built-in lists and My
+    /// words cannot be deleted.
+    func testDeletingACheckedListUnchecksIt() async throws {
+        try await saveImports()
+        settings.learningLanguages = ["ell"]
+        let vm = listsViewModel()
+        await vm.load()
+        vm.toggleChecked("user-greek")
+        vm.toggleChecked(greekA1)
+        let imported = try XCTUnwrap(vm.sections.flatMap(\.lists).first { $0.id == "user-greek" })
+        await vm.delete(imported)
+        XCTAssertNil(vm.errorMessage)
+        XCTAssertFalse(vm.sections.flatMap(\.lists).contains { $0.id == "user-greek" })
+        XCTAssertEqual(settings.learningListIDs, [greekA1])
+        let items = try await db.wordListItems("user-greek")
+        XCTAssertEqual(items, [], "its words go too")
+
+        let builtIn = try XCTUnwrap(vm.sections.flatMap(\.lists).first { $0.id == greekA1 })
+        await vm.delete(builtIn)
+        XCTAssertTrue(vm.sections.flatMap(\.lists).contains { $0.id == greekA1 }, "a built-in list stays")
+        XCTAssertEqual(settings.learningListIDs, [greekA1])
+    }
+
+    /// 0166, the progress half of #154: each row's bar is `ListProgress.of`
+    /// over the list's words in its language: learned, learning, new. A
+    /// paused learned word counts as new (CodeRabbit, PR #255); My words'
+    /// bar counts its words of the language chosen on the Learn home.
+    func testRowsShowTheirProgress() async throws {
+        settings.learningLanguages = ["ell", "eng"]
+        try await db.learnWord(grafoFD, today: today)
+        try await db.learnWord(spiti, today: today)
+        try await db.learnWord(house, today: today)
+        try await execute("UPDATE learn_card SET step = 5, last_day = ?, due_day = ? WHERE word = 'γράφω'",
+                          [today.adding(days: -30).rawValue, today.rawValue])
+        try await execute("UPDATE learn_card SET step = 1, last_day = ?, due_day = ? WHERE word = 'σπίτι'",
+                          [today.adding(days: -1).rawValue, today.rawValue])
+        let vm = listsViewModel()
+        await vm.load()
+        XCTAssertNil(vm.errorMessage)
+        func counts(_ id: WordListID) -> [Int]? { vm.progress[id].map { [$0.learned, $0.learning, $0.new] } }
+        XCTAssertEqual(counts(greekA1), [1, 1, 1], "γράφω learned, σπίτι learning, έχει αέρα new")
+        XCTAssertEqual(counts(greekA2), [0, 0, 1])
+        XCTAssertEqual(counts(englishA1), [0, 0, 2], "house in learning but never answered: new")
+        XCTAssertEqual(counts(.myWords), [1, 1, 0], "Greek chosen: My words' Greek words only")
+        XCTAssertEqual(WordListsViewModel.progressText(try XCTUnwrap(vm.progress[greekA1]), locale: Locale(identifier: "en")),
+                       "1 learned · 1 learning · 1 new")
+
+        try await db.stopLearning(grafoWN)
+        await vm.load()
+        XCTAssertEqual(counts(greekA1), [0, 1, 2], "a paused learned word counts as new")
+        XCTAssertEqual(counts(.myWords), [0, 1, 0], "γράφω left My words")
+
+        settings.learningLanguage = "eng"
+        await vm.load()
+        XCTAssertEqual(counts(.myWords), [0, 0, 1], "English chosen: house")
+    }
+
+    /// New words from: every list but My words, in the Lists screen's
+    /// order; a tap writes the set; nothing checked shows the footer.
+    func testNewWordsFromRows() async throws {
+        try await saveImports()
+        settings.learningLanguages = ["ell", "eng"]
+        let vm = listsViewModel()
+        await vm.load()
+        XCTAssertEqual(vm.newWordsFromSections.flatMap { $0.lists.map(\.id) },
+                       [greekA1, greekA2, englishA1, "user-english", "user-greek"])
+        XCTAssertFalse(vm.hasCheckedList, "the footer: no list checked")
+        vm.toggleChecked(greekA2)
+        vm.toggleChecked(englishA1)
+        XCTAssertEqual(settings.learningListIDs, [greekA2, englishA1])
+        XCTAssertTrue(vm.hasCheckedList)
+        vm.toggleChecked(greekA2)
+        XCTAssertEqual(settings.learningListIDs, [englishA1])
+        XCTAssertEqual(vm.checked, [englishA1])
+    }
+
+    /// 0237: a built-in list whose pack is missing hides from Lists, New
+    /// words from and the Learn home, and stays in `learning_lists`. Once
+    /// the pack is installed, an open Lists screen reloads on
+    /// `PackService.didChange`: the list is back, still checked.
+    func testMissingPackHidesItsListsAndKeepsThemChecked() async throws {
+        let englishPack = try WordListFixture.make(
+            rows: [], lists: [.init(id: "cefr-eng-a1", lang: "eng", series: "cefr-eng", level: "A1", levelOrd: 1)],
+            items: [.init(series: "cefr-eng", term: "house", headword: "house", level: "A1", levelOrd: 1, seq: 0)],
+            at: tempDir.appendingPathComponent("eng-lists.sqlite"))
+        let bundle = try WordListFixture.make(
+            rows: LearningStoreTests.rows, metadata: LearningStoreTests.metadata,
+            lists: [.init(id: "ky-ell-a1", lang: "ell", series: "ky-ell", level: "A1", levelOrd: 1, translationLang: "eng")],
+            items: [.init(series: "ky-ell", term: "σπίτι", headword: "σπίτι", translation: "house", level: "A1",
+                          levelOrd: 1, seq: 0)],
+            at: tempDir.appendingPathComponent("bundle.sqlite"))
+        try await db.setup(userPath: tempDir.appendingPathComponent("packs-user.sqlite").path, dictionaryURL: bundle)
+        settings.learningLanguages = ["ell", "eng"]
+        settings.learningListIDs = [greekA1, englishA1]
+        let vm = listsViewModel()
+        await vm.load()
+        XCTAssertNil(vm.errorMessage)
+        XCTAssertEqual(vm.sections.map(\.kind), [.language("ell"), .myLists], "the English lists pack is missing")
+        XCTAssertEqual(vm.newWordsFromSections.flatMap { $0.lists.map(\.id) }, [greekA1])
+        XCTAssertEqual(settings.learningListIDs, [greekA1, englishA1], "English A1 stays checked")
+
+        settings.learningLanguage = "eng"
+        let home = LearnViewModel(settings: settings, languages: languages)
+        await home.load(locale: Locale(identifier: "en"))
+        XCTAssertEqual(home.checkedLists, [], "a missing list feeds nothing")
+        XCTAssertEqual(home.today, .chooseLists)
+
+        try await db.attachPacks([.engLists: englishPack])
+        NotificationCenter.default.post(name: PackService.didChange, object: PackService.shared)
+        let deadline = Date().addingTimeInterval(5)
+        while !vm.sections.contains(where: { $0.kind == .language("eng") }), Date() < deadline {
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+        XCTAssertEqual(vm.sections.map(\.kind), [.language("ell"), .language("eng"), .myLists],
+                       "the open screen reloads once the pack is installed")
+        XCTAssertTrue(vm.checked.contains(englishA1), "still checked")
+        await home.load(locale: Locale(identifier: "en"))
+        XCTAssertEqual(home.checkedLists.map(\.id), [englishA1])
+        XCTAssertEqual(home.today, .counts(due: 0, newLeft: 1))
+    }
+}
+
+@MainActor
+final class WordListViewModelTests: WordListsTestCase {
+    private func meanings(_ vm: WordListViewModel) -> [String: String] {
+        Dictionary(uniqueKeysWithValues: vm.sections.flatMap(\.rows).map { ($0.item.term, $0.meaning) })
+    }
+
+    /// Kirill 2026-11-04: a row's meaning is in the meanings language of
+    /// the list language's pair (0131, "Meanings"). Kirill's English
+    /// translations show via English and via Russian (the limited pair,
+    /// meanings in English); an import's translations in every pair;
+    /// English A1's house reads En–Es · FD's "casalicio, casa" via Spanish
+    /// and WordNet's first sense via English; a word without a meaning in
+    /// the pair shows its part of speech.
+    func testRowsShowTheMeaningInTheVia() async throws {
+        try await saveImports()
+        settings.learningLanguages = ["ell", "eng"]
+        for via in ["eng", "rus"] {
+            settings.learningVia = ["ell": via, "eng": "spa"]
+            let pair = try await languages.pair(for: "ell")
+            XCTAssertEqual(pair, via == "rus" ? greekViaRussian : greekViaEnglish, "via Russian: meanings in English")
+            let vm = try await listViewModel(greekA1)
+            await vm.load()
+            XCTAssertNil(vm.errorMessage)
+            XCTAssertEqual(meanings(vm), ["σπίτι": "house", "γράφω": "write", "έχει αέρα": "it is windy"], via)
+            let importedGreek = try await listViewModel("user-greek")
+            await importedGreek.load()
+            XCTAssertEqual(meanings(importedGreek), ["νερό": "water", "θάλασσα": "sea", "ήλιος": "sun"],
+                           "an import's translations show in every pair (\(via))")
+            let importedEnglish = try await listViewModel("user-english")
+            await importedEnglish.load()
+            XCTAssertEqual(meanings(importedEnglish), ["sun": "ήλιος"], "via Spanish too")
+        }
+
+        settings.learningVia = ["eng": "spa"]
+        let viaSpanish = try await listViewModel(englishA1)
+        await viaSpanish.load()
+        XCTAssertEqual(meanings(viaSpanish), ["house": "casalicio, casa", "cat": "noun"],
+                       "En–Es · FD's first sense; cat is not in it: the part of speech")
+
+        settings.learningVia = ["eng": "eng"]
+        let viaEnglish = try await listViewModel(englishA1)
+        await viaEnglish.load()
+        XCTAssertEqual(meanings(viaEnglish), ["house": "a dwelling", "cat": "a feline"], "WordNet's first sense")
+        XCTAssertNil(viaEnglish.errorMessage)
+    }
+
+    /// CodeRabbit on PR #251: a standalone word's translation follows the
+    /// same meanings-language check as a linked word's. With a Greek–Russian
+    /// dictionary Greek via Russian is a full pair, its meanings Russian:
+    /// Kirill's English never shows; σπίτι reads the dictionary's дом, the
+    /// standalone αγάπη is looked up by its term (любовь), the standalone
+    /// έχει αέρα has no Russian meaning and shows its (empty) part of
+    /// speech, and γράφω, not in the dictionary, its part of speech.
+    func testStandaloneRowsFollowTheMeaningsLanguage() async throws {
+        let url = try Self.listFile(
+            in: tempDir,
+            extraRows: [
+                TestDictionary.Row(word: "σπίτι", normalized: "σπιτι", definition: "дом", pos: "noun",
+                                   source: "freedict-ell-rus"),
+                TestDictionary.Row(word: "αγάπη", normalized: "αγαπη", definition: "любовь", pos: "noun",
+                                   source: "freedict-ell-rus"),
+            ],
+            extraMetadata: [TestDictionary.Metadata(source: "freedict-ell-rus", displayName: "El–Ru · FD",
+                                                    fromLang: "ell", toLang: "rus")])
+        try await db.setup(userPath: tempDir.appendingPathComponent("user.sqlite").path, dictionaryURL: url)
+        settings.learningLanguages = ["ell"]
+        settings.learningVia = ["ell": "rus"]
+        let pair = try await languages.pair(for: "ell")
+        XCTAssertEqual(pair?.meaningsLang, "rus", "a full pair now")
+
+        let a1 = try await listViewModel(greekA1)
+        await a1.load()
+        XCTAssertNil(a1.errorMessage)
+        XCTAssertEqual(meanings(a1), ["σπίτι": "дом", "γράφω": "verb", "έχει αέρα": ""])
+        let a2 = try await listViewModel(greekA2)
+        await a2.load()
+        XCTAssertEqual(meanings(a2), ["αγάπη": "любовь"], "a standalone word is looked up by its term")
+
+        settings.learningVia = ["ell": "eng"]
+        let viaEnglish = try await listViewModel(greekA2)
+        await viaEnglish.load()
+        XCTAssertEqual(meanings(viaEnglish), ["αγάπη": "love"], "via English: Kirill's translation")
+    }
+
+    /// Words alphabetical; a list with several levels has a section per
+    /// level, A1 first, other level names after, words without one last.
+    func testSectionsPerLevel() async throws {
+        try await saveImports()
+        settings.learningLanguages = ["ell"]
+        let imported = try await listViewModel("user-greek")
+        await imported.load()
+        XCTAssertEqual(imported.sections.map(\.levelOrder), [1, 7, 0])
+        XCTAssertEqual(imported.sections.map(\.level), ["A1", "Lesson 1", ""])
+        XCTAssertEqual(imported.sections.map { $0.rows.map(\.item.term) }, [["νερό"], ["θάλασσα"], ["ήλιος"]])
+        XCTAssertEqual(imported.count, 3)
+
+        let greek = try await listViewModel(greekA1)
+        await greek.load()
+        XCTAssertEqual(greek.sections.count, 1, "a level list: one section")
+        XCTAssertEqual(greek.sections.first?.rows.map(\.item.term), ["γράφω", "έχει αέρα", "σπίτι"])
+        XCTAssertEqual(greek.sections.first?.rows.last?.item.endings, "το")
+    }
+
+    /// An English word opens WordNet via English and En–Es · FD via
+    /// Spanish, whatever the UI language; a word the pair's dictionary lacks
+    /// opens the first English dictionary that has it; a standalone word
+    /// opens nothing.
+    func testEntryFollowsThePair() async throws {
+        settings.learningLanguages = ["eng", "ell"]
+        for (via, source) in [("eng", "wordnet"), ("spa", "freedict-eng-spa")] {
+            settings.learningVia = ["eng": via]
+            for ui in ["en", "es"] {
+                languages = service(uiLanguage: ui)
+                let vm = try await listViewModel(englishA1)
+                await vm.load()
+                let house = try XCTUnwrap(vm.sections.flatMap(\.rows).first { $0.item.term == "house" })
+                let entry = await vm.entry(for: house.item)
+                XCTAssertEqual(entry?.source, source, "English via \(via), \(ui) UI")
+                let cat = try XCTUnwrap(vm.sections.flatMap(\.rows).first { $0.item.term == "cat" })
+                let catEntry = await vm.entry(for: cat.item)
+                XCTAssertEqual(catEntry?.source, "wordnet", "via \(via): the pair lacks it")
+            }
+        }
+        let greek = try await listViewModel(greekA1)
+        await greek.load()
+        let windy = try XCTUnwrap(greek.sections.flatMap(\.rows).first { $0.item.term == "έχει αέρα" })
+        let none = await greek.entry(for: windy.item)
+        XCTAssertNil(none, "a standalone word opens nothing")
+        XCTAssertNil(greek.errorMessage)
+    }
+
+    /// My words on its list screen: one row per word, newest first, with
+    /// its entry; the swipe on a word saved from two dictionaries stops the
+    /// word: it leaves the list and its cards are paused.
+    func testMyWordsSwipeStopsTheWord() async throws {
         settings.learningLanguages = ["ell"]
         try await db.learnWord(grafoFD, today: today)
         try await db.learnWord(grafoWN, today: today)
         try await db.learnWord(spiti, today: today)
-        let vm = MyWordsViewModel()
+        let vm = WordListViewModel(list: .myWordsForTests, settings: settings, languages: languages)
         await vm.load()
-        XCTAssertEqual(Set(vm.entries.map(\.source)), ["freedict-ell-eng", "wordnet-ell-eng"])
-        XCTAssertEqual(vm.entries.count, 3)
-
-        let wnRow = try XCTUnwrap(vm.entries.first { $0.source == "wordnet-ell-eng" })
-        await vm.stopLearning(wnRow)
         XCTAssertNil(vm.errorMessage)
-        XCTAssertEqual(vm.entries.map(\.word), ["σπίτι"], "both γράφω rows go")
+        XCTAssertEqual(vm.myWords.map(\.entry.word), ["σπίτι", "γράφω"], "one row per word, newest first")
+        XCTAssertEqual(vm.myWords.last?.entry.source, "freedict-ell-eng", "the row added first stands for γράφω")
+        XCTAssertEqual(vm.count, 2)
+
+        let grafoRow = try XCTUnwrap(vm.myWords.last)
+        await vm.stopLearning(grafoRow)
+        XCTAssertNil(vm.errorMessage)
+        XCTAssertEqual(vm.myWords.map(\.entry.word), ["σπίτι"])
+        let inMyWords = try await db.isInMyWords(grafo)
+        XCTAssertFalse(inMyWords, "both γράφω rows go")
         let paused = try await cards(grafo)
         XCTAssertEqual(paused, ["production:0:true", "recognition:0:true"])
-        let other = try await cards(WordKey(lang: "ell", word: "σπίτι"))
-        XCTAssertEqual(other, ["production:0:false", "recognition:0:false"], "σπίτι is untouched")
     }
 
-    /// Empty: no rows, no error.
-    func testEmpty() async throws {
-        let vm = MyWordsViewModel()
+    func testEmptyMyWords() async throws {
+        let vm = WordListViewModel(list: .myWordsForTests, settings: settings, languages: languages)
         await vm.load()
-        XCTAssertEqual(vm.entries, [])
+        XCTAssertEqual(vm.myWords, [])
+        XCTAssertEqual(vm.count, 0)
         XCTAssertNil(vm.errorMessage)
     }
 }
@@ -26387,5 +26861,106 @@ extension LearningReminderRunTests {
         XCTAssertEqual(center.authorizationRequests, 0)
         let goal = try await rows("SELECT day, goal FROM learn_day")
         XCTAssertEqual(goal, ["2026-11-04|5"], "the answers write the goal in force, not the default")
+    }
+}
+
+/// 0131 with 0130 (#154): the Learn home's Lists section follows the
+/// checked lists.
+extension LearnViewModelTests {
+    /// No word in learning and no list checked: "Choose lists" and no Lists
+    /// rows; a list of another language changes nothing; Greek lists
+    /// checked: Today counts their new words, and the Lists section shows
+    /// them in the Lists screen's order, with "New words from" and their
+    /// progress; My words' γράφω comes first among the new words, to the
+    /// daily limit.
+    func testListsSectionFollowsTheCheckedLists() async throws {
+        try await db.setup(userPath: tempDir.appendingPathComponent("user.sqlite").path,
+                           dictionaryURL: try WordListsTestCase.listFile(in: tempDir))
+        packs = FakePairPacks(languagesWithLists: ["ell", "eng"])
+        languages = service(uiLanguage: "en")
+        settings.learningLanguages = ["ell"]
+        let vm = home()
+        await vm.load(locale: Locale(identifier: "en"))
+        XCTAssertEqual(vm.today, .chooseLists)
+        XCTAssertEqual(vm.checkedLists, [])
+        XCTAssertFalse(vm.showsNewWordsFrom, "Today offers Choose lists instead")
+
+        settings.learningListIDs = ["cefr-eng-a1"]
+        await vm.load(locale: Locale(identifier: "en"))
+        XCTAssertEqual(vm.today, .chooseLists, "an English list does not feed Greek")
+
+        settings.learningListIDs = ["cefr-eng-a1", "ky-ell-a2", "ky-ell-a1"]
+        await vm.load(locale: Locale(identifier: "en"))
+        XCTAssertEqual(vm.today, .counts(due: 0, newLeft: 4), "Greek A1's 3 words and A2's 1")
+        XCTAssertEqual(vm.checkedLists.map(\.id), ["ky-ell-a1", "ky-ell-a2"], "in the Lists screen's order")
+        XCTAssertTrue(vm.showsNewWordsFrom)
+        XCTAssertTrue(vm.canTrain, "a checked list of the language enables the trainers (#161)")
+        XCTAssertEqual(vm.listProgress["ky-ell-a1"]?.new, 3)
+
+        settings.learningNewPerDay = 2
+        try await db.learnWord(grafoFD, today: today)
+        await vm.load(locale: Locale(identifier: "en"))
+        XCTAssertEqual(vm.today, .counts(due: 0, newLeft: 2), "My words' γράφω first, then the lists, to the limit")
+        XCTAssertTrue(vm.canTrain)
+        XCTAssertEqual(vm.myWordsList.id, .myWords)
+        XCTAssertNil(vm.errorMessage)
+    }
+}
+
+/// The Learn home with imported lists (0131 with 0130, #154).
+@MainActor
+final class LearnHomeListsTests: WordListsTestCase {
+    private func home() -> LearnViewModel {
+        LearnViewModel(settings: settings, languages: languages)
+    }
+
+    /// A language without built-in lists (Spanish) offers "Choose lists"
+    /// once it has an imported list.
+    func testImportedListOffersChooseLists() async throws {
+        settings.learningLanguages = ["spa"]
+        let vm = home()
+        await vm.load(locale: Locale(identifier: "en"))
+        XCTAssertEqual(vm.today, .addWords)
+        try await WordListFixture.saveUserList("user-spanish", title: "Spanish words", lang: "spa",
+                                               createdAt: "2026-11-02 10:00:00",
+                                               items: [.init(term: "casa", translation: "house", seq: 0)])
+        await vm.load(locale: Locale(identifier: "en"))
+        XCTAssertEqual(vm.today, .chooseLists)
+        XCTAssertNil(vm.errorMessage)
+    }
+
+    /// 0131, "Meanings", rule 4: the planner skips a list word without a
+    /// meaning in the pair, so Today does not count it. English A1 via
+    /// Spanish: house has En–Es · FD's meaning, cat none; via English,
+    /// WordNet gives both. With a daily limit of 1 and cat first, the count
+    /// reads past cat to house.
+    func testTodaySkipsListWordsWithoutAMeaning() async throws {
+        settings.learningLanguages = ["eng"]
+        settings.learningVia = ["eng": "spa"]
+        settings.learningListIDs = [englishA1]
+        let vm = home()
+        await vm.load(locale: Locale(identifier: "en"))
+        XCTAssertNil(vm.errorMessage)
+        XCTAssertEqual(vm.today, .counts(due: 0, newLeft: 1), "via Spanish: cat has no meaning")
+
+        settings.learningVia = ["eng": "eng"]
+        await vm.load(locale: Locale(identifier: "en"))
+        XCTAssertEqual(vm.today, .counts(due: 0, newLeft: 2), "via English: both")
+
+        settings.learningVia = ["eng": "spa"]
+        settings.learningNewPerDay = 1
+        settings.learningNewOrder = .random
+        let items = try await db.wordListItems(englishA1).sorted { $0.seq < $1.seq }
+        let seed = try XCTUnwrap((UInt64(0)..<64).first { installSeed in
+            let seed = LearningOrder.seed(installSeed: installSeed, lists: [englishA1], order: .random)
+            return LearningOrder.arrange(items, order: .random, seed: seed).first?.term == "cat"
+        })
+        try await execute("INSERT OR REPLACE INTO user_meta(key, value) VALUES (?, ?)",
+                          [DatabaseService.wordListSeedKey, String(seed)])
+        let first = try await db.nextNewWords(in: "eng", from: [englishA1], count: 1, excluding: [], order: .random)
+        XCTAssertEqual(first.map(\.term), ["cat"], "the first page holds only cat")
+        await vm.load(locale: Locale(identifier: "en"))
+        XCTAssertEqual(vm.today, .counts(due: 0, newLeft: 1), "house, after cat")
+        XCTAssertNil(vm.errorMessage)
     }
 }

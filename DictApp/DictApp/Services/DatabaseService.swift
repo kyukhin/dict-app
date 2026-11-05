@@ -1792,6 +1792,31 @@ actor DatabaseService {
         return try await read(pool) { db in try Self.sourceLanguages(db)[source] }
     }
 
+    /// My words as their list screen shows them (#154): `wordListItems(.myWords)`,
+    /// newest first, each with the entry of the row that stands for the word,
+    /// which its snippet and its Definition show. A word whose entry no longer
+    /// resolves stays stored and is skipped, as in `fetchMyWords` (#138).
+    func myWordsEntries() async throws -> [MyWordsEntry] {
+        let pool = try await userPool()
+        let schemas = schemas
+        return try await read(pool) { db in
+            try Self.myWordsRows(db).compactMap { row in
+                try Self.entry(for: EntryKey(source: row.source, word: row.item.term), in: db, schemas: schemas)
+                    .map { MyWordsEntry(item: row.item, entry: $0) }
+            }
+        }
+    }
+
+    /// Deletes the imported list `id` and its words (the Lists screen's
+    /// swipe, #154). Built-in lists and My words are not in `user_list`.
+    func deleteUserList(_ id: WordListID) async throws {
+        let pool = try await userPool()
+        try await pool.write { db in
+            try db.execute(sql: "DELETE FROM user_list WHERE id = ?", arguments: [id.rawValue])
+        }
+        wordListsDidChange()
+    }
+
     /// Deletes every imported list and its words (`-resetData`). The shuffle
     /// seed stays.
     func clearUserLists() async throws {
@@ -1801,6 +1826,51 @@ actor DatabaseService {
         }
         wordListsDidChange()
     }
+
+    #if DEBUG
+    /// `-wordListFixture <name>` (#154): imported lists for the UI tests
+    /// until #155's import exists, next to the built-in lists of the packs.
+    /// `lists`: "Greek fixture" (σπίτι, γράφω and έχει αέρα at A1,
+    /// αγάπη η at A2, βιβλίο without a translation or a level) and the newer
+    /// "English fixture" (house, water; no translations). Returns false for a
+    /// name this build does not know.
+    func writeWordListFixture(_ name: String) async throws -> Bool {
+        guard name == "lists" else { return false }
+        typealias Word = (term: String, headword: String?, translation: String, endings: String, pos: String,
+                          level: String, levelOrd: Int)
+        let lists: [(id: String, title: String, lang: String, createdAt: String, words: [Word])] = [
+            ("user-fixture-greek", "Greek fixture", "ell", "2026-01-01 10:00:00", [
+                ("σπίτι", "σπίτι", "house", "το", "noun", "A1", 1),
+                ("γράφω", "γράφω", "write", "", "verb", "A1", 1),
+                ("έχει αέρα", nil, "it is windy", "", "", "A1", 1),
+                ("αγάπη", "αγάπη", "love", "η", "noun", "A2", 2),
+                ("βιβλίο", "βιβλίο", "", "", "noun", "", 0),
+            ]),
+            ("user-fixture-english", "English fixture", "eng", "2026-01-02 10:00:00", [
+                ("house", "house", "", "", "noun, verb", "", 0),
+                ("water", "water", "", "", "noun, verb", "", 0),
+            ]),
+        ]
+        let pool = try await userPool()
+        try await pool.write { db in
+            for list in lists {
+                try db.execute(sql: "DELETE FROM user_list WHERE id = ?", arguments: [list.id])
+                try db.execute(sql: "INSERT INTO user_list(id, title, lang, origin, created_at) VALUES (?, ?, ?, 'file', ?)",
+                               arguments: [list.id, list.title, list.lang, list.createdAt])
+                for (seq, word) in list.words.enumerated() {
+                    try db.execute(sql: """
+                        INSERT INTO user_list_item(list_id, term, headword, translation, endings, pos, level, level_ord,
+                                                   seq, sort_key)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """, arguments: [list.id, word.term, word.headword, word.translation, word.endings, word.pos,
+                                         word.level, word.levelOrd, seq, WordListItem.sortKey(of: word.term)])
+                }
+            }
+        }
+        wordListsDidChange()
+        return true
+    }
+    #endif
 
     /// Drops the cached arrangements: a list changed, or the service reopened.
     private func wordListsDidChange() {
@@ -1845,14 +1915,14 @@ actor DatabaseService {
     }
 
     /// One row of `wordlist_item` or `user_list_item`, a word of list `list`
-    /// in language `lang`.
-    private static func listItem(_ row: Row, list: WordListID, lang: String) -> WordListItem {
+    /// in language `lang`, whose translations are in `translationLang`.
+    private static func listItem(_ row: Row, list: WordListID, lang: String, translationLang: String = "") -> WordListItem {
         let term: String = row["term"]
         return WordListItem(
             listID: list, key: WordKey(lang: lang, word: term), term: term, headword: row["headword"],
-            translation: row["translation"], endings: row["endings"], partOfSpeech: row["pos"], tags: row["tags"],
-            level: row["level"], levelOrder: row["level_ord"], rank: row["rank"], seq: row["seq"],
-            sortKey: row["sort_key"])
+            translation: row["translation"], translationLang: translationLang, endings: row["endings"],
+            partOfSpeech: row["pos"], tags: row["tags"], level: row["level"], levelOrder: row["level_ord"],
+            rank: row["rank"], seq: row["seq"], sortKey: row["sort_key"])
     }
 
     /// The words of list `id` in `order` (SQL on the item columns), My words
@@ -1869,12 +1939,13 @@ actor DatabaseService {
                 """, arguments: [id.rawValue]).map { listItem($0, list: id, lang: lang) }
         case .builtIn:
             for schema in DictionarySchemas.all {
-                guard let list = try Row.fetchOne(db, sql: "SELECT lang, series, level_ord FROM \(schema).wordlist WHERE id = ?",
-                                                  arguments: [id.rawValue]) else { continue }
+                let sql = "SELECT lang, series, level_ord, translation_lang FROM \(schema).wordlist WHERE id = ?"
+                guard let list = try Row.fetchOne(db, sql: sql, arguments: [id.rawValue]) else { continue }
                 let lang: String = list["lang"]
+                let translationLang: String = list["translation_lang"]
                 return try Row.fetchAll(db, sql: wordListItemsSQL(schema: schema, order: order),
                                         arguments: [list["series"] as String, list["level_ord"] as Int])
-                    .map { listItem($0, list: id, lang: lang) }
+                    .map { listItem($0, list: id, lang: lang, translationLang: translationLang) }
             }
             return []
         }
@@ -1884,19 +1955,24 @@ actor DatabaseService {
     /// dictionaries share a key (γράφω from El–En · FD and El–En · WN), the
     /// row added first, then by source, stands for the word. Newest first.
     private static func myWordsItems(_ db: Database) throws -> [WordListItem] {
+        try myWordsRows(db).map(\.item)
+    }
+
+    /// `myWordsItems` with the source of the row that stands for each word.
+    private static func myWordsRows(_ db: Database) throws -> [(item: WordListItem, source: String)] {
         let languages = try sourceLanguages(db)
         var keys = Set<WordKey>()
-        var items: [WordListItem] = []
+        var rows: [(item: WordListItem, source: String)] = []
         for row in try Row.fetchAll(db, sql: "SELECT source, word FROM my_words ORDER BY added_at, source, word") {
-            let word: String = row["word"]
-            let key = WordKey(lang: languages[row["source"] as String] ?? "und", word: word)
+            let word: String = row["word"], source: String = row["source"]
+            let key = WordKey(lang: languages[source] ?? "und", word: word)
             guard keys.insert(key).inserted else { continue }
-            items.append(WordListItem(
+            rows.append((WordListItem(
                 listID: .myWords, key: key, term: word, headword: word, translation: "", endings: "",
-                partOfSpeech: "", tags: "", level: "", levelOrder: 0, rank: nil, seq: items.count,
-                sortKey: WordListItem.sortKey(of: word)))
+                partOfSpeech: "", tags: "", level: "", levelOrder: 0, rank: nil, seq: rows.count,
+                sortKey: WordListItem.sortKey(of: word)), source))
         }
-        return items.reversed()
+        return rows.reversed()
     }
 
     /// The lists of `ids` in language `lang`, in Lists screen order (a set

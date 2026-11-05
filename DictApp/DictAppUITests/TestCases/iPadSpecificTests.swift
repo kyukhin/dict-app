@@ -25,6 +25,7 @@ import XCTest
 ///      in both orientations.
 ///   5) A trainer run (0131, #159): full screen, its content at most
 ///      600 pt wide and centred, in both orientations.
+///   6) The word lists (0130, #154) in both orientations.
 ///
 /// All tests skip cleanly on non-iPad destinations.
 final class iPadSpecificTests: XCTestCase {
@@ -53,6 +54,11 @@ final class iPadSpecificTests: XCTestCase {
             // The Greek meanings are in the Greek pack (#237).
             app.launchArguments += ["-learningAnswerHints", "-learningSeed", "159", "-learningFixture", "due"]
                 + UITestHelpers.packArguments("ell")
+            app.launchEnvironment["OS_ACTIVITY_MODE"] = "disable"
+        }
+        // 0130, #154: Greek learned, its lists in the Greek pack.
+        if name.contains("testWordListsOnIPad") {
+            app.launchArguments += ["-learningLanguages", "ell"] + UITestHelpers.packArguments("ell")
             app.launchEnvironment["OS_ACTIVITY_MODE"] = "disable"
         }
 
@@ -273,6 +279,29 @@ final class iPadSpecificTests: XCTestCase {
             XCTAssertEqual(continueButton.frame.midX, window.midX, accuracy: 2)
             run.tapContinue()
             answered += 1
+        }
+    }
+
+    /// 0130, #154: the Lists screen, a list's screen and New words from in
+    /// both orientations; a word opens its Definition.
+    func testWordListsOnIPad() throws {
+        let tabBarPage = TabBarPage(app: app)
+        for orientation in [UIDeviceOrientation.portrait, .landscapeLeft] {
+            XCUIDevice.shared.orientation = orientation
+            tabBarPage.tap(.search)
+            let learnPage = tabBarPage.tapLearnTab()
+            XCTAssertTrue(learnPage.waitForHome(timeout: TestData.Timeouts.long), "the Learn home in \(orientation.rawValue)")
+            let page = learnPage.tapAllLists()
+            XCTAssertTrue(page.row("ky-ell-a1").waitForExistence(timeout: TestData.Timeouts.medium))
+            XCTAssertEqual(page.count("ky-ell-a1").label, "1,457 words")
+            page.openList("ky-ell-a1")
+            XCTAssertTrue(page.learnButton.exists, "Learn this list in \(orientation.rawValue)")
+            page.tapWord("αγάπη")
+            XCTAssertTrue(DefinitionPage(app: app).waitForDefinitionToLoad(), "αγάπη's Definition")
+            learnPage.popToRoot()
+            let newWordsFrom = learnPage.tapChooseLists()
+            XCTAssertTrue(newWordsFrom.newWordsFromRow("ky-ell-a1").exists)
+            learnPage.popToRoot()
         }
     }
 }

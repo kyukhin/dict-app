@@ -1,7 +1,7 @@
 // LearnViewModel.swift
-// The Learn tab (0131-learning.md, #158): the pair picker, the Learn home
-// and the interim My words list. The runs: the trainers (#159), the session
-// and mistakes practice (#161); match the pairs (#160).
+// The Learn tab (0131-learning.md, #158): the pair picker and the Learn
+// home, with E3's Lists section (#154). The runs: the trainers (#159), the
+// session and mistakes practice (#161); match the pairs (#160).
 
 import Foundation
 import SwiftUI
@@ -38,6 +38,14 @@ final class LearnViewModel: ObservableObject {
     @Published private(set) var myWordsCount = 0
     /// Match the pairs has its 5 words (#160); else "Learn 5 words first".
     @Published private(set) var canMatch = false
+    /// The Lists section (0130, #154): the chosen language's checked lists,
+    /// in the Lists screen's order.
+    @Published private(set) var checkedLists: [WordList] = []
+    /// The checked lists' progress in the chosen language (0166).
+    @Published private(set) var listProgress: [WordListID: ListProgress] = [:]
+    /// The chosen language has lists, built-in or imported: the Lists
+    /// section offers New words from.
+    @Published private(set) var hasLists = false
     /// False until the first load ends, so the picker never flashes before the home.
     @Published private(set) var isLoaded = false
     @Published var errorMessage: String?
@@ -66,6 +74,15 @@ final class LearnViewModel: ObservableObject {
         case .chooseLists?, .addWords?, nil: return false
         }
     }
+
+    /// My words as a list, for its row (E3's list screen, #154).
+    var myWordsList: WordList {
+        WordList(id: .myWords, kind: .myWords, lang: WordList.myWordsLanguage, level: "", title: "", count: myWordsCount)
+    }
+
+    /// The Lists section's "New words from" row: once a list is checked or a
+    /// word is in learning, while Today no longer offers "Choose lists".
+    var showsNewWordsFrom: Bool { hasLists && today != .chooseLists }
 
     /// Reads the learned languages, then the picker's rows or the home.
     /// `locale` names the languages for the picker's order.
@@ -124,16 +141,25 @@ final class LearnViewModel: ObservableObject {
     /// Due and mistake words count only with a meaning in the pair, as the
     /// runs ask them, so Start and the mistakes row never open an empty
     /// run. Nothing to learn yet (no word in learning, no list of the
-    /// language checked): the empty state.
+    /// language checked): the empty state, "Choose lists" when the language
+    /// has lists, built-in or imported.
     private func loadHome() async throws {
         guard let language else { return }
         let day = clock.today
         pair = try await languages.pair(for: language)
         myWordsCount = try await db.fetchMyWords().count
-        var hasWork = try await db.learningWordCount(lang: language) > 0
-        if !hasWork { hasWork = try await hasCheckedLists(language) }
-        guard hasWork else {
-            today = languagesWithLists.contains(language) ? .chooseLists : .addWords
+        // The language's lists in the Lists screen's order; a built-in list
+        // whose pack is missing is not among them (0237).
+        let lists = WordListsViewModel.sections(try await db.wordLists(), learned: [language], uiLanguage: "")
+            .flatMap(\.lists)
+            .filter { $0.kind != .myWords }
+        let checked = settings.learningListIDs
+        checkedLists = lists.filter { checked.contains($0.id) }
+        hasLists = languagesWithLists.contains(language) || !lists.isEmpty
+        listProgress = try await WordListsViewModel.progress(of: checkedLists, myWordsLanguage: language, db: db)
+        let hasWordsInLearning = try await db.learningWordCount(lang: language) > 0
+        guard hasWordsInLearning || !checkedLists.isEmpty else {
+            today = hasLists ? .chooseLists : .addWords
             mistakeCount = 0
             canMatch = false
             return
@@ -153,13 +179,6 @@ final class LearnViewModel: ObservableObject {
         mistakeCount = mistakeWords.intersection(asked).count
         canMatch = try await MatchWordPicker(db: db).pick(lang: language, meaningsLang: meaningsLang,
                                                           sourceOrder: sourceOrder, newWords: newWords) != nil
-    }
-
-    /// A list of `lang` is checked (`learning_lists`): new words come from it.
-    private func hasCheckedLists(_ lang: String) async throws -> Bool {
-        let checked = settings.learningListIDs
-        guard !checked.isEmpty else { return false }
-        return try await db.wordLists().contains { checked.contains($0.id) && $0.lang == lang }
     }
 
     /// A learned language's name in the UI language, as the production
@@ -774,43 +793,6 @@ final class MatchPairsViewModel: ObservableObject {
         do {
             try await db.recordAnswer(record, today: today, goal: settings.learningDailyGoal)
             await reminder?.answerRecorded(today: today)
-        } catch {
-            errorMessage = error.localizedDescription
-        }
-    }
-}
-
-// MARK: - My words, interim (#158, until E3 #154)
-
-/// Today's Bookmarks list, moved: My words that resolve, newest first. A
-/// key that no longer resolves stays stored and is skipped (#138).
-@MainActor
-final class MyWordsViewModel: ObservableObject {
-    @Published private(set) var entries: [DictionaryEntry] = []
-    @Published var errorMessage: String?
-
-    private let db: DatabaseService
-
-    init(db: DatabaseService = .shared) {
-        self.db = db
-    }
-
-    func load() async {
-        do {
-            entries = try await db.fetchMyWords()
-            errorMessage = nil
-        } catch {
-            errorMessage = error.localizedDescription
-        }
-    }
-
-    /// The swipe is Stop learning: every My words row of the word leaves,
-    /// whatever its dictionary, and its cards are paused.
-    func stopLearning(_ entry: DictionaryEntry) async {
-        do {
-            try await db.stopLearning(EntryKey(entry))
-            entries = try await db.fetchMyWords()
-            errorMessage = nil
         } catch {
             errorMessage = error.localizedDescription
         }
