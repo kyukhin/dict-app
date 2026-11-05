@@ -1,7 +1,8 @@
 // LearnView.swift
 // The Learn tab (0131-learning.md, #158): the pair picker while no
-// language is learned, else the Learn home; the interim My words list.
-// Later tickets add their sections to the home.
+// language is learned, else the Learn home. E3's list screens (#154) open
+// from its Lists section and its My words row. Later tickets add their
+// sections to the home.
 
 import SwiftUI
 
@@ -12,11 +13,6 @@ struct LearnView: View {
     /// The run in the full-screen cover: the session, mistakes, a trainer
     /// or match the pairs.
     @State private var running: RunRequest?
-
-    /// The screens the home pushes.
-    enum Route: Hashable {
-        case myWords
-    }
 
     /// A run in `lang`, the chosen language, with its pair's meanings
     /// language (nil without a pair).
@@ -49,16 +45,17 @@ struct LearnView: View {
                 }
             }
             .navigationTitle("learn.title")
-            .navigationDestination(for: Route.self) { route in
-                switch route {
-                case .myWords: MyWordsView()
-                }
-            }
+            .wordListDestinations()
             .navigationDestination(for: DictionaryEntry.self) { entry in
                 DefinitionView(entry: entry)
             }
             .task {
                 await vm.load(locale: locale)
+            }
+            // 0237: a pack installed or removed brings its lists or takes
+            // them away.
+            .onReceive(NotificationCenter.default.publisher(for: PackService.didChange, object: PackService.shared)) { _ in
+                Task { await vm.load(locale: locale) }
             }
             .fullScreenCover(item: $running, onDismiss: {
                 Task { await vm.load(locale: locale) }
@@ -126,9 +123,9 @@ struct LearnView: View {
                     Text("learn.trainers.disabled")
                 }
             }
-            // E3 #154 adds the Lists.
+            lists
             Section {
-                NavigationLink(value: Route.myWords) {
+                NavigationLink(value: WordListRoute.list(vm.myWordsList)) {
                     LabeledContent("learn.myWords") {
                         Text(vm.myWordsCount, format: .number)
                     }
@@ -162,8 +159,11 @@ struct LearnView: View {
             Text("learn.allDone")
                 .accessibilityIdentifier("learn_all_done")
         case .chooseLists?:
-            // E3 #154 adds the "Choose lists" button.
             Text("learn.empty.withLists")
+            NavigationLink(value: WordListRoute.newWordsFrom) {
+                Text("learn.chooseLists")
+            }
+            .accessibilityIdentifier("learn_choose_lists")
         case .addWords?:
             // ponytail: opens E3's Import in #155
             Button("learn.importList") {}
@@ -220,6 +220,35 @@ struct LearnView: View {
         }
         .disabled(!vm.canTrain)
         .accessibilityIdentifier(id)
+    }
+
+    /// E3's lists (0130, #154): the chosen language's checked lists with
+    /// their progress (0166), "New words from" once Today no longer offers
+    /// "Choose lists", and "All lists".
+    private var lists: some View {
+        Section("wordLists.title") {
+            ForEach(vm.checkedLists) { list in
+                NavigationLink(value: WordListRoute.list(list)) {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(WordListsViewModel.title(of: list, locale: locale))
+                        if let progress = vm.listProgress[list.id] {
+                            LabeledListProgressBar(progress: progress, id: "learn_list_progress_\(list.id.rawValue)")
+                        }
+                    }
+                }
+                .accessibilityIdentifier("learn_list_row_\(list.id.rawValue)")
+            }
+            if vm.showsNewWordsFrom {
+                NavigationLink(value: WordListRoute.newWordsFrom) {
+                    Text("newWordsFrom.title")
+                }
+                .accessibilityIdentifier("learn_new_words_from_row")
+            }
+            NavigationLink(value: WordListRoute.allLists) {
+                Text("learn.allLists")
+            }
+            .accessibilityIdentifier("learn_all_lists_row")
+        }
     }
 
     private func dueText(_ count: Int) -> some View {
@@ -342,60 +371,5 @@ struct LearningLanguagePicker: View {
         }
         .pickerStyle(.segmented)
         .accessibilityIdentifier("learn_language_switch")
-    }
-}
-
-// MARK: - My words, interim (#158, until E3 #154)
-
-/// Today's Bookmarks list, moved behind the home's My words row: newest
-/// first, a one-line snippet, a tap opens the Definition. The swipe is
-/// Stop learning.
-struct MyWordsView: View {
-    @StateObject private var vm = MyWordsViewModel()
-
-    var body: some View {
-        Group {
-            if vm.entries.isEmpty {
-                ContentUnavailableView(
-                    "learn.myWords",
-                    systemImage: "graduationcap",
-                    description: Text("learn.myWords.empty")
-                )
-            } else {
-                List {
-                    ForEach(vm.entries) { entry in
-                        NavigationLink(value: entry) {
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(entry.word)
-                                    .font(.headline)
-                                Text(Self.snippet(entry.definition))
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                                    .lineLimit(1)
-                            }
-                        }
-                        .accessibilityIdentifier("my_words_item_\(entry.word)")
-                        .swipeActions {
-                            Button("definition.a11y.stopLearning", role: .destructive) {
-                                Task { await vm.stopLearning(entry) }
-                            }
-                        }
-                    }
-                }
-                .accessibilityIdentifier("my_words_list")
-            }
-        }
-        .navigationTitle("learn.myWords")
-        .task {
-            await vm.load()
-        }
-    }
-
-    private static func snippet(_ text: String) -> String {
-        String(text.prefix(100))
-            .replacingOccurrences(of: "**", with: "")
-            .replacingOccurrences(of: "*", with: "")
-            .replacingOccurrences(of: "\n", with: " ")
-            .trimmingCharacters(in: .whitespaces)
     }
 }

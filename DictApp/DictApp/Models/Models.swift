@@ -1622,6 +1622,15 @@ struct WordListItem: Identifiable, Hashable, Sendable {
     }
 }
 
+/// A row of My words' list screen (#154): the word and the entry that
+/// stands for it, whose snippet the row shows and whose Definition it opens.
+struct MyWordsEntry: Identifiable, Hashable {
+    let item: WordListItem
+    let entry: DictionaryEntry
+
+    var id: WordKey { item.key }
+}
+
 /// The order new words come in within a level (the setting is E4's).
 enum NewWordOrder: String, CaseIterable, Hashable, Sendable {
     case frequency, random

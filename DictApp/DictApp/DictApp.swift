@@ -172,11 +172,15 @@ struct DictApp: App {
                 SettingsService.shared.setLearningLanguages(argument: argument)
             }
             // The lists new words come from (`-learningLists user-fixture-ell`),
-            // until E3's New words from screen (#154) can check them.
+            // set without going through New words from.
             if let argument = Self.argument(after: "-learningLists") {
                 SettingsService.shared.learningListIDs = Set(argument.split(separator: ",").map {
                     WordListID(rawValue: String($0))
                 })
+            }
+            // 0130, #154: imported lists for the list screens' UI tests.
+            if let name = Self.argument(after: "-wordListFixture") {
+                _ = try await DatabaseService.shared.writeWordListFixture(name)
             }
 
             // UI-test hook: scrub the rows and the `imported_sources` row left

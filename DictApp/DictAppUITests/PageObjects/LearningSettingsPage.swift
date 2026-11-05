@@ -12,6 +12,7 @@ class LearningSettingsPage: BasePage {
 
     var languagesRow: XCUIElement { app.buttons[IDs.languages].firstMatch }
     var newPerDay: XCUIElement { app.steppers[IDs.newPerDay].firstMatch }
+    var newWordsFromRow: XCUIElement { app.buttons[IDs.newWordsFrom].firstMatch }
     var goal: XCUIElement { app.steppers[IDs.goal].firstMatch }
     var order: XCUIElement { app.buttons[IDs.order].firstMatch }
     var answerMode: XCUIElement { app.buttons[IDs.answerMode].firstMatch }

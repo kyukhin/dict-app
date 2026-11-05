@@ -5,10 +5,9 @@ import XCTest
 /// home's Today section and its language switch. English UI unless a test
 /// says otherwise, `-resetData` first.
 ///
-/// From the test plan, `testChooseGreekOffersItsLists` waits for 0237's
-/// install of the Greek lists and E3's "Choose lists" (#154): here Greek only
-/// shows its empty state. The download sizes under the rows wait for #241's
-/// packs. The Recognition trainers of `testPickerOffersPairs`,
+/// The Greek lists come from the Greek pack, installed from the committed
+/// assets as 0237's tests do. The download sizes under the rows wait for
+/// #241's packs. The Recognition trainers of `testPickerOffersPairs`,
 /// `testLimitedPairShowsItsWarning` and `testLanguageSwitch` (#159) are in
 /// `ExerciseFlowTests`: a pair chosen in the picker has no word in learning
 /// yet, so its trainers are disabled; the fixtures give them words.
@@ -21,6 +20,7 @@ final class LearnTabTests: XCTestCase {
     private var learningArguments: [String] {
         if name.contains("testLanguageSwitch") { return ["-learningFixture", "bilingual"] }
         if name.contains("testNoSwitchWithOneLanguage") { return ["-learningFixture", "myWords5"] }
+        if name.contains("testChooseListsWhenNothingToLearn") { return ["-learningLanguages", "ell"] }
         if name.contains("testLimitedPairShowsItsWarning") { return ["-AppleLanguages", "(ru)", "-AppleLocale", "ru"] }
         if name.contains("testSpanishUILearnsEnglishViaSpanish") {
             return ["-AppleLanguages", "(es)", "-AppleLocale", "es"]
@@ -142,8 +142,9 @@ final class LearnTabTests: XCTestCase {
     }
 
     /// Choosing Greek via English, Greek having lists: the home, "Choose
-    /// lists or tap Learn on a word", no switch, the trainers off.
-    func testChooseGreekShowsItsHome() throws {
+    /// lists or tap Learn on a word", no switch, the trainers off; "Choose
+    /// lists" opens New words from with Greek A1, A2 and B1 only.
+    func testChooseGreekOffersItsLists() throws {
         let learnPage = tabBarPage.tapLearnTab()
         XCTAssertTrue(learnPage.waitForPicker())
         XCTAssertTrue(learnPage.choosePair("ell", via: "eng"), "choosing Greek shows the home")
@@ -156,6 +157,40 @@ final class LearnTabTests: XCTestCase {
         XCTAssertFalse(learnPage.trainerRecognition.isEnabled, "Recognition is off")
         XCTAssertFalse(learnPage.trainerProduction.isEnabled, "Production is off")
         XCTAssertTrue(app.staticTexts["Learn a few words first"].exists)
+
+        let newWordsFrom = learnPage.tapChooseLists()
+        for id in ["ky-ell-a1", "ky-ell-a2", "ky-ell-b1"] {
+            XCTAssertTrue(newWordsFrom.newWordsFromRow(id).waitForExistence(timeout: TestData.Timeouts.medium), id)
+        }
+        let rows = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "new_words_from_row_"))
+        XCTAssertEqual(rows.count, 3, "Greek's lists only")
+        XCTAssertTrue(newWordsFrom.noneChecked.exists, "nothing checked")
+    }
+
+    /// `-learningLanguages ell`, the Greek lists installed, nothing in
+    /// learning: Today reads "Choose lists or tap Learn on a word"; "Choose
+    /// lists" opens New words from; after checking Greek A1, the Lists
+    /// section shows it and "New words from", and Today its new words.
+    func testChooseListsWhenNothingToLearn() throws {
+        let learnPage = tabBarPage.tapLearnTab()
+        XCTAssertTrue(learnPage.waitForHome(timeout: TestData.Timeouts.long))
+        XCTAssertTrue(app.staticTexts["Choose lists or tap Learn on a word"].waitForExistence(timeout: TestData.Timeouts.medium))
+        XCTAssertFalse(learnPage.newWordsFromRow.exists, "no New words from row while Today offers Choose lists")
+        let newWordsFrom = learnPage.tapChooseLists()
+        let greekA1 = newWordsFrom.newWordsFromRow("ky-ell-a1")
+        XCTAssertTrue(greekA1.waitForExistence(timeout: TestData.Timeouts.medium))
+        greekA1.tap()
+        XCTAssertTrue(newWordsFrom.wait(for: greekA1, selected: true), "checked")
+        newWordsFrom.goBack()
+
+        XCTAssertTrue(learnPage.listRow("ky-ell-a1").waitForExistence(timeout: TestData.Timeouts.medium),
+                      "the Lists section shows Greek A1")
+        XCTAssertTrue(learnPage.newWordsFromRow.exists, "and New words from")
+        XCTAssertFalse(learnPage.chooseLists.exists, "Choose lists has done its job")
+        XCTAssertTrue(learnPage.waitForLabel(of: learnPage.newCount, toBe: "10 new words left today"))
+        learnPage.newWordsFromRow.tap()
+        XCTAssertTrue(newWordsFrom.waitForNewWordsFrom(), "the row opens New words from")
+        XCTAssertTrue(newWordsFrom.newWordsFromRow("ky-ell-a1").isSelected)
     }
 
     /// Spanish via English, Spanish having no lists: "Import a list" and

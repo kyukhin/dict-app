@@ -34,6 +34,10 @@ final class SpanishLocalizationTests: XCTestCase {
         // Issue #237: every language pack, installed from the committed assets.
         app.launchArguments += UITestHelpers.packArguments()
         app.launchArguments.append("-resetData")
+        // 0130, #154: Greek learned, its lists in the Greek pack.
+        if name.contains("testWordListsInSpanish") {
+            app.launchArguments += ["-learningLanguages", "ell"]
+        }
         // Force portrait — sim orientation persists across sessions on Intel x86_64,
         // and landscape no-ops swipeUp against SwiftUI Form/List scroll views.
         // See project memory project_xcuitest_orientation_landscape_swipe.
@@ -136,6 +140,36 @@ final class SpanishLocalizationTests: XCTestCase {
             staticTextContaining("Diccionarios"),
             "Settings must show the Spanish 'Diccionarios' section header"
         )
+    }
+
+    /// 0130, #154: the list screens in Spanish: "Todas las listas" opens
+    /// "Listas" with "Griego A1", Greek A2's "756 palabras" and "Mis
+    /// listas"; a list's screen reads "Aprender esta lista"; "Elegir listas"
+    /// opens "Palabras nuevas de" with its footer.
+    func testWordListsInSpanish() throws {
+        XCTAssertTrue(selectLanguage(code: "es"), "Must be able to switch to Spanish via the picker")
+        let learnPage = TabBarPage(app: app).tapLearnTab()
+        XCTAssertTrue(learnPage.waitForHome(timeout: TestData.Timeouts.long), "Greek learned: the home")
+        XCTAssertTrue(learnPage.allListsRow.staticTexts["Todas las listas"].waitForExistence(timeout: 5))
+        let page = learnPage.tapAllLists()
+        XCTAssertTrue(app.navigationBars["Listas"].waitForExistence(timeout: 5))
+        XCTAssertTrue(page.row("ky-ell-a1").waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Griego A1"].exists, "the list title in Spanish")
+        XCTAssertEqual(page.count("ky-ell-a2").label, "756 palabras")
+        XCTAssertTrue(app.scrollToElement(page.row("my-words")))
+        XCTAssertTrue(staticTextContaining("Mis listas"), "the My lists section")
+        XCTAssertEqual(page.count("my-words").label, "0 palabras")
+
+        XCTAssertTrue(app.scrollToElement(page.row("ky-ell-a2")))
+        page.openList("ky-ell-a2")
+        XCTAssertTrue(app.navigationBars["Griego A2"].waitForExistence(timeout: 5))
+        XCTAssertEqual(page.learnButton.label, "Aprender esta lista")
+        page.goBack()
+        page.goBack()
+
+        learnPage.tapChooseLists()
+        XCTAssertTrue(app.navigationBars["Palabras nuevas de"].waitForExistence(timeout: 5))
+        XCTAssertTrue(staticTextContaining("Ninguna lista marcada."), "the footer with nothing checked")
     }
 
     /// Issue #145: after an in-app switch to Spanish the Search chips read

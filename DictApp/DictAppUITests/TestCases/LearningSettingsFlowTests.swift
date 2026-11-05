@@ -5,7 +5,6 @@ import XCTest
 /// a limited pair's warning) and the reminder's permission prompt. English
 /// UI, `-resetData` first.
 ///
-/// `testNewWordsFromOpensTheScreen` waits for E3's New words from (#154).
 /// The notification permission survives relaunches and cannot be reset by
 /// XCUITest, so only `testPermissionAskedOnlyWhenTurnedOn` touches the
 /// reminder, and it needs a fresh install: run the suite after
@@ -26,6 +25,7 @@ final class LearningSettingsFlowTests: XCTestCase {
             return ["-learningFixture", "bilingual", "-learningAnswerHints", "-learningSeed", "162"]
         }
         if name.contains("testStopAndResumeALanguage") { return ["-learningFixture", "bilingual"] }
+        if name.contains("testNewWordsFromOpensTheScreen") { return ["-learningLanguages", "ell"] }
         return []
     }
 
@@ -109,6 +109,28 @@ final class LearningSettingsFlowTests: XCTestCase {
         learnPage = tabBarPage.tapLearnTab()
         XCTAssertTrue(learnPage.waitForLabel(of: learnPage.newCount, toBe: "3 new words left today"))
         XCTAssertTrue(learnPage.startButton.exists)
+    }
+
+    /// 0130, #154: the "New words from" row opens E3's New words from, the
+    /// same set the Learn home checks: Greek A1 checked here is checked on
+    /// the Learn home's screen too.
+    func testNewWordsFromOpensTheScreen() throws {
+        let page = openSettings()
+        page.reveal(page.newWordsFromRow)
+        XCTAssertEqual(page.newWordsFromRow.label, "New words from")
+        page.newWordsFromRow.tap()
+        let lists = WordListsPage(app: app)
+        XCTAssertTrue(lists.waitForNewWordsFrom(), "New words from")
+        XCTAssertTrue(lists.noneChecked.waitForExistence(timeout: TestData.Timeouts.medium), "nothing checked yet")
+        let greekA1 = lists.newWordsFromRow("ky-ell-a1")
+        XCTAssertTrue(greekA1.waitForExistence(timeout: TestData.Timeouts.medium), "Greek A1")
+        greekA1.tap()
+        XCTAssertTrue(lists.wait(for: greekA1, selected: true), "Greek A1 checked")
+
+        let learnPage = tabBarPage.tapLearnTab()
+        XCTAssertTrue(learnPage.waitForHome(), "the Learn home")
+        XCTAssertTrue(learnPage.listRow("ky-ell-a1").waitForExistence(timeout: TestData.Timeouts.medium),
+                      "the Lists section shows Greek A1")
     }
 
     /// Fresh install: a session and the Settings screen ask nothing; turning
