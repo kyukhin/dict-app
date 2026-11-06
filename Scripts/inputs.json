@@ -8,6 +8,18 @@
     "dump_lines": 11121531,
     "lines": 85425
   },
+  "Scripts/data/wordlists/ky-ell-a1.csv": {
+    "sha256": "591d5c1fbe6714e3f9c6c3099f32c196f46eb4afe424badb950a787171c98d7b",
+    "about": "Kirill Yukhin's Greek list, CC BY-SA 4.0 (docs/specs/0130-word-lists.md, Decisions): his file of 2026-10-22 with the Latin lookalike letters in the Greek columns and the Greek ones in the English column fixed, είμαι moved to A1, and 7, 9 and 21 spelled as grammar topic 12 (επτά/εφτά and εννέα/εννιά one word each, merged into A1)"
+  },
+  "Scripts/data/wordlists/ky-ell-a2.csv": {
+    "sha256": "bed81a951a0f2fdc84e6dc071c0ff0b27f9da4326f218f33852178313ee3fdb9",
+    "about": "Kirill Yukhin's Greek list, CC BY-SA 4.0 (docs/specs/0130-word-lists.md, Decisions): his file of 2026-10-22 with the Latin lookalike letters in the Greek columns and the Greek ones in the English column fixed, είμαι moved to A1, and 7, 9 and 21 spelled as grammar topic 12 (επτά/εφτά and εννέα/εννιά one word each, merged into A1)"
+  },
+  "Scripts/data/wordlists/ky-ell-b1.csv": {
+    "sha256": "816a888bc8fb1d16210bf66f5de22bdac35a9027f0ef5f52a8d6e7b96f9829f3",
+    "about": "Kirill Yukhin's Greek list, CC BY-SA 4.0 (docs/specs/0130-word-lists.md, Decisions): his file of 2026-10-22 with the Latin lookalike letters in the Greek columns and the Greek ones in the English column fixed, είμαι moved to A1, and 7, 9 and 21 spelled as grammar topic 12 (επτά/εφτά and εννέα/εννιά one word each, merged into A1)"
+  },
   "freedict/freedict-ell-eng-2025.11.23.src.tar.xz": {
     "url": "https://download.freedict.org/dictionaries/ell-eng/2025.11.23/freedict-ell-eng-2025.11.23.src.tar.xz",
     "sha256": "3a102b1a72b5b7773dcd3669bc14c3e5d0df04616b525dca96c82d0d79ab17ef"

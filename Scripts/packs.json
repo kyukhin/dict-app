@@ -47,7 +47,7 @@
         "example_translation": "sentence_id IN (SELECT id FROM f.example_sentence WHERE lang = :lang)",
         "example_word": "lang = :lang"
       },
-      "data_source": ["wiktionary-ell-forms", "tatoeba"]
+      "data_source": ["wiktionary-ell-forms", "frequencywords-2018", "tatoeba"]
     },
     {
       "id": "eng-lists",
