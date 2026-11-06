@@ -12,6 +12,8 @@ final class SearchHighlightTests: XCTestCase {
         continueAfterFailure = false
         app = XCUIApplication()
         app.launchArguments = ["-resetData", "-disableReviewPrompt"]
+        // Issue #237: every language pack, installed from the committed assets.
+        app.launchArguments += UITestHelpers.packArguments()
         XCUIDevice.shared.orientation = .portrait
         app.launch()
     }

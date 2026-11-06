@@ -21,6 +21,8 @@ final class DictionaryOrderRefreshTests: XCTestCase {
         // bundled fixture to `handleImport` without the document picker.
         app.launchArguments += ["-disableReviewPrompt", "-resetData",
                                 "-clearFixtureImports", "-importFixtureViaCallback:json"]
+        // Issue #237: every language pack, installed from the committed assets.
+        app.launchArguments += UITestHelpers.packArguments()
         // Same os_log quarantine crash as `DictionaryInfoTests` (long texts).
         app.launchEnvironment["OS_ACTIVITY_MODE"] = "disable"
 
@@ -40,7 +42,7 @@ final class DictionaryOrderRefreshTests: XCTestCase {
         addTeardownBlock { [app] in
             guard let app else { return }
             app.terminate()
-            app.launchArguments = ["-disableReviewPrompt", "-resetData", "-clearFixtureImports"]
+            app.launchArguments = ["-disableReviewPrompt", "-resetData", "-clearFixtureImports"] + UITestHelpers.packArguments()
             app.launch()
             _ = app.waitForDictionariesReady()
             app.terminate()

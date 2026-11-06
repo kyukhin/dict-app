@@ -1,8 +1,9 @@
 // DatabaseService.swift
 // The user database with the bundled dictionary file attached (Issue #138):
 // connections, the user schema, FTS5 search, History, My words and imports.
-// Also the move of a 1.x database into the user database (Issue #139), and
-// the reopen of the dictionary file after the system invalidates it (#213).
+// Also the move of a 1.x database into the user database (Issue #139), the
+// reopen of the dictionary file after the system invalidates it (#213), and
+// the language packs attached next to it, read across files (#237).
 
 import Foundation
 import GRDB
@@ -107,7 +108,7 @@ enum Search {
     /// Which form step a sanitized query gets.
     enum FormStep: Equatable {
         /// Every letter Greek: look up `key`, the folded query, in
-        /// `dict.form_lookup`.
+        /// `ell.form_lookup`.
         case greek(key: String)
         /// Every letter a–z, any case (Issue #143): look up `word`,
         /// lowercased (Morphy's step 0), through `Morphy`.
@@ -203,20 +204,97 @@ enum Search {
 }
 
 
+// MARK: - Dictionary files (Issue #237)
+
+/// The file attached under each schema name of `DictionarySchemas.all`: the
+/// bundle as `dict`, and every pack as its installed file or the stub
+/// (0237, "Connection layout"). `prepareDatabase` runs on GRDB's queues, so
+/// it reads this lock-protected snapshot, never the actor. An install or a
+/// removal changes it, then `DatabaseService.attachPacks` re-attaches.
+final class DictionaryFiles: @unchecked Sendable {
+    private let lock = NSLock()
+    private var uris: [String: String]
+    private var installedSchemas: Set<String>
+    private let stubURI: String
+
+    /// `packs`: the installed file of each pack; every other pack gets the
+    /// stub. A file whose header is not `DictionaryFile.formatVersion` gets
+    /// the stub too.
+    init(bundle: URL, packs: [PackID: URL], stub: URL) {
+        stubURI = DatabaseService.dictionaryURI(stub)
+        var uris = [DictionarySchemas.bundle: DatabaseService.dictionaryURI(bundle)]
+        var installed: Set<String> = [DictionarySchemas.bundle]
+        for pack in PackID.all {
+            if let file = packs[pack], DictionaryFile.headerFormat(of: file) == DictionaryFile.formatVersion {
+                uris[pack.schema] = DatabaseService.dictionaryURI(file)
+                installed.insert(pack.schema)
+            } else {
+                uris[pack.schema] = stubURI
+            }
+        }
+        self.uris = uris
+        installedSchemas = installed
+    }
+
+    /// The schemas attached to a file rather than the stub; always `dict`.
+    var installed: Set<String> {
+        lock.lock()
+        defer { lock.unlock() }
+        return installedSchemas
+    }
+
+    /// The `ATTACH` URI of `schema`.
+    func uri(of schema: String) -> String {
+        lock.lock()
+        defer { lock.unlock() }
+        return uris[schema] ?? stubURI
+    }
+
+    /// Points `pack` at `file`, or at the stub for `nil`. Returns whether the
+    /// snapshot changed.
+    @discardableResult
+    func set(_ pack: PackID, file: URL?) -> Bool {
+        let uri = file.map(DatabaseService.dictionaryURI) ?? stubURI
+        lock.lock()
+        defer { lock.unlock() }
+        guard uris[pack.schema] != uri else { return false }
+        uris[pack.schema] = uri
+        if file == nil { installedSchemas.remove(pack.schema) } else { installedSchemas.insert(pack.schema) }
+        return true
+    }
+
+    /// Attaches every schema, the bundle first: on every new connection.
+    func attachAll(_ db: Database) throws {
+        for schema in DictionarySchemas.all {
+            try attach(schema, in: db)
+        }
+    }
+
+    /// Attaches `schema` to its current file.
+    func attach(_ schema: String, in db: Database) throws {
+        try db.execute(sql: "ATTACH DATABASE ? AS \(schema)", arguments: [uri(of: schema)])
+    }
+}
+
 actor DatabaseService {
     static let shared = DatabaseService()
 
     /// The user database, with the dictionary file attached as `dict` on
-    /// every connection (Issue #138).
+    /// every connection (Issue #138), and every language pack under its
+    /// schema name (#237).
     private var dbPool: DatabasePool?
 
     /// The move of a 1.x database, once started (Issue #139). Every method
     /// that touches user data awaits it first; Search does not.
     private var legacyMove: Task<Void, Never>?
 
-    /// The `ATTACH` URI of the dictionary file, as `setup` built it. A
-    /// reopen attaches it again on the writer (Issue #213).
-    private var dictionaryURI = ""
+    /// The file of each schema name, as `setup` and the pack installs set
+    /// it. A reopen attaches them again on the writer (Issues #213, #237).
+    private var files: DictionaryFiles?
+
+    /// Which file holds which dictionary (#237). Read after `setup` and
+    /// after every change of an installed pack.
+    private var schemas = DictionarySchemas.bundleOnly
 
     /// Bumped by every reopen of the dictionary file, never reset (Issue
     /// #213). A call that fails with an I/O error reopens only if no reopen
@@ -248,8 +326,10 @@ actor DatabaseService {
     // dictionary table.
 
     /// Opens the user database at its default path with the bundled
-    /// dictionary file attached, and migrates it. Nothing is copied or
-    /// unpacked, so this takes milliseconds.
+    /// dictionary file attached and every pack name on the stub (#237: the
+    /// launch scan attaches the installed packs next, `PackService.prepare`),
+    /// and migrates it. Nothing is copied or unpacked, so this takes
+    /// milliseconds.
     func setup() async throws {
         guard let dictionaryURL = Self.bundledDictionaryURL() else { throw DBError.dictionaryMissing }
         let userURL = Self.userDatabaseURL()
@@ -261,19 +341,25 @@ actor DatabaseService {
     }
 
     /// Opens the user database at `userPath` with the dictionary file at
-    /// `dictionaryURL` attached as `dict`, and migrates it. Test seam: unit
-    /// tests pass a temp user database and a `TestDictionary` file.
-    func setup(userPath: String, dictionaryURL: URL) async throws {
-        let uri = Self.dictionaryURI(dictionaryURL)
+    /// `dictionaryURL` attached as `dict`, each pack of `packFiles` under its
+    /// schema name and the bundled stub for every other pack (#237), and
+    /// migrates it. Test seam: unit tests pass a temp user database, a
+    /// `TestDictionary` file or the bundled one, and `PackFixtures` files.
+    func setup(userPath: String, dictionaryURL: URL, packFiles: [PackID: URL] = [:]) async throws {
+        guard let stubURL = Self.bundledStubURL() else { throw DBError.dictionaryMissing }
+        let files = DictionaryFiles(bundle: dictionaryURL, packs: packFiles, stub: stubURL)
         var config = Configuration()
         // Wait instead of failing with SQLITE_BUSY if another pool on the same
         // file is mid-write (a test reopening the shared service).
         config.busyMode = .timeout(5)
-        config.prepareDatabase { db in try Self.attachDictionary(db, uri: uri) }
+        config.prepareDatabase { db in try files.attachAll(db) }
         let pool = try DatabasePool(path: userPath, configuration: config)
         try Self.migrator.migrate(pool)
+        let installed = files.installed
+        let schemas = try await pool.read { db in try Self.dictionarySchemas(db, installed: installed) }
         dbPool = pool
-        dictionaryURI = uri
+        self.files = files
+        self.schemas = schemas
         // A move belongs to the pool it writes; a new pool starts without one.
         legacyMove = nil
         wordListsDidChange()
@@ -287,10 +373,43 @@ actor DatabaseService {
             + "?mode=ro&immutable=1"
     }
 
-    /// Attaches the dictionary file as `dict`: on every new connection, and
-    /// on the writer again after a reopen (Issue #213).
-    private static func attachDictionary(_ db: Database, uri: String) throws {
-        try db.execute(sql: "ATTACH DATABASE ? AS dict", arguments: [uri])
+    /// Which file holds which dictionary: the rows of
+    /// `DictionarySchemas.sourcesSQL`.
+    private static func dictionarySchemas(_ db: Database, installed: Set<String>) throws -> DictionarySchemas {
+        let rows = try Row.fetchAll(db, sql: DictionarySchemas.sourcesSQL)
+        return DictionarySchemas(sources: rows.map { (schema: $0["schema"], source: $0["source"]) },
+                                 installed: installed)
+    }
+
+    // MARK: - Language packs (Issue #237)
+
+    /// The pack catalog of the attached bundle (`dict.catalog_*`), read
+    /// through the pool after `setup` (0237, "Launch", step 3): no
+    /// connection is opened on the bundle (#111).
+    func packCatalog() async throws -> PackCatalog {
+        guard let pool = dbPool else { throw DBError.notConnected }
+        return try await read(pool) { db in try PackCatalog.read(db) }
+    }
+    //
+    // 0237, "Connection layout": an install, a removal or an update changes
+    // the snapshot, then re-attaches, as #213's reopen does: idle readers
+    // close now and busy ones when their read ends, so every new reader
+    // attaches the new file in `prepareDatabase`; the writer detaches and
+    // attaches each changed name between two writes. The generation bump
+    // lets a read that fails meanwhile retry once on a new reader.
+
+    /// Points each pack of `changes` at its new file (`nil`: the stub) on
+    /// every connection, then reads which file holds which dictionary again.
+    func attachPacks(_ changes: [PackID: URL?]) async throws {
+        guard let pool = dbPool, let files else { throw DBError.notConnected }
+        let changed = changes.filter { files.set($0.key, file: $0.value) }.map(\.key.schema)
+        guard !changed.isEmpty else { return }
+        reattach(pool, files: files, schemas: DictionarySchemas.all.filter(changed.contains),
+                 generation: reopenGeneration, log: nil)
+        let installed = files.installed
+        schemas = try await read(pool) { db in try Self.dictionarySchemas(db, installed: installed) }
+        // A pack brings or takes its built-in lists (0130).
+        wordListsDidChange()
     }
 
     // MARK: - Invalidated dictionary file (Issue #213)
@@ -360,25 +479,45 @@ actor DatabaseService {
     /// and both steps: a call that sees the new generation reads from new
     /// readers, and an import it retries runs after the re-attach. If the
     /// re-attach fails, the writer stays without `dict` until a restart.
+    /// Since #237 every file is attached again, from the current snapshot:
+    /// the error does not say which file failed.
     private func reopenDictionary(_ pool: DatabasePool, after error: DatabaseError, generation: Int) {
+        guard let files else { return }
+        reattach(pool, files: files, schemas: DictionarySchemas.all, generation: generation,
+                 log: error.extendedResultCode.rawValue)
+    }
+
+    /// The reopen and the pack re-attach (#213, #237): bumps the generation
+    /// unless a call that failed too already did since `generation`, closes
+    /// idle readers, and queues `DETACH` and `ATTACH` of `schemas` on the
+    /// writer. `log`: the SQLite error a reopen logs; a pack change logs
+    /// nothing.
+    private func reattach(_ pool: DatabasePool, files: DictionaryFiles, schemas: [String], generation: Int,
+                          log code: Int32?) {
         guard generation == reopenGeneration else { return }
         reopenGeneration += 1
         let started = Date()
-        let code = error.extendedResultCode.rawValue
-        let uri = dictionaryURI
         pool.invalidateReadOnlyConnections()
         pool.asyncWriteWithoutTransaction { db in
             do {
-                try db.execute(sql: "DETACH DATABASE dict")
-                try Self.attachDictionary(db, uri: uri)
-                let ms = Int(Date().timeIntervalSince(started) * 1000)
-                Self.logger.notice("Reopened the dictionary file after SQLite error \(code) in \(ms) ms")
+                for schema in schemas {
+                    try db.execute(sql: "DETACH DATABASE \(schema)")
+                    try files.attach(schema, in: db)
+                }
+                if let code {
+                    let ms = Int(Date().timeIntervalSince(started) * 1000)
+                    Self.logger.notice("Reopened the dictionary file after SQLite error \(code) in \(ms) ms")
+                }
             } catch {
                 // The result code only: never the SQL or its arguments.
                 let failure = (error as? DatabaseError)?.extendedResultCode.rawValue ?? -1
                 let ms = Int(Date().timeIntervalSince(started) * 1000)
-                Self.logger.error(
-                    "Reopening the dictionary file after SQLite error \(code) failed in \(ms) ms with SQLite error \(failure)")
+                if let code {
+                    Self.logger.error(
+                        "Reopening the dictionary file after SQLite error \(code) failed in \(ms) ms with SQLite error \(failure)")
+                } else {
+                    Self.logger.error("Attaching a language pack failed in \(ms) ms with SQLite error \(failure)")
+                }
             }
         }
     }
@@ -521,38 +660,39 @@ actor DatabaseService {
 
     // MARK: - Search
     //
-    // Issue #138: bundled rows come from the dictionary file (`dict.entries`,
-    // `dict.entries_fts`), imported rows from the user database
-    // (`imported_entries`, `imported_fts`). Each store is one branch matching
-    // its own FTS index; one ORDER BY and one LIMIT rank the union with the
-    // 1.4.0 ranking. The imported branch is added only when an enabled source
-    // is imported, so the bundled-only query keeps the 1.4.0 plan.
+    // Issue #138: bundled rows come from the dictionary files, imported rows
+    // from the user database (`imported_entries`, `imported_fts`). Since #237
+    // (0237, "Reading across files") each file that holds an enabled source
+    // is one branch matching its own FTS index (`nil`: the bundle and every
+    // installed pack), plus the imported branch when an enabled source is
+    // imported. Each branch sorts and keeps its own top `limit`, and one
+    // ORDER BY and one LIMIT rank the union with the 1.4.0 ranking.
+    // `Scripts/make_search_probe.py --packs` runs the same SQL.
 
-    /// Where entries live, as one search branch reads them.
-    private enum Store: CaseIterable {
-        case dictionary, imported
+    /// How the branches and their union are ordered and cut.
+    private struct Ranking {
+        /// The ORDER BY of the union (its column names).
+        let order: String
+        /// The same order inside a branch, on the entry `e`.
+        let branchOrder: String
+        /// The arguments of one ORDER BY; both take the same.
+        let arguments: StatementArguments
+        let limit: Int
 
-        /// The FTS table, its hidden MATCH column, the entries table and the
-        /// `created_at` expression (bundled rows have none).
-        var tables: (fts: String, match: String, entries: String, createdAt: String) {
-            switch self {
-            case .dictionary: return ("dict.entries_fts", "entries_fts", "dict.entries", "NULL")
-            case .imported: return ("imported_fts", "imported_fts", "imported_entries", "e.created_at")
-            }
+        /// The 1.4.0 ranking: an exact `word_normalized` match on the folded
+        /// or raw key (the `is_exact` column, #142), then a prefix match,
+        /// then FTS `rank`.
+        static func relevance(_ fts: (match: String, rankKey: String, rawKey: String), limit: Int) -> Ranking {
+            Ranking(
+                order: "is_exact DESC, (word_normalized LIKE ? COLLATE NOCASE OR word_normalized LIKE ? COLLATE NOCASE) DESC, rank",
+                branchOrder: "is_exact DESC, (e.word_normalized LIKE ? COLLATE NOCASE OR e.word_normalized LIKE ? COLLATE NOCASE) DESC, rank",
+                arguments: [fts.rankKey + "%", fts.rawKey + "%"], limit: limit)
         }
-    }
 
-    /// The 1.4.0 ranking: an exact `word_normalized` match on the folded or
-    /// raw key (the `is_exact` column, #142), then a prefix match, then FTS
-    /// `rank`. Takes `relevanceArguments(_:)`.
-    private static let relevanceOrder = """
-        is_exact DESC,
-            (word_normalized LIKE ? COLLATE NOCASE OR word_normalized LIKE ? COLLATE NOCASE) DESC,
-            rank
-        """
-
-    private static func relevanceArguments(_ fts: (match: String, rankKey: String, rawKey: String)) -> StatementArguments {
-        [fts.rankKey + "%", fts.rawKey + "%"]
+        /// FTS `rank` alone: the preferred mode's tail.
+        static func rank(limit: Int) -> Ranking {
+            Ranking(order: "rank", branchOrder: "rank", arguments: [], limit: limit)
+        }
     }
 
     /// The sources of the imported dictionaries.
@@ -560,25 +700,41 @@ actor DatabaseService {
         Set(try String.fetchAll(db, sql: "SELECT source FROM imported_sources"))
     }
 
-    /// The `UNION ALL` of the search branches, one per store, each with the
-    /// entry columns plus `rank`: rows matching `match` and `filter` (SQL on
-    /// the entry `e`, with its arguments). `sources`: the sources to keep
-    /// (`nil`: every source). `ids`: rows to leave out. `withImports` adds
-    /// the imported branch.
+    /// The `UNION ALL` of the search branches, one per file of
+    /// `schemas.files(holding: sources)` plus the imported branch when
+    /// `withImports`, each with the entry columns, `rank` and `is_exact`
+    /// (whether `word_normalized` is one of `exactKeys`; 0 without them):
+    /// rows matching `match` and `filter` (SQL on the entry `e`, with its
+    /// arguments). `sources`: the sources to keep (`nil`: every source).
+    /// `ids`: rows to leave out. `ranking`: each branch keeps its own top
+    /// `ranking.limit`. Empty when no file and no import holds a source.
     private static func searchBranches(
-        match: String, filter: (sql: String, arguments: StatementArguments)? = nil,
-        sources: [String]?, excluding ids: [Int64] = [], withImports: Bool
+        _ schemas: DictionarySchemas, match: String, exactKeys: (String, String)? = nil,
+        filter: (sql: String, arguments: StatementArguments)? = nil,
+        sources: [String]?, excluding ids: [Int64] = [], withImports: Bool, ranking: Ranking? = nil
     ) -> (sql: String, arguments: StatementArguments) {
+        var stores = schemas.files(holding: sources).map { schema in
+            (fts: "\(schema).entries_fts", match: "entries_fts", entries: "\(schema).entries", createdAt: "NULL")
+        }
+        if withImports {
+            stores.append((fts: "imported_fts", match: "imported_fts", entries: "imported_entries",
+                           createdAt: "e.created_at"))
+        }
         var branches: [String] = []
         var arguments = StatementArguments()
-        for store in withImports ? Store.allCases : [.dictionary] {
-            let t = store.tables
+        for t in stores {
+            let exact = exactKeys == nil
+                ? "0"
+                : "(e.word_normalized = ? COLLATE NOCASE OR e.word_normalized = ? COLLATE NOCASE)"
             var branch = """
                 SELECT e.id, e.word, e.word_normalized, e.definition, e.phonetic, e.pos, e.source,
-                       \(t.createdAt) AS created_at, fts.rank AS rank
+                       \(t.createdAt) AS created_at, fts.rank AS rank, \(exact) AS is_exact
                 FROM \(t.fts) fts JOIN \(t.entries) e ON e.id = fts.rowid
                 WHERE \(t.match) MATCH ?
                 """
+            if let exactKeys {
+                arguments += [exactKeys.0, exactKeys.1]
+            }
             arguments += [match]
             if let filter {
                 branch += " AND " + filter.sql
@@ -592,33 +748,86 @@ actor DatabaseService {
                 branch += " AND e.id NOT IN (\(ids.map { _ in "?" }.joined(separator: ", ")))"
                 arguments += StatementArguments(ids)
             }
+            if let ranking, branchLimitEnabled {
+                branch = "SELECT * FROM (\n\(branch)\nORDER BY \(ranking.branchOrder)\nLIMIT ?\n)"
+                arguments += ranking.arguments
+                arguments += [ranking.limit]
+            }
             branches.append(branch)
         }
         return (branches.joined(separator: "\nUNION ALL\n"), arguments)
     }
 
-    /// Rows matching the query, ranked by `order` and cut to `limit`, each
-    /// with `is_exact`: whether its `word_normalized` is the folded or the
-    /// raw key (#142). `order` names columns of the union and `is_exact`.
-    private static func rankedEntries(
-        _ db: Database, fts: (match: String, rankKey: String, rawKey: String), sources: [String]?,
-        excluding ids: [Int64] = [], withImports: Bool, order: String, orderArguments: StatementArguments,
-        limit: Int
-    ) throws -> [Search.RankedEntry] {
-        let union = searchBranches(match: fts.match, sources: sources, excluding: ids, withImports: withImports)
-        var arguments: StatementArguments = [fts.rankKey, fts.rawKey]
-        arguments += union.arguments
-        arguments += orderArguments
-        arguments += [limit]
-        return try Row.fetchAll(db, sql: """
-            SELECT *, (word_normalized = ? COLLATE NOCASE OR word_normalized = ? COLLATE NOCASE) AS is_exact FROM (
+    #if DEBUG
+    /// Unit-test seam (#241): turns the per-branch `ORDER BY … LIMIT` off, so
+    /// a test compares the lists with and without it. The app never sets it.
+    static var branchLimitEnabled = true
+    #else
+    private static let branchLimitEnabled = true
+    #endif
+
+    /// The ranked query of `rankedEntries`: its SQL and arguments, or nil
+    /// when no file and no import holds one of `sources`.
+    private static func rankedQuery(
+        schemas: DictionarySchemas, fts: (match: String, rankKey: String, rawKey: String),
+        sources: [String]?, excluding ids: [Int64] = [], withImports: Bool, ranking: Ranking
+    ) -> (sql: String, arguments: StatementArguments)? {
+        let union = searchBranches(schemas, match: fts.match, exactKeys: (fts.rankKey, fts.rawKey),
+                                   sources: sources, excluding: ids, withImports: withImports, ranking: ranking)
+        guard !union.sql.isEmpty else { return nil }
+        var arguments = union.arguments
+        arguments += ranking.arguments
+        arguments += [ranking.limit]
+        return ("""
+            SELECT * FROM (
             \(union.sql)
             )
-            ORDER BY \(order)
+            ORDER BY \(ranking.order)
             LIMIT ?
-            """, arguments: arguments)
+            """, arguments)
+    }
+
+    /// Rows matching the query, ranked by `ranking` and cut to its limit,
+    /// each with `is_exact`: whether its `word_normalized` is the folded or
+    /// the raw key (#142).
+    private static func rankedEntries(
+        _ db: Database, schemas: DictionarySchemas, fts: (match: String, rankKey: String, rawKey: String),
+        sources: [String]?, excluding ids: [Int64] = [], withImports: Bool, ranking: Ranking
+    ) throws -> [Search.RankedEntry] {
+        guard let query = rankedQuery(schemas: schemas, fts: fts, sources: sources, excluding: ids,
+                                      withImports: withImports, ranking: ranking) else { return [] }
+        return try Row.fetchAll(db, sql: query.sql, arguments: query.arguments)
             .map { row in Search.RankedEntry(entry: try DictionaryEntry(row: row), isExact: row["is_exact"]) }
     }
+
+    #if DEBUG
+    /// Unit-test seam (#241, 0237 "Reading across files"): the files the
+    /// ranked query of `search(query:enabledSources:)` reads, from its
+    /// bytecode (`EXPLAIN`: the schema of every `OpenRead`), and its
+    /// `EXPLAIN QUERY PLAN` lines. `main` is the imported branch. The app
+    /// never calls it.
+    func searchFilesForTesting(query: String, enabledSources: Set<String>? = nil,
+                               limit: Int = 50) async throws -> (files: Set<String>, plan: [String]) {
+        guard let pool = dbPool else { throw DBError.notConnected }
+        let fts = Search.ftsQuery(sanitized: sanitizeFTS(query))
+        let schemas = schemas
+        return try await read(pool) { db in
+            let imported = try Self.importedSources(db)
+            let withImports = enabledSources.map { !imported.isDisjoint(with: $0) } ?? !imported.isEmpty
+            guard let query = Self.rankedQuery(schemas: schemas, fts: fts, sources: enabledSources.map { Array($0) },
+                                               withImports: withImports, ranking: .relevance(fts, limit: limit))
+            else { return ([], []) }
+            let names = Dictionary(uniqueKeysWithValues: try Row.fetchAll(db, sql: "PRAGMA database_list")
+                .map { ($0["seq"] as Int, $0["name"] as String) })
+            let files = try Row.fetchAll(db, sql: "EXPLAIN " + query.sql, arguments: query.arguments)
+                .filter { ($0["opcode"] as String) == "OpenRead" }
+                .compactMap { names[$0["p3"] as Int] }
+            let plan = try Row.fetchAll(db, sql: "EXPLAIN QUERY PLAN " + query.sql, arguments: query.arguments)
+                .map { $0["detail"] as String }
+            return (Set(files), plan)
+        }
+    }
+    #endif
 
     /// Prefix search using FTS5 with relevance ranking:
     ///   Priority 1: exact match (word == query)
@@ -643,15 +852,17 @@ actor DatabaseService {
         // Issue #87: Greek queries also match their folded form.
         let fts = Search.ftsQuery(sanitized: sanitized)
         let formStep = Self.formStep(for: sanitized)
+        let schemas = schemas
         return try await read(pool) { db in
             let imported = try Self.importedSources(db)
             let sources = enabledSources.map { Array($0) }
             let withImports = enabledSources.map { !imported.isDisjoint(with: $0) } ?? !imported.isEmpty
             let ranked = try Self.rankedEntries(
-                db, fts: fts, sources: sources, withImports: withImports,
-                order: Self.relevanceOrder, orderArguments: Self.relevanceArguments(fts), limit: limit
+                db, schemas: schemas, fts: fts, sources: sources, withImports: withImports,
+                ranking: .relevance(fts, limit: limit)
             )
-            let lemmaRows = try Self.lemmaRows(db, step: formStep, sources: sources, withImports: withImports)
+            let lemmaRows = try Self.lemmaRows(db, schemas: schemas, step: formStep, sources: sources,
+                                               withImports: withImports)
             return Search.mergeLemmaBucket(ranked: ranked, lemmaRows: lemmaRows, limit: limit)
         }
     }
@@ -704,10 +915,11 @@ actor DatabaseService {
         // Issue #87: Greek queries also match their folded form.
         let fts = Search.ftsQuery(sanitized: sanitized)
         let formStep = Self.formStep(for: sanitized)
+        let schemas = schemas
 
         return try await read(pool) { db in
             let imported = try Self.importedSources(db)
-            let lemmaRows = try Self.lemmaRows(db, step: formStep, sources: Array(enabledSources),
+            let lemmaRows = try Self.lemmaRows(db, schemas: schemas, step: formStep, sources: Array(enabledSources),
                                                withImports: !imported.isDisjoint(with: enabledSources))
             var buckets: [String: [SearchResult]] = [:]
             var bucketOrder: [String] = []
@@ -717,8 +929,8 @@ actor DatabaseService {
                 // Index, not joined IDs: a custom ID may contain any separator.
                 let key = String(index)
                 let ranked = try Self.rankedEntries(
-                    db, fts: fts, sources: members, withImports: !imported.isDisjoint(with: members),
-                    order: Self.relevanceOrder, orderArguments: Self.relevanceArguments(fts), limit: topN
+                    db, schemas: schemas, fts: fts, sources: members, withImports: !imported.isDisjoint(with: members),
+                    ranking: .relevance(fts, limit: topN)
                 )
                 let rows = Search.mergeLemmaBucket(
                     ranked: ranked, lemmaRows: lemmaRows.filter { members.contains($0.entry.source) }, limit: topN
@@ -734,9 +946,9 @@ actor DatabaseService {
             let remaining = limit - takenIds.count
             if remaining > 0 {
                 let ranked = try Self.rankedEntries(
-                    db, fts: fts, sources: Array(enabledSources), excluding: takenIds,
+                    db, schemas: schemas, fts: fts, sources: Array(enabledSources), excluding: takenIds,
                     withImports: !imported.isDisjoint(with: enabledSources),
-                    order: "rank", orderArguments: [], limit: remaining
+                    ranking: .rank(limit: remaining)
                 )
                 let grouped = Set(enabledGroups.joined())
                 tail = Search.mergeLemmaBucket(
@@ -751,9 +963,10 @@ actor DatabaseService {
     // MARK: - Search by any form (Issue #142)
     //
     // 0136-word-forms.md, "Search path". Inside the search's read: the
-    // query's lemmas from the forms tables (`dict.form_lookup`, through its
-    // primary-key prefix), then their headword rows in the enabled
-    // dictionaries. The merge is the pure `Search.mergeLemmaBucket`.
+    // query's lemmas from the forms tables (`ell.form_lookup`, through its
+    // primary-key prefix; the Greek pack since #237, the stub's empty table
+    // without it), then their headword rows in the enabled dictionaries. The
+    // merge is the pure `Search.mergeLemmaBucket`.
 
     #if DEBUG
     /// Unit-test seam: turns the form step off, so a test compares search
@@ -767,9 +980,9 @@ actor DatabaseService {
     /// table (6× slower in the prototype); a unit test checks the plan.
     static let greekLemmaCandidatesSQL = """
         SELECT l.word, l.word_normalized, t.tags
-        FROM dict.form_lookup f
-        JOIN dict.lemma l ON l.id = f.lemma_id
-        JOIN dict.tagset t ON t.id = f.tagset_id
+        FROM ell.form_lookup f
+        JOIN ell.lemma l ON l.id = f.lemma_id
+        JOIN ell.tagset t ON t.id = f.tagset_id
         WHERE f.form_norm = ? AND l.word_normalized <> ?
         ORDER BY CASE l.pos WHEN 'verb' THEN 0 WHEN 'noun' THEN 1 WHEN 'adj' THEN 2 ELSE 3 END,
                  l.word, l.pos
@@ -814,8 +1027,8 @@ actor DatabaseService {
     /// `word_normalized` column, which uses the index, plus the exact key.
     /// Bundled Greek rows store the folded key and imported rows the word as
     /// it is, so each lemma matches both.
-    private static func lemmaRows(_ db: Database, step: Search.FormStep?, sources: [String]?,
-                                  withImports: Bool) throws -> [SearchResult] {
+    private static func lemmaRows(_ db: Database, schemas: DictionarySchemas, step: Search.FormStep?,
+                                  sources: [String]?, withImports: Bool) throws -> [SearchResult] {
         guard let step else { return [] }
         var sources = sources
         if case .english = step {
@@ -830,11 +1043,12 @@ actor DatabaseService {
         let keys = keysPerCandidate.flatMap { $0 }
         let match = "word_normalized : (" + keys.map(Search.ftsString).joined(separator: " OR ") + ")"
         let union = searchBranches(
-            match: match,
+            schemas, match: match,
             filter: ("e.word_normalized COLLATE NOCASE IN (\(keys.map { _ in "?" }.joined(separator: ", ")))",
                      StatementArguments(keys)),
             sources: sources, withImports: withImports
         )
+        guard !union.sql.isEmpty else { return [] }
         var whens: [String] = []
         var arguments = StatementArguments()
         for (index, candidateKeys) in keysPerCandidate.enumerated() {
@@ -881,15 +1095,13 @@ actor DatabaseService {
     }
 
     /// The dictionaries whose headwords are English (Kirill, 2026-11-02):
-    /// bundled ones by `dict_metadata.from_lang`, imports by
-    /// `imported_sources.from_lang` once an import records its language
-    /// (#208). Until then an import counts only under a bundled English
-    /// source ID, whose `dict_metadata` row it shares.
-    static let englishHeadwordSourcesSQL = """
-        SELECT source FROM dict.dict_metadata WHERE from_lang = 'eng'
-        UNION
-        SELECT source FROM imported_sources WHERE from_lang = 'eng'
-        """
+    /// those of the bundle and the installed packs by `dict_metadata.
+    /// from_lang` (#237), imports by `imported_sources.from_lang` once an
+    /// import records its language (#208). Until then an import counts only
+    /// under a bundled English source ID, whose `dict_metadata` row it shares.
+    static let englishHeadwordSourcesSQL = DictionarySchemas.union(
+        "dict_metadata", columns: "source", where: "from_lang = 'eng'")
+        + " UNION SELECT source FROM imported_sources WHERE from_lang = 'eng'"
 
     private static func englishHeadwordSources(_ db: Database) throws -> Set<String> {
         Set(try String.fetchAll(db, sql: englishHeadwordSourcesSQL))
@@ -918,21 +1130,26 @@ actor DatabaseService {
 
     // MARK: - Entries by key (Issue #138)
 
-    /// The entry `key` names: the dictionary file first, then the imported
-    /// dictionaries; `nil` when neither has it. A disabled source resolves
-    /// too: the enabled set only filters Search.
+    /// The entry `key` names: the dictionary file of its source first (the
+    /// bundle or its pack, #237), then the imported dictionaries; `nil` when
+    /// neither has it, also while the source's pack is not installed. A
+    /// disabled source resolves too: the enabled set only filters Search.
     func entry(for key: EntryKey) async throws -> DictionaryEntry? {
         let pool = try await userPool()
-        return try await read(pool) { db in try Self.entry(for: key, in: db) }
+        let schemas = schemas
+        return try await read(pool) { db in try Self.entry(for: key, in: db, schemas: schemas) }
     }
 
-    private static func entry(for key: EntryKey, in db: Database) throws -> DictionaryEntry? {
+    private static func entry(for key: EntryKey, in db: Database, schemas: DictionarySchemas) throws -> DictionaryEntry? {
         let arguments: StatementArguments = [key.word, key.source]
-        return try DictionaryEntry.fetchOne(db, sql: """
+        if let schema = schemas.schema(ofSource: key.source),
+           let entry = try DictionaryEntry.fetchOne(db, sql: """
                 SELECT id, word, definition, phonetic, pos, source, NULL AS created_at
-                FROM dict.entries WHERE word = ? COLLATE NOCASE AND source = ?
-                """, arguments: arguments)
-            ?? DictionaryEntry.fetchOne(db, sql: """
+                FROM \(schema).entries WHERE word = ? COLLATE NOCASE AND source = ?
+                """, arguments: arguments) {
+            return entry
+        }
+        return try DictionaryEntry.fetchOne(db, sql: """
                 SELECT id, word, definition, phonetic, pos, source, created_at
                 FROM imported_entries WHERE word = ? COLLATE NOCASE AND source = ?
                 """, arguments: arguments)
@@ -940,18 +1157,19 @@ actor DatabaseService {
 
     // MARK: - Inflection tables (Issue #144)
     //
-    // The Greek forms tables of the dictionary file (#141). Each read goes
-    // through an index or a primary-key prefix: `lemma.word_normalized`,
-    // `paradigm (lemma_id, ord)`, `form_lookup (form_norm, lemma_id)`.
+    // The Greek forms tables (#141), in the Greek pack since #237: without
+    // it the stub's empty tables give no table. Each read goes through an
+    // index or a primary-key prefix: `lemma.word_normalized`, `paradigm
+    // (lemma_id, ord)`, `form_lookup (form_norm, lemma_id)`.
 
     /// The lemmas whose folded word is the key.
     static let lemmaCandidatesSQL = """
-        SELECT id, word, pos FROM dict.lemma WHERE word_normalized = ? AND lang = 'ell'
+        SELECT id, word, pos FROM ell.lemma WHERE word_normalized = ? AND lang = 'ell'
         """
 
     /// A lemma's cells in table order.
     static let paradigmSQL = """
-        SELECT p.form, t.tags FROM dict.paradigm p JOIN dict.tagset t ON t.id = p.tagset_id
+        SELECT p.form, t.tags FROM ell.paradigm p JOIN ell.tagset t ON t.id = p.tagset_id
         WHERE p.lemma_id = ? ORDER BY p.ord
         """
 
@@ -965,11 +1183,11 @@ actor DatabaseService {
     static let linkedLemmasSQL = """
         SELECT id, word, pos, holds_headword FROM (
             SELECT l.id, l.word, l.pos,
-                   EXISTS (SELECT 1 FROM dict.paradigm h WHERE h.lemma_id = l.id AND h.form = ?) AS holds_headword,
-                   EXISTS (SELECT 1 FROM dict.form_link k WHERE k.form = ? AND k.lemma_id = l.id) AS spells_link
-            FROM dict.form_lookup f JOIN dict.lemma l ON l.id = f.lemma_id
+                   EXISTS (SELECT 1 FROM ell.paradigm h WHERE h.lemma_id = l.id AND h.form = ?) AS holds_headword,
+                   EXISTS (SELECT 1 FROM ell.form_link k WHERE k.form = ? AND k.lemma_id = l.id) AS spells_link
+            FROM ell.form_lookup f JOIN ell.lemma l ON l.id = f.lemma_id
             WHERE f.form_norm = ? AND f.lemma_id <> ? AND l.pos = ?
-              AND EXISTS (SELECT 1 FROM dict.paradigm p WHERE p.lemma_id = l.id)
+              AND EXISTS (SELECT 1 FROM ell.paradigm p WHERE p.lemma_id = l.id)
         )
         WHERE holds_headword OR spells_link
         ORDER BY word
@@ -1112,10 +1330,11 @@ actor DatabaseService {
     /// resolves stays stored and is skipped here.
     func fetchMyWords() async throws -> [DictionaryEntry] {
         let pool = try await userPool()
+        let schemas = schemas
         return try await read(pool) { db in
             try Row.fetchAll(db, sql: "SELECT source, word FROM my_words ORDER BY added_at DESC")
                 .compactMap { row in
-                    try Self.entry(for: EntryKey(source: row["source"], word: row["word"]), in: db)
+                    try Self.entry(for: EntryKey(source: row["source"], word: row["word"]), in: db, schemas: schemas)
                 }
         }
     }
@@ -1130,11 +1349,12 @@ actor DatabaseService {
     // MARK: - Word lists (0130, #151)
     //
     // 0130-word-lists.md, "Swift". Built-in lists are the `wordlist` tables
-    // of the attached dictionary files: each language's pack fills its own
-    // (0237), and a file without the tables has no lists. Imported lists are
-    // `user_list` and `user_list_item`; My words is `my_words`. The order of
-    // new words and the linking rules are the pure `LearningOrder` and
-    // `ListLinking`.
+    // of the dictionary files, read through `DictionarySchemas` (0237, "For
+    // E3 and E4"): each language's pack fills its own, every other file has
+    // them empty, and a pack that is not installed reads as the stub's empty
+    // tables. Imported lists are `user_list` and `user_list_item`; My words
+    // is `my_words`. The order of new words and the linking rules are the
+    // pure `LearningOrder` and `ListLinking`.
 
     /// The `user_meta` key of the install's shuffle seed: a random `UInt64`,
     /// written on first use and kept by `-resetData`.
@@ -1171,19 +1391,17 @@ actor DatabaseService {
         """
     }
 
-    /// Every list: the built-in lists of the attached files by language and
-    /// level, My words (its count counts keys), then the imported lists,
-    /// newest first. The view models keep the learned languages' lists.
+    /// Every list: the built-in lists of the installed packs (every file's
+    /// `wordlist`) by language and level, My words (its count counts keys),
+    /// then the imported lists, newest first. The view models keep the
+    /// learned languages' lists.
     func wordLists() async throws -> [WordList] {
         let pool = try await userPool()
         return try await read(pool) { db in
-            var builtIn: [(list: WordList, level: Int)] = []
-            for schema in try Self.wordListSchemas(db) {
-                builtIn += try Row.fetchAll(db, sql: "SELECT id, lang, level, level_ord, word_count FROM \(schema).wordlist")
-                    .map { row in
-                        (WordList(id: WordListID(rawValue: row["id"]), kind: .builtIn, lang: row["lang"],
-                                  level: row["level"], title: "", count: row["word_count"]), row["level_ord"])
-                    }
+            var builtIn = try Row.fetchAll(db, sql: Self.builtInListsSQL).map { row in
+                (list: WordList(id: WordListID(rawValue: row["id"]), kind: .builtIn, lang: row["lang"],
+                                level: row["level"], title: "", count: row["word_count"]),
+                 level: row["level_ord"] as Int)
             }
             builtIn.sort { ($0.list.lang, $0.level, $0.list.id.rawValue) < ($1.list.lang, $1.level, $1.list.id.rawValue) }
             let myWords = WordList(id: .myWords, kind: .myWords, lang: WordList.myWordsLanguage, level: "", title: "",
@@ -1250,12 +1468,15 @@ actor DatabaseService {
     func entry(for item: WordListItem, sourceOrder: [String]) async throws -> DictionaryEntry? {
         guard let headword = item.headword else { return nil }
         let pool = try await userPool()
+        let schemas = schemas
         return try await read(pool) { db in
             let languages = try Self.sourceLanguages(db)
             let given = Set(sourceOrder)
             let sources = sourceOrder + languages.keys.filter { !given.contains($0) }.sorted()
             for source in sources where (languages[source] ?? "und") == item.key.lang {
-                if let entry = try Self.entry(for: EntryKey(source: source, word: headword), in: db) { return entry }
+                if let entry = try Self.entry(for: EntryKey(source: source, word: headword), in: db, schemas: schemas) {
+                    return entry
+                }
             }
             return nil
         }
@@ -1266,8 +1487,9 @@ actor DatabaseService {
     /// word. One read, for #155's import.
     func links(for terms: [String], lang: String) async throws -> [ListLinking.Link?] {
         let pool = try await userPool()
+        let schemas = schemas
         return try await read(pool) { db in
-            let lookup = try Self.linkLookup(lang: lang, in: db)
+            let lookup = try Self.linkLookup(lang: lang, schemas: schemas, in: db)
             return try terms.map { try ListLinking.link($0, lang: lang, lookup: lookup) }
         }
     }
@@ -1310,38 +1532,23 @@ actor DatabaseService {
         }
     }
 
-    /// The attached dictionary files' schema names, quoted: `dict`, and each
-    /// language pack's under 0237. Not the user database's own, nor a 1.x
-    /// file attached for its move.
-    private static func dictionarySchemas(_ db: Database) throws -> [String] {
-        try Row.fetchAll(db, sql: "PRAGMA database_list")
-            .map { $0["name"] as String }
-            .filter { !["main", "temp", "legacy"].contains($0) }
-            .map(\.quotedDatabaseIdentifier)
-    }
+    /// The built-in lists of every file: a pack that is not installed reads
+    /// as empty (0237, "For E3 and E4").
+    private static let builtInListsSQL = DictionarySchemas.union(
+        "wordlist", columns: "id, lang, level, level_ord, word_count")
 
-    /// The attached files that have the word list tables.
-    private static func wordListSchemas(_ db: Database) throws -> [String] {
-        try dictionarySchemas(db).filter { schema in
-            try Bool.fetchOne(db, sql: """
-                SELECT EXISTS (SELECT 1 FROM \(schema).sqlite_master WHERE type = 'table' AND name = 'wordlist')
-                """) ?? false
-        }
-    }
-
-    /// Each source's headword language: a dictionary file's
-    /// `dict_metadata.from_lang`, else an import's `imported_sources.from_lang`
-    /// once imports record it (#208). An import under a dictionary's ID has
-    /// that dictionary's language.
+    /// Each source's headword language: the bundle's and the catalog's
+    /// dictionaries (`DictionarySchemas.sourceLanguageSQL`, so a source whose
+    /// pack is not installed keeps its language), else an import's
+    /// `imported_sources.from_lang` once imports record it (#208). An import
+    /// under a dictionary's ID has that dictionary's language.
     private static func sourceLanguages(_ db: Database) throws -> [String: String] {
         var languages: [String: String] = [:]
         for row in try Row.fetchAll(db, sql: "SELECT source, from_lang FROM imported_sources WHERE from_lang IS NOT NULL") {
             languages[row["source"] as String] = row["from_lang"] as String
         }
-        for schema in try dictionarySchemas(db) {
-            for row in try Row.fetchAll(db, sql: "SELECT source, from_lang FROM \(schema).dict_metadata") {
-                languages[row["source"] as String] = row["from_lang"] as String
-            }
+        for row in try Row.fetchAll(db, sql: "SELECT source, from_lang FROM (\(DictionarySchemas.sourceLanguageSQL))") {
+            languages[row["source"] as String] = row["from_lang"] as String
         }
         return languages
     }
@@ -1370,7 +1577,7 @@ actor DatabaseService {
                 SELECT \(listItemColumns) FROM user_list_item WHERE list_id = ? ORDER BY \(order)
                 """, arguments: [id.rawValue]).map { listItem($0, list: id, lang: lang) }
         case .builtIn:
-            for schema in try wordListSchemas(db) {
+            for schema in DictionarySchemas.all {
                 guard let list = try Row.fetchOne(db, sql: "SELECT lang, series, level_ord FROM \(schema).wordlist WHERE id = ?",
                                                   arguments: [id.rawValue]) else { continue }
                 let lang: String = list["lang"]
@@ -1406,12 +1613,10 @@ actor DatabaseService {
     /// My words and ids of lists that no longer exist drop out.
     private static func listsInScreenOrder(_ ids: Set<WordListID>, lang: String, in db: Database) throws -> [WordListID] {
         var builtIn: [(id: WordListID, level: Int)] = []
-        for schema in try wordListSchemas(db) {
-            for row in try Row.fetchAll(db, sql: "SELECT id, level_ord FROM \(schema).wordlist WHERE lang = ?",
-                                        arguments: [lang]) {
-                let id = WordListID(rawValue: row["id"])
-                if ids.contains(id) { builtIn.append((id, row["level_ord"])) }
-            }
+        for row in try Row.fetchAll(db, sql: DictionarySchemas.union("wordlist", columns: "id, level_ord", where: "lang = ?1"),
+                                    arguments: [lang]) {
+            let id = WordListID(rawValue: row["id"])
+            if ids.contains(id) { builtIn.append((id, row["level_ord"])) }
         }
         let imported = try String.fetchAll(db, sql: "SELECT id FROM user_list WHERE lang = ? ORDER BY created_at DESC, id",
                                            arguments: [lang])
@@ -1421,15 +1626,16 @@ actor DatabaseService {
     }
 
     /// The dictionary reads `ListLinking` needs for a list in `lang`, over
-    /// every dictionary with headwords in that language: the attached
-    /// files' and the imported ones.
-    private static func linkLookup(lang: String, in db: Database) throws -> ListLinking.Lookup {
+    /// every dictionary with headwords in that language: the files that hold
+    /// them (`schemas`) and the imported ones. Greek forms come from the
+    /// Greek pack, English exceptions from the bundle (0237).
+    private static func linkLookup(lang: String, schemas: DictionarySchemas, in db: Database) throws -> ListLinking.Lookup {
         let sources = try sourceLanguages(db).filter { $0.value == lang }.map(\.key).sorted()
-        let schemas = try dictionarySchemas(db)
+        let files = schemas.files(holding: sources)
         let inSources = "source IN (" + sources.map { _ in "?" }.joined(separator: ", ") + ")"
         // Each store's entries and its FTS index, whose hidden column is
         // named after the table.
-        let stores = schemas.map { (fts: "\($0).entries_fts", match: "entries_fts", entries: "\($0).entries") }
+        let stores = files.map { (fts: "\($0).entries_fts", match: "entries_fts", entries: "\($0).entries") }
             + [(fts: "imported_fts", match: "imported_fts", entries: "imported_entries")]
         return ListLinking.Lookup(
             headwords: { spelling in
@@ -1459,18 +1665,13 @@ actor DatabaseService {
                 switch lang {
                 case "ell":
                     let form = spelling.precomposedStringWithCanonicalMapping
-                    return try schemas.flatMap { schema in
-                        try String.fetchAll(db, sql: greekFormLemmasSQL(schema: schema),
-                                            arguments: [Search.foldGreek(form), form])
-                    }
+                    return try String.fetchAll(db, sql: greekFormLemmasSQL(schema: PackID.ell.schema),
+                                               arguments: [Search.foldGreek(form), form])
                 case "eng":
-                    let exceptions = try schemas.flatMap { schema in
-                        try Row.fetchAll(db, sql: "SELECT pos, base FROM \(schema).morphy_exception WHERE form = ?",
-                                         arguments: [spelling.lowercased()])
-                            .compactMap { row in
-                                Morphy.PartOfSpeech(rawValue: row["pos"]).map { Morphy.Exception(pos: $0, base: row["base"]) }
-                            }
-                    }
+                    let exceptions = try Row.fetchAll(db, sql: morphyExceptionSQL, arguments: [spelling.lowercased()])
+                        .compactMap { row in
+                            Morphy.PartOfSpeech(rawValue: row["pos"]).map { Morphy.Exception(pos: $0, base: row["base"]) }
+                        }
                     // Morphy's order: verb, noun, adjective, adverb.
                     return Morphy.PartOfSpeech.allCases.flatMap { pos in
                         exceptions.filter { $0.pos == pos }.map(\.base).sorted()
@@ -1483,14 +1684,22 @@ actor DatabaseService {
 
     // MARK: - Metadata & Statistics
 
-    /// Metadata of every bundled dictionary, in dictionary file order.
+    /// The `dict_metadata` rows of the bundle and every installed pack, in
+    /// file order (`DictionarySchemas.all`), each file in its own order
+    /// (#237). A pack that is not installed reads as empty.
+    static let metadataSQL: String = {
+        DictionarySchemas.all.enumerated().map { index, schema in
+            "SELECT source, display_name, version, license, url, word_count, description, from_lang, to_lang, "
+                + "\(index) AS file_order, rowid AS row_order FROM \(schema).dict_metadata"
+        }.joined(separator: " UNION ALL ")
+    }()
+
+    /// Metadata of every installed dictionary: the bundle's, then each
+    /// installed pack's.
     func fetchMetadata() async throws -> [DictMetadata] {
         guard let pool = dbPool else { throw DBError.notConnected }
         return try await read(pool) { db in
-            try DictMetadata.fetchAll(db, sql: """
-                SELECT source, display_name, version, license, url, word_count, description
-                FROM dict.dict_metadata ORDER BY rowid
-                """)
+            try DictMetadata.fetchAll(db, sql: "SELECT * FROM (\(Self.metadataSQL)) ORDER BY file_order, row_order")
         }
     }
 
@@ -1499,8 +1708,7 @@ actor DatabaseService {
         guard let pool = dbPool else { throw DBError.notConnected }
         return try await read(pool) { db in
             try DictMetadata.fetchOne(db, sql: """
-                SELECT source, display_name, version, license, url, word_count, description
-                FROM dict.dict_metadata WHERE source = ?
+                SELECT * FROM (\(Self.metadataSQL)) WHERE source = ? ORDER BY file_order, row_order LIMIT 1
                 """, arguments: [source])
         }
     }
@@ -1513,16 +1721,18 @@ actor DatabaseService {
     func fetchSourceStats() async throws -> [SourceStat] {
         let pool = try await userPool()
         return try await read(pool) { db in
+            // #237: the metadata of the bundle and every installed pack.
             let sql = """
-                WITH i AS MATERIALIZED (SELECT source, COUNT(*) AS cnt FROM imported_entries GROUP BY source)
+                WITH i AS MATERIALIZED (SELECT source, COUNT(*) AS cnt FROM imported_entries GROUP BY source),
+                     m AS MATERIALIZED (\(Self.metadataSQL))
                 SELECT m.source AS source, m.display_name AS display_name, m.license AS license,
                        m.version AS version, m.word_count + COALESCE(i.cnt, 0) AS cnt
-                FROM dict.dict_metadata m
+                FROM m
                 LEFT JOIN i ON i.source = m.source
                 UNION ALL
                 SELECT i.source, i.source, '', '', i.cnt
                 FROM i
-                WHERE i.source NOT IN (SELECT source FROM dict.dict_metadata)
+                WHERE i.source NOT IN (SELECT source FROM m)
                 ORDER BY cnt DESC
                 """
             let rows = try Row.fetchAll(db, sql: sql)
@@ -1543,7 +1753,9 @@ actor DatabaseService {
     // Issue #138: imports go into `imported_entries` (the `imported_ai`
     // trigger indexes them) and `imported_sources`. A row whose key the
     // dictionary file already has is skipped, as `INSERT OR IGNORE` did in
-    // 1.4.0 for a file named like a bundled source.
+    // 1.4.0 for a file named like a bundled source. Since #237 that is the
+    // file of the import's source; for a pack that is not installed nothing
+    // is skipped (its install removes the rows it has, #242).
 
     /// Bulk-insert entries from a JSON array. Expects `[{word, definition, phonetic?, pos?}]`.
     func importJSON(at url: URL, source: String) async throws -> Int {
@@ -1588,7 +1800,10 @@ actor DatabaseService {
     /// source once it has rows. Returns the number of rows read, as 1.4.0 did.
     private func insertImported(_ rows: [ImportedRow], source: String,
                                 into pool: DatabasePool) async throws -> Int {
-        try await dictionaryWrite(pool) { db in
+        let keyCheck = schemas.schema(ofSource: source).map { schema in
+            "WHERE NOT EXISTS (SELECT 1 FROM \(schema).entries WHERE word = ?1 COLLATE NOCASE AND source = ?5)"
+        } ?? ""
+        return try await dictionaryWrite(pool) { db in
             // Custom imports are not run through the Arabic or Greek
             // normalizers (single source of truth stays in the Python build),
             // so the search key is the word verbatim. Consequence: imported
@@ -1597,7 +1812,7 @@ actor DatabaseService {
             let insert = try db.makeStatement(sql: """
                 INSERT OR IGNORE INTO imported_entries(word, word_normalized, definition, phonetic, pos, source)
                 SELECT ?1, ?1, ?2, ?3, ?4, ?5
-                WHERE NOT EXISTS (SELECT 1 FROM dict.entries WHERE word = ?1 COLLATE NOCASE AND source = ?5)
+                \(keyCheck)
                 """)
             for row in rows {
                 try insert.execute(arguments: [row.word, row.definition, row.phonetic, row.pos, source])
@@ -1626,23 +1841,22 @@ actor DatabaseService {
 
     // MARK: - Entry count (for testing / UI)
 
-    /// Rows of `source` in both stores.
+    /// Rows of `source` in the dictionary files and the imports.
     func entryCount(source: String) async throws -> Int {
         let pool = try await userPool()
+        let files = DictionarySchemas.all.map { "(SELECT COUNT(*) FROM \($0).entries WHERE source = ?1)" }
         return try await read(pool) { db in
-            try Int.fetchOne(db, sql: """
-                SELECT (SELECT COUNT(*) FROM dict.entries WHERE source = ?)
-                     + (SELECT COUNT(*) FROM imported_entries WHERE source = ?)
-                """, arguments: [source, source]) ?? 0
+            try Int.fetchOne(db, sql: "SELECT " + (files + ["(SELECT COUNT(*) FROM imported_entries WHERE source = ?1)"])
+                .joined(separator: " + "), arguments: [source]) ?? 0
         }
     }
 
     func entryCount() async throws -> Int {
         let pool = try await userPool()
+        let files = DictionarySchemas.all.map { "(SELECT COUNT(*) FROM \($0).entries)" }
         return try await read(pool) { db in
-            try Int.fetchOne(db, sql: """
-                SELECT (SELECT COUNT(*) FROM dict.entries) + (SELECT COUNT(*) FROM imported_entries)
-                """) ?? 0
+            try Int.fetchOne(db, sql: "SELECT " + (files + ["(SELECT COUNT(*) FROM imported_entries)"])
+                .joined(separator: " + ")) ?? 0
         }
     }
 
@@ -1673,7 +1887,9 @@ actor DatabaseService {
         appSupportDirectory().appendingPathComponent("dict.sqlite")
     }
 
-    private static func appSupportDirectory() -> URL {
+    /// `Application Support/DictApp`: the user database and, since #237, the
+    /// installed packs (`Packs/`).
+    static func appSupportDirectory() -> URL {
         let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
         return appSupport.appendingPathComponent("DictApp")
     }
@@ -1681,6 +1897,12 @@ actor DatabaseService {
     /// The bundled dictionary file, `dictionaries.sqlite`.
     static func bundledDictionaryURL() -> URL? {
         Bundle.main.url(forResource: DictionaryFile.resourceName, withExtension: DictionaryFile.resourceExtension)
+    }
+
+    /// The bundled stub, `empty-pack.sqlite`: attached for every pack that
+    /// is not installed (#237).
+    static func bundledStubURL() -> URL? {
+        Bundle.main.url(forResource: DictionaryFile.stubResourceName, withExtension: DictionaryFile.resourceExtension)
     }
 
     #if DEBUG
@@ -1822,15 +2044,20 @@ enum LegacyMigration {
         beforeCopy?()
         #endif
         var moved = Moved()
-        // Imported dictionaries: every 1.x row whose key the dictionary file
-        // lacks. This carries custom imports and imports named like a bundled
-        // source, and drops the 1.x copy of the bundled rows. The search key
-        // is the word, as on import; the triggers fill `imported_fts`.
+        // Imported dictionaries: every 1.x row whose key the dictionary files
+        // lack (the bundle and every pack, #237: a source's rows are in one
+        // file, and a pack that is not installed reads as empty). This
+        // carries custom imports and imports named like a bundled source, and
+        // drops the 1.x copy of the bundled rows. The search key is the word,
+        // as on import; the triggers fill `imported_fts`.
+        let inFiles = DictionarySchemas.all.map { schema in
+            "NOT EXISTS (SELECT 1 FROM \(schema).entries d WHERE d.word = l.word COLLATE NOCASE AND d.source = l.source)"
+        }.joined(separator: "\n  AND ")
         try db.execute(sql: """
             INSERT OR IGNORE INTO imported_entries(word, word_normalized, definition, phonetic, pos, source, created_at)
             SELECT l.word, l.word, l.definition, COALESCE(l.phonetic, ''), COALESCE(l.pos, ''), l.source, l.created_at
             FROM legacy.entries l
-            WHERE NOT EXISTS (SELECT 1 FROM dict.entries d WHERE d.word = l.word COLLATE NOCASE AND d.source = l.source)
+            WHERE \(inFiles)
             ORDER BY l.id
             """)
         moved.imported = db.changesCount

@@ -20,8 +20,10 @@ Usage (from the repository root):
         offline, on Scripts/fixtures/kaikki-el-sample.jsonl: builds twice,
         compares the table hashes and checks the spec's cases
     python3 Scripts/build_forms.py --standalone out.sqlite \\
-            --headwords DictApp/DictApp/Resources/dictionaries.sqlite
-        the step alone, into its own file, with the QA report
+            --headwords Scripts/.cache/dictionaries-full.sqlite
+        the step alone, into its own file, with the QA report; the Greek
+        headwords come from the full file of build_dictionaries.py (since
+        #237 the bundle holds English only)
     python3 Scripts/build_forms.py --refresh
         streams the current dump (about 3 GB), writes a new dated subset and
         its inputs.json entry; a refresh is a reviewed PR of its own
@@ -1341,8 +1343,9 @@ def main() -> int:
                       help="Stream the current dump and write a new dated subset.")
     mode.add_argument("--make-fixture", action="store_true",
                       help="Rewrite the self-check fixture from the pinned subset.")
-    parser.add_argument("--headwords", type=Path, default=REPO / "DictApp/DictApp/Resources/dictionaries.sqlite",
-                        help="With --standalone: the dictionary file whose Greek headwords the QA report uses.")
+    parser.add_argument("--headwords", type=Path,
+                        help="With --standalone: the dictionary file whose Greek headwords the QA report uses "
+                             "(default: the full file of build_dictionaries.py in the cache folder).")
     parser.add_argument("--cache-dir", type=Path, default=inputs.DEFAULT_CACHE_DIR,
                         help="Where the frequency list is downloaded (default: Scripts/.cache).")
     args = parser.parse_args()
@@ -1352,7 +1355,8 @@ def main() -> int:
         return refresh()
     if args.make_fixture:
         return make_fixture()
-    return standalone(args.standalone.resolve(), args.headwords, args.cache_dir.resolve())
+    headwords = args.headwords or args.cache_dir / "dictionaries-full.sqlite"
+    return standalone(args.standalone.resolve(), headwords, args.cache_dir.resolve())
 
 
 if __name__ == "__main__":

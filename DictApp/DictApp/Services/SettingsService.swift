@@ -51,6 +51,7 @@ final class SettingsService {
     private let dictionaryOrderKey = "dictionary_order"
     private let resultSortModeKey = "result_sort_mode"
     private let learningListsKey = "learning_lists"
+    private let packsOfferedKey = "packs_offered"
 
     /// Injectable for tests (pass an in-memory `KeyValueStore`); production uses
     /// `.shared`, which backs onto `UserDefaults.standard`.
@@ -67,6 +68,16 @@ final class SettingsService {
     var selectedUILanguageCode: String? {
         get { store.string(forKey: uiLanguageKey) }
         set { store.set(newValue, forKey: uiLanguageKey) }
+    }
+
+    // MARK: - Language packs (Issue #237)
+
+    /// Whether the first-launch sheet offered the language packs: set by its
+    /// Download or Not now, and by the DEBUG `-skipWelcome` hook (0237,
+    /// "Launch"). Absent on a fresh install.
+    var packsOffered: Bool {
+        get { store.string(forKey: packsOfferedKey) == "1" }
+        set { store.set(newValue ? "1" : nil, forKey: packsOfferedKey) }
     }
 
     // MARK: - Enabled Sources

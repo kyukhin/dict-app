@@ -19,10 +19,20 @@ How the 1.4.0 results are made:
 Any PR that changes the bundled entries regenerates this file, and the
 change is reviewed.
 
+`--packs` writes the 2.0 golden file instead, `search-probe-2.0.json`
+(docs/specs/0237-downloads.md, "Search ranking"): the same queries on the
+committed English bundle with every language pack attached under its schema
+name, as the app attaches them, through the app's 2.0 SQL: one branch per
+file that holds an enabled source, each with its own `ORDER BY … LIMIT`,
+and one `ORDER BY … LIMIT` over the union. The packs are the committed
+assets in `Packs/`, decompressed and checked against the catalog. Any PR
+that changes a dictionary's rows regenerates it.
+
 Usage:
     python3 Scripts/make_search_probe.py
     python3 Scripts/make_search_probe.py --tag v1.4.0 \\
         --output DictApp/DictAppTests/search-probe-1.4.0.json
+    python3 Scripts/make_search_probe.py --packs
 """
 
 from __future__ import annotations
@@ -30,6 +40,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import lzma
 import os
 import sqlite3
 import subprocess
@@ -46,6 +57,10 @@ REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SCHEMA_PATH = "DictApp/DictApp/Resources/Schema.sql"
 SEED_PATH = "DictApp/DictApp/Resources/seed.sqlite"
 DEFAULT_OUTPUT = "DictApp/DictAppTests/search-probe-1.4.0.json"
+PACKS_OUTPUT = "DictApp/DictAppTests/search-probe-2.0.json"
+BUNDLE = "DictApp/DictApp/Resources/dictionaries.sqlite"
+# DictionarySchemas.all: the bundle, then the packs in `ord` order.
+SCHEMAS = ["dict", "spa", "rus", "arb", "ell", "eng_lists"]
 
 LIMIT = 50
 TOP_N = 4  # Search.preferredDictionaryTopN
@@ -180,11 +195,146 @@ def preferred(conn: sqlite3.Connection, query: str, groups: list[list[str]]) -> 
     return [[r["source"], r["word"]] for r in result]
 
 
+# ---------------------------------------------------------------------------
+# 2.0: the bundle and the packs (#237)
+# ---------------------------------------------------------------------------
+
+def attach_packs(folder: str) -> tuple[sqlite3.Connection, dict[str, str], dict]:
+    """An in-memory connection with the committed bundle as `dict` and every
+    catalog pack, decompressed from its committed asset, under its schema
+    name; the map source → schema (the bundle first) and the files' sha256s."""
+    bundle = os.path.join(REPO, BUNDLE)
+    conn = sqlite3.connect(":memory:")
+    conn.row_factory = sqlite3.Row
+    conn.execute("ATTACH DATABASE ? AS dict", ("file:" + bundle + "?mode=ro&immutable=1",))
+    files = {"bundle": hashlib.sha256(open(bundle, "rb").read()).hexdigest()}
+    for pack in conn.execute("SELECT id, version, file_sha256 FROM dict.catalog_pack ORDER BY ord").fetchall():
+        asset = os.path.join(REPO, "Packs", f"{pack['id']}-{pack['version']}.sqlite.xz")
+        data = lzma.decompress(open(asset, "rb").read(), format=lzma.FORMAT_XZ)
+        if hashlib.sha256(data).hexdigest() != pack["file_sha256"]:
+            sys.exit(f"{asset} does not decompress to the catalog's file (git lfs pull?)")
+        path = os.path.join(folder, f"{pack['id']}.sqlite")
+        with open(path, "wb") as f:
+            f.write(data)
+        schema = pack["id"].replace("-", "_")
+        conn.execute(f"ATTACH DATABASE ? AS {schema}", ("file:" + path + "?mode=ro&immutable=1",))
+        files[pack["id"]] = pack["file_sha256"]
+    schema_of: dict[str, str] = {}
+    for schema in SCHEMAS:
+        for (source,) in conn.execute(f"SELECT source FROM {schema}.dict_metadata ORDER BY rowid"):
+            schema_of.setdefault(source, schema)
+    return conn, schema_of, files
+
+
+def files_holding(schema_of: dict[str, str], sources: list[str] | None) -> list[str]:
+    """`DictionarySchemas.files(holding:)`: the files that hold one of the
+    sources (`None`: any source), in `SCHEMAS` order."""
+    wanted = set(schema_of.values()) if sources is None else {schema_of[s] for s in sources if s in schema_of}
+    return [s for s in SCHEMAS if s in wanted]
+
+
+def ranked_20(conn: sqlite3.Connection, query: str, sources: list[str] | None, schema_of: dict[str, str],
+              relevance_order: bool, limit: int, excluding: list[int] = ()) -> list[sqlite3.Row]:
+    """`DatabaseService.rankedEntries` with packs: one branch per file, each
+    ordered and cut to `limit`, then one ORDER BY and LIMIT over the union."""
+    match, rank_key, raw_key = fts_query(sanitize_fts(query))
+    branches, args = [], []
+    for schema in files_holding(schema_of, sources):
+        branch = f"""SELECT e.id, e.word, e.word_normalized, e.definition, e.phonetic, e.pos, e.source,
+                   NULL AS created_at, fts.rank AS rank,
+                   (e.word_normalized = ? COLLATE NOCASE OR e.word_normalized = ? COLLATE NOCASE) AS is_exact
+            FROM {schema}.entries_fts fts JOIN {schema}.entries e ON e.id = fts.rowid
+            WHERE entries_fts MATCH ?"""
+        args += [rank_key, raw_key, match]
+        if sources is not None:
+            branch += " AND e.source IN (" + ", ".join("?" for _ in sources) + ")"
+            args += sources
+        if excluding:
+            branch += " AND e.id NOT IN (" + ", ".join("?" for _ in excluding) + ")"
+            args += list(excluding)
+        if relevance_order:
+            branch += ("\nORDER BY is_exact DESC, (e.word_normalized LIKE ? COLLATE NOCASE "
+                       "OR e.word_normalized LIKE ? COLLATE NOCASE) DESC, rank")
+            args += [rank_key + "%", raw_key + "%"]
+        else:
+            branch += "\nORDER BY rank"
+        branch += "\nLIMIT ?"
+        args.append(limit)
+        branches.append("SELECT * FROM (" + branch + ")")
+    if not branches:
+        return []
+    order = ("is_exact DESC, (word_normalized LIKE ? COLLATE NOCASE OR word_normalized LIKE ? COLLATE NOCASE) "
+             "DESC, rank") if relevance_order else "rank"
+    if relevance_order:
+        args += [rank_key + "%", raw_key + "%"]
+    return conn.execute("SELECT * FROM (" + "\nUNION ALL\n".join(branches) + f") ORDER BY {order} LIMIT ?",
+                        args + [limit]).fetchall()
+
+
+def relevance_20(conn: sqlite3.Connection, schema_of: dict[str, str], query: str) -> list[list[str]]:
+    return [[r["source"], r["word"]] for r in ranked_20(conn, query, None, schema_of, True, LIMIT)]
+
+
+def preferred_20(conn: sqlite3.Connection, schema_of: dict[str, str], query: str,
+                 groups: list[list[str]]) -> list[list[str]]:
+    enabled = sorted({s for g in groups for s in g})
+    result: list[sqlite3.Row] = []
+    taken: list[int] = []
+    for members in groups:
+        rows = ranked_20(conn, query, members, schema_of, True, TOP_N)
+        result += rows
+        taken += [r["id"] for r in rows]
+    remaining = LIMIT - len(taken)
+    if remaining > 0:
+        result += ranked_20(conn, query, enabled, schema_of, False, remaining, taken)
+    return [[r["source"], r["word"]] for r in result]
+
+
+def main_packs(output: str) -> None:
+    with tempfile.TemporaryDirectory() as folder:
+        conn, schema_of, files = attach_packs(folder)
+        probe = {
+            "about": "Top 50 (source, word) per query as LibreDict 2.0 ranks them, on the English bundle "
+                     "with every language pack attached (0237). Written by Scripts/make_search_probe.py "
+                     "--packs; do not edit by hand.",
+            "tag": "2.0",
+            "files": files,
+            "sqliteVersion": sqlite3.sqlite_version,
+            "limit": LIMIT,
+            "topN": TOP_N,
+            "relevance": [{"query": q, "results": relevance_20(conn, schema_of, q)} for q in RELEVANCE_QUERIES],
+            "preferred": [{"query": q, "groups": ENGLISH_GROUPS,
+                           "results": preferred_20(conn, schema_of, q, ENGLISH_GROUPS)}
+                          for q in PREFERRED_QUERIES],
+        }
+        conn.close()
+    write(probe, output)
+
+
+def write(probe: dict, output_path: str) -> None:
+    for kind in ("relevance", "preferred"):
+        for item in probe[kind]:
+            if not item["results"]:
+                sys.exit(f"{kind} '{item['query']}' returned nothing: not a useful probe")
+    output = os.path.join(REPO, output_path)
+    with open(output, "w", encoding="utf-8") as f:
+        json.dump(probe, f, ensure_ascii=False, indent=1)
+        f.write("\n")
+    lists = len(probe["relevance"]) + len(probe["preferred"])
+    print(f"Wrote {lists} lists to {output_path}")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--tag", default="v1.4.0", help="the release whose seed and SQL make the golden lists")
-    parser.add_argument("--output", default=DEFAULT_OUTPUT, help="path of the golden file, from the repo root")
+    parser.add_argument("--output", help="path of the golden file, from the repo root "
+                                         f"(default: {DEFAULT_OUTPUT}, with --packs {PACKS_OUTPUT})")
+    parser.add_argument("--packs", action="store_true",
+                        help="write the 2.0 golden lists: the bundle with every pack attached")
     args = parser.parse_args()
+    if args.packs:
+        main_packs(args.output or PACKS_OUTPUT)
+        return
 
     with tempfile.TemporaryDirectory() as folder:
         db_path, seed_sha = build_140_database(args.tag, folder)
@@ -203,17 +353,7 @@ def main() -> None:
                           for q in PREFERRED_QUERIES],
         }
         conn.close()
-
-    for kind in ("relevance", "preferred"):
-        for item in probe[kind]:
-            if not item["results"]:
-                sys.exit(f"{kind} '{item['query']}' returned nothing: not a useful probe")
-    output = os.path.join(REPO, args.output)
-    with open(output, "w", encoding="utf-8") as f:
-        json.dump(probe, f, ensure_ascii=False, indent=1)
-        f.write("\n")
-    lists = len(probe["relevance"]) + len(probe["preferred"])
-    print(f"Wrote {lists} lists to {args.output}")
+    write(probe, args.output or DEFAULT_OUTPUT)
 
 
 if __name__ == "__main__":

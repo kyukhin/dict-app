@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
 """
 build_dictionaries.py
-Builds `dictionaries.sqlite`, the read-only dictionary file the app attaches
-as `dict` (docs/specs/0129-dictionary-file.md, "Dictionary file" and
-"Build (#140)"):
+Builds the full dictionary file: every dictionary and every static data
+step in one SQLite file (docs/specs/0129-dictionary-file.md, "Dictionary
+file" and "Build (#140)"). Since #237 it goes into the build cache, not into
+the app: `cut_packs.py` cuts it into the English bundle the app attaches as
+`dict`, the empty stub and one file per language pack (0237-downloads.md,
+"Build and release"). The steps:
 
   1. writes the schema (`SCHEMA`, then the `SCHEMA` of every static step);
   2. runs the dictionary builders: WordNet (En-En), OpenRussian (Ru-En),
@@ -17,7 +20,8 @@ as `dict` (docs/specs/0129-dictionary-file.md, "Dictionary file" and
 Every input is pinned in `Scripts/inputs.json` and verified before use
 (`inputs.py`), rows go in in a fixed order and nothing stores a timestamp,
 so the same inputs and the same SQLite version give a byte-identical file.
-`--verify` rebuilds into a temp file and compares it with the committed one.
+`--verify` rebuilds into a temp file and compares it with `--output`. The
+committed files are checked by `cut_packs.py --verify`.
 
 Every row carries a `word_normalized` search key: `word` for the en, ru and
 es sources, the harakat-stripped form for Arabic, and the accent-, case- and
@@ -37,7 +41,7 @@ Requirements (from the repository root):
 
 Usage:
     .venv/bin/python Scripts/build_dictionaries.py
-    .venv/bin/python Scripts/build_dictionaries.py --output path/to/dictionaries.sqlite
+    .venv/bin/python Scripts/build_dictionaries.py --output path/to/full.sqlite
     .venv/bin/python Scripts/build_dictionaries.py --verify
     .venv/bin/python Scripts/build_dictionaries.py --cache-dir /path/to/cache
 """
@@ -60,11 +64,14 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import inputs  # noqa: E402
 
 REPO = Path(__file__).resolve().parent.parent
-DEFAULT_OUTPUT = REPO / "DictApp/DictApp/Resources/dictionaries.sqlite"
+# The full file, in the cache folder (`--cache-dir`). `cut_packs.py` reads it.
+FULL_FILE_NAME = "dictionaries-full.sqlite"
 
-# `PRAGMA user_version`. The app's `DictionaryFile.formatVersion` must match
-# (a unit test checks it). A changed table shape bumps both in the same PR.
-FORMAT_VERSION = 3
+# `PRAGMA user_version` of the full file, the bundle, the stub and every pack
+# (#237: one schema, one format). The app's `DictionaryFile.formatVersion`
+# must match (a unit test checks it). A changed table shape bumps both in the
+# same PR; after 2.0 ships, a bump makes users download their packs again.
+FORMAT_VERSION = 4
 
 # Static data steps (spec, "Adding static data"): module names in Scripts/,
 # run in this order after the dictionaries. Each module has `SCHEMA` (DDL,
@@ -73,6 +80,9 @@ FORMAT_VERSION = 3
 STEPS: list[str] = [
     "build_forms",   # Greek word forms from Wiktionary (#141, 0136-word-forms.md)
     "build_morphy",  # WordNet's morphy exceptions and lemmas (#143, 0136-word-forms.md)
+    "build_wordlists",  # Word lists and frequency ranks, empty until #152 and #153 (0130-word-lists.md)
+    "build_examples",  # Tatoeba example sentences, empty until #177 (0134-example-sentences.md)
+    "build_grammar",   # The grammar reference, empty until #171 (0133-grammar.md)
 ]
 
 
@@ -127,6 +137,52 @@ CREATE TABLE data_source (
     version      TEXT NOT NULL DEFAULT '',
     license      TEXT NOT NULL DEFAULT '',
     url          TEXT NOT NULL DEFAULT ''
+);
+
+-- The pack catalog (#237, 0237-downloads.md, "The catalog"). Every file has
+-- these tables; cut_packs.py fills them in the bundle only, last.
+CREATE TABLE catalog_pack (
+    id          TEXT PRIMARY KEY,         -- 'spa', 'rus', 'arb', 'ell', 'eng-lists'; permanent
+    ord         INTEGER NOT NULL UNIQUE,  -- permanent; the id range (ord << 32) and the display order
+    lang        TEXT NOT NULL,            -- ISO 639-3 of the language it serves
+    kind        TEXT NOT NULL,            -- 'language' or 'lists'
+    version     TEXT NOT NULL,            -- first 12 hex digits of file_sha256
+    url         TEXT NOT NULL,            -- the GitHub release asset
+    sha256      TEXT NOT NULL,            -- of the asset
+    size        INTEGER NOT NULL,         -- of the asset, bytes
+    file_sha256 TEXT NOT NULL,            -- of the installed file
+    file_size   INTEGER NOT NULL
+);
+-- The dict_metadata row of every pack dictionary, so the app knows a
+-- dictionary it has not installed.
+CREATE TABLE catalog_source (
+    pack_id      TEXT NOT NULL,
+    source       TEXT PRIMARY KEY,
+    display_name TEXT NOT NULL,
+    version      TEXT,
+    license      TEXT,
+    url          TEXT,
+    word_count   INTEGER NOT NULL,
+    description  TEXT,
+    from_lang    TEXT NOT NULL,
+    to_lang      TEXT NOT NULL
+);
+-- One row per built-in word list of a pack (E3, 0130).
+CREATE TABLE catalog_list (
+    pack_id    TEXT NOT NULL,
+    id         TEXT PRIMARY KEY,
+    lang       TEXT NOT NULL,
+    level      TEXT NOT NULL,
+    word_count INTEGER NOT NULL
+);
+-- A limited learning pair (E4): offered with no dictionary from lang into
+-- via, its explanations in via and its meanings from the dictionaries of
+-- lang into meanings_lang. A dictionary into via makes it a normal pair.
+CREATE TABLE catalog_pair (
+    lang          TEXT NOT NULL,   -- ISO 639-3 of the language learned
+    via           TEXT NOT NULL,   -- ISO 639-3 of the language it is learned through
+    meanings_lang TEXT NOT NULL,   -- ISO 639-3 of its meanings
+    PRIMARY KEY (lang, via)
 );
 """
 
@@ -515,18 +571,20 @@ def verify(committed: Path, cache_dir: Path) -> int:
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Build dictionaries.sqlite, the app's read-only dictionary file.")
-    parser.add_argument("--output", "-o", type=Path, default=DEFAULT_OUTPUT,
+        description="Build the full dictionary file, which cut_packs.py cuts into the bundle and the packs.")
+    parser.add_argument("--output", "-o", type=Path,
                         help=f"The file to write, or with --verify the file to compare "
-                             f"(default: {DEFAULT_OUTPUT.relative_to(REPO)}).")
+                             f"(default: {FULL_FILE_NAME} in the cache folder).")
     parser.add_argument("--cache-dir", type=Path, default=inputs.DEFAULT_CACHE_DIR,
                         help="Where the pinned inputs are downloaded (default: Scripts/.cache).")
     parser.add_argument("--verify", action="store_true",
                         help="Rebuild into a temp file and compare its sha256 with --output.")
     args = parser.parse_args()
+    cache_dir = args.cache_dir.resolve()
+    output = (args.output or cache_dir / FULL_FILE_NAME).resolve()
     if args.verify:
-        return verify(args.output.resolve(), args.cache_dir.resolve())
-    build(args.output.resolve(), args.cache_dir.resolve())
+        return verify(output, cache_dir)
+    build(output, cache_dir)
     return 0
 
 

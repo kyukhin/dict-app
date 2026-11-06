@@ -9,6 +9,8 @@ final class BookmarkFlowTests: XCTestCase {
         continueAfterFailure = false
         app = XCUIApplication()
         app.launchArguments.append("-disableReviewPrompt")
+        // Issue #237: no first-launch sheet.
+        app.launchArguments += [UITestHelpers.skipWelcome]
         // Only add -resetData for tests that need clean state
         // testBookmarkPersistence will handle its own launch logic
         if name != "testBookmarkPersistence" {
@@ -156,7 +158,7 @@ final class BookmarkFlowTests: XCTestCase {
 
         // Manual initial reset - start with clean state
         app.terminate()
-        app.launchArguments = ["-resetData", "-disableReviewPrompt"]
+        app.launchArguments = ["-resetData", "-disableReviewPrompt"] + [UITestHelpers.skipWelcome]
         app.launch()
         tabBarPage = TabBarPage(app: app)
 
@@ -182,7 +184,7 @@ final class BookmarkFlowTests: XCTestCase {
 
         // The persistence restart - launch WITHOUT reset argument
         app.terminate()
-        app.launchArguments = ["-disableReviewPrompt"] // Clear arguments to prevent reset
+        app.launchArguments = ["-disableReviewPrompt"] + [UITestHelpers.skipWelcome] // Clear arguments to prevent reset
         app.launch()
 
         // Reinitialize page objects

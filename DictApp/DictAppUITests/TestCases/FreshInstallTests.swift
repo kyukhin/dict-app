@@ -1,19 +1,27 @@
 import XCTest
 
-/// Issues #129, #140: on a fresh install Search is usable at once and every
-/// bundled dictionary is searchable from the first query, with no
-/// "Preparing dictionaries" progress (0129-dictionary-file.md, Test plan).
+/// Issues #129, #140, #237: on a fresh install Search is usable at once with
+/// English, with no "Preparing dictionaries" progress; every other language
+/// is a pack (0129-dictionary-file.md and 0237-downloads.md, Test plans).
 ///
-/// `-resetDatabase` deletes the user database and `-resetData` the
-/// preferences, which is a fresh install without uninstalling (the simulator
-/// keeps its language and keyboard settings).
+/// `-resetDatabase` deletes the user database, `-resetPacks` the installed
+/// packs and `-resetData` the preferences, which is a fresh install without
+/// uninstalling (the simulator keeps its language and keyboard settings).
 ///
-/// Five queries reach all nine bundled sources. In relevance order each
-/// expected row is among the first four; the result sort mode survives
-/// `-resetData`, so in "Preferred dictionary first" a row can sit lower, and
-/// the test scrolls to it. Timing: the Search screen within 2 s of
-/// `launch()` returning, and each query's results within 2 s of typing.
-/// Typing itself is not timed (it is the simulator's speed, not the app's).
+/// `testEnglishWorksWithoutPacks`: the bundle alone answers English, and no
+/// other language. The first-launch sheet, the "not downloaded" hint and the
+/// Languages screen of 0237's `testEnglishWorksOffline` come with #243 and
+/// #245; until then the test passes `-skipWelcome`.
+///
+/// `testInstalledPacksSearchEveryPairAtOnce`: with every pack installed at
+/// launch (`-installPacks all`, from the committed assets), five queries
+/// reach all nine dictionaries. In relevance order each expected row is among
+/// the first four; the result sort mode survives `-resetData`, so in
+/// "Preferred dictionary first" a row can sit lower, and the test scrolls to
+/// it. Timing: the Search screen within 2 s of `launch()` returning (English
+/// alone; the pack install delays it), and each query's results within 2 s
+/// of typing. Typing itself is not timed (it is the simulator's speed, not
+/// the app's).
 final class FreshInstallTests: XCTestCase {
 
     var app: XCUIApplication!
@@ -36,7 +44,8 @@ final class FreshInstallTests: XCTestCase {
     override func setUpWithError() throws {
         continueAfterFailure = true
         app = XCUIApplication()
-        app.launchArguments += ["-disableReviewPrompt", "-resetDatabase", "-resetData"]
+        app.launchArguments += ["-disableReviewPrompt", "-resetDatabase", "-resetPacks", "-resetData",
+                                UITestHelpers.skipWelcome]
 
         // iOS 26 "Enable Dictation?" springboard alert on the first search.
         addUIInterruptionMonitor(withDescription: "Enable Dictation alert") { alert in
@@ -57,13 +66,47 @@ final class FreshInstallTests: XCTestCase {
         app = nil
     }
 
-    func testFreshInstallSearchesEveryPairAtOnce() throws {
+    /// #237: English works on a fresh install with no pack; nothing else.
+    func testEnglishWorksWithoutPacks() throws {
         app.launch()
         let launched = Date()
         let searchScreen = app.descendants(matching: .any)[AccessibilityIdentifiers.TabBar.searchTab].firstMatch
         XCTAssertTrue(searchScreen.waitForExistence(timeout: TestData.Timeouts.short),
                       "the Search screen is up within 2 s of launch")
         record("Search screen", since: launched)
+        XCTAssertEqual(app.progressIndicators.count, 0, "no loading progress on a fresh install's Search screen")
+
+        let search = SearchPage(app: app)
+        XCTAssertTrue(search.waitForChips(), "the dictionary chips load")
+        XCTAssertTrue(search.chip(TestData.Pairs.english).exists, "English is in the bundle")
+        for pair in [TestData.Pairs.spanish, TestData.Pairs.russian, TestData.Pairs.arabic, TestData.Pairs.greek] {
+            XCTAssertFalse(search.chip(pair).exists, "\(pair) is not installed, so it has no chip")
+        }
+
+        search.searchFor("dog")
+        let typed = Date()
+        XCTAssertTrue(search.waitForResults(timeout: TestData.Timeouts.short), "'dog' returns results within 2 s of typing")
+        record("'dog' results", since: typed)
+        XCTAssertTrue(findRow(word: "dog", source: TestData.Sources.wordnet), "'dog' finds WordNet's dog")
+        for source in [TestData.Sources.freedictEngSpa, TestData.Sources.freedictEngEll, TestData.Sources.wordnetEngEll] {
+            XCTAssertFalse(resultCell(word: "dog", source: source).exists, "no pack is installed: no \(source) row")
+        }
+        scrollBackToSearchField()
+
+        search.searchFor("дом")
+        XCTAssertTrue(search.waitForNoResults(timeout: TestData.Timeouts.medium), "Russian is not installed: no results")
+    }
+
+    /// #129, #140, #237: with every pack installed through the install path,
+    /// every dictionary answers from the first query.
+    func testInstalledPacksSearchEveryPairAtOnce() throws {
+        app.launchArguments += UITestHelpers.packArguments()
+        app.launch()
+        let launched = Date()
+        let searchScreen = app.descendants(matching: .any)[AccessibilityIdentifiers.TabBar.searchTab].firstMatch
+        XCTAssertTrue(searchScreen.waitForExistence(timeout: TestData.Timeouts.launch),
+                      "the Search screen is up once the packs are installed")
+        record("Search screen with every pack installed", since: launched)
         XCTAssertTrue(app.searchFields.firstMatch.waitForExistence(timeout: TestData.Timeouts.short),
                       "the search field is up within 2 s of launch")
         XCTAssertEqual(app.progressIndicators.count, 0,

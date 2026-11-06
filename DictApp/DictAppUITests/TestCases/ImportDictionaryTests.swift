@@ -21,6 +21,8 @@ final class ImportDictionaryTests: XCTestCase {
         continueAfterFailure = false
         app = XCUIApplication()
         app.launchArguments.append("-disableReviewPrompt")
+        // Issue #237: every language pack, installed from the committed assets.
+        app.launchArguments += UITestHelpers.packArguments()
         app.launchArguments.append("-resetData")
 
         // Same Dictation-alert handler as the other Settings suites — iOS 26

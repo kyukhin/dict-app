@@ -28,6 +28,8 @@ final class GreekDictionaryTests: XCTestCase {
         continueAfterFailure = false
         app = XCUIApplication()
         app.launchArguments.append("-disableReviewPrompt")
+        // Issue #237: every language pack, installed from the committed assets.
+        app.launchArguments += UITestHelpers.packArguments()
         app.launchArguments.append("-resetData")
         // The Greek (i) detail carries two ~9 KB Apache texts: as in
         // `DictionaryInfoTests`, silence the app's os_log so XCTest's log

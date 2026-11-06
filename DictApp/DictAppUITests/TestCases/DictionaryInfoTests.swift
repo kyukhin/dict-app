@@ -22,6 +22,8 @@ final class DictionaryInfoTests: XCTestCase {
         continueAfterFailure = false
         app = XCUIApplication()
         app.launchArguments.append("-disableReviewPrompt")
+        // Issue #237: every language pack, installed from the committed assets.
+        app.launchArguments += UITestHelpers.packArguments()
         app.launchArguments.append("-resetData")
         // Issue #105: the custom-import test imports in-session (no relaunch).
         // Both hooks are inert for the other tests: the clear deletes zero
@@ -270,7 +272,7 @@ final class DictionaryInfoTests: XCTestCase {
         addTeardownBlock { [app] in
             guard let app else { return }
             app.terminate()
-            app.launchArguments = ["-disableReviewPrompt", "-resetData", "-clearFixtureImports"]
+            app.launchArguments = ["-disableReviewPrompt", "-resetData", "-clearFixtureImports"] + UITestHelpers.packArguments()
             app.launch()
             _ = app.waitForDictionariesReady()
             app.terminate()

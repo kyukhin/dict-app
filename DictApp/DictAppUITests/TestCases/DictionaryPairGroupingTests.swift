@@ -24,6 +24,8 @@ final class DictionaryPairGroupingTests: XCTestCase {
         continueAfterFailure = false
         app = XCUIApplication()
         app.launchArguments.append("-disableReviewPrompt")
+        // Issue #237: every language pack, installed from the committed assets.
+        app.launchArguments += UITestHelpers.packArguments()
         app.launchArguments.append("-resetData")
         // Same os_log quarantine crash as `DictionaryInfoTests` (Issue #125).
         app.launchEnvironment["OS_ACTIVITY_MODE"] = "disable"
@@ -186,7 +188,7 @@ final class DictionaryPairGroupingTests: XCTestCase {
         // Relaunch WITHOUT -resetData: the stored source-level prefs must
         // round-trip through the launch-time normalisation unchanged.
         app.terminate()
-        app.launchArguments = ["-disableReviewPrompt"]
+        app.launchArguments = ["-disableReviewPrompt"] + UITestHelpers.packArguments()
         app.launch()
         XCTAssertTrue(app.waitForDictionariesReady(), "Search screen after relaunch")
         tabBarPage = TabBarPage(app: app)

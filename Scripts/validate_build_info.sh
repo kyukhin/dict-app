@@ -14,12 +14,13 @@ if ! git rev-parse --git-dir >/dev/null 2>&1; then
 fi
 # Same tag choice as generate_build_info.sh: the release tag of this version
 # wins when HEAD carries it, even if other tags point at the same commit.
+# Data tags `packs-YYYYMMDD` (#237) never count.
 fresh=""
 if [ -n "${MARKETING_VERSION:-}" ] && git tag --points-at HEAD | grep -Fqx "v${MARKETING_VERSION}"; then
   fresh="v${MARKETING_VERSION}"
 fi
-[ -n "$fresh" ] || fresh="$(git describe --tags --exact-match 2>/dev/null || true)"
-[ -n "$fresh" ] || fresh="$(git describe --tags --always 2>/dev/null || true)"
+[ -n "$fresh" ] || fresh="$(git describe --tags --match 'v[0-9]*' --exact-match 2>/dev/null || true)"
+[ -n "$fresh" ] || fresh="$(git describe --tags --match 'v[0-9]*' --always 2>/dev/null || true)"
 [ -n "$fresh" ] || { echo "error: git describe produced no output"; exit 1; }
 if [ "$fresh" != "${GIT_DESCRIBE:-}" ]; then
   echo "error: GIT_DESCRIBE ('${GIT_DESCRIBE:-}') != HEAD ('$fresh') — build pre-action didn't run or wrote a stale value; build via the shared DictApp scheme"; exit 1

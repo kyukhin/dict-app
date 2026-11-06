@@ -58,16 +58,16 @@ Pick a simulator or a device and press **Run** (⌘R). Xcode resolves the GRDB p
 
 ### Rebuild the dictionary data (optional)
 
-`DictApp/DictApp/Resources/dictionaries.sqlite` is prebuilt: the app reads its dictionaries straight from this read-only file. To regenerate it from the sources, run from the repository root:
+The dictionary files are prebuilt, and the app reads them in place, read-only: `DictApp/DictApp/Resources/dictionaries.sqlite` (English, in the app), `empty-pack.sqlite` (the stub for a language that is not installed) and one language pack per other language, `Packs/<id>-<version>.sqlite.xz` (Git LFS; published on GitHub Releases and downloaded by the app at setup). To regenerate them from the sources, run from the repository root:
 
 ```bash
 python3 -m venv .venv
 .venv/bin/pip install -r Scripts/requirements.txt
-.venv/bin/python Scripts/build_dictionaries.py
-.venv/bin/python Scripts/build_dictionaries.py --verify   # rebuild and compare with the committed file
+.venv/bin/python Scripts/cut_packs.py --release-tag packs-YYYYMMDD   # a new pack version needs a data release tag
+.venv/bin/python Scripts/cut_packs.py --verify   # rebuild and compare with the committed files
 ```
 
-`build_dictionaries.py` calls the per-source builders in `Scripts/` (`build_freedict_eng_spa.py`, `build_spanish_wordnet.py`, `build_arabic_wordnet.py`, `build_greek.py`), then the static data steps: `build_forms.py` adds the Greek word forms from a Wiktionary subset kept in `Scripts/data/` (Git LFS) and writes its QA report to `Scripts/reports/forms-qa.md`. Every input is pinned in `Scripts/inputs.json` (an immutable URL or a committed file, and its sha256) and checked before use, so the same inputs and SQLite version give a byte-identical file. Downloads are cached in `Scripts/.cache/` (`--cache-dir` to change it).
+`cut_packs.py` runs `build_dictionaries.py`, which builds every dictionary into one full file in the cache, then cuts it by `Scripts/packs.json` into the bundle and the packs and writes the pack catalog into the bundle (`docs/specs/0237-downloads.md`). `build_dictionaries.py` calls the per-source builders in `Scripts/` (`build_freedict_eng_spa.py`, `build_spanish_wordnet.py`, `build_arabic_wordnet.py`, `build_greek.py`), then the static data steps: `build_forms.py` adds the Greek word forms from a Wiktionary subset kept in `Scripts/data/` (Git LFS) and writes its QA report to `Scripts/reports/forms-qa.md`. Every input is pinned in `Scripts/inputs.json` (an immutable URL or a committed file, and its sha256) and checked before use, so the same inputs and SQLite version give a byte-identical file. Downloads are cached in `Scripts/.cache/` (`--cache-dir` to change it).
 
 ## Project Structure
 
@@ -80,10 +80,11 @@ dict-app/
 │   │   ├── Services/        # Database, settings, localization, speech, support
 │   │   ├── ViewModels/      # Search, Definition, History, Bookmarks, Settings
 │   │   ├── Views/           # SwiftUI screens
-│   │   └── Resources/       # dictionaries.sqlite, Localizable.xcstrings
+│   │   └── Resources/       # dictionaries.sqlite, empty-pack.sqlite, Localizable.xcstrings
 │   ├── DictAppTests/        # Unit tests
 │   └── DictAppUITests/      # UI tests (page objects + test cases)
-├── Scripts/                 # Dictionary data builders, build-info scripts
+├── Packs/                   # Language pack assets (Git LFS), never in a target
+├── Scripts/                 # Dictionary data builders, pack cut, build-info scripts
 ├── docs/specs/              # Feature specs (read these first)
 ├── metadata/                # App Store texts per language
 ├── Screenshots/             # App Store screenshots and mockup projects
