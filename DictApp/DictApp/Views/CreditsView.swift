@@ -19,6 +19,11 @@ struct CreditsView: View {
                 // Issue #144: the Greek word forms and inflection tables (0136).
                 Text("credits.dataSources.wiktionary")
                     .accessibilityIdentifier("credits_wiktionary")
+                // Issue #152: the Greek word lists and the frequencies that order new words (0130).
+                Text("credits.dataSources.greekLists")
+                    .accessibilityIdentifier("credits_greek_lists")
+                Text("credits.dataSources.frequencyWords")
+                    .accessibilityIdentifier("credits_frequency_words")
             }
             Section("credits.licenses.section") {
                 Text("credits.licenses.placeholder")

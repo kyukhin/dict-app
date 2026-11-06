@@ -12,7 +12,8 @@ CREATE TABLE wordlist (
     level       TEXT NOT NULL,           -- 'A1' … 'C2'
     level_ord   INTEGER NOT NULL,        -- 1 … 6; the list holds the words of this level only
     word_count  INTEGER NOT NULL,        -- checked by the build
-    data_source TEXT NOT NULL            -- data_source.id, for Credits
+    data_source TEXT NOT NULL,           -- data_source.id, for Credits
+    translation_lang TEXT NOT NULL DEFAULT '' -- ISO 639-3 of wordlist_item.translation: 'eng' for ky-ell; '' = no translations (cefr-eng)
 );
 
 -- One row per word of a series, with the level that introduces it.

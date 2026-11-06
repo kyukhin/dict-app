@@ -1,0 +1,21 @@
+# Reviewed overrides of the built-in lists' links (docs/specs/0130-word-lists.md,
+# "List data"): series, term, headword; "-" means none. build_wordlists.py
+# applies them after the rules and fails on a term that is not in the series.
+# Imports (#155) link by the rules alone.
+series	term	headword
+# Names that the near rule links to a common noun.
+ky-ell	Αγγελική	-
+ky-ell	Άγγελος	-
+ky-ell	Αθανασία	-
+ky-ell	Αλεξία	-
+ky-ell	Σωτηρία	-
+# Common words that the near rule links to a name: Διόδια, Καστανάς, the club Ολυμπιακός.
+ky-ell	διόδια	-
+ky-ell	καστανάς	-
+ky-ell	ολυμπιακός	-
+# The street market (η λαϊκή), not the adjective λαϊκός (popular, folk).
+ky-ell	λαϊκή	-
+# Numbers whose colloquial spelling, in the row's endings, is the dictionaries' headword.
+ky-ell	εννέα	εννιά
+ky-ell	επτά	εφτά
+ky-ell	οκτώ	οχτώ

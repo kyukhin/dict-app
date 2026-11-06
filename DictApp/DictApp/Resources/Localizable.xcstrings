@@ -5053,6 +5053,78 @@
         }
       }
     },
+    "credits.dataSources.greekLists": {
+      "comment": "Credits: the source of the built-in Greek word lists (#152). The name and the license are not translated.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Greek word lists by Kirill Yukhin (CC BY-SA 4.0)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Списки греческих слов: Kirill Yukhin (CC BY-SA 4.0)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Listas de palabras en griego: Kirill Yukhin (CC BY-SA 4.0)"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "قوائم الكلمات اليونانية: Kirill Yukhin (CC BY-SA 4.0)"
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Λίστες ελληνικών λέξεων: Kirill Yukhin (CC BY-SA 4.0)"
+          }
+        }
+      }
+    },
+    "credits.dataSources.frequencyWords": {
+      "comment": "Credits: the source of the word frequencies that order new words (#152). Only the lead-in is translated; the citation stays in English.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Word frequencies: FrequencyWords by Hermit Dave, from OpenSubtitles 2018 (CC BY-SA 4.0)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Частотность слов: FrequencyWords by Hermit Dave, from OpenSubtitles 2018 (CC BY-SA 4.0)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Frecuencia de las palabras: FrequencyWords by Hermit Dave, from OpenSubtitles 2018 (CC BY-SA 4.0)"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تكرار الكلمات: FrequencyWords by Hermit Dave, from OpenSubtitles 2018 (CC BY-SA 4.0)"
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Συχνότητα λέξεων: FrequencyWords by Hermit Dave, from OpenSubtitles 2018 (CC BY-SA 4.0)"
+          }
+        }
+      }
+    },
     "sourceBadge.accessibilityLabel.pair %@ %@ %@": {
       "comment": "VoiceOver label of a search-result source badge: source language, target language (nominative language names), then the provider brand (FreeDict, WordNet, OpenRussian). No arrows: VoiceOver reads them as \"right arrow\".",
       "extractionState": "manual",
