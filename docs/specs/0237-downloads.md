@@ -453,3 +453,4 @@ QA records in History: the sizes of each asset and file, App Size and the downlo
 - 2026-11-06: #242: a failed step 7 does not fail the install: the pack is already attached.
 - 2026-11-06: #242: `installPair` stops at the first pack that fails, and returns empty for a pair the catalog lacks (a pair of imports needs no pack).
 - 2026-11-06: #242: a resumed request counts as refused when it ends in HTTP 4xx or 5xx; DEBUG `-packDownloads expiredResume` refuses it with 403 for the tests.
+- 2026-11-06: #153: the `eng-lists` pack measures 496,404 B to download, 1,691,648 B installed.

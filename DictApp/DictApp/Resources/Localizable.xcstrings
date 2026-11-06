@@ -5125,6 +5125,78 @@
         }
       }
     },
+    "credits.dataSources.cefrj": {
+      "comment": "Credits: the source of the built-in English word lists A1 to B2 (#153). The citation is the one CEFR-J asks for and stays in English; only the lead-in is translated (English has none).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The CEFR-J Wordlist Version 1.5. Compiled by Yukio Tono, Tokyo University of Foreign Studies. Retrieved from https://github.com/openlanguageprofiles/olp-en-cefrj on 6 November 2026"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Списки английских слов: The CEFR-J Wordlist Version 1.5. Compiled by Yukio Tono, Tokyo University of Foreign Studies. Retrieved from https://github.com/openlanguageprofiles/olp-en-cefrj on 6 November 2026"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Listas de palabras en inglés: The CEFR-J Wordlist Version 1.5. Compiled by Yukio Tono, Tokyo University of Foreign Studies. Retrieved from https://github.com/openlanguageprofiles/olp-en-cefrj on 6 November 2026"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "قوائم الكلمات الإنجليزية: The CEFR-J Wordlist Version 1.5. Compiled by Yukio Tono, Tokyo University of Foreign Studies. Retrieved from https://github.com/openlanguageprofiles/olp-en-cefrj on 6 November 2026"
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Λίστες αγγλικών λέξεων: The CEFR-J Wordlist Version 1.5. Compiled by Yukio Tono, Tokyo University of Foreign Studies. Retrieved from https://github.com/openlanguageprofiles/olp-en-cefrj on 6 November 2026"
+          }
+        }
+      }
+    },
+    "credits.dataSources.octanove": {
+      "comment": "Credits: the source of the built-in English word lists C1 and C2 (#153). The name and the license stay in English; only the lead-in is translated (English has none).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Octanove Vocabulary Profile C1/C2 1.0, Octanove Labs (CC BY-SA 4.0)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Списки английских слов: Octanove Vocabulary Profile C1/C2 1.0, Octanove Labs (CC BY-SA 4.0)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Listas de palabras en inglés: Octanove Vocabulary Profile C1/C2 1.0, Octanove Labs (CC BY-SA 4.0)"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "قوائم الكلمات الإنجليزية: Octanove Vocabulary Profile C1/C2 1.0, Octanove Labs (CC BY-SA 4.0)"
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Λίστες αγγλικών λέξεων: Octanove Vocabulary Profile C1/C2 1.0, Octanove Labs (CC BY-SA 4.0)"
+          }
+        }
+      }
+    },
     "sourceBadge.accessibilityLabel.pair %@ %@ %@": {
       "comment": "VoiceOver label of a search-result source badge: source language, target language (nominative language names), then the provider brand (FreeDict, WordNet, OpenRussian). No arrows: VoiceOver reads them as \"right arrow\".",
       "extractionState": "manual",

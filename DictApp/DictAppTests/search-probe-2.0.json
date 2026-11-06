@@ -2,12 +2,12 @@
  "about": "Top 50 (source, word) per query as LibreDict 2.0 ranks them, on the English bundle with every language pack attached (0237). Written by Scripts/make_search_probe.py --packs; do not edit by hand.",
  "tag": "2.0",
  "files": {
-  "bundle": "5ae3517bf3b1cdf9a9186724a8e96ecdeacf252f211d7a81906acc189faa4762",
+  "bundle": "69d989d09766003abb32289433a4c8b4c148631899ff0eb0eca2d8277b43ee33",
   "spa": "8d198c05505c209abd57ba73ecc472af5279e68e8b3e2ea2ffed302b9eccd33a",
   "rus": "51296c5dab97430d93d92e5293dc82fb03601f42399fbef7288be5f59b7c0a40",
   "arb": "1c69c500b8481da7e5070701046c6e351ad2c74fdd89a533dd2fa3a75a04e42d",
   "ell": "7c9c6ac6138d1d4db24f8a01f82bcb92f41d35528725da27ac0ff0f9e6665a69",
-  "eng-lists": "4f7684aad58fe22589b3946daffb00299262bbbe8a91a2dd437b4475691787a2"
+  "eng-lists": "278b63535a5ca899f0a2be65b0b0550dec2a4851f2eb3a5f5ff7e021bd528feb"
  },
  "sqliteVersion": "3.51.2",
  "limit": 50,
