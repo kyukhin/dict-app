@@ -1734,4 +1734,71 @@ enum SessionPlanner {
         guard plan.indices.contains(index), !plan[index].isRetry else { return plan }
         return plan + [PlannedItem(card: card, isRetry: true)]
     }
+
+    // MARK: Session and mistakes (#161)
+
+    /// A session asks at most this many due cards.
+    static let sessionDueLimit = 30
+    /// New words come in groups of this many: their recognitions, then
+    /// their productions.
+    static let newWordGroup = 3
+    /// Mistakes practice looks back this many days, today included.
+    static let mistakeDays = 7
+
+    /// The first day of mistakes practice: today and the 6 days before.
+    static func mistakesSince(today: LearnDay) -> LearnDay {
+        today.adding(days: -(mistakeDays - 1))
+    }
+
+    /// The daily session: the due cards first, as read (most overdue
+    /// first), at most 30; then each new word twice, recognition then
+    /// production, in groups of 3: three recognitions, then those three
+    /// productions. The new words' cards are new, as created. Each card
+    /// once, paused cards never, and the two cards of a word apart while
+    /// other cards remain (`separatingWords`).
+    static func session(due: [CardState], newWords: [LearnWord], today: LearnDay) -> [PlannedItem] {
+        var seen = Set<CardKey>()
+        var cards: [CardState] = []
+        for card in due where cards.count < sessionDueLimit && !card.isSuspended
+            && CardKind.wordKinds.contains(card.key.kind) {
+            if seen.insert(card.key).inserted { cards.append(card) }
+        }
+        var started = Set(cards.map(\.key.word))
+        let fresh = newWords.map(\.key).filter { started.insert($0).inserted }
+        for start in stride(from: 0, to: fresh.count, by: newWordGroup) {
+            let group = fresh[start..<min(start + newWordGroup, fresh.count)]
+            for kind in CardKind.wordKinds {
+                for word in group {
+                    cards.append(CardState(key: CardKey(word: word, kind: kind), step: 0, dueDay: today))
+                }
+            }
+        }
+        return separatingWords(cards.map { PlannedItem(card: $0) })
+    }
+
+    /// Mistakes practice: the cards as given (`mistakeCards`, the latest
+    /// mistake first), each once, the two cards of a word apart.
+    static func mistakes(cards: [CardState]) -> [PlannedItem] {
+        var seen = Set<CardKey>()
+        let items = cards.filter { !$0.isSuspended && seen.insert($0.key).inserted }.map { PlannedItem(card: $0) }
+        return separatingWords(items)
+    }
+
+    /// From `start` on, a card of the same word as the one before it swaps
+    /// with the next card of another word, so the two cards of a word are
+    /// never back to back while other cards remain. Items before `start`
+    /// (asked or showing) stay.
+    static func separatingWords(_ plan: [PlannedItem], from start: Int = 0) -> [PlannedItem] {
+        var plan = plan
+        var index = max(start, 1)
+        while index < plan.count {
+            let previous = plan[index - 1].card.key.word
+            if plan[index].card.key.word == previous,
+               let other = plan.indices.dropFirst(index + 1).first(where: { plan[$0].card.key.word != previous }) {
+                plan.swapAt(index, other)
+            }
+            index += 1
+        }
+        return plan
+    }
 }

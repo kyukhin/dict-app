@@ -24,6 +24,11 @@ class ExercisePage: BasePage {
     var summary: XCUIElement { element(IDs.summary) }
     var summaryDone: XCUIElement { app.buttons[IDs.summaryDone].firstMatch }
 
+    /// A summary value's text (#161): `IDs.summaryExercises` reads "11".
+    func summaryValue(_ identifier: String) -> String {
+        element(identifier).label
+    }
+
     func option(_ index: Int) -> XCUIElement {
         app.buttons[IDs.option(index)].firstMatch
     }

@@ -492,6 +492,45 @@ final class ArabicLocalizationTests: XCTestCase {
         attachScreenshot("learn home (ar)")
     }
 
+    /// 0131, #161: Start and mistakes practice in Arabic, mirrored. The home
+    /// reads "ابدأ" and "تدرّب على الأخطاء · …"; after the two mistakes, the
+    /// summary's titles sit right of their values. Bare `ar` formats numbers
+    /// in Arabic-Indic digits on iOS 17.5 and in Western ones on iOS 26, so
+    /// the values are compared in Western digits (as
+    /// `testEntryCountRendersCorrectlyInArabicContext` accepts both).
+    func testSessionRightToLeft() throws {
+        app.terminate()
+        app.launchArguments += ["-learningFixture", "mistakes", "-learningAnswerHints", "-learningSeed", "161",
+                                "-learning_answer_mode", "choice"]
+        app.launch()
+        XCTAssertTrue(app.waitForDictionariesReady(), "Search screen after launch")
+        tapTab(ArabicTab.learn)
+        let learnPage = LearnPage(app: app)
+        XCTAssertTrue(learnPage.waitForHome(timeout: TestData.Timeouts.long), "the Learn home")
+        XCTAssertTrue(learnPage.startButton.waitForExistence(timeout: TestData.Timeouts.medium), "Start")
+        XCTAssertEqual(learnPage.startButton.label, "ابدأ")
+        XCTAssertTrue(learnPage.mistakesRow.waitForExistence(timeout: TestData.Timeouts.medium), "the mistakes row")
+        XCTAssertTrue(Self.visible(learnPage.mistakesRow.label).hasPrefix("تدرّب على الأخطاء"), learnPage.mistakesRow.label)
+        attachScreenshot("learn home with Start (ar)")
+
+        let run = learnPage.openMistakes()
+        for question in 1...2 {
+            XCTAssertTrue(run.waitForQuestionOrSummary(), "question \(question)")
+            XCTAssertNotNil(run.choose(right: true), "question \(question): the answer hint")
+            XCTAssertEqual(run.waitForFeedback(), "right")
+            run.tapContinue()
+        }
+        XCTAssertTrue(run.summary.waitForExistence(timeout: TestData.Timeouts.long), "the summary")
+        XCTAssertEqual(Self.westernDigits(run.summaryValue(AccessibilityIdentifiers.Exercise.summaryExercises)), "2")
+        let goal = app.descendants(matching: .any)[AccessibilityIdentifiers.Exercise.summaryGoal].firstMatch
+        XCTAssertEqual(Self.westernDigits(Self.visible(goal.label)), "3 من 20",
+                       "today's mistake and the two answers, of 20")
+        let title = app.staticTexts["الهدف اليومي"].firstMatch
+        XCTAssertTrue(title.exists, "the goal row's title in Arabic")
+        XCTAssertGreaterThan(title.frame.minX, goal.frame.maxX, "RTL: the title on the right, the value on the left")
+        attachScreenshot("run summary (ar)")
+    }
+
     /// The pushed detail's navigation bar (its `identifier` is the title)
     /// starts with U+200F and reads "<name> – الإنجليزية" in logical order.
     private func assertDetailTitle(leadingWith name: String, english: String,
@@ -511,6 +550,14 @@ final class ArabicLocalizationTests: XCTestCase {
     private static func visible(_ s: String) -> String {
         let marks: Set<Unicode.Scalar> = ["\u{200F}", "\u{2068}", "\u{2069}"]
         return String(s.unicodeScalars.filter { !marks.contains($0) })
+    }
+
+    /// `s` with its Arabic-Indic digits (٠–٩) as Western ones (0–9).
+    private static func westernDigits(_ s: String) -> String {
+        String(s.map { character in
+            guard let index = arabicIndicDigits.firstIndex(of: character) else { return character }
+            return Character(String(arabicIndicDigits.distance(from: arabicIndicDigits.startIndex, to: index)))
+        })
     }
 
     /// Keeps a full-screen screenshot in the result bundle for a human check.

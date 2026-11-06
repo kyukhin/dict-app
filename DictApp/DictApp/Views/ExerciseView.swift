@@ -2,8 +2,9 @@
 // The runs (0131-learning.md, "Exercises" and "Instant feedback", #159):
 // the run screen with its close button and progress bar, the three
 // questions, the feedback bar and the summary. The views render the
-// questions and states `ExerciseRunViewModel` gives them. #161 adds the
-// session's summary, #160 `MatchPairsView`.
+// questions and states `ExerciseRunViewModel` gives them; the summary of a
+// trainer, the session and mistakes practice (#161). #160 adds
+// `MatchPairsView`.
 
 import SwiftUI
 
@@ -111,7 +112,7 @@ struct ExerciseRunView: View {
                 }
             }
         case .summary:
-            RunSummaryView(summary: vm.summary ?? ReviewSummary()) {
+            RunSummaryView(summary: vm.summary ?? ReviewSummary(), goal: vm.goalProgress) {
                 dismiss()
             }
             .frame(maxWidth: Self.maxWidth)
@@ -508,11 +509,12 @@ struct FeedbackBar: View {
 
 // MARK: - Summary
 
-// #161 adds the daily goal's progress.
 /// The end of a run: exercises, right answers in %, new words, reviewed
-/// words and time, from the run's log rows (`ReviewSummary`).
+/// words and time, from the run's log rows (`ReviewSummary`), and the daily
+/// goal's progress (E10).
 struct RunSummaryView: View {
     let summary: ReviewSummary
+    let goal: GoalProgress?
     let onDone: () -> Void
 
     var body: some View {
@@ -526,14 +528,23 @@ struct RunSummaryView: View {
                     .font(.title.bold())
                     .accessibilityAddTraits(.isHeader)
                 VStack(spacing: 12) {
-                    row("run.summary.exercises") { Text(summary.exercises, format: .number) }
-                    row("run.summary.accuracy") {
+                    row("run.summary.exercises", id: "run_summary_exercises") {
+                        Text(summary.exercises, format: .number)
+                    }
+                    row("run.summary.accuracy", id: "run_summary_accuracy") {
                         Text(summary.accuracy ?? 0, format: .percent.precision(.fractionLength(0)))
                     }
-                    row("run.summary.newWords") { Text(summary.newWords, format: .number) }
-                    row("run.summary.reviewed") { Text(summary.reviewedWords, format: .number) }
-                    row("run.summary.time") {
+                    row("run.summary.newWords", id: "run_summary_new_words") { Text(summary.newWords, format: .number) }
+                    row("run.summary.reviewed", id: "run_summary_reviewed") {
+                        Text(summary.reviewedWords, format: .number)
+                    }
+                    row("run.summary.time", id: "run_summary_time") {
                         Text(Duration.milliseconds(summary.timeMs), format: .time(pattern: .minuteSecond))
+                    }
+                    if let goal {
+                        row("run.summary.goal", id: "run_summary_goal") {
+                            Text("run.summary.goal.value \(goal.answered) \(goal.goal)")
+                        }
                     }
                 }
                 .padding()
@@ -552,10 +563,12 @@ struct RunSummaryView: View {
         .accessibilityIdentifier("run_summary")
     }
 
-    private func row(_ title: LocalizedStringKey, @ViewBuilder value: () -> Text) -> some View {
+    /// A number; `id` on its value, for UI tests.
+    private func row(_ title: LocalizedStringKey, id: String, @ViewBuilder value: () -> Text) -> some View {
         LabeledContent {
             value()
                 .monospacedDigit()
+                .accessibilityIdentifier(id)
         } label: {
             Text(title)
         }

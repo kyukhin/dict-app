@@ -9,19 +9,19 @@ struct LearnView: View {
     @StateObject private var vm = LearnViewModel()
     @Environment(\.locale) private var locale
     @Environment(\.layoutDirection) private var layoutDirection
-    /// The trainer running in the full-screen cover.
-    @State private var trainer: Trainer?
+    /// The run in the full-screen cover: the session, mistakes or a trainer.
+    @State private var running: RunRequest?
 
     /// The screens the home pushes.
     enum Route: Hashable {
         case myWords
     }
 
-    /// A trainer run of `kind` in `lang`, the chosen language, with its
-    /// pair's meanings language (nil without a pair).
-    struct Trainer: Identifiable {
+    /// A run in `lang`, the chosen language, with its pair's meanings
+    /// language (nil without a pair).
+    struct RunRequest: Identifiable {
         let id = UUID()
-        let kind: CardKind
+        let run: ExerciseRunViewModel.Run
         let lang: String
         let meaningsLang: String?
     }
@@ -52,10 +52,10 @@ struct LearnView: View {
             .task {
                 await vm.load(locale: locale)
             }
-            .fullScreenCover(item: $trainer, onDismiss: {
+            .fullScreenCover(item: $running, onDismiss: {
                 Task { await vm.load(locale: locale) }
-            }) { trainer in
-                ExerciseRunView(run: .trainer(trainer.kind), lang: trainer.lang, meaningsLang: trainer.meaningsLang)
+            }) { request in
+                ExerciseRunView(run: request.run, lang: request.lang, meaningsLang: request.meaningsLang)
                     .environment(\.locale, locale)
                     .environment(\.layoutDirection, layoutDirection)
             }
@@ -73,10 +73,30 @@ struct LearnView: View {
                 }
             }
             Section("learn.today") {
-                // #164 adds the daily goal ring and the streak here, #161 Start.
+                // #164 adds the daily goal ring and the streak here.
                 today
+                if case .counts? = vm.today {
+                    Button {
+                        start(.session)
+                    } label: {
+                        Text("learn.start")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.large)
+                    .accessibilityIdentifier("learn_start_button")
+                }
             }
-            // #161 adds Practise mistakes here.
+            if vm.mistakeCount > 0 {
+                Section {
+                    Button {
+                        start(.mistakes)
+                    } label: {
+                        Label("learn.mistakes \(vm.mistakeCount)", systemImage: "arrow.uturn.backward.circle")
+                    }
+                    .accessibilityIdentifier("learn_mistakes_row")
+                }
+            }
             Section {
                 trainerRow(.recognition, title: "learn.trainer.recognition", symbol: "eye",
                            id: "learn_trainer_recognition")
@@ -141,12 +161,16 @@ struct LearnView: View {
         }
     }
 
+    /// Opens `run` in the chosen language, with its pair's meanings language.
+    private func start(_ run: ExerciseRunViewModel.Run) {
+        guard let language = vm.language else { return }
+        running = RunRequest(run: run, lang: language, meaningsLang: vm.pair?.meaningsLang)
+    }
+
     /// A trainer: 10 items of its own direction in the chosen language.
     private func trainerRow(_ kind: CardKind, title: LocalizedStringKey, symbol: String, id: String) -> some View {
         Button {
-            if let language = vm.language {
-                trainer = Trainer(kind: kind, lang: language, meaningsLang: vm.pair?.meaningsLang)
-            }
+            start(.trainer(kind))
         } label: {
             Label(title, systemImage: symbol)
         }
