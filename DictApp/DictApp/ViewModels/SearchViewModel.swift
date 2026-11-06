@@ -59,6 +59,15 @@ final class SearchViewModel: ObservableObject {
             .sink { [weak self] _ in self?.refreshIfNeeded() }
             .store(in: &cancellables)
 
+        // Issue #242: a pack installed, updated or removed while Search is
+        // open re-runs the current query once, so a new language shows
+        // without a restart. The selection reloads too (its chip appears);
+        // the debounce folds that re-run into this one.
+        NotificationCenter.default.publisher(for: PackService.didChange, object: PackService.shared)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in self?.refreshIfNeeded() }
+            .store(in: &cancellables)
+
         // Issue #145: a chip (or a Settings switch, a reorder, an import that
         // reloads the list) re-runs the current query at once. The selection writes the store before it
         // publishes, so `onQueryChanged` reads the new setting; the debounce

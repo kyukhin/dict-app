@@ -56,6 +56,16 @@ final class DictionarySelection: ObservableObject {
             .dropFirst()
             .sink { [weak self] language in self?.retitle(locale: Locale(identifier: language.code)) }
             .store(in: &cancellables)
+
+        // Issue #242: a pack installed, updated or removed changes the
+        // dictionaries; reload, so a new language's chip appears at once.
+        NotificationCenter.default.publisher(for: PackService.didChange, object: PackService.shared)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                guard let self else { return }
+                Task { await self.load() }
+            }
+            .store(in: &cancellables)
     }
 
     /// The selection that owns `settings`: `.shared` for the app's settings.

@@ -155,6 +155,15 @@ struct DictApp: App {
                 SettingsService.shared.packsOffered = true
             }
 
+            // Issue #242: every download is answered from the committed
+            // assets (the `-packFixtures` folder, else the source tree's
+            // `Packs/`), never the network, in a mode: ok, slow, offline,
+            // failOnce, http404, corrupt, noSpace, expiredResume.
+            if let mode = Self.argument(after: "-packDownloads").flatMap(PackFixtureURLProtocol.Mode.init(rawValue:)) {
+                let assets = Self.argument(after: "-packFixtures").map { URL(fileURLWithPath: $0) }
+                await PackService.shared.useFixtureDownloads(mode, assets: assets)
+            }
+
             // Issue #237, last of the hooks: install packs from the committed
             // assets through the install path, with no network.
             if let packs = Self.argument(after: "-installPacks"), let assets = Self.argument(after: "-packFixtures") {
