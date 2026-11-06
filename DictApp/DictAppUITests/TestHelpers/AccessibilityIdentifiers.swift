@@ -146,6 +146,10 @@ struct AccessibilityIdentifiers {
         /// The Trainers section (#159).
         static let trainerRecognition = "learn_trainer_recognition"
         static let trainerProduction = "learn_trainer_production"
+        /// Today's Start, the daily session (#161); hidden when all is done.
+        static let startButton = "learn_start_button"
+        /// "Practise mistakes · 2 words" (#161); hidden at 0.
+        static let mistakesRow = "learn_mistakes_row"
     }
 
     // MARK: - Exercises (0131, #159)
@@ -167,6 +171,13 @@ struct AccessibilityIdentifiers {
         static let continueButton = "exercise_continue"
         static let summary = "run_summary"
         static let summaryDone = "run_summary_done"
+        /// The summary's values (#161).
+        static let summaryExercises = "run_summary_exercises"
+        static let summaryAccuracy = "run_summary_accuracy"
+        static let summaryNewWords = "run_summary_new_words"
+        static let summaryReviewed = "run_summary_reviewed"
+        static let summaryTime = "run_summary_time"
+        static let summaryGoal = "run_summary_goal"
     }
 
     // MARK: - My words (0131, #158: the former Bookmarks list)

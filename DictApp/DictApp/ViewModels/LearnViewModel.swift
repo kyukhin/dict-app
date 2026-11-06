@@ -31,6 +31,9 @@ final class LearnViewModel: ObservableObject {
     /// What each picker row still has to download, in bytes; 0 or absent: nothing.
     @Published private(set) var downloadSizes: [LearningPair: Int64] = [:]
     @Published private(set) var today: Today?
+    /// Words of the chosen language with a card in mistakes practice: wrong
+    /// in the last 7 days and not right since. 0 hides the row.
+    @Published private(set) var mistakeCount = 0
     /// My words that resolve, in every language.
     @Published private(set) var myWordsCount = 0
     /// False until the first load ends, so the picker never flashes before the home.
@@ -53,8 +56,8 @@ final class LearnViewModel: ObservableObject {
     /// The languages with built-in lists: the picker's first group.
     var languagesWithLists: Set<String> { languages.packs.languagesWithLists }
 
-    /// The trainers need a word in learning; else "Learn a few words first".
-    // ponytail: #161 also enables them for a checked list (E3 #151)
+    /// The trainers need a word in learning or a checked list of the
+    /// language; else "Learn a few words first".
     var canTrain: Bool {
         switch today {
         case .counts?, .allDone?: return true
@@ -112,21 +115,44 @@ final class LearnViewModel: ObservableObject {
         }
     }
 
+    /// Today's counts, as Start's session would ask them: the words due,
+    /// and the new words left (`NewWordPicker`: My words first, then the
+    /// checked lists, those with a meaning in the pair); and the mistakes.
+    /// Due and mistake words count only with a meaning in the pair, as the
+    /// runs ask them, so Start and the mistakes row never open an empty
+    /// run. Nothing to learn yet (no word in learning, no list of the
+    /// language checked): the empty state.
     private func loadHome() async throws {
         guard let language else { return }
         let day = clock.today
         pair = try await languages.pair(for: language)
         myWordsCount = try await db.fetchMyWords().count
-        // ponytail: #154 also counts the language's checked lists here
-        guard try await db.learningWordCount(lang: language) > 0 else {
+        var hasWork = try await db.learningWordCount(lang: language) > 0
+        if !hasWork { hasWork = try await hasCheckedLists(language) }
+        guard hasWork else {
             today = languagesWithLists.contains(language) ? .chooseLists : .addWords
+            mistakeCount = 0
             return
         }
-        let due = Set(try await db.dueCards(lang: language, today: day).map(\.key.word)).count
-        let left = settings.learningNewPerDay - (try await db.startedCount(on: day, lang: language))
-        // ponytail: #161 adds the checked lists' next words
-        let newLeft = try await db.newPool(lang: language, limit: left).count
+        let meaningsLang = pair?.meaningsLang
+        let sourceOrder = try await languages.sourceOrder(lang: language, meaningsLang: meaningsLang)
+        let dueWords = Set(try await db.dueCards(lang: language, today: day).map(\.key.word))
+        let mistakeWords = Set(try await db.mistakeCards(since: SessionPlanner.mistakesSince(today: day), lang: language)
+            .map(\.key.word))
+        let asked = try await db.wordsWithMeaning(dueWords.union(mistakeWords), lang: language,
+                                                  meaningsLang: meaningsLang, sourceOrder: sourceOrder)
+        let due = dueWords.intersection(asked).count
+        let newLeft = try await NewWordPicker(db: db, settings: settings)
+            .pick(lang: language, meaningsLang: meaningsLang, sourceOrder: sourceOrder, today: day).count
         today = due == 0 && newLeft == 0 ? .allDone : .counts(due: due, newLeft: newLeft)
+        mistakeCount = mistakeWords.intersection(asked).count
+    }
+
+    /// A list of `lang` is checked (`learning_lists`): new words come from it.
+    private func hasCheckedLists(_ lang: String) async throws -> Bool {
+        let checked = settings.learningListIDs
+        guard !checked.isEmpty else { return false }
+        return try await db.wordLists().contains { checked.contains($0.id) && $0.lang == lang }
     }
 
     /// A learned language's name in the UI language, as the production
@@ -173,6 +199,13 @@ final class LearnViewModel: ObservableObject {
 
 // MARK: - Runs (#159, #161)
 
+/// The daily goal after a run: exercises answered today in every language,
+/// and the goal (E10, #163).
+struct GoalProgress: Equatable {
+    let answered: Int
+    let goal: Int
+}
+
 /// A graded answer, as the feedback bar shows it.
 struct AnswerFeedback: Equatable {
     let outcome: Outcome
@@ -190,14 +223,21 @@ struct AnswerFeedback: Equatable {
 /// card once. Its summary is `ReviewSummary` over the run's log rows.
 @MainActor
 final class ExerciseRunViewModel: ObservableObject {
-    /// What runs. #161 adds the session and mistakes practice.
+    /// What runs, in the chosen language.
     enum Run: Hashable {
         /// Recognition or Production: 10 items of its own direction.
         case trainer(CardKind)
+        /// Start, the daily session (#161): due cards, then new words.
+        case session
+        /// Practise mistakes (#161): the cards wrong in the last 7 days and
+        /// not right since.
+        case mistakes
 
         var mode: RunMode {
             switch self {
             case .trainer: return .trainer
+            case .session: return .session
+            case .mistakes: return .mistakes
             }
         }
     }
@@ -223,6 +263,8 @@ final class ExerciseRunViewModel: ObservableObject {
     @Published private(set) var answered = 0
     /// The summary's numbers, from this run's log rows; nil until the end.
     @Published private(set) var summary: ReviewSummary?
+    /// The daily goal at the end of the run; nil until then.
+    @Published private(set) var goalProgress: GoalProgress?
     @Published var errorMessage: String?
 
     let run: Run
@@ -273,34 +315,58 @@ final class ExerciseRunViewModel: ObservableObject {
         self.answerHints = answerHints
     }
 
-    /// Plans the run and shows its first question.
+    /// Plans the run and shows its first question. Cards are read whole,
+    /// then filtered: a word without a meaning in this pair (rule 4) must
+    /// not take the place of one with a meaning.
     func start() async {
         guard !isStarted else { return }
         isStarted = true
         do {
             let today = clock.today
             sourceOrder = try await languages.sourceOrder(lang: lang, meaningsLang: meaningsLang)
-            enrolled = try await db.wordChoices(lang: lang, meaningsLang: meaningsLang, sourceOrder: sourceOrder)
-            words = Dictionary(enrolled.map { ($0.key, $0) }, uniquingKeysWith: { a, _ in a })
+            try await loadWords()
             switch run {
             case let .trainer(kind):
-                let length = SessionPlanner.trainerLength
-                // Read whole, then filtered: a word without a meaning in this
-                // pair (rule 4) must not take the place of one with a meaning.
-                // The planner takes the first 10.
-                let due = try await db.dueCards(lang: lang, today: today, kinds: [kind])
-                let left = settings.learningNewPerDay - (try await db.startedCount(on: today, lang: lang))
-                // ponytail: #161 adds the checked lists' next words
-                let newWords = Array(try await db.newPool(lang: lang, limit: .max).filter(hasMeaning)
-                    .prefix(max(min(left, length), 0)))
-                let practice = try await db.practiceCards(lang: lang, kind: kind, limit: .max)
-                plan = SessionPlanner.trainer(kind: kind, due: due.filter(hasMeaning), newWords: newWords,
-                                              practice: practice.filter(hasMeaning), today: today)
+                // The planner takes the first 10; new words only fill the room the due cards leave.
+                let due = try await db.dueCards(lang: lang, today: today, kinds: [kind]).filter(hasMeaning)
+                let newWords = try await startNewWords(today: today, limit: SessionPlanner.trainerLength - due.count)
+                let practice = try await db.practiceCards(lang: lang, kind: kind, limit: .max).filter(hasMeaning)
+                plan = SessionPlanner.trainer(kind: kind, due: due, newWords: newWords, practice: practice, today: today)
+            case .session:
+                let due = try await db.dueCards(lang: lang, today: today).filter(hasMeaning)
+                let newWords = try await startNewWords(today: today)
+                plan = SessionPlanner.session(due: due, newWords: newWords, today: today)
+            case .mistakes:
+                let cards = try await db.mistakeCards(since: SessionPlanner.mistakesSince(today: today), lang: lang)
+                plan = SessionPlanner.mistakes(cards: cards.filter(hasMeaning))
             }
         } catch {
             errorMessage = error.localizedDescription
         }
         await show()
+    }
+
+    /// The words of `lang` in learning with their meanings in the pair: the
+    /// questions' words and their first options.
+    private func loadWords() async throws {
+        enrolled = try await db.wordChoices(lang: lang, meaningsLang: meaningsLang, sourceOrder: sourceOrder)
+        words = Dictionary(enrolled.map { ($0.key, $0) }, uniquingKeysWith: { a, _ in a })
+    }
+
+    /// The new words this run starts, at most `limit` within the daily limit
+    /// (`NewWordPicker`). The checked lists' words picked get their rows and
+    /// two new cards now (`introduce`), so they are asked like the others;
+    /// if the run is closed before they are answered, they come first next
+    /// time.
+    private func startNewWords(today: LearnDay, limit: Int = .max) async throws -> [LearnWord] {
+        let pick = try await NewWordPicker(db: db, settings: settings)
+            .pick(lang: lang, meaningsLang: meaningsLang, sourceOrder: sourceOrder, today: today, limit: limit)
+        guard !pick.lists.isEmpty else { return pick.pool }
+        try await db.introduce(pick.lists, sourceOrder: sourceOrder, today: today)
+        try await loadWords()
+        let pool = Dictionary(try await db.newPool(lang: lang, limit: .max).map { ($0.key, $0) },
+                              uniquingKeysWith: { a, _ in a })
+        return pick.pool + pick.lists.compactMap { pool[$0.key] }
     }
 
     /// Grades the option tapped.
@@ -343,10 +409,6 @@ final class ExerciseRunViewModel: ObservableObject {
         !(words[card.key.word]?.meaning.isEmpty ?? true)
     }
 
-    private func hasMeaning(_ word: LearnWord) -> Bool {
-        !(words[word.key]?.meaning.isEmpty ?? true)
-    }
-
     /// Builds and shows the question of `plan[index]`, skipping without a
     /// log row the cards that have none; after the last, the summary.
     private func show() async {
@@ -363,7 +425,9 @@ final class ExerciseRunViewModel: ObservableObject {
                 phase = .question
                 return
             }
+            // Skipped: the cards around it may now be of one word.
             plan.remove(at: index)
+            plan = SessionPlanner.separatingWords(plan, from: index)
         }
         question = nil
         total = plan.count
@@ -376,10 +440,12 @@ final class ExerciseRunViewModel: ObservableObject {
     }
 
     /// The summary's numbers from this run's log rows (`reviewRows(run:)`),
-    /// as Today's come from the day's.
+    /// as Today's come from the day's, and the daily goal.
     private func loadSummary() async {
         do {
             summary = ReviewSummary.of(try await db.reviewRows(run: runID))
+            goalProgress = GoalProgress(answered: try await db.answeredCount(on: clock.today),
+                                        goal: settings.learningDailyGoal)
         } catch {
             summary = summary ?? ReviewSummary()
             errorMessage = error.localizedDescription
@@ -440,12 +506,13 @@ final class ExerciseRunViewModel: ObservableObject {
     }
 
     /// Writes the answer with the daily goal in force (E10's `learn_day`),
-    /// and requeues a wrong card at the end.
+    /// and requeues a wrong card at the end, apart from its word's other card.
     private func write(_ record: AnswerRecord, today: LearnDay, wrongAt index: Int?) async {
         do {
             let card = try await db.recordAnswer(record, today: today, goal: settings.learningDailyGoal)
             if let index {
-                plan = SessionPlanner.requeue(plan, wrongAt: index, card: card)
+                plan = SessionPlanner.separatingWords(SessionPlanner.requeue(plan, wrongAt: index, card: card),
+                                                      from: index + 1)
                 total = plan.count
             }
             errorMessage = nil

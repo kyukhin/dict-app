@@ -21,6 +21,8 @@ class LearnPage: BasePage {
     var languageSwitch: XCUIElement { app.segmentedControls[IDs.languageSwitch].firstMatch }
     var trainerRecognition: XCUIElement { app.buttons[IDs.trainerRecognition].firstMatch }
     var trainerProduction: XCUIElement { app.buttons[IDs.trainerProduction].firstMatch }
+    var startButton: XCUIElement { app.buttons[IDs.startButton].firstMatch }
+    var mistakesRow: XCUIElement { app.buttons[IDs.mistakesRow].firstMatch }
 
     /// The picker's row of the pair `lang` via `via`.
     func pickerRow(_ lang: String, via: String) -> XCUIElement {
@@ -73,6 +75,26 @@ class LearnPage: BasePage {
         let row = production ? trainerProduction : trainerRecognition
         XCTAssertTrue(row.waitForExistence(timeout: TestData.Timeouts.medium), "the trainer row")
         XCTAssertTrue(row.isEnabled, "the trainer is enabled")
+        row.tap()
+        let page = ExercisePage(app: app)
+        XCTAssertTrue(page.view.waitForExistence(timeout: TestData.Timeouts.medium), "the run")
+        return page
+    }
+
+    /// Start: the daily session (#161).
+    @discardableResult
+    func startSession() -> ExercisePage {
+        open(startButton, "Start")
+    }
+
+    /// Practise mistakes (#161).
+    @discardableResult
+    func openMistakes() -> ExercisePage {
+        open(mistakesRow, "the mistakes row")
+    }
+
+    private func open(_ row: XCUIElement, _ name: String) -> ExercisePage {
+        XCTAssertTrue(row.waitForExistence(timeout: TestData.Timeouts.medium), name)
         row.tap()
         let page = ExercisePage(app: app)
         XCTAssertTrue(page.view.waitForExistence(timeout: TestData.Timeouts.medium), "the run")

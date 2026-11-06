@@ -1,7 +1,7 @@
 // LearningService.swift
 // Learning words with spaced repetition (0131-learning.md): the services
 // around the store. The clock (#157), the languages (#158), the feedback
-// and the runs' launch options (#159).
+// and the runs' launch options (#159), the new words a run starts (#161).
 
 import AVFoundation
 import Foundation
@@ -184,6 +184,93 @@ final class LearningLanguageService {
         let packs = packs
         // ponytail: #241 shows the install's progress and Try again
         return Task { try await packs.installPair(lang: lang, via: via) }
+    }
+}
+
+// MARK: - New words (#161)
+
+/// The new words a run starts today in one language (0131, "New words"), up
+/// to the daily limit (`learning_new_per_day`) minus the words of the
+/// language started today:
+/// 1. the words in learning never answered, not paused, oldest first: My
+///    words, and list words an unfinished run picked (`newPool`);
+/// 2. then the checked lists' next words (E3's `nextNewWords`, in the
+///    `learning_new_order` order, every key in learning excluded, paused
+///    ones too), which are not in learning yet.
+///
+/// A word without a meaning in the pair takes no slot (Meanings, rule 4):
+/// the pick reads past it, in pages for the lists, and a skipped list word
+/// is not picked, so it gets no row. The Learn home counts the pick; a run
+/// introduces its list words (`DatabaseService.introduce`).
+@MainActor
+struct NewWordPicker {
+    struct Pick: Equatable {
+        /// In learning, never answered.
+        var pool: [LearnWord] = []
+        /// Not in learning yet, in E3's order.
+        var lists: [WordListItem] = []
+
+        var count: Int { pool.count + lists.count }
+    }
+
+    /// The lists' words are read in pages of at least this many.
+    static let pageSize = 10
+
+    let db: DatabaseService
+    let settings: SettingsService
+
+    /// New words left today in `lang`: the daily limit minus the words
+    /// started today, never below 0. The limit is per language.
+    func left(lang: String, today: LearnDay) async throws -> Int {
+        max(0, settings.learningNewPerDay - (try await db.startedCount(on: today, lang: lang)))
+    }
+
+    /// At most `left(lang:today:)` new words, and at most `limit`, each with
+    /// a meaning in `meaningsLang` (nil: Other, rule 3) looked up through
+    /// `sourceOrder`, the pair's dictionaries first.
+    func pick(lang: String, meaningsLang: String?, sourceOrder: [String], today: LearnDay,
+              limit: Int = .max) async throws -> Pick {
+        let wanted = min(try await left(lang: lang, today: today), max(limit, 0))
+        guard wanted > 0 else { return Pick() }
+        var pick = Pick()
+        let pool = try await db.newPool(lang: lang, limit: .max)
+        let poolMeanings = try await db.meanings(of: pool.map(MeaningQuery.init), lang: lang,
+                                                 meaningsLang: meaningsLang, sourceOrder: sourceOrder)
+        pick.pool = Array(pool.filter { poolMeanings[$0.key] != nil }.prefix(wanted))
+        let lists = settings.learningListIDs
+        guard pick.count < wanted, !lists.isEmpty else { return pick }
+        let enrolled = try await db.enrolledKeys()
+        let order = settings.learningNewOrder
+        var read = 0
+        while pick.count < wanted {
+            let count = read + max(wanted - pick.count, Self.pageSize)
+            let items = try await db.nextNewWords(in: lang, from: lists, count: count, excluding: enrolled, order: order)
+            let page = Array(items.dropFirst(read))
+            let meaningful = try await withMeaning(page, lang: lang, meaningsLang: meaningsLang, sourceOrder: sourceOrder)
+            pick.lists += page.filter { meaningful.contains($0.key) }.prefix(wanted - pick.count)
+            guard items.count == count else { break }
+            read = items.count
+        }
+        return pick
+    }
+
+    /// The keys of `items` with a meaning in the pair, as `meanings(of:)`
+    /// finds it once they are in learning: the list's translation, else the
+    /// headword (or term) in the pair's dictionaries; for Other, the
+    /// translation, else the entry the word will open.
+    private func withMeaning(_ items: [WordListItem], lang: String, meaningsLang: String?,
+                             sourceOrder: [String]) async throws -> Set<WordKey> {
+        var queries: [MeaningQuery] = []
+        for item in items {
+            var entry: EntryKey?
+            if meaningsLang == nil, Gloss.listMeaning(translation: item.translation, translationLang: item.translationLang,
+                                                      meaningsLang: nil) == nil {
+                entry = try await db.entry(for: item, sourceOrder: sourceOrder).map(EntryKey.init)
+            }
+            queries.append(MeaningQuery(key: item.key, lookup: item.headword ?? item.term, translation: item.translation,
+                                        translationLang: item.translationLang, entry: entry))
+        }
+        return Set(try await db.meanings(of: queries, lang: lang, meaningsLang: meaningsLang, sourceOrder: sourceOrder).keys)
     }
 }
 

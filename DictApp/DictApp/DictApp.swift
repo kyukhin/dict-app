@@ -149,6 +149,13 @@ struct DictApp: App {
             if let argument = Self.argument(after: "-learningLanguages") {
                 SettingsService.shared.setLearningLanguages(argument: argument)
             }
+            // The lists new words come from (`-learningLists user-fixture-ell`),
+            // until E3's New words from screen (#154) can check them.
+            if let argument = Self.argument(after: "-learningLists") {
+                SettingsService.shared.learningListIDs = Set(argument.split(separator: ",").map {
+                    WordListID(rawValue: String($0))
+                })
+            }
 
             // UI-test hook: scrub the rows and the `imported_sources` row left
             // over from a previous fixture import. The import end-to-end tests

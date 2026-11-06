@@ -2078,6 +2078,29 @@ actor DatabaseService {
         }
     }
 
+    /// The words among `keys`, in learning in `lang`, that have a meaning
+    /// in the pair, as `wordChoices` gives it to the runs: the words a run
+    /// asks (rule 4). For the Learn home's due and mistakes counts (#161).
+    func wordsWithMeaning(_ keys: Set<WordKey>, lang: String, meaningsLang: String?,
+                          sourceOrder: [String]) async throws -> Set<WordKey> {
+        let words = keys.filter { $0.lang == lang }.map(\.word)
+        guard !words.isEmpty else { return [] }
+        let pool = try await userPool()
+        let schemas = schemas
+        return try await read(pool) { db in
+            var learnWords: [LearnWord] = []
+            for start in stride(from: 0, to: words.count, by: 500) {
+                let chunk = Array(words[start..<min(start + 500, words.count)])
+                learnWords += try Row.fetchAll(db, sql: """
+                    SELECT * FROM learn_word WHERE lang = ? AND word IN (\(chunk.map { _ in "?" }.joined(separator: ", ")))
+                    """, arguments: StatementArguments([lang] + chunk)).map(Self.learnWord)
+            }
+            let meanings = try Self.meanings(of: learnWords.map(MeaningQuery.init), lang: lang, meaningsLang: meaningsLang,
+                                             sourceOrder: sourceOrder, schemas: schemas, in: db)
+            return Set(meanings.filter { !$0.value.text.isEmpty }.keys)
+        }
+    }
+
     /// The words of `lang` in learning, paused ones included, as questions
     /// ask them and as options (#159): each with its meaning in
     /// `meaningsLang` (`meanings(of:)`, with the dictionary that gave it)
@@ -2322,7 +2345,12 @@ actor DatabaseService {
     /// καλός, είμαι in My words, new) and `bilingual` (γράφω and σπίτι due in
     /// Greek, house and water in English, all in My words). #159: `due` (the
     /// five words of `myWords5` due today on rungs 1, 2, 3, 1, 2, and βιβλίο
-    /// learned, due in 20 days).
+    /// learned, due in 20 days). #161: `session` (`due`, and the Greek list
+    /// `user-fixture-ell` of four words with English translations, to check
+    /// with `-learningLists`) and `mistakes` (`myWords5` on the 7-day rung,
+    /// with wrong answers: γράφω's recognition today and σπίτι's production
+    /// 6 days ago, in mistakes practice; νερό's recognition 7 days ago, out
+    /// of it; καλός's recognition 3 days ago, right the day after).
     func writeLearningFixture(_ name: String, today: LearnDay) async throws -> [String]? {
         func greek(_ word: String) -> EntryKey { EntryKey(source: "freedict-ell-eng", word: word) }
         let myWords5 = ["γράφω", "σπίτι", "νερό", "καλός", "είμαι"]
@@ -2330,6 +2358,58 @@ actor DatabaseService {
         case "myWords5":
             for word in myWords5 {
                 try await learnWord(greek(word), today: today)
+            }
+            return ["ell"]
+        case "session":
+            _ = try await writeLearningFixture("due", today: today)
+            let pool = try await userPool()
+            try await pool.write { db in
+                try db.execute(sql: """
+                    INSERT INTO user_list(id, title, lang, origin) VALUES ('user-fixture-ell', 'Fixture', 'ell', 'paste')
+                    """)
+                let words = [("θάλασσα", "sea"), ("ήλιος", "sun"), ("ψωμί", "bread"), ("φίλος", "friend")]
+                for (seq, (term, translation)) in words.enumerated() {
+                    try db.execute(sql: """
+                        INSERT INTO user_list_item(list_id, term, headword, translation, seq, sort_key)
+                        VALUES ('user-fixture-ell', ?, ?, ?, ?, ?)
+                        """, arguments: [term, term, translation, seq, WordListItem.sortKey(of: term)])
+                }
+            }
+            return ["ell"]
+        case "mistakes":
+            for word in myWords5 {
+                try await learnWord(greek(word), today: today)
+            }
+            let pool = try await userPool()
+            try await pool.write { db in
+                try db.execute(sql: "UPDATE learn_card SET step = 3, last_day = ?, due_day = ? WHERE lang = 'ell'",
+                               arguments: [today.adding(days: -1).rawValue, today.adding(days: 6).rawValue])
+                try db.execute(sql: "UPDATE learn_word SET introduced_day = ? WHERE lang = 'ell'",
+                               arguments: [today.adding(days: -30).rawValue])
+                // In the order answered: word, card, days ago, right. A wrong
+                // answer leaves its card learning, due that day.
+                let answers = [("νερό", CardKind.recognition, 7, false), ("σπίτι", .production, 6, false),
+                               ("καλός", .recognition, 3, false), ("καλός", .recognition, 2, true),
+                               ("γράφω", .recognition, 0, false)]
+                var steps: [String: Int] = [:]
+                for (word, kind, ago, right) in answers {
+                    let day = today.adding(days: -ago)
+                    let before = steps[word + kind.rawValue] ?? 3
+                    let after = right ? 1 : 0
+                    steps[word + kind.rawValue] = after
+                    try db.execute(sql: """
+                        UPDATE learn_card SET step = ?, last_day = ?, due_day = ?
+                        WHERE lang = 'ell' AND word = ? AND kind = ?
+                        """, arguments: [after, day.rawValue, (right ? day.adding(days: 1) : day).rawValue, word,
+                                         kind.rawValue])
+                    try db.execute(sql: """
+                        INSERT INTO learn_review(day, lang, word, kind, exercise, mode, run_id, outcome,
+                                                 step_before, step_after)
+                        VALUES (?, 'ell', ?, ?, ?, 'session', 'fixture-mistakes', ?, ?, ?)
+                        """, arguments: [day.rawValue, word, kind.rawValue,
+                                         (kind == .recognition ? ExerciseKind.recognition : .productionChoice).rawValue,
+                                         right ? "right" : "wrong", before, after])
+                }
             }
             return ["ell"]
         case "due":
