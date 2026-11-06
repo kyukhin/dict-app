@@ -19345,3 +19345,258 @@ final class LearningStatsStoreTests: XCTestCase {
         XCTAssertEqual(streak.current, 1)
     }
 }
+
+// MARK: - Issue #171: grammar topics, the format and the build (0133-grammar.md)
+
+/// The grammar rows `Scripts/build_grammar.py` writes and `Scripts/cut_packs.py`
+/// routes into the Greek pack (0133, "Build step" and "Data placement"),
+/// against the topic sources in `Scripts/data/grammar/<explain_lang>/`, read
+/// through `#filePath`. Until #173 commits the 17 A1 topics the sources and
+/// the pack hold none, and these tests check that they agree on that.
+final class GrammarFileTests: XCTestCase {
+
+    /// The repository root.
+    private static let repository = URL(fileURLWithPath: #filePath)
+        .deletingLastPathComponent()  // DictAppTests
+        .deletingLastPathComponent()  // DictApp
+        .deletingLastPathComponent()
+
+    /// E5's `ConjugationTense` raw values (0132, "Tenses and levels").
+    private static let tenses: Set<String> = [
+        "present", "imperfect", "aorist", "future", "imperativeContinuous", "imperativeSimple", "futureContinuous",
+        "perfect", "pluperfect", "futurePerfect", "subjunctiveContinuous", "subjunctiveSimple",
+    ]
+    private static let classes: Set<String> = ["verb", "verb.conj1", "verb.conj2", "verb.passive", "noun", "adj"]
+    /// Link kinds and their front matter keys.
+    private static let linkKeys = ["word": "words", "topic": "topics", "tense": "tenses", "class": "classes"]
+
+    /// One topic file: its front matter and its title.
+    private struct SourceText {
+        let explainLang: String
+        let id: String
+        let front: [String: String]
+        let title: String
+
+        init?(explainLang: String, text: String) {
+            let lines = text.precomposedStringWithCanonicalMapping.components(separatedBy: "\n")
+            guard lines.first?.trimmingCharacters(in: .whitespaces) == "---",
+                  let end = lines.indices.dropFirst().first(where: {
+                      lines[$0].trimmingCharacters(in: .whitespaces) == "---"
+                  }) else { return nil }
+            var front: [String: String] = [:]
+            for line in lines[1..<end] {
+                guard let colon = line.firstIndex(of: ":") else { continue }
+                front[line[..<colon].trimmingCharacters(in: .whitespaces)] =
+                    line[line.index(after: colon)...].trimmingCharacters(in: .whitespaces)
+            }
+            self.explainLang = explainLang
+            self.id = front["id"] ?? ""
+            self.front = front
+            self.title = lines[(end + 1)...].first { $0.hasPrefix("# ") }
+                .map { $0.dropFirst(2).trimmingCharacters(in: .whitespaces) } ?? ""
+        }
+
+        /// A front matter list, in its order.
+        func list(_ key: String) -> [String] {
+            (front[key] ?? "").split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }
+                .filter { !$0.isEmpty }
+        }
+    }
+
+    /// Every topic file of `<source>/<explain_lang>/`, as the build reads
+    /// them: the top-level files (README, checklist, review drafts) are no
+    /// topics. `Scripts/data/grammar` has none before #173.
+    private static func sourceTexts(in source: String = "Scripts/data/grammar") throws -> [SourceText] {
+        let manager = FileManager.default
+        let root = repository.appendingPathComponent(source, isDirectory: true)
+        let folders = ((try? manager.contentsOfDirectory(at: root, includingPropertiesForKeys: [.isDirectoryKey])) ?? [])
+            .filter { (try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true }
+            .sorted { $0.lastPathComponent < $1.lastPathComponent }
+        var texts: [SourceText] = []
+        for folder in folders {
+            let files = try manager.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)
+                .filter { $0.pathExtension == "md" }
+                .sorted { $0.lastPathComponent < $1.lastPathComponent }
+            for file in files {
+                let text = try String(contentsOf: file, encoding: .utf8)
+                texts.append(try XCTUnwrap(SourceText(explainLang: folder.lastPathComponent, text: text),
+                                           "\(folder.lastPathComponent)/\(file.lastPathComponent) has front matter"))
+            }
+        }
+        return texts
+    }
+
+    /// The grammar rows of one dictionary file.
+    private struct FileGrammar {
+        /// id → "lang level ord"
+        var topics: [String: String] = [:]
+        /// "<topic id>/<explain lang>" → title
+        var titles: [String: String] = [:]
+        /// "<topic id>/<kind>" → keys in `ord` order
+        var links: [String: [String]] = [:]
+        var dataSource: Row?
+
+        var rowCount: Int { topics.count + titles.count + links.values.map(\.count).reduce(0, +) }
+    }
+
+    private static func grammar(of url: URL) throws -> FileGrammar {
+        try BundledDictionary(url: url).read { db in
+            var file = FileGrammar()
+            for row in try Row.fetchAll(db, sql: "SELECT id, lang, level, ord FROM grammar_topic") {
+                let id: String = row["id"], lang: String = row["lang"], level: String = row["level"]
+                let ord: Int = row["ord"]
+                file.topics[id] = "\(lang) \(level) \(ord)"
+            }
+            for row in try Row.fetchAll(db, sql: "SELECT topic_id, explain_lang, title FROM grammar_text") {
+                let topic: String = row["topic_id"], explain: String = row["explain_lang"]
+                file.titles["\(topic)/\(explain)"] = row["title"]
+            }
+            for row in try Row.fetchAll(db, sql: "SELECT topic_id, kind, key FROM grammar_link ORDER BY topic_id, kind, ord") {
+                let topic: String = row["topic_id"], kind: String = row["kind"]
+                file.links["\(topic)/\(kind)", default: []].append(row["key"])
+            }
+            file.dataSource = try Row.fetchOne(db, sql: """
+                SELECT kind, display_name, license FROM data_source WHERE id = 'libredict-grammar-ell'
+                """)
+            return file
+        }
+    }
+
+    private static func stubURL() throws -> URL {
+        try TestDictionary.bundledURL().deletingLastPathComponent()
+            .appendingPathComponent(DictionaryFile.stubResourceName + "." + DictionaryFile.resourceExtension)
+    }
+
+    /// The source reader the pack tests compare with, on the self-check's
+    /// valid topic (`Scripts/fixtures/grammar/valid`): its two texts with
+    /// their front matter and titles, and not the README.md beside them.
+    /// Until #173 the real sources are empty, so this keeps those tests from
+    /// passing on a reader that reads nothing or reads a top-level file.
+    func testSourceReaderReadsTheFixtureTopic() throws {
+        let folder = "Scripts/fixtures/grammar/valid"
+        XCTAssertTrue(FileManager.default.fileExists(
+            atPath: Self.repository.appendingPathComponent(folder + "/README.md").path), "a top-level file to skip")
+        let texts = try Self.sourceTexts(in: folder)
+        XCTAssertEqual(texts.map { "\($0.explainLang)/\($0.id)" }, ["eng/ell-valid", "rus/ell-valid"])
+        XCTAssertEqual(texts.map(\.title), ["Fixture: a verb, a noun and an adjective",
+                                            "Проверка: глагол, существительное и прилагательное"])
+        for text in texts {
+            XCTAssertEqual([text.front["lang"], text.front["level"], text.front["order"]], ["ell", "A1", "1"])
+            XCTAssertEqual(text.list("words"), ["γράφω", "σπίτι", "καλός"], text.explainLang)
+            XCTAssertEqual(text.list("tenses"), ["aorist"], text.explainLang)
+            XCTAssertEqual(text.list("classes"), ["verb", "noun", "adj"], text.explainLang)
+            XCTAssertEqual(text.list("topics"), [], text.explainLang)
+        }
+    }
+
+    /// #171: a topic edit lands in the app after a rebuild. Every source file
+    /// has its topic row, its title and its links in the Greek pack, and the
+    /// pack has no topic without a source.
+    func testPackHoldsTheSourceTopics() throws {
+        let sources = try Self.sourceTexts().filter { $0.front["lang"] == "ell" }
+        let pack = try Self.grammar(of: PackFixtures.file(.ell))
+        XCTAssertEqual(Set(pack.topics.keys), Set(sources.map(\.id)), "the pack's topics are the source topics")
+        XCTAssertEqual(Set(pack.titles.keys), Set(sources.map { "\($0.id)/\($0.explainLang)" }),
+                       "one text per source file")
+        for source in sources {
+            let name = "\(source.explainLang)/\(source.id).md"
+            XCTAssertEqual(pack.topics[source.id],
+                           "\(source.front["lang"] ?? "") \(source.front["level"] ?? "") \(source.front["order"] ?? "")",
+                           name)
+            XCTAssertEqual(pack.titles["\(source.id)/\(source.explainLang)"], source.title, name)
+            for (kind, key) in Self.linkKeys {
+                XCTAssertEqual(pack.links["\(source.id)/\(kind)"] ?? [], source.list(key), "\(name): \(key)")
+            }
+        }
+    }
+
+    /// #171: the grammar tables of every file, with their indexes, take at
+    /// most 1 MB (dbstat; the pages the rows fill where SQLite has no dbstat).
+    func testGrammarTablesUnderOneMegabyte() throws {
+        let packs = try PackFixtures.all()
+        for url in [try TestDictionary.bundledURL(), try Self.stubURL()] + PackID.all.compactMap({ packs[$0] }) {
+            let bytes = try BundledDictionary(url: url).read { db -> Int in
+                let tables = "('grammar_topic', 'grammar_text', 'grammar_link')"
+                do {
+                    return try Int.fetchOne(db, sql: """
+                        SELECT COALESCE(SUM(d.pgsize), 0) FROM dbstat AS d
+                        JOIN sqlite_master AS m ON m.name = d.name WHERE m.tbl_name IN \(tables)
+                        """) ?? 0
+                } catch {
+                    return try Int.fetchOne(db, sql: """
+                        SELECT (SELECT COALESCE(SUM(length(CAST(id || lang || level AS BLOB)) + 8), 0) FROM grammar_topic)
+                             + (SELECT COALESCE(SUM(length(CAST(topic_id || explain_lang || title || body AS BLOB))), 0)
+                                FROM grammar_text)
+                             + (SELECT COALESCE(SUM(length(CAST(topic_id || kind || key AS BLOB)) + 8), 0) FROM grammar_link)
+                        """) ?? 0
+                }
+            }
+            XCTAssertLessThanOrEqual(bytes, 1_000_000, url.lastPathComponent)
+        }
+    }
+
+    /// 0237: Greek grammar comes in the Greek pack. Its topics are the
+    /// source topics, all Greek; the bundle and the stub have the three
+    /// tables, empty; no other pack holds a Greek topic.
+    func testGreekGrammarIsInTheGreekPack() throws {
+        let packs = try PackFixtures.all()
+        let greek = try Self.grammar(of: try XCTUnwrap(packs[.ell]))
+        let sourceIDs = Set(try Self.sourceTexts().filter { $0.front["lang"] == "ell" }.map(\.id))
+        XCTAssertEqual(Set(greek.topics.keys), sourceIDs)
+        XCTAssertTrue(greek.topics.values.allSatisfy { $0.hasPrefix("ell ") }, "\(greek.topics)")
+        for url in [try TestDictionary.bundledURL(), try Self.stubURL()] {
+            let file = try Self.grammar(of: url)
+            XCTAssertEqual(file.rowCount, 0, "\(url.lastPathComponent): the grammar tables are empty")
+            XCTAssertNil(file.dataSource, url.lastPathComponent)
+        }
+        for id in PackID.all where id != .ell {
+            let file = try Self.grammar(of: try XCTUnwrap(packs[id]))
+            XCTAssertFalse(file.topics.values.contains { $0.hasPrefix("ell ") }, "\(id) holds no Greek topic")
+            XCTAssertNil(file.dataSource, "\(id): the Greek grammar credit goes with the Greek pack")
+        }
+    }
+
+    /// 0237, #171: every link of the Greek pack resolves: a word is a
+    /// headword of a Greek → English dictionary in the pack, a topic is a
+    /// Greek topic, a tense a `ConjugationTense`, a class one of the six.
+    func testLinksResolve() throws {
+        let links = try BundledDictionary(url: PackFixtures.file(.ell)).read { db in
+            (kinds: try String.fetchAll(db, sql: "SELECT DISTINCT kind FROM grammar_link"),
+             words: try String.fetchAll(db, sql: """
+                SELECT key FROM grammar_link WHERE kind = 'word' AND key NOT IN (
+                    SELECT word FROM entries WHERE source IN (
+                        SELECT source FROM dict_metadata WHERE from_lang = 'ell' AND to_lang = 'eng'))
+                """),
+             topics: try String.fetchAll(db, sql: """
+                SELECT key FROM grammar_link WHERE kind = 'topic'
+                AND key NOT IN (SELECT id FROM grammar_topic WHERE lang = 'ell')
+                """),
+             tenses: try String.fetchAll(db, sql: "SELECT key FROM grammar_link WHERE kind = 'tense'"),
+             classes: try String.fetchAll(db, sql: "SELECT key FROM grammar_link WHERE kind = 'class'"),
+             orphans: try String.fetchAll(db, sql: """
+                SELECT topic_id FROM grammar_link WHERE topic_id NOT IN (SELECT id FROM grammar_topic)
+                UNION SELECT topic_id FROM grammar_text WHERE topic_id NOT IN (SELECT id FROM grammar_topic)
+                """))
+        }
+        XCTAssertTrue(Set(links.kinds).isSubset(of: Self.linkKeys.keys), "\(links.kinds)")
+        XCTAssertEqual(links.words, [], "word links that are no Greek → English headword")
+        XCTAssertEqual(links.topics, [], "topic links to no Greek topic")
+        XCTAssertTrue(Set(links.tenses).isSubset(of: Self.tenses), "\(links.tenses)")
+        XCTAssertTrue(Set(links.classes).isSubset(of: Self.classes), "\(links.classes)")
+        XCTAssertEqual(links.orphans, [], "texts and links of no topic")
+    }
+
+    /// Open question 3: the Greek pack credits its grammar notes,
+    /// `libredict-grammar-ell` under CC BY-SA 4.0, once it has topics.
+    func testGrammarDataSourceRow() throws {
+        let pack = try Self.grammar(of: PackFixtures.file(.ell))
+        guard !pack.topics.isEmpty else {
+            XCTAssertNil(pack.dataSource, "no credit without topics")
+            return
+        }
+        let row = try XCTUnwrap(pack.dataSource)
+        XCTAssertEqual(row["kind"] as String, "grammar")
+        XCTAssertEqual(row["display_name"] as String, "Greek grammar notes (LibreDict)")
+        XCTAssertEqual(row["license"] as String, "CC BY-SA 4.0")
+    }
+}

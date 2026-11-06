@@ -82,7 +82,7 @@ STEPS: list[str] = [
     "build_morphy",  # WordNet's morphy exceptions and lemmas (#143, 0136-word-forms.md)
     "build_wordlists",  # Word lists and frequency ranks: Greek (#152); English empty until #153 (0130-word-lists.md)
     "build_examples",  # Tatoeba example sentences, empty until #177 (0134-example-sentences.md)
-    "build_grammar",   # The grammar reference, empty until #171 (0133-grammar.md)
+    "build_grammar",   # Grammar topics from Scripts/data/grammar, none until #173 (0133-grammar.md)
 ]
 
 
