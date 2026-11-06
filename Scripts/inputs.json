@@ -36,6 +36,10 @@
     "url": "https://raw.githubusercontent.com/hermitdave/FrequencyWords/072bbed282316a23651aa7068c7173aa7898cf80/content/2018/el/el_50k.txt",
     "sha256": "7ec8f6de52c38f36a04add5d1613b116aed576e10c5e3b40d0001e8572de978c"
   },
+  "frequencywords/en_50k.txt": {
+    "url": "https://raw.githubusercontent.com/hermitdave/FrequencyWords/072bbed282316a23651aa7068c7173aa7898cf80/content/2018/en/en_50k.txt",
+    "sha256": "5351ff405b1126ef555791dd4d9798a48e3e9a501a9fc481a9da957752cfb458"
+  },
   "nltk_data/corpora/omw-1.4.zip": {
     "url": "https://raw.githubusercontent.com/nltk/nltk_data/e2e07981c2f09b1c0a847164fa7e4a4fc0297a20/packages/corpora/omw-1.4.zip",
     "sha256": "3b941e664852f3297b6040236626065796a2aaf7d7f9eec8779a3beaa1096c2d"
@@ -43,6 +47,16 @@
   "nltk_data/corpora/wordnet.zip": {
     "url": "https://raw.githubusercontent.com/nltk/nltk_data/e2e07981c2f09b1c0a847164fa7e4a4fc0297a20/packages/corpora/wordnet.zip",
     "sha256": "cbda5ea6eef7f36a97a43d4a75f85e07fccbb4f23657d27b4ccbc93e2646ab59"
+  },
+  "openlanguageprofiles/cefrj-vocabulary-profile-1.5.csv": {
+    "url": "https://raw.githubusercontent.com/openlanguageprofiles/olp-en-cefrj/d4e45b75b38f27b30dfc5c44d8c571aec7e7092f/cefrj-vocabulary-profile-1.5.csv",
+    "sha256": "b0dd3c635f1c9a4fdf1490c7e5b7c48e8bbe55b652ad0c9860a95f98e10ae498",
+    "about": "The CEFR-J Wordlist Version 1.5, compiled by Yukio Tono, Tokyo University of Foreign Studies: free for research and commercial use with a proper acknowledgement of the source (cefr-j.org/download.html, checked 2026-11-06; docs/specs/0130-word-lists.md, Licenses)"
+  },
+  "openlanguageprofiles/octanove-vocabulary-profile-c1c2-1.0.csv": {
+    "url": "https://raw.githubusercontent.com/openlanguageprofiles/olp-en-cefrj/d4e45b75b38f27b30dfc5c44d8c571aec7e7092f/octanove-vocabulary-profile-c1c2-1.0.csv",
+    "sha256": "18c33a407f2f89f7b8de9671c6d45fe3ea0bce45e7d2d7dcaab48d73e0f7b380",
+    "about": "Octanove Vocabulary Profile C1/C2 1.0, Octanove Labs, CC BY-SA 4.0 (the Open Language Profiles README)"
   },
   "openrussian/adjectives.csv": {
     "url": "https://raw.githubusercontent.com/Badestrand/russian-dictionary/50e210c4803237779cb562bc1abcea529066031c/adjectives.csv",

@@ -80,7 +80,7 @@ FORMAT_VERSION = 4
 STEPS: list[str] = [
     "build_forms",   # Greek word forms from Wiktionary (#141, 0136-word-forms.md)
     "build_morphy",  # WordNet's morphy exceptions and lemmas (#143, 0136-word-forms.md)
-    "build_wordlists",  # Word lists and frequency ranks: Greek (#152); English empty until #153 (0130-word-lists.md)
+    "build_wordlists",  # Word lists and frequency ranks: Greek (#152), English (#153) (0130-word-lists.md)
     "build_examples",  # Tatoeba example sentences, empty until #177 (0134-example-sentences.md)
     "build_grammar",   # Grammar topics from Scripts/data/grammar, none until #173 (0133-grammar.md)
 ]

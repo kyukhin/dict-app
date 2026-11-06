@@ -22,6 +22,11 @@ struct CreditsView: View {
                 // Issue #152: the Greek word lists and the frequencies that order new words (0130).
                 Text("credits.dataSources.greekLists")
                     .accessibilityIdentifier("credits_greek_lists")
+                // Issue #153: the English word lists, CEFR-J (A1–B2) and Octanove (C1–C2), with their citations (0130).
+                Text("credits.dataSources.cefrj")
+                    .accessibilityIdentifier("credits_cefrj")
+                Text("credits.dataSources.octanove")
+                    .accessibilityIdentifier("credits_octanove")
                 Text("credits.dataSources.frequencyWords")
                     .accessibilityIdentifier("credits_frequency_words")
             }

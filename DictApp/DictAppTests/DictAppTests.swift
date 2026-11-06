@@ -6925,6 +6925,10 @@ final class PackFileTests: XCTestCase {
             XCTAssertEqual(file.credits.contains("wiktionary-ell-forms"), isGreek, url.lastPathComponent)
             XCTAssertEqual(file.credits.contains("ky-ell-lists"), isGreek, url.lastPathComponent)
             if isGreek { XCTAssertEqual(file.lists, ["ell"], "the Greek lists (#152)") }
+            let isEnglishLists = url == packs[.engLists]
+            XCTAssertEqual(file.credits.contains("cefrj-1.5"), isEnglishLists, url.lastPathComponent)
+            XCTAssertEqual(file.credits.contains("octanove-c1c2-1.0"), isEnglishLists, url.lastPathComponent)
+            if isEnglishLists { XCTAssertEqual(file.lists, ["eng"], "the English lists (#153)") }
             XCTAssertTrue(file.lists.allSatisfy { lang in
                 (lang == "ell" && isGreek) || (lang == "eng" && url == packs[.engLists])
             }, "\(url.lastPathComponent): lists of \(file.lists)")
@@ -15447,9 +15451,38 @@ final class WordListModelTests: XCTestCase {
         XCTAssertEqual(english, [])
     }
 
-    /// Needs the English lists pack's lists (#153, 0237).
-    func testNextNewWordsPerLanguageOnTheFile() throws {
-        throw XCTSkip("QA: needs the built English lists (#153)")
+    /// The Greek pack's and the English lists pack's lists (#152, #153,
+    /// 0237): with Greek A1, Greek A2 and English C2 checked, `in: ell`
+    /// gives only Greek words, A1 before A2, and `in: eng` only English C2;
+    /// checking English C2 leaves the Greek order unchanged, and an unknown
+    /// id is skipped.
+    func testNextNewWordsPerLanguageOnTheFile() async throws {
+        try await db.setup(userPath: userPath, dictionaryURL: try TestDictionary.bundledURL(),
+                           packFiles: try PackFixtures.all())
+        let a1 = try await db.wordListItems("ky-ell-a1")
+        let a2 = try await db.wordListItems("ky-ell-a2")
+        let c2 = try await db.wordListItems("cefr-eng-c2")
+        XCTAssertEqual(c2.count, 875)
+        let checked: Set<WordListID> = ["ky-ell-a1", "ky-ell-a2", "cefr-eng-c2"]
+
+        let greek = try await db.nextNewWords(in: "ell", from: checked, count: 10_000, excluding: [], order: .frequency)
+        XCTAssertEqual(greek.count, a1.count + a2.count)
+        XCTAssertTrue(greek.allSatisfy { $0.key.lang == "ell" }, "only Greek words")
+        XCTAssertEqual(Set(greek.map(\.key)), Set(a1.map(\.key) + a2.map(\.key)))
+        XCTAssertEqual(greek.map(\.levelOrder), Array(repeating: 1, count: a1.count) + Array(repeating: 2, count: a2.count),
+                       "A1 before A2")
+
+        let english = try await db.nextNewWords(in: "eng", from: checked, count: 10_000, excluding: [], order: .frequency)
+        XCTAssertEqual(english.count, c2.count)
+        XCTAssertEqual(Set(english.map(\.key)), Set(c2.map(\.key)), "only English C2")
+        XCTAssertTrue(english.allSatisfy { $0.listID == "cefr-eng-c2" && $0.key.lang == "eng" && $0.levelOrder == 6 })
+
+        let greekOnly = try await db.nextNewWords(in: "ell", from: ["ky-ell-a1", "ky-ell-a2", "cefr-eng-z9"],
+                                                  count: 10_000, excluding: [], order: .frequency)
+        XCTAssertEqual(greekOnly, greek, "checking English C2 leaves the Greek order unchanged; an unknown id is skipped")
+        let englishOnly = try await db.nextNewWords(in: "eng", from: ["cefr-eng-c2", "cefr-eng-z9"], count: 10_000,
+                                                    excluding: [], order: .frequency)
+        XCTAssertEqual(englishOnly, english, "the Greek lists and an unknown id leave the English order unchanged")
     }
 }
 
@@ -17755,17 +17788,21 @@ final class WordListDataTests: XCTestCase {
         XCTAssertEqual(Set(items.map(\.term)).intersection(overridden), overridden, "every override names a word")
     }
 
-    /// #152: every word has a frequency rank or is in the report's list of
-    /// unranked words.
+    /// #152, #153: every word has a frequency rank or is in the report's
+    /// list of unranked words, Greek in the Greek pack, English in the
+    /// English lists pack.
     func testEveryUnrankedWordIsReported() throws {
-        let unranked = try BundledDictionary(url: try PackFixtures.file(.ell)).read { db in
-            try GRDB.Row.fetchAll(db, sql: "SELECT level, term FROM wordlist_item WHERE series = 'ky-ell' AND rank IS NULL")
-                .map { "\($0["level"] as String) \($0["term"] as String)" }
+        for (pack, series) in [(PackID.ell, "ky-ell"), (PackID.engLists, "cefr-eng")] {
+            let unranked = try BundledDictionary(url: try PackFixtures.file(pack)).read { db in
+                try GRDB.Row.fetchAll(db, sql: "SELECT level, term FROM wordlist_item WHERE series = ? AND rank IS NULL",
+                                      arguments: [series])
+                    .map { "\($0["level"] as String) \($0["term"] as String)" }
+            }
+            let reported = try WordListData.reportedUnranked(series: series)
+            XCTAssertFalse(reported.isEmpty, "\(series): the report lists the unranked words")
+            XCTAssertEqual(reported.count, Set(reported).count, series)
+            XCTAssertEqual(Set(unranked), Set(reported), series)
         }
-        let reported = try WordListData.reportedUnranked(series: "ky-ell")
-        XCTAssertFalse(reported.isEmpty, "the report lists the unranked words")
-        XCTAssertEqual(reported.count, Set(reported).count)
-        XCTAssertEqual(Set(unranked), Set(reported))
     }
 
     /// #130: the first 20 new words of Greek A1 by frequency hold the most
@@ -19598,5 +19635,320 @@ final class GrammarFileTests: XCTestCase {
         XCTAssertEqual(row["kind"] as String, "grammar")
         XCTAssertEqual(row["display_name"] as String, "Greek grammar notes (LibreDict)")
         XCTAssertEqual(row["license"] as String, "CC BY-SA 4.0")
+    }
+}
+
+// MARK: - Issue #153: the built English lists
+//
+// 0130-word-lists.md, Test plan: CEFR-J 1.5 (A1–B2) and Octanove C1/C2 1.0
+// in the English lists pack, read as the app reads them (`PackFixtures`).
+// The pinned CSVs are downloaded by the build, not committed, so the QA
+// report's counts stand for their rows.
+
+extension WordListData {
+    static let englishLists: [WordListID] = ["cefr-eng-a1", "cefr-eng-a2", "cefr-eng-b1", "cefr-eng-b2",
+                                             "cefr-eng-c1", "cefr-eng-c2"]
+    static let englishLevels = ["A1", "A2", "B1", "B2", "C1", "C2"]
+    /// Every dictionary with English headwords, which the English lists link through.
+    static let englishSources = ["wordnet", "freedict-eng-spa", "wordnet-eng-ell", "freedict-eng-ell"]
+
+    /// The report's Counts table of `series`, one (level, rows, words) per
+    /// level, without the "all" row.
+    static func reportedCounts(series: String) throws -> [(level: String, rows: Int, words: Int)] {
+        let report = try String(contentsOf: repository.appendingPathComponent("Scripts/reports/wordlists-qa.md"),
+                                encoding: .utf8)
+        var inSeries = false, inTable = false
+        var counts: [(level: String, rows: Int, words: Int)] = []
+        for line in report.split(separator: "\n", omittingEmptySubsequences: false).map(String.init) {
+            if line.hasPrefix("## ") { inSeries = line == "## \(series)" }
+            if line.hasPrefix("### ") { inTable = inSeries && line == "### Counts" }
+            guard inTable, line.hasPrefix("| ") else { continue }
+            let cells = line.dropFirst(2).dropLast(2).components(separatedBy: " | ")
+            guard cells.count == 5, cells[0] != "Level", cells[0] != "all",
+                  let rows = Int(cells[1].replacingOccurrences(of: ",", with: "")),
+                  let words = Int(cells[2].replacingOccurrences(of: ",", with: "")) else { continue }
+            counts.append((cells[0], rows, words))
+        }
+        return counts
+    }
+}
+
+extension WordListDataTests {
+    private func englishItems() async throws -> [WordListItem] {
+        var items: [WordListItem] = []
+        for id in WordListData.englishLists { items += try await db.wordListItems(id) }
+        return items
+    }
+
+    /// #130, #153: English A1–C2 in the English lists pack: six lists with
+    /// the report's counts, `word_count` equal to the rows, every row of
+    /// CEFR-J and Octanove read, each word in one list, no translations
+    /// (meanings come from the pair's dictionary), at least 95% of the
+    /// series linked, every headword opening its entry, and a form ranked
+    /// with its lemma (`was` → be). The lists pack holds no dictionary.
+    func testEnglishListsAndCounts() async throws {
+        let file = try await BundledDictionary(url: try PackFixtures.file(.engLists)).read { db in
+            (lists: try GRDB.Row.fetchAll(db, sql: "SELECT * FROM wordlist ORDER BY level_ord"),
+             rows: try GRDB.Row.fetchAll(db, sql: """
+                SELECT level_ord, COUNT(*) AS n FROM wordlist_item WHERE series = 'cefr-eng' GROUP BY level_ord ORDER BY level_ord
+                """).map { $0["n"] as Int },
+             series: try String.fetchAll(db, sql: "SELECT DISTINCT series FROM wordlist_item"),
+             dictionaryRows: try Int.fetchOne(db, sql: "SELECT (SELECT COUNT(*) FROM entries) + (SELECT COUNT(*) FROM dict_metadata)"))
+        }
+        let counts = [1_063, 1_241, 2_138, 2_417, 913, 875]
+        XCTAssertEqual(file.lists.map { $0["id"] as String }, WordListData.englishLists.map(\.rawValue))
+        XCTAssertEqual(file.lists.map { $0["level"] as String }, WordListData.englishLevels)
+        XCTAssertEqual(file.lists.map { $0["level_ord"] as Int }, Array(1...6))
+        XCTAssertEqual(file.lists.map { $0["word_count"] as Int }, counts)
+        XCTAssertEqual(file.lists.map { $0["word_count"] as Int }, file.rows, "word_count equals the rows")
+        XCTAssertEqual(file.lists.map { $0["data_source"] as String },
+                       Array(repeating: "cefrj-1.5", count: 4) + Array(repeating: "octanove-c1c2-1.0", count: 2))
+        for list in file.lists {
+            XCTAssertEqual(list["lang"] as String, "eng")
+            XCTAssertEqual(list["series"] as String, "cefr-eng")
+            XCTAssertEqual(list["translation_lang"] as String, "", "CEFR-J and Octanove have no translations")
+        }
+        XCTAssertEqual(file.series, ["cefr-eng"], "only the English lists")
+        XCTAssertEqual(file.dictionaryRows, 0, "the lists pack holds no dictionary")
+
+        let reported = try WordListData.reportedCounts(series: "cefr-eng")
+        XCTAssertEqual(reported.map { $0.level }, WordListData.englishLevels)
+        XCTAssertEqual(reported.map { $0.words }, counts, "the report's counts")
+        XCTAssertEqual(reported.map { $0.rows }.reduce(0, +), 7_799 + 2_136, "every row of CEFR-J 1.5 and Octanove 1.0")
+
+        try await open()
+        let items = try await englishItems()
+        XCTAssertEqual(items.count, 8_647)
+        XCTAssertEqual(Set(items.map(\.key)).count, items.count, "each word in one list")
+        XCTAssertTrue(items.allSatisfy { $0.key.lang == "eng" && $0.translation.isEmpty && !$0.partOfSpeech.isEmpty })
+        XCTAssertEqual(items.filter { $0.sortKey != WordListItem.sortKey(of: $0.term) }.map(\.term), [],
+                       "the build's sort key is the app's")
+        let linked = items.filter { $0.headword != nil }
+        XCTAssertGreaterThanOrEqual(Double(linked.count) / Double(items.count), 0.95, "\(linked.count) of \(items.count)")
+        var missing: [String] = []
+        for item in linked {
+            let entry = try await db.entry(for: item, sourceOrder: WordListData.englishSources)
+            if entry == nil { missing.append(item.term) }
+        }
+        XCTAssertEqual(missing, [], "every headword resolves through entry(for:sourceOrder:)")
+
+        let byTerm = Dictionary(uniqueKeysWithValues: items.map { ($0.term, $0) })
+        let was = try XCTUnwrap(byTerm["was"]), be = try XCTUnwrap(byTerm["be"])
+        XCTAssertEqual(was.headword, "be", "a form links to its lemma")
+        XCTAssertNotNil(be.rank)
+        XCTAssertEqual(was.rank, be.rank, "a form is ranked with its lemma")
+    }
+
+    /// #153 (spec, "English items"): a row's variants are one word, the
+    /// first that links as its term and the others in `endings`; a word
+    /// listed for several parts of speech, or in CEFR-J and Octanove, is one
+    /// word at its lowest level with its parts of speech joined; a
+    /// capitalised word merges into its lowercase twin.
+    func testEnglishItemsJoinVariantsAndPartsOfSpeech() throws {
+        let items = try BundledDictionary(url: try PackFixtures.file(.engLists)).read { db in
+            try GRDB.Row.fetchAll(db, sql: """
+                SELECT term, headword, endings, pos, level FROM wordlist_item WHERE series = 'cefr-eng'
+                """).map { (term: $0["term"] as String, headword: $0["headword"] as String?, endings: $0["endings"] as String,
+                            pos: $0["pos"] as String, level: $0["level"] as String) }
+        }
+        let byTerm = Dictionary(uniqueKeysWithValues: items.map { ($0.term, $0) })
+        func word(_ term: String) throws -> (term: String, headword: String?, endings: String, pos: String, level: String) {
+            try XCTUnwrap(byTerm[term], term)
+        }
+        XCTAssertEqual(items.filter { $0.term.contains("/") }.map { $0.term }, [], "variants are split")
+
+        let am = try word("a.m.")
+        XCTAssertEqual([am.endings, am.pos, am.level], ["A.M., am, AM", "adverb", "A1"], "a.m./A.M./am/AM")
+        XCTAssertEqual(am.headword, "a.m.")
+        XCTAssertEqual(try word("color").endings, "colour")
+        XCTAssertEqual(try word("color").pos, "noun, verb", "two rows, one word")
+        XCTAssertEqual(try word("emphasize").endings, "", "emphasize/emphasize: a repeated variant once")
+        XCTAssertEqual(try word("hip-hop").endings, "hip hop, hiphop", "hip hop links nowhere, hip-hop does")
+        let checkIn = try word("check-in")
+        XCTAssertEqual([checkIn.endings, checkIn.level], ["check-in counter / check-in desk", "B1"],
+                       "two rows whose first variants link nowhere become one word")
+        XCTAssertNil(byTerm["check-in counter"])
+
+        let harbor = try word("harbor")
+        XCTAssertEqual([harbor.level, harbor.pos, harbor.endings], ["B1", "noun, verb", "harbour"],
+                       "CEFR-J's B1 noun and Octanove's C1 verb: one word at B1")
+        XCTAssertEqual(try word("familiarize").level, "B2", "CEFR-J B2 and Octanove C2")
+        XCTAssertEqual(try word("it").pos, "noun, pronoun", "IT merges into it")
+        XCTAssertNil(byTerm["IT"])
+        XCTAssertEqual(try word("may").pos, "modal auxiliary, noun", "May merges into may")
+    }
+
+    /// The build's linking (Python) agrees with the app's `ListLinking` on
+    /// every English word, but for the reviewed overrides of `links.tsv`
+    /// (is, am, are, 'm, 're → be; does → do), which each change the rules'
+    /// link. Forms link through WordNet's exception lists (`went`-style).
+    func testBuildLinksLikeTheAppInEnglish() async throws {
+        try await open()
+        let items = try await englishItems()
+        let links = try await db.links(for: items.map(\.term), lang: "eng")
+        let overridden = try WordListData.overriddenTerms(series: "cefr-eng")
+        XCTAssertEqual(overridden, ["is", "am", "are", "'m", "'re", "does"])
+        var mismatches: [String] = [], stale: [String] = []
+        for (item, link) in zip(items, links) {
+            if overridden.contains(item.term) {
+                if item.headword == link?.headword { stale.append(item.term) }
+            } else if item.headword != link?.headword {
+                mismatches.append("\(item.term): build \(item.headword ?? "-"), app \(link?.headword ?? "-")")
+            }
+        }
+        XCTAssertEqual(mismatches, [])
+        XCTAssertEqual(stale, [], "an override that the rules already give")
+        let forms = zip(items, links).filter { $0.1?.rule == .form }.map { "\($0.0.term) → \($0.1?.headword ?? "")" }
+        XCTAssertTrue(Set(["was → be", "were → be", "had → have", "criteria → criterion"]).isSubset(of: forms), "\(forms)")
+    }
+
+    /// #153 (spec, "List data"): English `word_rank` sums each FrequencyWords
+    /// token into its own lowercase key and into its lemmas' keys through
+    /// WordNet's exception lists: be, child, foot and tooth rank above is,
+    /// was, children, feet and teeth, which FrequencyWords counts more often
+    /// than the lemma alone. Ranks run 1…n once over the 50,093 keys. A
+    /// word's rank is its headword's, or when unlinked the first of its term
+    /// and cleaned spellings that has one. The English rows (ranks, lists and
+    /// words) are in the English lists pack and in no other file.
+    func testEnglishWordRanks() throws {
+        let file = try BundledDictionary(url: try PackFixtures.file(.engLists)).read { db in
+            (langs: try String.fetchAll(db, sql: "SELECT DISTINCT lang FROM word_rank"),
+             ranks: try GRDB.Row.fetchAll(db, sql: "SELECT key, rank FROM word_rank WHERE lang = 'eng'")
+                .map { ($0["key"] as String, $0["rank"] as Int) },
+             items: try GRDB.Row.fetchAll(db, sql: "SELECT term, headword, rank FROM wordlist_item WHERE series = 'cefr-eng'")
+                .map { (term: $0["term"] as String, headword: $0["headword"] as String?, rank: $0["rank"] as Int?) })
+        }
+        XCTAssertEqual(file.langs, ["eng"])
+        let ranks = Dictionary(file.ranks, uniquingKeysWith: { first, _ in first })
+        XCTAssertEqual(ranks.count, file.ranks.count, "one row per key")
+        XCTAssertEqual(ranks.count, 50_093)
+        XCTAssertEqual(file.ranks.map { $0.1 }.sorted(), Array(1...file.ranks.count), "ranks 1…n, each once")
+        XCTAssertEqual(ranks.keys.filter { $0.lowercased() != $0 }.sorted(), [], "keys are lowercase")
+        for (lemma, form) in [("be", "is"), ("be", "was"), ("child", "children"), ("foot", "feet"), ("tooth", "teeth")] {
+            let lemmaRank = try XCTUnwrap(ranks[lemma], lemma), formRank = try XCTUnwrap(ranks[form], form)
+            XCTAssertLessThan(lemmaRank, formRank, "\(lemma) counts its forms, \(form) among them")
+        }
+
+        var wrong: [String] = []
+        for item in file.items {
+            let expected: Int?
+            if let headword = item.headword {
+                expected = ranks[headword.lowercased()]
+            } else {
+                expected = ([item.term] + ListLinking.cleanedVariants(of: item.term)).lazy
+                    .compactMap { ranks[$0.lowercased()] }.first
+            }
+            if item.rank != expected { wrong.append("\(item.term): \(item.rank.map(String.init) ?? "-"), expected \(expected.map(String.init) ?? "-")") }
+        }
+        XCTAssertEqual(wrong, [])
+        XCTAssertGreaterThan(file.items.filter { $0.rank != nil }.count, 7_600, "about 88.7% of the 8,647 words ranked")
+        let packs = try PackFixtures.all()
+        for url in [try TestDictionary.bundledURL()] + PackID.all.compactMap({ packs[$0] }) where url != packs[.engLists] {
+            let english = try BundledDictionary(url: url).read { db in
+                try Int.fetchOne(db, sql: """
+                    SELECT (SELECT COUNT(*) FROM word_rank WHERE lang = 'eng')
+                         + (SELECT COUNT(*) FROM wordlist WHERE lang = 'eng')
+                         + (SELECT COUNT(*) FROM wordlist_item WHERE series = 'cefr-eng')
+                    """)
+            }
+            XCTAssertEqual(english, 0, "\(url.lastPathComponent): the English rows are in the English lists pack only")
+        }
+    }
+
+    /// #153 (Open question 8): an English list word links through every
+    /// English dictionary and opens its headword in the first English
+    /// dictionary of Dictionary Order that has it. A dictionary of another
+    /// language never opens it, even with the same headword (Spanish
+    /// animal), a word WordNet and En–Es lack falls through to En–El, a form
+    /// opens its lemma, and a standalone word opens nothing.
+    func testEnglishWordOpensTheFirstEnglishDictionaryInOrder() async throws {
+        try await open()
+        let byTerm = Dictionary(uniqueKeysWithValues: try await englishItems().map { ($0.term, $0) })
+        func opened(_ term: String, _ order: [String]) async throws -> String {
+            let entry = try await db.entry(for: try XCTUnwrap(byTerm[term], term), sourceOrder: order)
+            return entry.map { "\($0.source) \($0.word)" } ?? "none"
+        }
+        let english = WordListData.englishSources
+        let cases: [(term: String, order: [String], opens: String)] = [
+            ("house", english, "wordnet house"),
+            ("house", ["freedict-eng-spa", "wordnet"], "freedict-eng-spa house"),
+            ("house", ["wordnet-eng-ell", "freedict-eng-ell", "wordnet"], "wordnet-eng-ell house"),
+            ("animal", ["wordnet-spa-eng", "freedict-ell-eng"] + english, "wordnet animal"),
+            ("animal", ["wordnet-spa-eng", "freedict-eng-ell", "wordnet"], "freedict-eng-ell animal"),
+            ("could", english, "freedict-eng-ell could"),
+            ("criteria", ["freedict-eng-spa"] + english, "freedict-eng-spa criterion"),
+            ("headteacher", english, "none"),
+        ]
+        for c in cases {
+            let result = try await opened(c.term, c.order)
+            XCTAssertEqual(result, c.opens, "\(c.term) in \(c.order)")
+        }
+    }
+
+    /// #130, #153: four `data_source` rows credit the word lists and the
+    /// frequencies (Kirill's lists, CEFR-J, Octanove, FrequencyWords), each
+    /// in the pack whose lists use it, and none is a dictionary: no file has
+    /// a `dict_metadata` row for them.
+    func testDataSourceRows() throws {
+        let packs = try PackFixtures.all()
+        let files = [try TestDictionary.bundledURL()] + PackID.all.compactMap { packs[$0] }
+        var credits: [String: Set<URL>] = [:], rows: [String: String] = [:], metadata: Set<String> = []
+        for url in files {
+            let file = try BundledDictionary(url: url).read { db in
+                (credits: try GRDB.Row.fetchAll(db, sql: """
+                    SELECT id, kind, license FROM data_source WHERE kind IN ('word_list', 'word_frequency')
+                    """).map { (id: $0["id"] as String, row: "\($0["kind"] as String) \($0["license"] as String)") },
+                 metadata: try String.fetchAll(db, sql: "SELECT source FROM dict_metadata"),
+                 listSources: try String.fetchAll(db, sql: "SELECT DISTINCT data_source FROM wordlist"))
+            }
+            for credit in file.credits {
+                credits[credit.id, default: []].insert(url)
+                XCTAssertEqual(rows[credit.id] ?? credit.row, credit.row, "\(credit.id): the same row in every file")
+                rows[credit.id] = credit.row
+            }
+            metadata.formUnion(file.metadata)
+            XCTAssertTrue(Set(file.listSources).isSubset(of: file.credits.map { $0.id }),
+                          "\(url.lastPathComponent): each list's data_source is credited in its file")
+        }
+        XCTAssertTrue(metadata.isDisjoint(with: credits.keys), "credits are never dictionaries: \(metadata)")
+        XCTAssertEqual(Set(credits.keys), ["ky-ell-lists", "cefrj-1.5", "octanove-c1c2-1.0", "frequencywords-2018"])
+        XCTAssertEqual(credits["ky-ell-lists"], [try PackFixtures.file(.ell)])
+        XCTAssertEqual(credits["cefrj-1.5"], [try PackFixtures.file(.engLists)])
+        XCTAssertEqual(credits["octanove-c1c2-1.0"], [try PackFixtures.file(.engLists)])
+        XCTAssertEqual(credits["frequencywords-2018"], [try PackFixtures.file(.ell), try PackFixtures.file(.engLists)])
+        XCTAssertEqual(rows["octanove-c1c2-1.0"], "word_list CC BY-SA 4.0")
+        XCTAssertEqual(rows["frequencywords-2018"], "word_frequency CC BY-SA 4.0")
+        XCTAssertTrue(rows["cefrj-1.5"]?.hasPrefix("word_list ") ?? false)
+        XCTAssertTrue(rows["cefrj-1.5"]?.contains("commercial use with a proper acknowledgement") ?? false, "\(rows)")
+    }
+
+    /// #153: Credits cite CEFR-J as its authors ask (Tono, TUFS, the
+    /// retrieval source and date) and Octanove with its license, in the
+    /// five UI languages; the citations stay in English and only the
+    /// lead-in is translated. The pack's credits rows name the same.
+    func testCreditsCiteTheEnglishLists() throws {
+        let citations = [
+            "credits.dataSources.cefrj": "The CEFR-J Wordlist Version 1.5. Compiled by Yukio Tono, Tokyo University of "
+                + "Foreign Studies. Retrieved from https://github.com/openlanguageprofiles/olp-en-cefrj on 6 November 2026",
+            "credits.dataSources.octanove": "Octanove Vocabulary Profile C1/C2 1.0, Octanove Labs (CC BY-SA 4.0)",
+        ]
+        for (key, citation) in citations {
+            let english = SettingsViewModel.localizedString(key, locale: Locale(identifier: "en"))
+            XCTAssertEqual(english, citation)
+            for code in ["ru", "es", "ar", "el"] {
+                let text = SettingsViewModel.localizedString(key, locale: Locale(identifier: code))
+                XCTAssertTrue(text.hasSuffix(citation), "\(code): \(text)")
+                XCTAssertNotEqual(text, english, "\(code): the lead-in is translated")
+            }
+        }
+        let credits = try BundledDictionary(url: try PackFixtures.file(.engLists)).read { db in
+            try GRDB.Row.fetchAll(db, sql: """
+                SELECT id, display_name FROM data_source WHERE id IN ('cefrj-1.5', 'octanove-c1c2-1.0') ORDER BY id
+                """).map { "\($0["id"] as String): \($0["display_name"] as String)" }
+        }
+        XCTAssertEqual(credits, [
+            "cefrj-1.5: The CEFR-J Wordlist Version 1.5, compiled by Yukio Tono, Tokyo University of Foreign Studies",
+            "octanove-c1c2-1.0: Octanove Vocabulary Profile C1/C2 1.0, Octanove Labs",
+        ])
     }
 }

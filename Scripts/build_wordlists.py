@@ -5,21 +5,27 @@ The word lists, a static data step of `build_dictionaries.py`
 (docs/specs/0130-word-lists.md, "List data"): the built-in lists, their
 words linked to the dictionaries, and frequency ranks, in the tables of
 `wordlists_schema.sql`. `cut_packs.py` puts each language's rows into its
-pack (0237): the Greek lists into `ell`.
+pack (0237): the Greek lists into `ell`, the English lists into `eng-lists`.
 
 #152: Kirill's Greek lists A1, A2 and B1 (`ky-ell`), committed as
 `Scripts/data/wordlists/ky-ell-*.csv` and pinned in `inputs.json`, and the
-Greek frequency ranks from FrequencyWords 2018 (`word_rank`, `ell`). #153
-adds the English lists (`cefr-eng`) and the English ranks.
+Greek frequency ranks from FrequencyWords 2018 (`word_rank`, `ell`).
+#153: the English lists A1 to C2 (`cefr-eng`): CEFR-J 1.5 for A1 to B2 and
+Octanove C1/C2 1.0, both pinned at the Open Language Profiles commit, and
+the English frequency ranks (`word_rank`, `eng`).
 
 The step, per series:
   1. reads the rows (NFC, trimmed); a Latin letter in a Greek term or
      ending, or a Greek letter inside a Latin word of a translation
-     (Εnglish), fails the build;
+     (Εnglish), fails the build. An English row (`headword,pos,CEFR`) is
+     one word: of its variants separated by "/" (`a.m./A.M./am/AM`), the
+     term is the first that links, else the first; the others go into
+     `endings`, joined with ", ";
   2. merges a capitalised term into its lowercase twin of the series
      (Δύση into δύση), then rows with the same term (SQLite NOCASE): the
-     lowest level, translations joined with "; " and endings with " / " in
-     file order (a repeated value once), the first row's `seq`;
+     lowest level, translations joined with "; ", endings with " / " and
+     parts of speech with ", " in file order (a repeated value once), the
+     first row's `seq`;
   3. links each word to a headword of the language's dictionaries with the
      rules of the app's `ListLinking` (exact, cleaned, near, form), then
      applies `Scripts/data/wordlists/links.tsv`, the reviewed overrides;
@@ -29,14 +35,17 @@ The step, per series:
      QA report `Scripts/reports/wordlists-qa.md`.
 
 `word_rank` sums each FrequencyWords token's count into its own key (the
-folded word) and into the key of each lemma it is a form of (`form_lookup`,
-#141), then ranks the keys by count, ties by key.
+folded word in Greek, the lowercase word in English) and into the key of
+each lemma it is a form of (Greek `form_lookup`, #141; English
+`morphy_exception`, so `went` counts for go), then ranks the keys by
+count, ties by key.
 
 Gates (the build fails): a Latin letter in a Greek term or ending; a Greek
-letter inside a Latin word of a translation; an input row that becomes no word; the Greek series linked below 84%; a
-`wordlist.word_count` that differs from its rows; an empty list; an
-override whose term is not in the series or whose headword is none of the
-language's; the E3 tables above 4 MB.
+letter inside a Latin word of a translation; an input row that becomes no
+word or has no level of its series; the Greek series linked below 84%, the
+English series below 95%; a `wordlist.word_count` that differs from its
+rows; an empty list; an override whose term is not in the series or whose
+headword is none of the language's; the E3 tables above 4 MB.
 
 Usage (from the repository root):
     python3 Scripts/build_wordlists.py --full Scripts/.cache/dictionaries-full.sqlite
@@ -82,26 +91,47 @@ DATA_SOURCES = [
     {"id": "frequencywords-2018", "kind": "word_frequency",
      "display_name": "FrequencyWords by Hermit Dave, from OpenSubtitles 2018",
      "version": "2018", "license": "CC BY-SA 4.0", "url": "https://github.com/hermitdave/FrequencyWords"},
+    {"id": "cefrj-1.5", "kind": "word_list",
+     "display_name": "The CEFR-J Wordlist Version 1.5, compiled by Yukio Tono, Tokyo University of Foreign Studies",
+     "version": "1.5", "license": "Research and commercial use with a proper acknowledgement of the source",
+     "url": "https://github.com/openlanguageprofiles/olp-en-cefrj"},
+    {"id": "octanove-c1c2-1.0", "kind": "word_list",
+     "display_name": "Octanove Vocabulary Profile C1/C2 1.0, Octanove Labs",
+     "version": "1.0", "license": "CC BY-SA 4.0", "url": "https://github.com/openlanguageprofiles/olp-en-cefrj"},
 ]
 
 
 @dataclass(frozen=True)
 class Series:
-    """A built-in series: one list per level, the files in level order."""
+    """A built-in series: one list per level, read from its input files."""
     id: str
     lang: str
-    data_source: str
     translation_lang: str
-    files: tuple[tuple[str, str], ...]  # (level, inputs.json key)
+    levels: tuple[tuple[str, str], ...]  # (level, data_source id), in level order
+    files: tuple[str, ...]  # inputs.json keys, in reading order
     link_gate: float
     frequency: str  # inputs.json key of the FrequencyWords list
 
+    @property
+    def level_names(self) -> list[str]:
+        return [level for level, _ in self.levels]
+
 
 GREEK = Series(
-    id="ky-ell", lang="ell", data_source="ky-ell-lists", translation_lang="eng",
-    files=tuple((level, f"Scripts/data/wordlists/ky-ell-{level.lower()}.csv") for level in ("A1", "A2", "B1")),
+    id="ky-ell", lang="ell", translation_lang="eng",
+    levels=tuple((level, "ky-ell-lists") for level in ("A1", "A2", "B1")),
+    files=tuple(f"Scripts/data/wordlists/ky-ell-{level.lower()}.csv" for level in ("A1", "A2", "B1")),
     link_gate=0.84, frequency="frequencywords/el_50k.txt")
-SERIES = [GREEK]
+# CEFR-J and Octanove have no translations: a word's meaning comes from the
+# pair's dictionary (0130, "List screen").
+ENGLISH = Series(
+    id="cefr-eng", lang="eng", translation_lang="",
+    levels=tuple((level, "cefrj-1.5") for level in ("A1", "A2", "B1", "B2"))
+    + tuple((level, "octanove-c1c2-1.0") for level in ("C1", "C2")),
+    files=("openlanguageprofiles/cefrj-vocabulary-profile-1.5.csv",
+           "openlanguageprofiles/octanove-vocabulary-profile-c1c2-1.0.csv"),
+    link_gate=0.95, frequency="frequencywords/en_50k.txt")
+SERIES = [GREEK, ENGLISH]
 
 
 @dataclass
@@ -113,6 +143,8 @@ class Row:
     endings: str
     translation: str
     seq: int
+    pos: str = ""
+    first: str = ""  # English: the row's first variant, which `term` may differ from
 
 
 @dataclass
@@ -138,6 +170,10 @@ class Word:
     @property
     def endings(self) -> str:
         return joined((r.endings for r in self.rows), " / ")
+
+    @property
+    def pos(self) -> str:
+        return joined((r.pos for r in self.rows), ", ")
 
 
 @dataclass
@@ -185,7 +221,7 @@ def greek_in_latin_words(s: str) -> list[str]:
 def read_greek(series: Series, failures: list[str]) -> list[Row]:
     """Kirill's files: `level,greek,endings,english`, one per level."""
     rows: list[Row] = []
-    for level, key in series.files:
+    for level, key in zip(series.level_names, series.files):
         text = inputs.committed(key).read_text(encoding="utf-8-sig")
         records = list(csv.reader(io.StringIO(text, newline="")))
         if not records or records[0] != ["level", "greek", "endings", "english"]:
@@ -204,6 +240,33 @@ def read_greek(series: Series, failures: list[str]) -> list[Row]:
                 failures.append(f"{key}:{line}: Greek letters in the Latin words "
                                 f"{', '.join(greek_in_latin_words(translation))} of the translation {translation!r}")
             rows.append(Row(level, line, term, endings, translation, len(rows)))
+    return rows
+
+
+def read_english(series: Series, cache_dir: Path, d: "Dictionaries", failures: list[str]) -> list[Row]:
+    """CEFR-J and Octanove: `headword,pos,CEFR,…`, one row per word and
+    part of speech (spec, "English items"). The variants of a headword,
+    separated by "/", are one word: the term is the first variant that
+    links, else the first; the other variants go into `endings`, joined
+    with ", " ("a.m." with "A.M., am, AM")."""
+    rows: list[Row] = []
+    levels = set(series.level_names)
+    for key in series.files:
+        text = inputs.fetch(key, cache_dir).read_text(encoding="utf-8-sig")
+        records = list(csv.reader(io.StringIO(text, newline="")))
+        if not records or records[0][:3] != ["headword", "pos", "CEFR"]:
+            failures.append(f"{key}: the header does not start with headword,pos,CEFR")
+            continue
+        for line, record in enumerate(records[1:], start=2):
+            level = record[2].strip() if len(record) >= 3 else ""
+            if level not in levels:
+                failures.append(f"{key}:{line}: not a row of a {series.id} level: {record}")
+                continue
+            variants = list(dict.fromkeys(v for v in (nfc(v).strip() for v in record[0].split("/")) if v))
+            first = variants[0] if variants else ""
+            term = next((v for v in variants if link(v, series.lang, d)), first)
+            rows.append(Row(level, line, term, ", ".join(v for v in variants if v != term), "", len(rows),
+                            pos=nfc(record[1]).strip(), first=first))
     return rows
 
 
@@ -302,6 +365,10 @@ def is_near(headword: str, spelling: str) -> bool:
     return _near_key(headword) == _near_key(spelling)
 
 
+# `Morphy.PartOfSpeech.allCases`: the order English form links try.
+MORPHY_ORDER = {"v": 0, "n": 1, "a": 2, "r": 3}
+
+
 class Dictionaries:
     """The reads linking needs, over the dictionaries with headwords in one
     language (`dict_metadata.from_lang`), as the app's `linkLookup` reads them."""
@@ -313,9 +380,11 @@ class Dictionaries:
         if not self.sources:
             raise RuntimeError(f"No dictionary has {lang} headwords: the step runs after the dictionaries")
         self.in_sources = "source IN (" + ", ".join("?" * len(self.sources)) + ")"
-        self.by_fold: dict[str, list[str]] = {}
-        for (word,) in conn.execute(f"SELECT word FROM entries WHERE {self.in_sources} ORDER BY id", self.sources):
-            self.by_fold.setdefault(normalize_greek(word), []).append(word)
+        self.by_fold: dict[str, list[str]] = {}  # the near rule's candidates, Greek only
+        if lang == "ell":
+            for (word,) in conn.execute(f"SELECT word FROM entries WHERE {self.in_sources} ORDER BY id",
+                                        self.sources):
+                self.by_fold.setdefault(normalize_greek(word), []).append(word)
 
     def headwords(self, spelling: str) -> list[str]:
         return [r[0] for r in self.conn.execute(
@@ -329,9 +398,17 @@ class Dictionaries:
 
     def form_lemmas(self, spelling: str) -> list[str]:
         """Greek: the lemmas whose table holds the spelling exactly
-        (`greekFormLemmasSQL`)."""
+        (`greekFormLemmasSQL`). English: the bases of the lowercase
+        spelling's exception lines (`morphyExceptionSQL`), in Morphy's
+        order (verb, noun, adjective, adverb), each part of speech's bases
+        sorted."""
+        if self.lang == "eng":
+            lines = self.conn.execute("SELECT pos, base FROM morphy_exception WHERE form = ? ORDER BY pos, base",
+                                      (spelling.lower(),)).fetchall()
+            return [base for _, base in sorted((line for line in lines if line[0] in MORPHY_ORDER),
+                                               key=lambda line: (MORPHY_ORDER[line[0]], line[1]))]
         if self.lang != "ell":
-            return []  # English (#153): morphy's bases
+            return []
         form = nfc(spelling)
         return [r[0] for r in self.conn.execute("""
             SELECT DISTINCT l.word FROM form_lookup f JOIN lemma l ON l.id = f.lemma_id
@@ -413,30 +490,44 @@ def read_overrides(failures: list[str]) -> dict[tuple[str, str], str | None]:
 # Frequency ranks
 # ---------------------------------------------------------------------------
 
-def greek_ranks(conn: sqlite3.Connection, cache_dir: Path, series: Series) -> tuple[dict[str, int], int]:
-    """`word_rank` keys of Greek: each token's count into its folded key
-    and into the key of each lemma it is a form of. Returns key → rank and
-    the number of tokens read."""
+def rank_key(lang: str, word: str) -> str:
+    """A word's `word_rank` key, as the app looks it up (#155): folded
+    Greek (`Search.foldGreek`), lowercase English."""
+    return normalize_greek(word) if lang == "ell" else word.lower()
+
+
+def lemma_keys(conn: sqlite3.Connection, lang: str, key: str) -> set[str]:
+    """The keys of the lemmas a token's key is a form of: Greek
+    `form_lookup`, English WordNet's exception lists (went → go)."""
+    if lang == "ell":
+        return {r[0] for r in conn.execute(
+            "SELECT DISTINCT l.word_normalized FROM form_lookup f JOIN lemma l ON l.id = f.lemma_id "
+            "WHERE f.form_norm = ?", (key,))}
+    return {rank_key(lang, r[0]) for r in conn.execute(
+        "SELECT DISTINCT base FROM morphy_exception WHERE form = ?", (key,))}
+
+
+def word_ranks(conn: sqlite3.Connection, cache_dir: Path, series: Series) -> tuple[dict[str, int], int]:
+    """`word_rank` keys of the series' language: each token's count into
+    its own key and into the key of each lemma it is a form of. Returns
+    key → rank and the number of tokens read."""
     counts: dict[str, int] = {}
     path = inputs.fetch(series.frequency, cache_dir)
     lines = path.read_text(encoding="utf-8").splitlines()
     for line in lines:
         token, count = line.split()
-        own = normalize_greek(nfc(token))
-        keys = {own} | {r[0] for r in conn.execute(
-            "SELECT DISTINCT l.word_normalized FROM form_lookup f JOIN lemma l ON l.id = f.lemma_id "
-            "WHERE f.form_norm = ?", (own,))}
-        for key in keys:
+        own = rank_key(series.lang, nfc(token))
+        for key in {own} | lemma_keys(conn, series.lang, own):
             counts[key] = counts.get(key, 0) + int(count)
     ordered = sorted(counts.items(), key=lambda item: (-item[1], item[0]))
     return {key: rank for rank, (key, _) in enumerate(ordered, start=1)}, len(lines)
 
 
-def rank_of(word: Word, ranks: dict[str, int]) -> int | None:
+def rank_of(word: Word, lang: str, ranks: dict[str, int]) -> int | None:
     if word.headword is not None:
-        return ranks.get(normalize_greek(word.headword))
+        return ranks.get(rank_key(lang, word.headword))
     for spelling in [word.term, *cleaned_variants(word.term)]:
-        rank = ranks.get(normalize_greek(spelling))
+        rank = ranks.get(rank_key(lang, spelling))
         if rank is not None:
             return rank
     return None
@@ -463,11 +554,11 @@ def sort_key(term: str) -> str:
 # Build
 # ---------------------------------------------------------------------------
 
-def build_series(conn: sqlite3.Connection, series: Series, ranks: dict[str, int],
+def build_series(conn: sqlite3.Connection, series: Series, cache_dir: Path, ranks: dict[str, int],
                  overrides: dict[tuple[str, str], str | None], failures: list[str]) -> Built:
-    rows = read_greek(series, failures)
-    words, pairs = merge(rows, failures)
     d = Dictionaries(conn, series.lang)
+    rows = read_greek(series, failures) if series.lang == "ell" else read_english(series, cache_dir, d, failures)
+    words, pairs = merge(rows, failures)
     by_term = {w.term: w for w in words}
     for (s, term), headword in overrides.items():
         if s != series.id:
@@ -482,22 +573,21 @@ def build_series(conn: sqlite3.Connection, series: Series, ranks: dict[str, int]
         w.headword, w.rule = found if found else (None, "")
         if (series.id, w.term) in overrides:
             w.headword, w.rule = overrides[(series.id, w.term)], "override"
-        w.rank = rank_of(w, ranks)
+        w.rank = rank_of(w, series.lang, ranks)
         w.sort_key = sort_key(w.term)
 
-    levels = [level for level, _ in series.files]
     with conn:
-        for level in levels:
+        for level, data_source in series.levels:
             count = sum(1 for w in words if w.level == level)
             conn.execute("INSERT INTO wordlist(id, lang, series, level, level_ord, word_count, data_source, "
                          "translation_lang) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                          (f"{series.id}-{level.lower()}", series.lang, series.id, level, LEVELS[level], count,
-                          series.data_source, series.translation_lang))
+                          data_source, series.translation_lang))
         conn.executemany(
             "INSERT INTO wordlist_item(series, term, headword, translation, endings, pos, tags, level, level_ord, "
-            "rank, seq, sort_key) VALUES (?, ?, ?, ?, ?, '', '', ?, ?, ?, ?, ?)",
-            [(series.id, w.term, w.headword, w.translation, w.endings, w.level, LEVELS[w.level], w.rank, w.seq,
-              w.sort_key) for w in words])
+            "rank, seq, sort_key) VALUES (?, ?, ?, ?, ?, ?, '', ?, ?, ?, ?, ?)",
+            [(series.id, w.term, w.headword, w.translation, w.endings, w.pos, w.level, LEVELS[w.level], w.rank,
+              w.seq, w.sort_key) for w in words])
     return Built(series, rows, words, pairs)
 
 
@@ -557,12 +647,12 @@ def build(conn: sqlite3.Connection, cache_dir: Path, report_path: Path = REPORT)
     overrides = read_overrides(failures)
     built, rank_stats = [], []
     for series in SERIES:
-        ranks, tokens = greek_ranks(conn, Path(cache_dir), series)
+        ranks, tokens = word_ranks(conn, Path(cache_dir), series)
         with conn:
             conn.executemany("INSERT INTO word_rank(lang, key, rank) VALUES (?, ?, ?)",
                              [(series.lang, key, rank) for key, rank in sorted(ranks.items())])
         rank_stats.append((series.lang, series.frequency, tokens, len(ranks)))
-        built.append(build_series(conn, series, ranks, overrides, failures))
+        built.append(build_series(conn, series, Path(cache_dir), ranks, overrides, failures))
     input_problems = len(failures)
     gates = check(conn, built, failures)
     table_sizes = sizes(conn)
@@ -571,13 +661,13 @@ def build(conn: sqlite3.Connection, cache_dir: Path, report_path: Path = REPORT)
     if total > SIZE_BUDGET:
         failures.append(f"E3 tables: {total:,} bytes, the budget is {SIZE_BUDGET:,}")
     gates.insert(0, ("Input problems (Latin letters in Greek, Greek letters in Latin words, rows that become "
-                     "no word, bad rows, overrides)",
+                     "no word, rows without a level of their series, bad rows, overrides)",
                      str(input_problems), "0", not input_problems))
 
     report_path.parent.mkdir(parents=True, exist_ok=True)
     report_path.write_text(report(built, gates, failures, table_sizes, rank_stats), encoding="utf-8")
     for b in built:
-        for level, _ in b.series.files:
+        for level in b.series.level_names:
             words = [w for w in b.words if w.level == level]
             linked = sum(1 for w in words if w.headword is not None)
             print(f"  {b.series.id}-{level.lower()}: {len(words):,} words, {percent(linked, len(words))} linked, "
@@ -607,7 +697,7 @@ def report(built: list[Built], gates, failures: list[str], table_sizes: dict[str
            "Written by `Scripts/build_wordlists.py` on every dictionary build (docs/specs/0130-word-lists.md, "
            "\"List data\"); do not edit by hand.", "", "## Inputs", "", "| Input | sha256 |", "|---|---|"]
     for b in built:
-        for _, key in b.series.files:
+        for key in b.series.files:
             out.append(f"| `{key}` | `{pins[key]['sha256']}` |")
     for _, key, _, _ in rank_stats:
         out.append(f"| `{key}` | `{pins[key]['sha256']}` |")
@@ -617,8 +707,15 @@ def report(built: list[Built], gates, failures: list[str], table_sizes: dict[str
         out += ["", "Failures:", ""] + [f"- {cell(f)}" for f in failures]
 
     for b in built:
-        levels = [level for level, _ in b.series.files]
+        levels = b.series.level_names
         rules = ["exact", "cleaned", "near", "form", "override"]
+        # A series without translations shows each word's parts of speech.
+        translated = bool(b.series.translation_lang)
+        detail = "Translation" if translated else "Part of speech"
+
+        def details(w: Word, translated: bool = translated) -> str:
+            return w.translation if translated else w.pos
+
         out += ["", f"## {b.series.id}", "", "### Counts", "",
                 "| Level | Rows | Words | Linked | Ranked |", "|---|---|---|---|---|"]
         for level in levels + ["all"]:
@@ -651,8 +748,8 @@ def report(built: list[Built], gates, failures: list[str], table_sizes: dict[str
                 f"{cell(w.computed or '') if w.rule == 'override' else ''} |" for w in shown]
 
         unlinked = ordered(w for w in b.words if w.headword is None)
-        out += ["", f"### Unlinked words ({len(unlinked):,})", "", "| Level | Term | Translation |", "|---|---|---|"]
-        out += [f"| {w.level} | {cell(w.term)} | {cell(w.translation)} |" for w in unlinked]
+        out += ["", f"### Unlinked words ({len(unlinked):,})", "", f"| Level | Term | {detail} |", "|---|---|---|"]
+        out += [f"| {w.level} | {cell(w.term)} | {cell(details(w))} |" for w in unlinked]
 
         unranked = ordered(w for w in b.words if w.rank is None)
         out += ["", f"### Unranked words ({len(unranked):,})", "", "| Level | Term |", "|---|---|"]
@@ -660,10 +757,17 @@ def report(built: list[Built], gates, failures: list[str], table_sizes: dict[str
 
         merged = ordered(w for w in b.words if len(w.rows) > 1)
         out += ["", f"### Merged rows ({len(merged):,} words of {sum(len(w.rows) for w in merged):,} rows)", "",
-                "| Level | Word | Rows (level:line term) | Translation | Endings |", "|---|---|---|---|---|"]
+                f"| Level | Word | Rows (level:line term) | {detail} | Endings |", "|---|---|---|---|---|"]
         out += [f"| {w.level} | {cell(w.term)} | "
                 + ", ".join(f"{r.level}:{r.line} {cell(r.term)}" for r in w.rows)
-                + f" | {cell(w.translation)} | {cell(w.endings)} |" for w in merged]
+                + f" | {cell(details(w))} | {cell(w.endings)} |" for w in merged]
+
+        later = [r for r in b.rows if r.first and r.term != r.first]
+        if later:
+            out += ["", f"### Terms from a later variant ({len(later):,})", "",
+                    "The first variant links nowhere, a later one does.", "",
+                    "| Level | Line | First variant | Term |", "|---|---|---|---|"]
+            out += [f"| {r.level} | {r.line} | {cell(r.first)} | {cell(r.term)} |" for r in later]
 
         out += ["", f"### Case pairs ({len(b.case_pairs)})", "", "| Capitalised | Merged into |", "|---|---|"]
         out += [f"| {cell(a)} | {cell(z)} |" for a, z in b.case_pairs]

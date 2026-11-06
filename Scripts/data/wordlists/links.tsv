@@ -19,3 +19,11 @@ ky-ell	λαϊκή	-
 ky-ell	εννέα	εννιά
 ky-ell	επτά	εφτά
 ky-ell	οκτώ	οχτώ
+# English forms of be and do: the exact rule links is to IS ("Islamic State" in En–Es), am and are
+# to WordNet's americium and unit of area; no rule links 'm, 're and does.
+cefr-eng	is	be
+cefr-eng	am	be
+cefr-eng	are	be
+cefr-eng	'm	be
+cefr-eng	're	be
+cefr-eng	does	do
