@@ -359,6 +359,28 @@ struct PackID: RawRepresentable, Hashable, Codable, Sendable, CustomStringConver
     var description: String { rawValue }
 }
 
+/// What a language pack shows on the Languages screen, the first-launch
+/// sheet and E4's progress row (0237, "Settings → Dictionaries"), as
+/// `PackStatusModel` publishes it.
+enum PackState: Equatable, Sendable {
+    /// No file: Download.
+    case notInstalled
+    /// Queued behind another pack's install.
+    case waiting
+    /// Bytes received of the asset's `total` (the catalog's `size`).
+    case downloading(received: Int64, total: Int64)
+    /// Verifying, decompressing and attaching.
+    case installing
+    /// The catalog's version is installed.
+    case installed
+    /// An older version of the app's format: usable until the update.
+    case updateAvailable
+    /// A file of another format: the stub is attached until the update.
+    case updateRequired
+    /// The last download or install failed; Try again.
+    case failed(PackError)
+}
+
 /// The schema names of the dictionary files on every connection, and which
 /// file holds which dictionary (0237, "Connection layout" and "Reading across
 /// files"). Every name is always attached, to the installed file or the

@@ -7398,18 +7398,87 @@ final class DictionarySchemasTests: XCTestCase {
 }
 
 /// Packs attached while the app runs (0237, "Connection layout"): #241's
-/// re-attach, through the install path with no network. #242 adds the
-/// download tests.
+/// re-attach through the install path, and #242's downloads, through
+/// `PackFixtureURLProtocol`: no test touches the network. Each service has
+/// its own folders, settings and state model, never the app's.
 @MainActor
 final class PackServiceTests: XCTestCase {
     private var tempDir: URL!
     private var db: DatabaseService { .shared }
+    private var status: PackStatusModel!
+    private var settings: SettingsService!
 
     override func setUp() async throws {
         try await super.setUp()
         await DictAppTests.waitForHostAppLaunch()
         tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        status = PackStatusModel()
+        settings = SettingsService(store: InMemoryKeyValueStore())
+    }
+
+    private var packsFolder: URL { tempDir.appendingPathComponent("Packs", isDirectory: true) }
+    private var downloadsFolder: URL { tempDir.appendingPathComponent("Downloads", isDirectory: true) }
+
+    /// A service on `tempDir`, publishing to `status`, with `settings`.
+    private func makeService(localization: LocalizationManager? = nil) -> PackService {
+        PackService(folder: packsFolder, downloads: downloadsFolder, database: db, settings: settings,
+                    status: status, localization: localization)
+    }
+
+    /// Launch as the app does it (`setup` with every pack on the stub, then
+    /// the scan), with every download answered by `PackFixtureURLProtocol`
+    /// in `mode`. Its request record starts empty.
+    private func downloadingService(_ mode: PackFixtureURLProtocol.Mode,
+                                    localization: LocalizationManager? = nil) async throws -> PackService {
+        let service = makeService(localization: localization)
+        await service.useFixtureDownloads(mode)
+        try await relaunch(service)
+        return service
+    }
+
+    /// The next launch, for `service`: a new pool with every pack on the
+    /// stub, then its scan.
+    private func relaunch(_ service: PackService) async throws {
+        try await db.setup(userPath: tempDir.appendingPathComponent("user.sqlite").path,
+                           dictionaryURL: try TestDictionary.bundledURL())
+        try await service.prepare()
+    }
+
+    /// Runs what the service queued on the main queue: states, `didChange`.
+    private func settle() async {
+        await withCheckedContinuation { continuation in
+            DispatchQueue.main.async { continuation.resume() }
+        }
+    }
+
+    private func files(in folder: URL) -> [String] {
+        ((try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? []).sorted()
+    }
+
+    /// The `PackError` an install throws; nil when it succeeds.
+    private func installError(_ service: PackService, _ id: PackID) async -> PackError? {
+        do {
+            try await service.install(id)
+            return nil
+        } catch {
+            return error as? PackError
+        }
+    }
+
+    /// Polls `condition` every 50 ms; fails after `timeout`.
+    private func waitUntil(_ what: String, timeout: TimeInterval = 10, _ condition: () -> Bool) async throws {
+        let deadline = Date().addingTimeInterval(timeout)
+        while !condition() {
+            guard Date() < deadline else { return XCTFail("timed out waiting for \(what)") }
+            try await Task.sleep(nanoseconds: 50_000_000)
+        }
+    }
+
+    /// The pack is downloading and has received some bytes.
+    private func isDownloading(_ id: PackID) -> Bool {
+        if case .downloading(let received, _) = status.state(of: id) { return received > 0 }
+        return false
     }
 
     override func tearDown() async throws {
@@ -7428,7 +7497,7 @@ final class PackServiceTests: XCTestCase {
         XCTAssertFalse(before.contains { $0.source == "wordnet-spa-eng" }, "no Spanish pack yet")
         let reopens = await db.dictionaryReopenCount
 
-        let service = PackService(folder: tempDir.appendingPathComponent("Packs"), database: db)
+        let service = makeService()
         try await service.prepare()
         try await service.install([.spa], fromAssetsIn: PackFixtures.assets)
         let reopened = await db.dictionaryReopenCount
@@ -7471,7 +7540,8 @@ final class PackServiceTests: XCTestCase {
         let plain = try TestDictionary.make(rows: [.init(word: "dog", definition: "a dog", source: "wordnet")],
                                             at: tempDir.appendingPathComponent("plain.sqlite"))
         try await db.setup(userPath: userPath, dictionaryURL: plain)
-        let noPacks = PackService(folder: tempDir.appendingPathComponent("NoPacks", isDirectory: true), database: db)
+        let noPacks = PackService(folder: tempDir.appendingPathComponent("NoPacks", isDirectory: true),
+                                  downloads: downloadsFolder, database: db, settings: settings, status: status)
         try await noPacks.prepare()
         let none = await noPacks.catalog
         XCTAssertEqual(none.packs, [], "the catalog is read through the pool, from the attached file")
@@ -7496,7 +7566,7 @@ final class PackServiceTests: XCTestCase {
         XCTAssertEqual(bundleOnly, ["wordnet"])
         let reopens = await db.dictionaryReopenCount
 
-        let service = PackService(folder: packsFolder, database: db)
+        let service = makeService()
         let scanned = try await service.prepare()
         XCTAssertEqual(scanned, [.spa: spa, .rus: olderRus, .arb: arb])
         let reopened = await db.dictionaryReopenCount
@@ -7525,7 +7595,6 @@ final class PackServiceTests: XCTestCase {
     // MARK: QA (#241)
 
     private var userPath: String { tempDir.appendingPathComponent("user.sqlite").path }
-    private var packsFolder: URL { tempDir.appendingPathComponent("Packs", isDirectory: true) }
 
     /// 0237 "Connection layout": with no pack installed every pack name
     /// reads the stub. English answers; a pack's dictionaries find nothing,
@@ -7589,7 +7658,7 @@ final class PackServiceTests: XCTestCase {
         let bundle = try TestDictionary.bundledURL()
 
         try await db.setup(userPath: userPath, dictionaryURL: bundle)
-        let service = PackService(folder: packsFolder, database: db)
+        let service = makeService()
         let scanned = try await service.prepare()
         XCTAssertEqual(scanned, [.rus: rus], "only the usable file is attached")
         let states = await service.installedPacks()
@@ -7622,7 +7691,7 @@ final class PackServiceTests: XCTestCase {
                                                           source: "wordnet-spa-eng")], at: old)
         let bundle = try TestDictionary.bundledURL()
         try await db.setup(userPath: userPath, dictionaryURL: bundle)
-        let service = PackService(folder: packsFolder, database: db)
+        let service = makeService()
         let scanned = try await service.prepare()
         XCTAssertEqual(scanned, [.spa: old])
         let key = EntryKey(source: "wordnet-spa-eng", word: "casa")
@@ -7647,7 +7716,7 @@ final class PackServiceTests: XCTestCase {
     func testInstallFixturesSkipsAnInstalledPack() async throws {
         let bundle = try TestDictionary.bundledURL()
         try await db.setup(userPath: userPath, dictionaryURL: bundle)
-        let service = PackService(folder: packsFolder, database: db)
+        let service = makeService()
         try await service.prepare()
         let start = await db.dictionaryReopenCount
 
@@ -7684,7 +7753,7 @@ final class PackServiceTests: XCTestCase {
             XCTAssertFalse(rows.isEmpty, "'\(query)' in \(source) after -installPacks all")
         }
 
-        let relaunch = PackService(folder: packsFolder, database: db)
+        let relaunch = makeService()
         let rescanned = try await relaunch.prepare()
         XCTAssertEqual(Set(rescanned.keys), Set(PackID.all), "the next launch attaches every installed pack")
     }
@@ -7705,7 +7774,7 @@ final class PackServiceTests: XCTestCase {
         damaged[damaged.count / 3] ^= 0x01
         try damaged.write(to: assets.appendingPathComponent(ell.assetName))
 
-        let service = PackService(folder: packsFolder, database: db)
+        let service = makeService()
         try await service.prepare()
         do {
             try await service.install([.rus, .ell], fromAssetsIn: assets)
@@ -7718,6 +7787,1214 @@ final class PackServiceTests: XCTestCase {
         let house = try await db.search(query: "дом", enabledSources: ["openrussian"])
         XCTAssertFalse(house.isEmpty, "Russian is attached although Greek failed")
         XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: packsFolder.path), [rus.fileName])
+    }
+
+    // MARK: Downloads (#242)
+
+    /// #237: a pack downloads, is verified and is searchable without a
+    /// restart. One request, to the catalog URL; the asset goes through
+    /// `Downloads/` into `Packs/` and is deleted; one re-attach, no `setup`;
+    /// an import of a word the pack has is deleted (step 7); `didChange`.
+    func testInstallVerifiesThenAttaches() async throws {
+        let service = try await downloadingService(.ok)
+        let json = tempDir.appendingPathComponent("wordnet-spa-eng.json")
+        try Data(#"[{"word": "casa", "definition": "x"}, {"word": "casaqzx", "definition": "y"}]"#.utf8).write(to: json)
+        _ = try await db.importJSON(at: json, source: "wordnet-spa-eng")
+        let imported = try await db.entryCount(source: "wordnet-spa-eng")
+        XCTAssertEqual(imported, 2, "no pack yet: both rows are imported")
+        let reopens = await db.dictionaryReopenCount
+        let changed = expectation(forNotification: PackService.didChange, object: service)
+
+        try await service.install(.spa)
+        await fulfillment(of: [changed], timeout: 5)
+        await settle()
+
+        let catalog = try PackFixtures.catalog()
+        let pack = try XCTUnwrap(catalog.pack(.spa))
+        XCTAssertEqual(PackFixtureURLProtocol.requests, [try XCTUnwrap(pack.url)])
+        XCTAssertEqual(files(in: packsFolder), [pack.fileName])
+        XCTAssertEqual(files(in: downloadsFolder), [], "the downloaded asset is deleted")
+        XCTAssertEqual(status.state(of: .spa), .installed)
+        let reopened = await db.dictionaryReopenCount
+        XCTAssertEqual(reopened, reopens + 1, "one re-attach")
+        let found = try await db.search(query: "casa")
+        XCTAssertTrue(found.contains { $0.source == "wordnet-spa-eng" && $0.word == "casa" }, "searchable at once")
+        let source = try XCTUnwrap(catalog.sources.first { $0.source == "wordnet-spa-eng" })
+        let count = try await db.entryCount(source: "wordnet-spa-eng")
+        XCTAssertEqual(count, source.wordCount + 1, "only the import of the word the pack lacks stays")
+        XCTAssertEqual(settings.packsInstalled, [.spa])
+    }
+
+    /// #237: no network access outside a download the user started. The
+    /// launch scan, catalog reads, states, `installedPacks` and Search make
+    /// no request, also through the shared session; one install makes one,
+    /// to the catalog URL.
+    func testNoRequestUntilInstall() async throws {
+        URLProtocol.registerClass(PackFixtureURLProtocol.self)
+        defer { URLProtocol.unregisterClass(PackFixtureURLProtocol.self) }
+        let service = try await downloadingService(.ok)
+        _ = await service.installedPacks()
+        _ = try PackFixtures.catalog()
+        _ = try await db.search(query: "casa")
+        _ = try await db.searchResults(query: "dog")
+        _ = try await db.fetchMetadata()
+        await settle()
+        XCTAssertEqual(status.state(of: .arb), .notInstalled)
+        XCTAssertEqual(PackFixtureURLProtocol.requests, [], "no request before an install")
+
+        try await service.install(.arb)
+        let pack = try XCTUnwrap(try PackFixtures.catalog().pack(.arb))
+        XCTAssertEqual(PackFixtureURLProtocol.requests, [try XCTUnwrap(pack.url)])
+    }
+
+    /// #237: a failed or partial download leaves the app working and can be
+    /// retried. The connection drops halfway: nothing in `Packs/` or
+    /// `Downloads/`, "stopped", Search works; Try again installs.
+    func testFailureMidDownloadInstallsNothing() async throws {
+        let service = try await downloadingService(.failOnce)
+        let error = await installError(service, .arb)
+        XCTAssertEqual(error, .stopped)
+        await settle()
+        XCTAssertEqual(status.state(of: .arb), .failed(.stopped))
+        XCTAssertEqual(files(in: packsFolder), [])
+        XCTAssertEqual(files(in: downloadsFolder), [])
+        let english = try await db.search(query: "dog")
+        XCTAssertFalse(english.isEmpty, "Search works")
+
+        try await service.install(.arb)
+        await settle()
+        XCTAssertEqual(status.state(of: .arb), .installed)
+        XCTAssertEqual(PackFixtureURLProtocol.requests.count, 2)
+        let count = try await db.entryCount(source: "wordnet-arb-eng")
+        XCTAssertGreaterThan(count, 0)
+    }
+
+    /// A download that does not match its sha256 installs nothing.
+    func testDamagedDownloadIsRejected() async throws {
+        let service = try await downloadingService(.corrupt)
+        let error = await installError(service, .arb)
+        XCTAssertEqual(error, .damaged)
+        await settle()
+        XCTAssertEqual(status.state(of: .arb), .failed(.damaged))
+        XCTAssertEqual(files(in: packsFolder), [])
+        XCTAssertEqual(files(in: downloadsFolder), [])
+        let installed = await service.installedPacks()
+        XCTAssertEqual(installed, [])
+    }
+
+    /// No network fails at once with "No internet connection."
+    func testOfflineFailsAtOnce() async throws {
+        let service = try await downloadingService(.offline)
+        let started = Date()
+        let error = await installError(service, .arb)
+        XCTAssertEqual(error, .offline)
+        XCTAssertLessThan(Date().timeIntervalSince(started), 2, "no wait for connectivity")
+        await settle()
+        XCTAssertEqual(status.state(of: .arb), .failed(.offline))
+    }
+
+    /// A missing release asset (HTTP 404) is "not available right now".
+    func testHTTP404IsUnavailable() async throws {
+        let service = try await downloadingService(.http404)
+        let error = await installError(service, .arb)
+        XCTAssertEqual(error, .unavailable)
+        await settle()
+        XCTAssertEqual(status.state(of: .arb), .failed(.unavailable))
+        XCTAssertEqual(files(in: downloadsFolder), [], "the error page is not kept")
+    }
+
+    /// A full disk while decompressing: "Not enough storage", and the
+    /// partial file and the download are deleted.
+    func testNoSpaceCleansUp() async throws {
+        let service = try await downloadingService(.noSpace)
+        let error = await installError(service, .arb)
+        XCTAssertEqual(error, .noSpace)
+        await settle()
+        XCTAssertEqual(status.state(of: .arb), .failed(.noSpace))
+        XCTAssertEqual(files(in: packsFolder), [])
+        XCTAssertEqual(files(in: downloadsFolder), [])
+    }
+
+    /// Cancel mid-download: the install throws `.cancelled`, the state goes
+    /// back to "not installed" and no temporary file stays. A Download right
+    /// after it queues a new install, which completes.
+    func testCancelDeletesTemporaryFiles() async throws {
+        let service = try await downloadingService(.slow)
+        let install = Task { try await service.install(.arb) }
+        try await waitUntil("the download to start") { isDownloading(.arb) }
+        await service.cancel(.arb)
+        do {
+            try await install.value
+            XCTFail("the install was cancelled")
+        } catch {
+            XCTAssertEqual(error as? PackError, .cancelled)
+        }
+        await settle()
+        XCTAssertEqual(status.state(of: .arb), .notInstalled)
+        XCTAssertEqual(files(in: packsFolder), [])
+        XCTAssertEqual(files(in: downloadsFolder), [])
+
+        await service.useFixtureDownloads(.ok)
+        try await service.install(.arb)
+        await settle()
+        XCTAssertEqual(status.state(of: .arb), .installed)
+    }
+
+    /// One install at a time, in the order chosen; the next one waits.
+    func testInstallsRunOneAtATime() async throws {
+        let service = try await downloadingService(.slow)
+        let arabic = Task { try await service.install(.arb) }
+        try await waitUntil("Arabic to download") { isDownloading(.arb) }
+        let russian = Task { try await service.install(.rus) }
+        try await waitUntil("Russian to wait") { status.state(of: .rus) == .waiting }
+        XCTAssertEqual(PackFixtureURLProtocol.requests.count, 1, "one download at a time")
+
+        await service.cancel(.arb)
+        try await waitUntil("Russian to download") { isDownloading(.rus) }
+        await service.cancel(.rus)
+        for task in [arabic, russian] {
+            do {
+                try await task.value
+                XCTFail("cancelled")
+            } catch {
+                XCTAssertEqual(error as? PackError, .cancelled)
+            }
+        }
+    }
+
+    /// The background time runs out mid-download: "stopped", Try again
+    /// installs (continuing from the resume data when the session gave some).
+    func testBackgroundExpiryStopsWithTryAgain() async throws {
+        let service = try await downloadingService(.slow)
+        let install = Task { try await service.install(.arb) }
+        try await waitUntil("the download to start") { isDownloading(.arb) }
+        await service.expireBackgroundTime()
+        do {
+            try await install.value
+            XCTFail("the download stopped")
+        } catch {
+            XCTAssertEqual(error as? PackError, .stopped)
+        }
+        await settle()
+        XCTAssertEqual(status.state(of: .arb), .failed(.stopped))
+
+        await service.useFixtureDownloads(.ok)
+        try await service.install(.arb)
+        await settle()
+        XCTAssertEqual(status.state(of: .arb), .installed)
+    }
+
+    /// The next launch deletes a partial file and a download in progress.
+    func testLaunchDeletesPartialFiles() async throws {
+        let pack = try XCTUnwrap(try PackFixtures.catalog().pack(.ell))
+        for folder in [packsFolder, downloadsFolder] {
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        }
+        let partial = packsFolder.appendingPathComponent(pack.fileName + ".partial")
+        let download = downloadsFolder.appendingPathComponent(pack.assetName)
+        for url in [partial, download] {
+            XCTAssertTrue(FileManager.default.createFile(atPath: url.path, contents: Data("x".utf8)))
+        }
+        try await relaunch(makeService())
+        await settle()
+        XCTAssertEqual(files(in: packsFolder), [])
+        XCTAssertFalse(FileManager.default.fileExists(atPath: downloadsFolder.path))
+        XCTAssertEqual(status.state(of: .ell), .notInstalled)
+    }
+
+    /// Remove: the stub is attached, then the file is deleted; the pack
+    /// leaves `packs_installed`; `didChange`.
+    func testRemoveDetachesThenDeletes() async throws {
+        let service = try await downloadingService(.ok)
+        try await service.install(.arb)
+        let before = try await db.entryCount(source: "wordnet-arb-eng")
+        XCTAssertGreaterThan(before, 0)
+        _ = try await db.fetchMetadata()   // a reader on the file
+        let changed = expectation(forNotification: PackService.didChange, object: service)
+
+        try await service.remove(.arb)
+        await fulfillment(of: [changed], timeout: 5)
+        await settle()
+        XCTAssertEqual(files(in: packsFolder), [])
+        let after = try await db.entryCount(source: "wordnet-arb-eng")
+        XCTAssertEqual(after, 0, "the stub is attached")
+        XCTAssertEqual(status.state(of: .arb), .notInstalled)
+        XCTAssertEqual(settings.packsInstalled, [])
+        let installed = await service.installedPacks()
+        XCTAssertEqual(installed, [])
+    }
+
+    /// A re-installed pack keeps the place and switch it had.
+    func testReinstallKeepsOrderAndSwitch() async throws {
+        let service = try await downloadingService(.ok)
+        let spanish = try PackFixtures.catalog().sources(of: .spa).map(\.source)
+        settings.dictionaryOrder = ["wordnet"]
+        settings.enabledSources = ["wordnet"]
+        try await service.install(.spa)
+        // The user puts Spanish first and turns it off.
+        settings.dictionaryOrder = spanish + ["wordnet"]
+        settings.enabledSources = ["wordnet"]
+
+        try await service.remove(.spa)
+        XCTAssertEqual(settings.dictionaryOrder, spanish + ["wordnet"])
+        XCTAssertEqual(settings.enabledSources, ["wordnet"])
+        XCTAssertEqual(settings.packsInstalled, [])
+
+        try await service.install(.spa)
+        XCTAssertEqual(settings.dictionaryOrder, spanish + ["wordnet"])
+        XCTAssertEqual(settings.enabledSources, ["wordnet"])
+        XCTAssertEqual(settings.packsInstalled, [.spa])
+    }
+
+    /// Step 8: a new pack's dictionaries are enabled in a stored set and go
+    /// first in a stored order when they are the UI language's, else last;
+    /// `nil` stays `nil`.
+    func testInstallEnablesAndOrders() async throws {
+        let localization = LocalizationManager(settingsService: SettingsService(store: InMemoryKeyValueStore()))
+        localization.setLanguage(try XCTUnwrap(localization.supportedLanguages.first { $0.code == "es" }))
+        let service = try await downloadingService(.ok, localization: localization)
+        settings.dictionaryOrder = ["wordnet"]
+        settings.enabledSources = ["wordnet"]
+
+        try await service.install(.spa)
+        XCTAssertEqual(settings.dictionaryOrder, ["wordnet-spa-eng", "freedict-eng-spa", "wordnet"],
+                       "the UI language's dictionaries first, in #74's order")
+        XCTAssertEqual(settings.enabledSources, ["wordnet", "wordnet-spa-eng", "freedict-eng-spa"])
+
+        try await service.install(.arb)
+        XCTAssertEqual(settings.dictionaryOrder, ["wordnet-spa-eng", "freedict-eng-spa", "wordnet", "wordnet-arb-eng"],
+                       "another language last")
+        XCTAssertEqual(settings.enabledSources?.contains("wordnet-arb-eng"), true)
+        XCTAssertEqual(settings.packsInstalled, [.spa, .arb])
+
+        let fresh = SettingsService(store: InMemoryKeyValueStore())
+        fresh.recordInstall(of: .rus, sources: ["openrussian"], uiLanguageCode: "ru")
+        XCTAssertNil(fresh.dictionaryOrder, "nil stays nil")
+        XCTAssertNil(fresh.enabledSources, "nil stays nil")
+        XCTAssertEqual(fresh.packsInstalled, [.rus])
+    }
+
+    /// 0237, "Learning a pair": a pair installs the packs it lacks, in its
+    /// order, and nothing more. English via Greek: the English lists, then
+    /// Greek. Then Greek via English, English via English, Greek via Russian
+    /// and a pair the catalog lacks: nothing missing, no request. Spanish via
+    /// English: Spanish. Without the English lists, English via English
+    /// installs them. Without Greek, Greek via English and the limited Greek
+    /// via Russian each install Greek, nothing from Russian.
+    func testInstallPairPacks() async throws {
+        let service = try await downloadingService(.ok)
+        let catalog = try PackFixtures.catalog()
+        func url(_ id: PackID) throws -> URL { try XCTUnwrap(catalog.pack(id)?.url) }
+
+        let englishViaGreek = try await service.installPair(lang: "eng", via: "ell")
+        XCTAssertEqual(englishViaGreek, [.engLists, .ell])
+        XCTAssertEqual(PackFixtureURLProtocol.requests, [try url(.engLists), try url(.ell)])
+        for (lang, via) in [("ell", "eng"), ("eng", "eng"), ("ell", "rus"), ("rus", "spa")] {
+            let none = try await service.installPair(lang: lang, via: via)
+            XCTAssertEqual(none, [], "\(lang) via \(via): nothing missing")
+        }
+        XCTAssertEqual(PackFixtureURLProtocol.requests.count, 2, "no request when nothing is missing")
+
+        let spanish = try await service.installPair(lang: "spa", via: "eng")
+        XCTAssertEqual(spanish, [.spa])
+        try await service.remove(.engLists)
+        let english = try await service.installPair(lang: "eng", via: "eng")
+        XCTAssertEqual(english, [.engLists])
+
+        for via in ["eng", "rus"] {
+            try await service.remove(.ell)
+            let greek = try await service.installPair(lang: "ell", via: via)
+            XCTAssertEqual(greek, [.ell], "Greek via \(via)")
+        }
+        XCTAssertEqual(PackFixtureURLProtocol.requests,
+                       [try url(.engLists), try url(.ell), try url(.spa), try url(.engLists), try url(.ell),
+                        try url(.ell)],
+                       "nothing from Russian")
+        let installed = await service.installedPacks().map(\.id)
+        XCTAssertEqual(Set(installed), [.spa, .ell, .engLists])
+    }
+
+    /// A pair whose first pack fails throws its error; the packs after it
+    /// are never requested and stay missing.
+    func testInstallPairStopsAtTheFirstFailure() async throws {
+        let service = try await downloadingService(.offline)
+        do {
+            try await service.installPair(lang: "eng", via: "ell")
+            XCTFail("offline")
+        } catch {
+            XCTAssertEqual(error as? PackError, .offline)
+        }
+        await settle()
+        let lists = try XCTUnwrap(try PackFixtures.catalog().pack(.engLists))
+        XCTAssertEqual(PackFixtureURLProtocol.requests, [try XCTUnwrap(lists.url)])
+        XCTAssertEqual(status.state(of: .engLists), .failed(.offline))
+        XCTAssertEqual(status.state(of: .ell), .notInstalled)
+    }
+
+    /// A pack file of another format (a new app version, a restore) gets the
+    /// stub and "Update required"; the update downloads and replaces it.
+    func testWrongFormatDownloadsTheUpdate() async throws {
+        let file = try XCTUnwrap(try PackFixtures.install([.spa], into: packsFolder)[.spa])
+        let handle = try FileHandle(forWritingTo: file)
+        try handle.seek(toOffset: 60)
+        try handle.write(contentsOf: Data([0, 0, 0, 3]))
+        try handle.close()
+        XCTAssertEqual(DictionaryFile.headerFormat(of: file), 3)
+
+        let service = try await downloadingService(.ok)
+        await settle()
+        XCTAssertEqual(status.state(of: .spa), .updateRequired)
+        let packs = await service.installedPacks()
+        XCTAssertEqual(packs.map(\.usable), [false])
+        let stubbed = try await db.entryCount(source: "wordnet-spa-eng")
+        XCTAssertEqual(stubbed, 0, "the stub is attached")
+
+        try await service.install(.spa)
+        await settle()
+        XCTAssertEqual(status.state(of: .spa), .installed)
+        XCTAssertEqual(DictionaryFile.headerFormat(of: file), DictionaryFile.formatVersion, "the update replaced it")
+        let count = try await db.entryCount(source: "wordnet-spa-eng")
+        XCTAssertGreaterThan(count, 0)
+    }
+
+    /// An older version of the Spanish pack, of the app's format, in `Packs/`.
+    private func plantOlderSpanish() throws -> URL {
+        let older = packsFolder.appendingPathComponent("spa-0123456789ab.sqlite")
+        try FileManager.default.createDirectory(at: packsFolder, withIntermediateDirectories: true)
+        try FileManager.default.copyItem(at: try PackFixtures.file(.spa), to: older)
+        return older
+    }
+
+    /// An older version of the app's format stays attached until the update:
+    /// "Update available".
+    func testOlderVersionStaysUsable() async throws {
+        let older = try plantOlderSpanish()
+        let service = try await downloadingService(.ok)
+        await settle()
+        XCTAssertEqual(status.state(of: .spa), .updateAvailable)
+        let packs = await service.installedPacks()
+        XCTAssertEqual(packs, [InstalledPack(id: .spa, lang: "spa", version: "0123456789ab", usable: true)])
+        let found = try await db.search(query: "casa")
+        XCTAssertTrue(found.contains { $0.source == "wordnet-spa-eng" }, "the older version is attached")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: older.path))
+    }
+
+    /// The update downloads the new file next to the old one, attaches it,
+    /// then deletes the old one.
+    func testUpdateDownloadReplacesTheOldFile() async throws {
+        let older = try plantOlderSpanish()
+        let service = try await downloadingService(.ok)
+        try await service.install(.spa)
+        await settle()
+        let pack = try XCTUnwrap(try PackFixtures.catalog().pack(.spa))
+        XCTAssertEqual(status.state(of: .spa), .installed)
+        XCTAssertEqual(files(in: packsFolder), [pack.fileName])
+        XCTAssertFalse(FileManager.default.fileExists(atPath: older.path))
+        let found = try await db.search(query: "casa")
+        XCTAssertTrue(found.contains { $0.source == "wordnet-spa-eng" })
+        let packs = await service.installedPacks()
+        XCTAssertEqual(packs.map(\.version), [pack.version])
+    }
+
+    // MARK: Downloads, QA (#242)
+
+    /// The `Range` start of a resumed request, nil for a request from the start.
+    private func rangeStart(_ header: String?) -> Int64? {
+        guard let header, header.hasPrefix("bytes=") else { return nil }
+        return Int64(header.dropFirst("bytes=".count).prefix { $0.isNumber })
+    }
+
+    /// 0237, "Try again": the connection drops halfway; Try again continues
+    /// from the session's resume data (a ranged request for the rest), not
+    /// from the start, and the joined file passes both sha256 checks.
+    func testTryAgainResumesWhereTheConnectionDropped() async throws {
+        let service = try await downloadingService(.failOnce)
+        let pack = try XCTUnwrap(try PackFixtures.catalog().pack(.arb))
+        let error = await installError(service, .arb)
+        XCTAssertEqual(error, .stopped)
+
+        try await service.install(.arb)
+        await settle()
+        XCTAssertEqual(status.state(of: .arb), .installed)
+        let ranges = PackFixtureURLProtocol.ranges
+        guard ranges.count == 2 else { return XCTFail("two requests: \(ranges)") }
+        XCTAssertNil(ranges[0], "the first request asks for the whole asset")
+        XCTAssertEqual(rangeStart(ranges[1]), pack.size / 2, "Try again asks for the rest: the bytes after the drop")
+        XCTAssertEqual(files(in: packsFolder), [pack.fileName])
+        XCTAssertEqual(files(in: downloadsFolder), [])
+    }
+
+    /// 0237, "The app goes to the background": the background time runs out
+    /// mid-download; Try again on the same session continues from the resume
+    /// data that the stop asked for.
+    func testTryAgainAfterBackgroundExpiryResumes() async throws {
+        let service = try await downloadingService(.slow)
+        let pack = try XCTUnwrap(try PackFixtures.catalog().pack(.arb))
+        let install = Task { try await service.install(.arb) }
+        try await waitUntil("the download to start") { isDownloading(.arb) }
+        await service.expireBackgroundTime()
+        do {
+            try await install.value
+            XCTFail("the download stopped")
+        } catch {
+            XCTAssertEqual(error as? PackError, .stopped)
+        }
+
+        try await service.install(.arb)
+        await settle()
+        XCTAssertEqual(status.state(of: .arb), .installed)
+        let ranges = PackFixtureURLProtocol.ranges
+        guard ranges.count == 2 else { return XCTFail("two requests: \(ranges)") }
+        XCTAssertNil(ranges[0])
+        let start = try XCTUnwrap(rangeStart(ranges[1]), "Try again resumes: \(ranges)")
+        XCTAssertGreaterThan(start, 0)
+        XCTAssertLessThan(start, pack.size)
+    }
+
+    /// Cancel drops the resume data: a Download after a cancel starts over.
+    func testCancelAfterAFailureStartsOver() async throws {
+        let service = try await downloadingService(.failOnce)
+        let error = await installError(service, .arb)
+        XCTAssertEqual(error, .stopped)
+        await service.cancel(.arb)   // not running: only the resume data goes
+
+        try await service.install(.arb)
+        XCTAssertEqual(PackFixtureURLProtocol.ranges, [nil, nil], "the second download starts from the first byte")
+    }
+
+    /// A pack the catalog does not know is "not available", with no request
+    /// and no state.
+    func testUnknownPackIsUnavailable() async throws {
+        let service = try await downloadingService(.ok)
+        let error = await installError(service, PackID("xyz"))
+        XCTAssertEqual(error, .unavailable)
+        await settle()
+        XCTAssertEqual(PackFixtureURLProtocol.requests, [])
+        XCTAssertEqual(status.states[PackID("xyz")], nil)
+    }
+
+    /// Two Downloads of the same pack (the sheet and the Languages screen)
+    /// share one install: one request, both callers return, one `didChange`
+    /// naming the pack.
+    func testSecondCallerJoinsTheRunningInstall() async throws {
+        let service = try await downloadingService(.slow)
+        let posts = DidChangeRecorder(service)
+        defer { posts.stop() }
+        let first = Task { try await service.install(.arb) }
+        try await waitUntil("the download to start") { isDownloading(.arb) }
+        let second = Task { try await service.install(.arb) }
+        try await first.value
+        try await second.value
+        await settle()
+        XCTAssertEqual(PackFixtureURLProtocol.requests.count, 1)
+        XCTAssertEqual(posts.packs, [[.arb]], "one didChange, naming the pack")
+        XCTAssertEqual(status.state(of: .arb), .installed)
+    }
+
+    /// Cancel a waiting install: it throws `.cancelled` and is never
+    /// requested; the running one goes on and installs.
+    func testCancelWaitingInstallDownloadsNothing() async throws {
+        let service = try await downloadingService(.slow)
+        let arabic = Task { try await service.install(.arb) }
+        try await waitUntil("Arabic to download") { isDownloading(.arb) }
+        let english = Task { try await service.install(.engLists) }
+        try await waitUntil("the English lists to wait") { status.state(of: .engLists) == .waiting }
+
+        await service.cancel(.engLists)
+        do {
+            try await english.value
+            XCTFail("cancelled")
+        } catch {
+            XCTAssertEqual(error as? PackError, .cancelled)
+        }
+        try await arabic.value
+        await settle()
+        XCTAssertEqual(status.state(of: .engLists), .notInstalled)
+        XCTAssertEqual(status.state(of: .arb), .installed)
+        let arb = try XCTUnwrap(try PackFixtures.catalog().pack(.arb))
+        XCTAssertEqual(PackFixtureURLProtocol.requests, [try XCTUnwrap(arb.url)])
+        let installed = await service.installedPacks().map(\.id)
+        XCTAssertEqual(installed, [.arb])
+    }
+
+    /// The background time runs out with a pack waiting: the waiting one
+    /// fails with "stopped" too, never requested; nothing is installed and
+    /// `didChange` is not posted.
+    func testBackgroundExpiryStopsWaitingInstalls() async throws {
+        let service = try await downloadingService(.slow)
+        let changed = expectation(forNotification: PackService.didChange, object: service)
+        changed.isInverted = true
+        let arabic = Task { try await service.install(.arb) }
+        try await waitUntil("Arabic to download") { isDownloading(.arb) }
+        let russian = Task { try await service.install(.rus) }
+        try await waitUntil("Russian to wait") { status.state(of: .rus) == .waiting }
+
+        await service.expireBackgroundTime()
+        for task in [arabic, russian] {
+            do {
+                try await task.value
+                XCTFail("stopped")
+            } catch {
+                XCTAssertEqual(error as? PackError, .stopped)
+            }
+        }
+        await fulfillment(of: [changed], timeout: 0.5)
+        await settle()
+        XCTAssertEqual(status.state(of: .arb), .failed(.stopped))
+        XCTAssertEqual(status.state(of: .rus), .failed(.stopped))
+        XCTAssertEqual(PackFixtureURLProtocol.requests.count, 1, "Russian was never requested")
+        XCTAssertEqual(files(in: packsFolder), [])
+        let installed = await service.installedPacks()
+        XCTAssertEqual(installed, [])
+    }
+
+    /// A damaged update installs nothing: the older version stays attached,
+    /// on disk and searchable; the error shows; no `didChange`.
+    func testFailedUpdateKeepsTheOlderVersion() async throws {
+        let older = try plantOlderSpanish()
+        let service = try await downloadingService(.corrupt)
+        let changed = expectation(forNotification: PackService.didChange, object: service)
+        changed.isInverted = true
+        let error = await installError(service, .spa)
+        XCTAssertEqual(error, .damaged)
+        await fulfillment(of: [changed], timeout: 0.5)
+        await settle()
+        XCTAssertEqual(status.state(of: .spa), .failed(.damaged))
+        XCTAssertEqual(files(in: packsFolder), [older.lastPathComponent])
+        let packs = await service.installedPacks()
+        XCTAssertEqual(packs, [InstalledPack(id: .spa, lang: "spa", version: "0123456789ab", usable: true)])
+        let found = try await db.search(query: "casa")
+        XCTAssertTrue(found.contains { $0.source == "wordnet-spa-eng" }, "the older version is still searchable")
+    }
+
+    /// A cancelled update goes back to "Update available", the older
+    /// version still attached.
+    func testCancelledUpdateKeepsTheOlderVersion() async throws {
+        let older = try plantOlderSpanish()
+        let service = try await downloadingService(.slow)
+        let update = Task { try await service.install(.spa) }
+        try await waitUntil("the update to download") { isDownloading(.spa) }
+        await service.cancel(.spa)
+        do {
+            try await update.value
+            XCTFail("cancelled")
+        } catch {
+            XCTAssertEqual(error as? PackError, .cancelled)
+        }
+        await settle()
+        XCTAssertEqual(status.state(of: .spa), .updateAvailable)
+        XCTAssertEqual(files(in: packsFolder), [older.lastPathComponent])
+        XCTAssertEqual(files(in: downloadsFolder), [])
+        let found = try await db.search(query: "casa")
+        XCTAssertTrue(found.contains { $0.source == "wordnet-spa-eng" })
+    }
+
+    /// A cancelled update of a file of another format goes back to "Update
+    /// required": the file stays, unread, and the stub stays attached.
+    func testCancelledUpdateOfAnotherFormatIsUpdateRequired() async throws {
+        let file = try XCTUnwrap(try PackFixtures.install([.spa], into: packsFolder)[.spa])
+        let handle = try FileHandle(forWritingTo: file)
+        try handle.seek(toOffset: 60)
+        try handle.write(contentsOf: Data([0, 0, 0, 3]))
+        try handle.close()
+        let service = try await downloadingService(.slow)
+        let update = Task { try await service.install(.spa) }
+        try await waitUntil("the update to download") { isDownloading(.spa) }
+        await service.cancel(.spa)
+        do {
+            try await update.value
+            XCTFail("cancelled")
+        } catch {
+            XCTAssertEqual(error as? PackError, .cancelled)
+        }
+        await settle()
+        XCTAssertEqual(status.state(of: .spa), .updateRequired)
+        XCTAssertEqual(files(in: packsFolder), [file.lastPathComponent])
+        XCTAssertEqual(files(in: downloadsFolder), [])
+        let count = try await db.entryCount(source: "wordnet-spa-eng")
+        XCTAssertEqual(count, 0, "the stub stays attached")
+    }
+
+    /// 0237, "Try again": the resumed request is refused (HTTP 403, an
+    /// expired signed URL): the resume data goes and one fresh request on the
+    /// catalog URL follows, from the first byte; the install completes.
+    func testExpiredResumeDataStartsOver() async throws {
+        let service = try await downloadingService(.expiredResume)
+        let pack = try XCTUnwrap(try PackFixtures.catalog().pack(.arb))
+        let error = await installError(service, .arb)
+        XCTAssertEqual(error, .stopped)
+
+        try await service.install(.arb)
+        await settle()
+        XCTAssertEqual(status.state(of: .arb), .installed)
+        XCTAssertEqual(PackFixtureURLProtocol.requests, Array(repeating: try XCTUnwrap(pack.url), count: 3))
+        let ranges = PackFixtureURLProtocol.ranges
+        guard ranges.count == 3 else { return XCTFail("three requests: \(ranges)") }
+        XCTAssertNil(ranges[0])
+        XCTAssertNotNil(ranges[1], "Try again resumes")
+        XCTAssertNil(ranges[2], "the fresh request starts from the first byte")
+        XCTAssertEqual(files(in: packsFolder), [pack.fileName])
+        XCTAssertEqual(files(in: downloadsFolder), [])
+    }
+
+    /// The fresh request after a refused resume is the only retry: when it
+    /// fails too, Try again shows the error.
+    func testRefusedFreshRequestIsNotRetried() async throws {
+        let service = try await downloadingService(.failOnce)
+        let stopped = await installError(service, .arb)
+        XCTAssertEqual(stopped, .stopped)
+        await service.useFixtureDownloads(.http404)
+        let error = await installError(service, .arb)
+        XCTAssertEqual(error, .unavailable)
+        let ranges = PackFixtureURLProtocol.ranges
+        guard ranges.count == 2 else { return XCTFail("the resumed request and one fresh one: \(ranges)") }
+        XCTAssertNotNil(ranges[0], "Try again resumes")
+        XCTAssertNil(ranges[1], "the fresh one from the first byte")
+    }
+
+    /// 0237, "Crash safety": an install cut off after its rename (step 5),
+    /// its re-attach (step 6) or the imports it covers (step 7) lacks its id
+    /// in `packs_installed`. The next launch attaches the file, deletes the
+    /// covered import, enables and orders the pack's dictionaries and adds
+    /// the id; a launch after that changes nothing.
+    func testCrashAfterCommitFinishesTheInstall() async throws {
+        let catalog = try PackFixtures.catalog()
+        let pack = try XCTUnwrap(catalog.pack(.spa))
+        let spanish = catalog.sources(of: .spa).map(\.source)
+        let wordCount = try XCTUnwrap(catalog.sources.first { $0.source == "wordnet-spa-eng" }).wordCount
+        let json = tempDir.appendingPathComponent("wordnet-spa-eng.json")
+        try Data(#"[{"word": "casa", "definition": "x"}, {"word": "casaqzx", "definition": "y"}]"#.utf8).write(to: json)
+        for point in [PackService.CrashPoint.afterCommit, .afterAttach, .afterImports] {
+            try? FileManager.default.removeItem(at: packsFolder)
+            settings = SettingsService(store: InMemoryKeyValueStore())
+            settings.dictionaryOrder = ["wordnet"]
+            settings.enabledSources = ["wordnet"]
+            let service = try await downloadingService(.ok)
+            try await db.clearEntries(fromSource: "wordnet-spa-eng")
+            _ = try await db.importJSON(at: json, source: "wordnet-spa-eng")
+            await service.crash(at: point)
+            do {
+                try await service.install([.spa], fromAssetsIn: PackFixtures.assets)
+                XCTFail("\(point): the install stops")
+            } catch {
+                XCTAssertTrue(error is PackService.SimulatedCrash, "\(point): \(error)")
+            }
+            XCTAssertEqual(settings.packsInstalled, [], "\(point): cut off before the final write")
+            XCTAssertEqual(settings.enabledSources, ["wordnet"], "\(point)")
+            XCTAssertEqual(files(in: packsFolder), [pack.fileName], "\(point): committed")
+
+            let next = makeService()
+            try await relaunch(next)
+            await settle()
+            XCTAssertEqual(settings.packsInstalled, [.spa], "\(point)")
+            XCTAssertEqual(settings.enabledSources, Set(["wordnet"] + spanish), "\(point)")
+            XCTAssertEqual(Set(settings.dictionaryOrder ?? []), Set(["wordnet"] + spanish), "\(point): ordered")
+            let count = try await db.entryCount(source: "wordnet-spa-eng")
+            XCTAssertEqual(count, wordCount + 1, "\(point): only the import the pack lacks stays")
+            let found = try await db.search(query: "casa", enabledSources: ["wordnet-spa-eng"])
+            XCTAssertTrue(found.contains { $0.word == "casa" }, "\(point): attached")
+            XCTAssertEqual(status.state(of: .spa), .installed, "\(point)")
+
+            // The user turns Spanish off; the next launch replays nothing.
+            settings.enabledSources = ["wordnet"]
+            try await relaunch(makeService())
+            XCTAssertEqual(settings.enabledSources, ["wordnet"], "\(point): a second launch changes nothing")
+            XCTAssertEqual(settings.packsInstalled, [.spa], "\(point)")
+        }
+    }
+
+    /// 0237, "Crash safety": a removal cut off after its marker, or after
+    /// the stub's re-attach, is finished by the next launch: the stub, the
+    /// file deleted, the id dropped from `packs_installed`, then the marker.
+    func testCrashDuringRemovalFinishesIt() async throws {
+        for point in [PackService.CrashPoint.afterMarker, .afterReattach] {
+            let service = try await downloadingService(.ok)
+            try await service.install([.arb], fromAssetsIn: PackFixtures.assets)
+            XCTAssertEqual(settings.packsInstalled, [.arb], "\(point)")
+            await service.crash(at: point)
+            do {
+                try await service.remove(.arb)
+                XCTFail("\(point): the removal stops")
+            } catch {
+                XCTAssertTrue(error is PackService.SimulatedCrash, "\(point): \(error)")
+            }
+            XCTAssertTrue(files(in: packsFolder).contains("arb.removing"), "\(point): the marker is there")
+            XCTAssertEqual(settings.packsInstalled, [.arb], "\(point)")
+
+            let next = makeService()
+            try await relaunch(next)
+            await settle()
+            XCTAssertEqual(files(in: packsFolder), [], "\(point): the file and the marker are deleted")
+            XCTAssertEqual(settings.packsInstalled, [], "\(point)")
+            let count = try await db.entryCount(source: "wordnet-arb-eng")
+            XCTAssertEqual(count, 0, "\(point): the stub is attached")
+            let installed = await next.installedPacks()
+            XCTAssertEqual(installed, [], "\(point)")
+            XCTAssertEqual(status.state(of: .arb), .notInstalled, "\(point)")
+        }
+    }
+
+    /// 0237, "Crash safety": `packs_installed` names a pack with no file (a
+    /// restore from a backup): nothing is replayed or deleted, the stub is
+    /// attached, and the id stays for the missing sheet (#244).
+    func testRestoredBackupOffersTheMissingPack() async throws {
+        settings.packsInstalled = [.ell]
+        settings.dictionaryOrder = ["wordnet"]
+        let service = try await downloadingService(.ok)
+        await settle()
+        XCTAssertEqual(settings.packsInstalled, [.ell], "kept for the offer")
+        XCTAssertEqual(settings.dictionaryOrder, ["wordnet"], "no preference is written")
+        let installed = await service.installedPacks()
+        XCTAssertEqual(installed, [])
+        XCTAssertEqual(status.state(of: .ell), .notInstalled)
+        let greek = try await db.search(query: "νερό", enabledSources: ["freedict-ell-eng"])
+        XCTAssertEqual(greek, [])
+        XCTAssertEqual(PackFixtureURLProtocol.requests, [])
+    }
+
+    /// Remove mid-download cancels the download: nothing installed, no file
+    /// left, "not installed", no `didChange`.
+    func testRemoveDuringDownloadCancelsIt() async throws {
+        let service = try await downloadingService(.slow)
+        let changed = expectation(forNotification: PackService.didChange, object: service)
+        changed.isInverted = true
+        let install = Task { try await service.install(.arb) }
+        try await waitUntil("the download to start") { isDownloading(.arb) }
+        try await service.remove(.arb)
+        do {
+            try await install.value
+            XCTFail("cancelled")
+        } catch {
+            XCTAssertEqual(error as? PackError, .cancelled)
+        }
+        await fulfillment(of: [changed], timeout: 0.5)
+        await settle()
+        XCTAssertEqual(status.state(of: .arb), .notInstalled)
+        XCTAssertEqual(files(in: packsFolder), [])
+        XCTAssertEqual(files(in: downloadsFolder), [])
+        XCTAssertEqual(settings.packsInstalled, [])
+    }
+
+    /// Removing a pack that is not installed changes nothing: no re-attach,
+    /// no `didChange`, `packs_installed` and the preferences untouched.
+    func testRemoveWhatIsNotInstalledChangesNothing() async throws {
+        let service = try await downloadingService(.ok)
+        settings.dictionaryOrder = ["wordnet"]
+        let reopens = await db.dictionaryReopenCount
+        let changed = expectation(forNotification: PackService.didChange, object: service)
+        changed.isInverted = true
+        try await service.remove(.ell)
+        await fulfillment(of: [changed], timeout: 0.5)
+        let after = await db.dictionaryReopenCount
+        XCTAssertEqual(after, reopens)
+        XCTAssertEqual(settings.dictionaryOrder, ["wordnet"])
+        XCTAssertEqual(settings.packsInstalled, [])
+        XCTAssertEqual(PackFixtureURLProtocol.requests, [])
+    }
+}
+
+/// #237: no network access outside a download the user started (0237,
+/// "Test plan"). Reads the app's sources through `#filePath`.
+final class NetworkAuditTests: XCTestCase {
+    /// `URLSession`, `URLRequest`, `NWConnection` and `NWPathMonitor` appear
+    /// only in `PackService.swift`, which uses them only for a download.
+    func testOnlyPackServiceUsesTheNetwork() throws {
+        let sources = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("DictApp", isDirectory: true)
+        let enumerator = try XCTUnwrap(FileManager.default.enumerator(at: sources, includingPropertiesForKeys: nil))
+        let files = enumerator.compactMap { $0 as? URL }.filter { $0.pathExtension == "swift" }
+        XCTAssertGreaterThan(files.count, 20, "the audit reads the app's sources")
+        var uses: [String] = []
+        var packServiceUses = false
+        for file in files {
+            let text = try String(contentsOf: file, encoding: .utf8)
+            let found = ["URLSession", "URLRequest", "NWConnection", "NWPathMonitor", "import Network"]
+                .filter(text.contains)
+            if file.lastPathComponent == "PackService.swift" {
+                packServiceUses = found.contains("URLSession")
+            } else {
+                uses += found.map { "\(file.lastPathComponent): \($0)" }
+            }
+        }
+        XCTAssertEqual(uses, [], "network code outside PackService.swift")
+        XCTAssertTrue(packServiceUses, "PackService.swift holds the download")
+    }
+}
+
+// MARK: - Issue #242 QA: the download's edge cases
+
+/// Records the `userInfo["packs"]` of every `PackService.didChange` one
+/// service posts.
+final class DidChangeRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var posts: [[PackID]] = []
+    private var observer: NSObjectProtocol?
+
+    init(_ service: PackService) {
+        observer = NotificationCenter.default.addObserver(forName: PackService.didChange, object: service,
+                                                          queue: nil) { [weak self] note in
+            let ids = note.userInfo?["packs"] as? [PackID] ?? []
+            self?.lock.withLock { self?.posts.append(ids) }
+        }
+    }
+
+    var packs: [[PackID]] {
+        lock.withLock { posts }
+    }
+
+    func stop() {
+        if let observer {
+            NotificationCenter.default.removeObserver(observer)
+        }
+    }
+}
+
+/// A scripted server for `PackDownloader`: the answers
+/// `PackFixtureURLProtocol` has no mode for (a server that ignores `Range`,
+/// HTTP 5xx, GitHub's redirect to its CDN). It serves the committed assets
+/// by the URL's last path component, never the network, and records each
+/// request's URL and `Range` header.
+final class ScriptedAssetProtocol: URLProtocol {
+    enum Behaviour: Equatable {
+        /// 200 and the asset, or 206 and the rest for a `Range` request.
+        case serve
+        /// The first request stops after half the asset with
+        /// `NSURLErrorNetworkConnectionLost`; later ones are served.
+        case dropHalfOnce
+        /// As `dropHalfOnce`, but the server ignores `Range`: 200 and the
+        /// whole asset again.
+        case dropHalfOnceNoRanges
+        /// This status with a small HTML page.
+        case status(Int)
+        /// A 302 to the CDN host, which serves the asset.
+        case redirectToCDN
+    }
+
+    struct Request: Equatable {
+        let url: URL
+        let range: String?
+    }
+
+    static let cdnHost = "objects.githubusercontent.com"
+
+    private static let lock = NSLock()
+    private static var behaviour = Behaviour.serve
+    private static var dropped = false
+    private static var seen: [Request] = []
+
+    static func configure(_ behaviour: Behaviour) {
+        lock.withLock {
+            self.behaviour = behaviour
+            dropped = false
+            seen = []
+        }
+    }
+
+    static var requests: [Request] {
+        lock.withLock { seen }
+    }
+
+    override class func canInit(with request: URLRequest) -> Bool { true }
+
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+    override func startLoading() {
+        guard let url = request.url else {
+            client?.urlProtocol(self, didFailWithError: URLError(.badURL))
+            return
+        }
+        let range = request.value(forHTTPHeaderField: "Range")
+        let (behaviour, dropNow) = Self.lock.withLock { () -> (Behaviour, Bool) in
+            Self.seen.append(Request(url: url, range: range))
+            let drops = [Behaviour.dropHalfOnce, .dropHalfOnceNoRanges].contains(Self.behaviour) && !Self.dropped
+            if drops { Self.dropped = true }
+            return (Self.behaviour, drops)
+        }
+        if case .status(let code) = behaviour {
+            respond(url, status: code, headers: ["Content-Type": "text/html"])
+            client?.urlProtocol(self, didLoad: Data("<html>error \(code)</html>".utf8))
+            client?.urlProtocolDidFinishLoading(self)
+            return
+        }
+        if behaviour == .redirectToCDN, url.host != Self.cdnHost {
+            var components = URLComponents()
+            components.scheme = "https"
+            components.host = Self.cdnHost
+            components.path = "/release-assets/" + url.lastPathComponent
+            guard let cdn = components.url,
+                  let response = HTTPURLResponse(url: url, statusCode: 302, httpVersion: "HTTP/1.1",
+                                                 headerFields: ["Location": cdn.absoluteString]) else { return }
+            client?.urlProtocol(self, wasRedirectedTo: URLRequest(url: cdn), redirectResponse: response)
+            client?.urlProtocol(self, didFailWithError: NSError(domain: NSCocoaErrorDomain, code: NSUserCancelledError))
+            return
+        }
+        guard var asset = try? Data(contentsOf: PackFixtures.assets.appendingPathComponent(url.lastPathComponent)) else {
+            respond(url, status: 404, headers: [:])
+            client?.urlProtocolDidFinishLoading(self)
+            return
+        }
+        var status = 200
+        var headers = ["Content-Type": "application/octet-stream", "Accept-Ranges": "bytes",
+                       "ETag": "\"\(url.lastPathComponent)\""]
+        if behaviour != .dropHalfOnceNoRanges, let range, range.hasPrefix("bytes="),
+           let start = Int(range.dropFirst("bytes=".count).prefix { $0.isNumber }), start > 0, start < asset.count {
+            headers["Content-Range"] = "bytes \(start)-\(asset.count - 1)/\(asset.count)"
+            asset = asset.subdata(in: start..<asset.count)
+            status = 206
+        }
+        headers["Content-Length"] = String(asset.count)
+        respond(url, status: status, headers: headers)
+        if dropNow {
+            client?.urlProtocol(self, didLoad: asset.prefix(asset.count / 2))
+            client?.urlProtocol(self, didFailWithError: URLError(.networkConnectionLost))
+        } else {
+            client?.urlProtocol(self, didLoad: asset)
+            client?.urlProtocolDidFinishLoading(self)
+        }
+    }
+
+    override func stopLoading() {}
+
+    private func respond(_ url: URL, status: Int, headers: [String: String]) {
+        guard let response = HTTPURLResponse(url: url, statusCode: status, httpVersion: "HTTP/1.1",
+                                             headerFields: headers) else { return }
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+    }
+}
+
+/// `PackDownloader`, the session of 0237's "Download and install", step 1,
+/// against `ScriptedAssetProtocol`: resume data, ranges, server errors and
+/// the redirect. No test touches the network.
+@MainActor
+final class PackDownloaderTests: XCTestCase {
+    private var tempDir: URL!
+    private var downloader: PackDownloader!
+    private var pack: CatalogPack!
+
+    override func setUp() async throws {
+        try await super.setUp()
+        tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let configuration = PackDownloader.configuration()
+        configuration.protocolClasses = [ScriptedAssetProtocol.self]
+        downloader = PackDownloader(configuration: configuration)
+        pack = try XCTUnwrap(try PackFixtures.catalog().pack(.arb))
+    }
+
+    override func tearDown() async throws {
+        downloader.invalidate()
+        try? FileManager.default.removeItem(at: tempDir)
+        try await super.tearDown()
+    }
+
+    private var destination: URL {
+        tempDir.appendingPathComponent("Downloads", isDirectory: true).appendingPathComponent(pack.assetName)
+    }
+
+    /// Every `progress` value, in order.
+    private final class Progress: @unchecked Sendable {
+        private let lock = NSLock()
+        private var received: [Int64] = []
+        func add(_ value: Int64) { lock.withLock { received.append(value) } }
+        var values: [Int64] { lock.withLock { received } }
+    }
+
+    /// The download of the Arabic asset, or how it failed.
+    private func download(resumeData: Data? = nil, progress: Progress = Progress()) async throws
+        -> Result<URL, PackDownloader.Failure> {
+        let url = try XCTUnwrap(pack.url)
+        do {
+            return .success(try await downloader.download(url, resumeData: resumeData, to: destination) {
+                progress.add($0)
+            })
+        } catch let failure as PackDownloader.Failure {
+            return .failure(failure)
+        }
+    }
+
+    /// The file at `url` is the catalog's asset, byte for byte.
+    private func assertIsTheAsset(_ url: URL, file: StaticString = #filePath, line: UInt = #line) throws {
+        let (sha, size) = try PackFiles.sha256(of: url)
+        XCTAssertEqual(sha, pack.sha256, file: file, line: line)
+        XCTAssertEqual(size, pack.size, file: file, line: line)
+    }
+
+    /// The asset lands at the destination; progress grows to its size; one
+    /// request, for all of it.
+    func testDownloadsTheAssetWithProgress() async throws {
+        ScriptedAssetProtocol.configure(.serve)
+        let progress = Progress()
+        let file = try await download(progress: progress).get()
+        XCTAssertEqual(file, destination)
+        try assertIsTheAsset(file)
+        XCTAssertEqual(progress.values.last, pack.size)
+        XCTAssertEqual(progress.values, progress.values.sorted(), "progress only grows")
+        XCTAssertEqual(ScriptedAssetProtocol.requests, [.init(url: try XCTUnwrap(pack.url), range: nil)])
+    }
+
+    /// A dropped connection fails with `.stopped` and the session's resume
+    /// data; the download from it asks for the rest only and joins a file
+    /// equal to the asset. Progress resumes from the bytes already there.
+    func testDroppedConnectionResumesWhereItStopped() async throws {
+        ScriptedAssetProtocol.configure(.dropHalfOnce)
+        let failure: PackDownloader.Failure
+        switch try await download() {
+        case .success: return XCTFail("the connection dropped")
+        case .failure(let error): failure = error
+        }
+        XCTAssertEqual(failure.error, .stopped)
+        let resumeData = try XCTUnwrap(failure.resumeData, "the session left resume data")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: destination.path), "nothing at the destination")
+
+        let progress = Progress()
+        let file = try await download(resumeData: resumeData, progress: progress).get()
+        try assertIsTheAsset(file)
+        let ranges = ScriptedAssetProtocol.requests.map(\.range)
+        XCTAssertEqual(ranges, [nil, "bytes=\(pack.size / 2)-"])
+        XCTAssertGreaterThanOrEqual(progress.values.first ?? 0, pack.size / 2, "progress continues from the drop")
+    }
+
+    /// A server that ignores the range (a new CDN URL) answers 200 with the
+    /// whole asset: the download starts over and the file is still the asset.
+    func testResumeAgainstAServerWithoutRangesStartsOver() async throws {
+        ScriptedAssetProtocol.configure(.dropHalfOnceNoRanges)
+        guard case .failure(let failure) = try await download() else { return XCTFail("the connection dropped") }
+        let resumeData = try XCTUnwrap(failure.resumeData)
+        let file = try await download(resumeData: resumeData).get()
+        try assertIsTheAsset(file)
+    }
+
+    /// HTTP 4xx and 5xx are "not available right now", with no resume data;
+    /// the error page is not kept.
+    func testServerErrorsAreUnavailable() async throws {
+        for code in [403, 404, 500, 503] {
+            ScriptedAssetProtocol.configure(.status(code))
+            guard case .failure(let failure) = try await download() else {
+                XCTFail("HTTP \(code) is a failure")
+                continue
+            }
+            XCTAssertEqual(failure.error, .unavailable, "HTTP \(code)")
+            XCTAssertNil(failure.resumeData, "HTTP \(code)")
+            XCTAssertFalse(FileManager.default.fileExists(atPath: destination.path), "HTTP \(code)")
+        }
+    }
+
+    /// GitHub answers the release URL with a redirect to its CDN, which the
+    /// session follows (0237, step 1).
+    func testRedirectToTheCDNIsFollowed() async throws {
+        ScriptedAssetProtocol.configure(.redirectToCDN)
+        let file = try await download().get()
+        try assertIsTheAsset(file)
+        XCTAssertEqual(ScriptedAssetProtocol.requests.map(\.url.host), [pack.url?.host, ScriptedAssetProtocol.cdnHost])
+    }
+
+    /// The session (0237, step 1): ephemeral, no cookies, cache or
+    /// credentials, no waiting for connectivity, every network allowed, not
+    /// a background session.
+    func testSessionConfiguration() {
+        let configuration = PackDownloader.configuration()
+        XCTAssertNil(configuration.identifier, "not a background session")
+        XCTAssertNil(configuration.httpCookieStorage)
+        XCTAssertFalse(configuration.httpShouldSetCookies)
+        XCTAssertNil(configuration.urlCredentialStorage)
+        XCTAssertNil(configuration.urlCache)
+        XCTAssertEqual(configuration.requestCachePolicy, .reloadIgnoringLocalCacheData)
+        XCTAssertFalse(configuration.waitsForConnectivity)
+        XCTAssertTrue(configuration.allowsCellularAccess)
+        XCTAssertTrue(configuration.allowsExpensiveNetworkAccess)
+        XCTAssertTrue(configuration.allowsConstrainedNetworkAccess)
+    }
+
+    /// What the user sees for each session error (0237, "Offline and errors").
+    func testErrorMapping() {
+        let cases: [(Error, PackError)] = [
+            (URLError(.notConnectedToInternet), .offline),
+            (URLError(.dataNotAllowed), .offline),
+            (URLError(.networkConnectionLost), .stopped),
+            (URLError(.timedOut), .stopped),
+            (URLError(.cancelled), .cancelled),
+            (URLError(.cannotWriteToFile), .noSpace),
+            (URLError(.badServerResponse), .unavailable),
+            (URLError(.fileDoesNotExist), .unavailable),
+            (POSIXError(.ENOSPC), .noSpace),
+            (NSError(domain: NSCocoaErrorDomain, code: NSFileWriteUnknownError,
+                     userInfo: [NSUnderlyingErrorKey: NSError(domain: NSCocoaErrorDomain,
+                                                              code: NSFileWriteOutOfSpaceError)]), .noSpace),
+            (NSError(domain: NSCocoaErrorDomain, code: NSFileWriteUnknownError), .stopped),
+        ]
+        for (error, expected) in cases {
+            XCTAssertEqual(PackDownloader.packError(for: error), expected, "\(error)")
+        }
+    }
+}
+
+/// `PackStatusModel`: what the views read, in every window.
+@MainActor
+final class PackStatusModelTests: XCTestCase {
+    /// A pack nobody has set is not installed.
+    func testUnsetPackIsNotInstalled() {
+        XCTAssertEqual(PackStatusModel().state(of: .ell), .notInstalled)
+    }
+
+    /// Progress moves in 100 kB steps ("3.1 of 6.9 MB"), never past the
+    /// total, and only while the pack downloads: a late callback never
+    /// overwrites a later state.
+    func testProgressOnlyWhileDownloading() {
+        let model = PackStatusModel()
+        model.progress(.arb, received: 500_000)
+        XCTAssertEqual(model.state(of: .arb), .notInstalled, "not downloading: ignored")
+
+        model.set(.downloading(received: 0, total: 1_000_000), for: .arb)
+        model.progress(.arb, received: 50_000)
+        XCTAssertEqual(model.state(of: .arb), .downloading(received: 0, total: 1_000_000), "within the first step")
+        model.progress(.arb, received: 150_000)
+        XCTAssertEqual(model.state(of: .arb), .downloading(received: 150_000, total: 1_000_000))
+        model.progress(.arb, received: 199_999)
+        XCTAssertEqual(model.state(of: .arb), .downloading(received: 150_000, total: 1_000_000), "same step")
+        model.progress(.arb, received: 2_000_000)
+        XCTAssertEqual(model.state(of: .arb), .downloading(received: 1_000_000, total: 1_000_000), "at most the total")
+
+        model.set(.installing, for: .arb)
+        model.progress(.arb, received: 1_000_000)
+        XCTAssertEqual(model.state(of: .arb), .installing, "a late callback is ignored")
+        XCTAssertEqual(model.state(of: .rus), .notInstalled, "other packs untouched")
+    }
+}
+
+extension PackFileTests {
+    /// 0237, step 4: an asset that matches the catalog but decompresses to
+    /// another file is damaged; nothing is renamed into the folder and no
+    /// partial file stays.
+    func testFileMismatchAfterDecompressIsDamaged() throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("filesha-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let real = try XCTUnwrap(try PackFixtures.catalog().pack(.engLists))
+        let pack = CatalogPack(id: real.id, ord: real.ord, lang: real.lang, kind: real.kind, version: real.version,
+                               url: real.url, sha256: real.sha256, size: real.size,
+                               fileSHA256: String(repeating: "0", count: 64), fileSize: real.fileSize)
+        XCTAssertThrowsError(try PackFiles.install(asset: PackFixtures.assets.appendingPathComponent(pack.assetName),
+                                                   pack: pack, into: folder)) { error in
+            XCTAssertEqual(error as? PackError, .damaged)
+        }
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: folder.path), [])
+    }
+
+    /// An asset whose sha256 matches but which is no xz stream (a bad
+    /// catalog row) is damaged, with no partial file left.
+    func testUnreadableStreamIsDamaged() throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("notxz-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: folder) }
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let asset = folder.appendingPathComponent("garbage.xz")
+        try Data(repeating: 0x5A, count: 3 << 20).write(to: asset)
+        let (sha, size) = try PackFiles.sha256(of: asset)
+        let real = try XCTUnwrap(try PackFixtures.catalog().pack(.arb))
+        let pack = CatalogPack(id: real.id, ord: real.ord, lang: real.lang, kind: real.kind, version: real.version,
+                               url: real.url, sha256: sha, size: size, fileSHA256: real.fileSHA256,
+                               fileSize: real.fileSize)
+        XCTAssertThrowsError(try PackFiles.install(asset: asset, pack: pack, into: folder)) { error in
+            XCTAssertEqual(error as? PackError, .damaged)
+        }
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: folder.path), ["garbage.xz"])
     }
 }
 

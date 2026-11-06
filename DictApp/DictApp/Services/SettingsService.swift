@@ -52,6 +52,7 @@ final class SettingsService {
     private let resultSortModeKey = "result_sort_mode"
     private let learningListsKey = "learning_lists"
     private let packsOfferedKey = "packs_offered"
+    private let packsInstalledKey = "packs_installed"
 
     /// Injectable for tests (pass an in-memory `KeyValueStore`); production uses
     /// `.shared`, which backs onto `UserDefaults.standard`.
@@ -78,6 +79,57 @@ final class SettingsService {
     var packsOffered: Bool {
         get { store.string(forKey: packsOfferedKey) == "1" }
         set { store.set(newValue ? "1" : nil, forKey: packsOfferedKey) }
+    }
+
+    /// The packs the user installed and has not removed (0237, "Download and
+    /// install", step 8), so a launch that finds one unusable (a restore, a
+    /// format bump) can offer it again. Stored as a sorted JSON `[String]`.
+    var packsInstalled: Set<PackID> {
+        get {
+            guard let data = store.data(forKey: packsInstalledKey),
+                  let ids = try? JSONDecoder().decode([String].self, from: data) else { return [] }
+            return Set(ids.map { PackID($0) })
+        }
+        set {
+            store.set(try? JSONEncoder().encode(newValue.map(\.rawValue).sorted()), forKey: packsInstalledKey)
+        }
+    }
+
+    /// The preferences of a newly installed pack (0237, "Download and
+    /// install", step 8). A pack whose dictionaries the stored order already
+    /// has (a re-install, or an update from 1.x) keeps their place and
+    /// switch. Otherwise a stored enabled set gains them (`nil` stays `nil`),
+    /// and a stored order gets them first when they are the UI language's
+    /// dictionaries (`DictionaryDefaults.preferredSources`, #74), else last
+    /// (a `nil` order stays `nil`). Either way `packs_installed` gains `id`.
+    /// Writes only what changes (#73).
+    func recordInstall(of id: PackID, sources: [String], uiLanguageCode: String) {
+        let order = dictionaryOrder
+        let isKnown = order?.contains(where: sources.contains) ?? false
+        if !isKnown {
+            if let enabled = enabledSources, !enabled.isSuperset(of: sources) {
+                enabledSources = enabled.union(sources)
+            }
+            if let order {
+                let preferred = DictionaryDefaults.preferredSources[uiLanguageCode] ?? []
+                let added = DictionaryDefaults.defaultOrder(forLanguageCode: uiLanguageCode, sources: sources)
+                let first = sources.contains(where: preferred.contains)
+                dictionaryOrder = DictionaryGrouping.groupedOrder(first ? added + order : order + added)
+            }
+        }
+        let installed = packsInstalled
+        if !installed.contains(id) {
+            packsInstalled = installed.union([id])
+        }
+    }
+
+    /// A removed pack leaves `packs_installed`; its dictionaries keep their
+    /// place and switch for when it returns (0237, "Remove").
+    func recordRemoval(of id: PackID) {
+        let installed = packsInstalled
+        if installed.contains(id) {
+            packsInstalled = installed.subtracting([id])
+        }
     }
 
     // MARK: - Enabled Sources

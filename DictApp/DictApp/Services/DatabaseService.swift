@@ -400,6 +400,9 @@ actor DatabaseService {
 
     /// Points each pack of `changes` at its new file (`nil`: the stub) on
     /// every connection, then reads which file holds which dictionary again.
+    /// Returns once the writer has re-attached too (#242), so the caller may
+    /// delete a file no name points at any more: a reader still busy on it
+    /// finishes on its open descriptor.
     func attachPacks(_ changes: [PackID: URL?]) async throws {
         guard let pool = dbPool, let files else { throw DBError.notConnected }
         let changed = changes.filter { files.set($0.key, file: $0.value) }.map(\.key.schema)
@@ -410,6 +413,34 @@ actor DatabaseService {
         schemas = try await read(pool) { db in try Self.dictionarySchemas(db, installed: installed) }
         // A pack brings or takes its built-in lists (0130).
         wordListsDidChange()
+        // Queued on the writer behind the re-attach.
+        try await pool.writeWithoutTransaction { _ in }
+    }
+
+    /// 0237, "Download and install", step 7: the imported rows of `sources`
+    /// that their newly installed pack has (same word, case-insensitive, and
+    /// source) are deleted, and so is an `imported_sources` row left with no
+    /// rows. Covers a file named like a pack source imported before the pack
+    /// (`freedict-eng-spa.json`) and 1.x rows moved before it (#244). On the
+    /// writer, after its re-attach, with #213's retry, as the import.
+    func removeImportsCovered(by sources: [String]) async throws {
+        let pool = try await userPool()
+        let covered = sources.compactMap { source in schemas.schema(ofSource: source).map { (source, $0) } }
+        guard !covered.isEmpty else { return }
+        try await dictionaryWrite(pool) { db in
+            for (source, schema) in covered {
+                try db.execute(sql: """
+                    DELETE FROM imported_entries
+                    WHERE source = ?1 AND EXISTS (
+                        SELECT 1 FROM \(schema).entries e
+                        WHERE e.word = imported_entries.word COLLATE NOCASE AND e.source = ?1)
+                    """, arguments: [source])
+                try db.execute(sql: """
+                    DELETE FROM imported_sources
+                    WHERE source = ?1 AND NOT EXISTS (SELECT 1 FROM imported_entries WHERE source = ?1)
+                    """, arguments: [source])
+            }
+        }
     }
 
     // MARK: - Invalidated dictionary file (Issue #213)

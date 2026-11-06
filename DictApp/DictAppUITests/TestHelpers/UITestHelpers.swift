@@ -94,6 +94,14 @@ enum UITestHelpers {
     static func packArguments(_ packs: String = "all") -> [String] {
         [skipWelcome, "-installPacks", packs, "-packFixtures", packAssets.path]
     }
+
+    /// `-packDownloads <mode>` with `-packFixtures` (Issue #242): every
+    /// download the app starts is answered from the committed assets, never
+    /// the network. Modes: `ok`, `slow`, `offline`, `failOnce`, `http404`,
+    /// `corrupt`, `noSpace`, `expiredResume`.
+    static func downloadArguments(_ mode: String) -> [String] {
+        ["-packDownloads", mode, "-packFixtures", packAssets.path]
+    }
 }
 
 extension XCUIElement {

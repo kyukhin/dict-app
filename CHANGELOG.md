@@ -18,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - [#157] The learning engine's data: every word gets a recognition and a production card on a fixed 1–90-day ladder, graded by the answer and logged, with learning kept per language, each learned through a language pair offered by the dictionaries ("Greek via English"), and a day starting at 4 AM.
 - [#152] The Greek pack carries Kirill Yukhin's Greek word lists A1, A2 and B1 (4,648 words, 88% linked to a dictionary entry) with frequency ranks from FrequencyWords, so new words come most frequent first. A QA report checks every build, and Credits names both sources.
 - [#163] Learning statistics data: each day keeps the daily goal in force when it ended, and the app computes on the device the streak with up to 3 freezes, today's numbers, the 30-day series, accuracy by direction and tense, the hardest words and verbs, and each list's progress with a forecast.
+- [#242] A language pack downloads from GitHub Releases only when the user asks, is checked against its pinned sha256 and size, and becomes searchable without a restart; a failed, cancelled or interrupted download installs nothing and can be tried again.
 
 ### Changed
 - [#138] Every dictionary is searchable right after install, with no "Preparing dictionaries" bar: the app reads the bundled dictionaries in place and keeps your history, saved words and imports in a small database of their own.
