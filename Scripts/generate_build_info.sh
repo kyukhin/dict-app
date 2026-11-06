@@ -43,13 +43,15 @@ repo_root="$(git rev-parse --show-toplevel)"
 # falling back to a bare abbreviated SHA when no tags exist.
 # Prefer the release tag of this version when HEAD carries it, so another tag
 # on the same commit cannot win (Issue #196).
+# Only release tags count (`v[0-9]*`): the data tags `packs-YYYYMMDD` (#237)
+# never show in Settings.
 describe=""
 if [ -n "${MARKETING_VERSION:-}" ] && git tag --points-at HEAD | grep -Fqx "v${MARKETING_VERSION}"; then
     describe="v${MARKETING_VERSION}"
 fi
-[ -n "$describe" ] || describe="$(git describe --tags --exact-match 2>/dev/null || true)"
+[ -n "$describe" ] || describe="$(git describe --tags --match 'v[0-9]*' --exact-match 2>/dev/null || true)"
 if [ -z "$describe" ]; then
-    describe="$(git describe --tags --always 2>/dev/null || true)"
+    describe="$(git describe --tags --match 'v[0-9]*' --always 2>/dev/null || true)"
 fi
 if [ -z "$describe" ]; then
     echo "error: git describe produced no output (repository has no commits?)"

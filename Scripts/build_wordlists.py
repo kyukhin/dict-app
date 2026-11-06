@@ -6,12 +6,11 @@ The word lists, a static data step of `build_dictionaries.py`
 words linked to the dictionaries, and frequency ranks, in the tables of
 `wordlists_schema.sql`.
 
-Empty until #152 (Kirill's Greek lists) and #153 (the English CEFR lists)
-fill it. The first of them registers the step in `STEPS`, after
-`build_forms` and `build_morphy`, whose tables it reads, and bumps
-`FORMAT_VERSION`: the new tables change the file's shape (0129, "Adding
-static data"). Until then nothing runs it, and the dictionary file is
-unchanged.
+#240 registers the step and lands the three tables, empty, in format 4, so
+every file has them (0237, one schema everywhere) and #152's and #153's
+rows later change only the `ell` and `eng-lists` pack versions, never the
+format (0237, "Format rule"). Until #152 (Kirill's Greek lists) and #153
+(the English CEFR lists) fill it, `build()` writes nothing.
 """
 
 from __future__ import annotations
@@ -27,3 +26,4 @@ TABLES = ("wordlist", "wordlist_item", "word_rank")
 def build(conn: sqlite3.Connection, cache_dir: Path) -> None:
     """The `STEPS` entry point of build_dictionaries.py. Fills nothing yet
     (#152, #153)."""
+    print("  " + ", ".join(TABLES) + ": empty until #152 and #153")

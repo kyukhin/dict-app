@@ -19,6 +19,8 @@ final class DictionaryOrderDefaultTests: XCTestCase {
         continueAfterFailure = false
         app = XCUIApplication()
         app.launchArguments = ["-resetData", "-disableReviewPrompt"]
+        // Issue #237: every language pack, installed from the committed assets.
+        app.launchArguments += UITestHelpers.packArguments()
         app.launchArguments += ["-AppleLanguages", "(ru)"]
         app.launchArguments += ["-AppleLocale", "ru"]
         XCUIDevice.shared.orientation = .portrait

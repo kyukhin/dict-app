@@ -42,6 +42,8 @@ final class iPadSpecificTests: XCTestCase {
 
         app = XCUIApplication()
         app.launchArguments.append("-disableReviewPrompt")
+        // Issue #237: no first-launch sheet.
+        app.launchArguments += [UITestHelpers.skipWelcome]
         app.launchArguments.append("-resetData")
 
         // iOS 26 surfaces an "Enable Dictation?" springboard alert the first

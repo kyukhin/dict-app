@@ -75,6 +75,27 @@ class BasePage {
     }
 }
 
+/// Launch arguments of the language packs (Issue #237, 0237 "For E3 and E4").
+enum UITestHelpers {
+    /// The first-launch sheet does not show (sets `packs_offered`).
+    static let skipWelcome = "-skipWelcome"
+
+    /// The committed pack assets: `Packs/` at the repository root, read
+    /// through `#filePath` (the simulator shares the Mac's file system).
+    static let packAssets = URL(fileURLWithPath: #filePath)
+        .deletingLastPathComponent().deletingLastPathComponent()
+        .deletingLastPathComponent().deletingLastPathComponent()
+        .appendingPathComponent("Packs", isDirectory: true)
+
+    /// `-skipWelcome`, and `-installPacks <packs>` with `-packFixtures`: the
+    /// app installs the packs (`all`, or ids like `ell,spa`) from the
+    /// committed assets through its install path, with no network, before
+    /// the UI shows. A pack already installed at that version is skipped.
+    static func packArguments(_ packs: String = "all") -> [String] {
+        [skipWelcome, "-installPacks", packs, "-packFixtures", packAssets.path]
+    }
+}
+
 extension XCUIElement {
     func clearAndTypeText(_ text: String) {
         guard self.exists else {

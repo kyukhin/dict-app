@@ -14,10 +14,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - [#143] Search finds an English word from its inflected forms through WordNet's morphy rules, such as went → go ("form of go") and mice → mouse ("plural of mouse").
 - [#145] Dictionary chips under the Search field switch dictionaries on and off in one tap, in the Dictionary Order sequence; a long press offers "Only this" and "All" turns every one back on. The chips and the Settings switches are one setting, and results refresh at once.
 - [#151] Word lists get their data model: built-in, imported and My words lists share one model, words link to their dictionary entry (also through word forms), and new words come by level, then by frequency with a light shuffle. No screen uses it yet.
+- [#240, #241] Every dictionary file has the grammar and example sentence tables, empty until their data lands, and the pack catalog lists the language pairs to learn, Greek via Russian as a limited one.
 
 ### Changed
 - [#138] Every dictionary is searchable right after install, with no "Preparing dictionaries" bar: the app reads the bundled dictionaries in place and keeps your history, saved words and imports in a small database of their own.
 - [#139] Upgrading from 1.x keeps your bookmarks (now My words), history and imported dictionaries, and frees about 138 MB.
+- [#240, #241] The app bundles English only (56 MB instead of 152 MB); every other language is a pack, built byte for byte by `Scripts/cut_packs.py`, that Search, Definition, History and My words read next to the bundle once installed.
 
 ### Fixed
 - [#138] History and Recent words reopen a word in the dictionary it was read in.

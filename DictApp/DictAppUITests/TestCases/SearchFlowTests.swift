@@ -10,6 +10,8 @@ final class SearchFlowTests: XCTestCase {
         continueAfterFailure = false
         app = XCUIApplication()
         app.launchArguments.append("-disableReviewPrompt")
+        // Issue #237: every language pack, installed from the committed assets.
+        app.launchArguments += UITestHelpers.packArguments()
         app.launchArguments.append("-resetData")
 
         // iOS 26 surfaces an "Enable Dictation?" springboard alert the first

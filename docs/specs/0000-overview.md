@@ -1,7 +1,7 @@
 # LibreDict overview
 
 > Spec written by Claude (AI) for LibreDict.
-> Status: Approved by Kirill on 2026-10-27 · Epic: — · Tickets: — · Updated: 2026-11-04
+> Status: Approved by Kirill on 2026-10-27 · Epic: — · Tickets: — · Updated: 2026-11-06
 
 This spec describes the app as shipped in 1.4.0 (tag `v1.4.0`, master `f0f806e`), plus the v2.0.0 changes merged since (see History). Read it before any design, development, testing or review task, then read the spec of your epic. It describes the code as it is now. The last sections list what v2.0.0 will change. Paths are relative to the repo root. Links work from this folder.
 
@@ -91,7 +91,7 @@ Layering: views hold no SQL and no business rules. Pure logic lives in caseless 
 
 ### Bundled data: `dictionaries.sqlite`
 
-- #237 ([0237](0237-downloads.md), Approved) will cut this file into an English bundle (WordNet and morphy, 56.1 MB) and four language packs (Spanish, Russian, Arabic, Greek with its forms and lists), downloaded at setup, plus an English lists pack, downloaded when the user chooses to learn English; all attached like `dict`. Until it is implemented, this section describes the bundle as shipped.
+- #237 ([0237](0237-downloads.md), Approved) will cut this file into an English bundle (WordNet and morphy, 56.2 MB) and four language packs (Spanish, Russian, Arabic, Greek with its forms and lists), downloaded at setup, plus an English lists pack, downloaded when the user chooses to learn English; all attached like `dict`. Until it is implemented, this section describes the bundle as shipped.
 - The dictionary file is [`DictApp/DictApp/Resources/dictionaries.sqlite`](../../DictApp/DictApp/Resources), 151,674,880 bytes (~145 MiB), stored in Git LFS (`*.sqlite` in `.gitattributes`). Without `git lfs pull` it is a pointer file and the app fails at launch. Its format and build rules are in [0129-dictionary-file.md](0129-dictionary-file.md) (#140).
 - Tables: `entries` (no `created_at`), `entries_fts` (FTS5 with external content, no triggers), `dict_metadata` (one row per dictionary, with `from_lang` and `to_lang` in ISO 639-3, no `built_at`) `data_source` (credits for non-dictionary data: one row, the Wiktionary word forms), the Greek word-form tables `lemma`, `tagset`, `paradigm`, `form_lookup` and `form_link` (24 MB, #141, #143, see [0136-word-forms.md](0136-word-forms.md)), and WordNet's morphy tables `morphy_exception` and `morphy_lemma` (1.3 MB, #143). `PRAGMA user_version` is the format version, 3, and must equal `DictionaryFile.formatVersion`. Rollback-journal mode, no `ANALYZE`.
 - [`Scripts/build_dictionaries.py`](../../Scripts/build_dictionaries.py) builds it and needs `pip install -r Scripts/requirements.txt` (NLTK 3.10.4, regex, defusedxml). Every input is pinned in [`Scripts/inputs.json`](../../Scripts/inputs.json) (an immutable URL or a file committed in Git LFS, and its sha256) and verified before use by `Scripts/inputs.py`; downloads are cached in `Scripts/.cache/` (`--cache-dir`). The script writes the schema, runs each builder, runs the static data steps (`STEPS`: `build_forms.py`, the Greek word forms from a Wiktionary subset pinned in `Scripts/data/`, with its QA gates and the report `Scripts/reports/forms-qa.md`, then `build_morphy.py`, WordNet's morphy exceptions and lemmas from the pinned `wordnet.zip`), rebuilds FTS, runs the checks that fail the build, then `VACUUM`. It prints the rows each builder dropped as repeated headwords and the size of every table (`dbstat`). `--verify` rebuilds into a temp file and compares its sha256 with the committed file: the same inputs and SQLite version give a byte-identical file.
@@ -309,3 +309,4 @@ The specs of these epics will replace parts of this overview:
 - 2026-11-03 (Kirill): the first 2.0 TestFlight build is an alpha, tagged `v2.0.0-alpha.1`; the archive guard accepts `-alpha.N`, `-beta.N` and `-rc.N` tags of the version. Updated Release order.
 - 2026-11-04: #237 drafted ([0237](0237-downloads.md)): pointers in Why, the Dictionaries row, Bundled data and Upcoming changes. The rest describes the app as shipped until #237 is implemented.
 - 2026-11-04 (Kirill): v2.0.0 moves to 2026-12-04 for #237; code complete 11-27.
+- 2026-11-06: #240: the English bundle measures 56.2 MB.

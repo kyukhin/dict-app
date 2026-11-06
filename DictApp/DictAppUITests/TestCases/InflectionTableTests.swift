@@ -20,6 +20,8 @@ final class InflectionTableTests: XCTestCase {
         continueAfterFailure = false
         app = XCUIApplication()
         app.launchArguments += ["-disableReviewPrompt", "-resetData"]
+        // Issue #237: every language pack, installed from the committed assets.
+        app.launchArguments += UITestHelpers.packArguments()
         // "All forms" puts hundreds of cells in the AX tree: silence the app's
         // os_log so XCTest's log volume cannot crash it on iOS 17.5 (#125).
         app.launchEnvironment["OS_ACTIVITY_MODE"] = "disable"

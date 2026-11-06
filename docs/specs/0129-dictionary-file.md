@@ -1,7 +1,7 @@
 # Dictionaries as one read-only file
 
 > Spec written by Claude (AI) for LibreDict.
-> Status: Approved by Kirill on 2026-11-04 with #237 (before it on 2026-10-30, first on 2026-10-28) · Epic: #129 · Tickets: #112, #138, #139, #140, #213, #216; #237 changes it ([0237](0237-downloads.md)) · Updated: 2026-11-05
+> Status: Approved by Kirill on 2026-11-04 with #237 (before it on 2026-10-30, first on 2026-10-28) · Epic: #129 · Tickets: #112, #138, #139, #140, #213, #216; #237 changes it ([0237](0237-downloads.md)) · Updated: 2026-11-06
 
 This spec is the #112 design. It replaces the Bundled data, Database, Launch and Imported dictionaries sections of [0000-overview.md](0000-overview.md) once implemented. Order: #138, then #139 and #140, then #213.
 
@@ -138,8 +138,8 @@ So concurrent failures cause one reopen, and no call loops. If the file were inv
 | `dict_metadata` | One row per dictionary source: `display_name`, `version`, `license`, `url`, `word_count` (equal to the row count, checked), `description`, `from_lang` and `to_lang` (ISO 639-3, such as `ell` and `eng`; #208). No `built_at`. Dictionaries only: every row is a Dictionary Order source |
 | `data_source` | One row per non-dictionary data set (Wiktionary forms, Tatoeba, word lists): `id`, `kind`, `display_name`, `version`, `license`, `url`. Empty in E1. Credits will read it |
 
-- `PRAGMA user_version` is the format version (1 in #140, 2 since #141 added the word-form tables, 3 since #143 added the morphy tables). The app constant `DictionaryFile.formatVersion` must match, and a unit test checks it. The app and the file always ship together, so there is no runtime negotiation.
-- **#237**: the bundle, the stub and every pack share one schema (each file fills its own tables) and one format, 4 with the catalog tables `catalog_pack`, `catalog_source`, `catalog_list` and `catalog_pair` (the limited learning pairs) in the bundle. A pack is attached only when its header's `user_version` equals `DictionaryFile.formatVersion`; otherwise the stub, and the user is offered the update. Entry ids: `(ord << 32) + n` per file, so ids stay unique across files and below 2^40. The bundle measures 56.1 MB (WordNet and morphy), the four language packs 97.9 MB (0237).
+- `PRAGMA user_version` is the format version (1 in #140, 2 since #141 added the word-form tables, 3 since #143 added the morphy tables, 4 since #240 added the catalog and the empty E3, E6 and E7 tables). The app constant `DictionaryFile.formatVersion` must match, and a unit test checks it. The app and the file always ship together, so there is no runtime negotiation.
+- **#237**: the bundle, the stub and every pack share one schema (each file fills its own tables) and one format, 4 with the catalog tables `catalog_pack`, `catalog_source`, `catalog_list` and `catalog_pair` (the limited learning pairs) in the bundle. A pack is attached only when its header's `user_version` equals `DictionaryFile.formatVersion`; otherwise the stub, and the user is offered the update. Entry ids: `(ord << 32) + n` per file, so ids stay unique across files and below 2^40. The bundle measures 56.2 MB (WordNet and morphy), the four language packs 101.2 MB (0237).
 - No `ANALYZE`: the query plans must stay those measured below.
 - Measured on today's data: 126.0 MB, against 134.9 MB for the seed. Dropping `created_at`, `built_at` and the empty `history` and `bookmarks` tables saves 8.8 MB. It returns the same results as the seed on the probe set. Compressed (IPA) size is ~45 MB either way.
 
@@ -154,6 +154,8 @@ So concurrent failures cause one reopen, and no call loops. If the file were inv
 7. One rebuilt file per data PR, after rebasing. LFS already holds ~470 MB of seed versions, and each rebuild adds ~130 MB. Since #237 a data PR adds the bundle only when English data changes, plus the xz assets of the packs that changed (2 to 11 MB each); a table added after 2.0 ships bumps the format of every file and makes users download their packs again (0237, "The catalog").
 
 Owners of the DDL: E2 #136 (`lemma`, `form_lookup`, `form_link`, `paradigm`, `tagset`, `morphy_exception`, `morphy_lemma`), E3 #130 (`wordlist`, `wordlist_item`, `word_rank`, in the language packs since #237), E6 #133 (`grammar_topic`, `grammar_text`, `grammar_link`, #171), E7 #134 (examples).
+
+`STEPS` since #240, in order: `build_forms`, `build_morphy`, `build_wordlists`, `build_examples`, `build_grammar`. The last three write empty tables until #152 and #153, #177 and #171 fill them, so their data never bumps the format.
 
 #### Build (#140)
 
@@ -285,7 +287,7 @@ There is no unpack, no plan and no progress state.
 | Fresh install, launch to a usable Search (iPhone 15 Pro simulator, iOS 17.5, median of 3; and a device) | Under 5 s (#111), then 20+ s of unpack | Under 2 s, every dictionary searchable. #237: English and the installed packs (0237) |
 | Upgrade from 1.4.0, same measure | — | As fast as a fresh install. The background move takes under 2 s on a device |
 | Documents & Data without imports | ~138 MB | Under 5 MB |
-| App Size | Bundle with the 134.9 MB seed | Bundle with the 126 MB file, plus the E2, E3, E6 and E7 budgets. #237: the 56.1 MB English file; packs count as Documents & Data |
+| App Size | Bundle with the 134.9 MB seed | Bundle with the 126 MB file, plus the E2, E3, E6 and E7 budgets. #237: the 56.2 MB English file; packs count as Documents & Data |
 | Search, probe set, median | Baseline | Not slower |
 | Cold launches without a crash (iPad) | — | 30 of 30 |
 
@@ -370,3 +372,4 @@ The probe set is ~25 queries across en, ru, es, ar and el (`house`, `a`, `the`, 
 - 2026-11-04: The #237 change approved by Kirill.
 - 2026-11-05: Review fix: the format-4 catalog list names `catalog_pair`, as 0237 does.
 - 2026-11-05: Review fix: the fresh-install target and its test cover English and the installed packs under #237.
+- 2026-11-06: #240 registers `build_wordlists`, `build_examples` and `build_grammar` in `STEPS`, their tables empty, in format 4. The bundle is 56.2 MB, the four language packs 101.2 MB installed (0237).

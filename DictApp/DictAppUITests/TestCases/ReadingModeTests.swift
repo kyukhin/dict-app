@@ -22,6 +22,8 @@ final class ReadingModeTests: XCTestCase {
         continueAfterFailure = false
         app = XCUIApplication()
         app.launchArguments = ["-resetData", "-disableReviewPrompt"]
+        // Issue #237: no first-launch sheet.
+        app.launchArguments += [UITestHelpers.skipWelcome]
         // Force portrait — sim orientation persists across sessions on Intel
         // x86_64 (see BookmarkFlowTests); the frame assertions below assume it.
         XCUIDevice.shared.orientation = .portrait

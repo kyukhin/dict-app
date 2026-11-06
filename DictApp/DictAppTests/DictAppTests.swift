@@ -10,6 +10,7 @@ import Combine
 import CoreText
 import UIKit
 import OSLog
+import CryptoKit
 
 final class DictAppTests: XCTestCase {
 
@@ -1513,7 +1514,9 @@ final class DictAppTests: XCTestCase {
     /// probe it without touching the per-test database. Its reads survive an
     /// install that invalidates the file mid-run (#213, `BundledDictionary`).
     private static func openBundledSeedReadOnly() throws -> BundledDictionary {
-        try BundledDictionary()
+        // #237: the bundle holds English only; the other dictionaries are in
+        // the packs, which `shipped()` reads with it.
+        try BundledDictionary.shipped()
     }
 
     // MARK: - Issue #42: Spanish WordNet (Spanish–English) bundle
@@ -1807,7 +1810,8 @@ final class DictAppTests: XCTestCase {
     /// the load-bearing path — 69% of Arabic lemmas are vocalized.
     @MainActor
     func testArabicDiacriticInsensitiveSearchAgainstSeed() async throws {
-        let queue = try Self.openBundledSeedReadOnly()
+        // FTS reads one file: the Arabic pack (#237).
+        let queue = BundledDictionary(url: try PackFixtures.file(.arb))
 
         // Mirror the app's search SQL (MATCH bare 'كتاب', prefix) against the seed.
         let rows: [Row] = try await queue.read { conn in
@@ -3950,7 +3954,7 @@ final class DictionaryInfoDetailTests: XCTestCase {
         tempDir = dir
         await DictAppTests.waitForHostAppLaunch()
         try await DatabaseService.shared.setup(userPath: dir.appendingPathComponent("user.sqlite").path,
-                                               dictionaryURL: try TestDictionary.bundledURL())
+                                               dictionaryURL: try TestDictionary.bundledURL(), packFiles: try PackFixtures.all())
         return try await DatabaseService.shared.fetchSourceStats()
     }
 
@@ -4718,7 +4722,7 @@ extension DictAppTests {
     /// copied), so the app's real `search` SQL runs on shipped rows.
     private func useSeedClone() async throws {
         try await db.setup(userPath: tempDir.appendingPathComponent("seed-user.sqlite").path,
-                           dictionaryURL: try TestDictionary.bundledURL())
+                           dictionaryURL: try TestDictionary.bundledURL(), packFiles: try PackFixtures.all())
     }
 
     /// One seed row's definition (NFC, for contains-checks: Greek-source
@@ -5150,7 +5154,7 @@ extension DictAppTests {
     /// index that enforces it ships in the seed, and each source's
     /// `dict_metadata.word_count` equals its row count.
     func testSeedGreekSourcesHaveNoNocaseDuplicates() throws {
-        let queue = try Self.openBundledSeedReadOnly()
+        let queue = BundledDictionary(url: try PackFixtures.file(.ell))  // sqlite_master: the Greek pack (#237)
         let placeholders = Self.greekSourceIDs.map { _ in "?" }.joined(separator: ", ")
         let duplicates = try queue.read { conn in
             try Row.fetchAll(conn, sql: """
@@ -6146,34 +6150,43 @@ extension DictionaryDefaultsTests {
 // MARK: - Bundled dictionary file shape
 
 extension DictAppTests {
-    /// The sources of the bundled file's `entries` are exactly its
-    /// `dict_metadata` sources, in entry block order, with an exact
-    /// `word_count` (Settings counts read it since #138); the file is not in
-    /// WAL mode (it is attached read-only and immutable from the bundle).
+    /// In every shipped file (the bundle and each pack, #237) the sources of
+    /// `entries` are exactly its `dict_metadata` sources, in entry block
+    /// order, with an exact `word_count` (Settings counts read it since
+    /// #138); the files hold the nine sources between them; no file is in
+    /// WAL mode (each is attached read-only and immutable).
     func testSeedEntrySourcesMatchMetadata() throws {
-        let queue = try Self.openBundledSeedReadOnly()
-        let blocks = try queue.read { conn in
-            try Row.fetchAll(conn, sql: """
-                SELECT source, COUNT(*) AS n, MIN(id) AS lo, MAX(id) AS hi FROM entries GROUP BY source ORDER BY lo
-                """)
-        }
-        let metadata = try queue.read { conn in
-            try Row.fetchAll(conn, sql: "SELECT source, word_count FROM dict_metadata ORDER BY rowid")
-        }
-        let journal = try queue.read { conn in try String.fetchOne(conn, sql: "PRAGMA journal_mode") }
+        let packs = try PackFixtures.all()
+        let files = [try TestDictionary.bundledURL()] + PackID.all.compactMap { packs[$0] }
+        var sources: [String] = []
+        for url in files {
+            let queue = BundledDictionary(url: url)
+            let blocks = try queue.read { conn in
+                try Row.fetchAll(conn, sql: """
+                    SELECT source, COUNT(*) AS n, MIN(id) AS lo, MAX(id) AS hi FROM entries GROUP BY source ORDER BY lo
+                    """)
+            }
+            let metadata = try queue.read { conn in
+                try Row.fetchAll(conn, sql: "SELECT source, word_count FROM dict_metadata ORDER BY rowid")
+            }
+            let journal = try queue.read { conn in try String.fetchOne(conn, sql: "PRAGMA journal_mode") }
+            let name = url.lastPathComponent
 
-        XCTAssertEqual(metadata.map { $0["source"] as String }, blocks.map { $0["source"] as String },
-                       "metadata lists exactly the entry sources, in entry block order")
-        XCTAssertEqual(metadata.count, 9)
-        for (earlier, later) in zip(blocks, blocks.dropFirst()) {
-            XCTAssertLessThan(earlier["hi"] as Int64, later["lo"] as Int64, "entry blocks do not interleave")
+            XCTAssertEqual(metadata.map { $0["source"] as String }, blocks.map { $0["source"] as String },
+                           "\(name): metadata lists exactly the entry sources, in entry block order")
+            for (earlier, later) in zip(blocks, blocks.dropFirst()) {
+                XCTAssertLessThan(earlier["hi"] as Int64, later["lo"] as Int64, "\(name): entry blocks do not interleave")
+            }
+            let rows = Dictionary(uniqueKeysWithValues: blocks.map { ($0["source"] as String, $0["n"] as Int) })
+            for row in metadata {
+                let source: String = row["source"]
+                XCTAssertEqual(row["word_count"] as Int, rows[source], "\(name) \(source): word_count is its row count")
+            }
+            XCTAssertNotEqual(journal?.lowercased(), "wal", "\(name): a WAL file could not be attached read-only")
+            sources += metadata.map { $0["source"] as String }
         }
-        let rows = Dictionary(uniqueKeysWithValues: blocks.map { ($0["source"] as String, $0["n"] as Int) })
-        for row in metadata {
-            let source: String = row["source"]
-            XCTAssertEqual(row["word_count"] as Int, rows[source], "\(source): word_count is its row count")
-        }
-        XCTAssertNotEqual(journal?.lowercased(), "wal", "a WAL file could not be attached from the read-only bundle")
+        XCTAssertEqual(sources.count, 9)
+        XCTAssertEqual(Set(sources), Set(Self.allBundledSourceIDs))
     }
 }
 
@@ -6770,8 +6783,11 @@ final class DictionaryFileTests: XCTestCase {
         let legacyPaths = Set(["", "-wal", "-shm", "-journal"].map { legacy.path + $0 })
         let userNames = Set(["", "-wal", "-shm"].map { userDatabase.lastPathComponent + $0 })
 
+        // #237: `Packs/` holds downloaded language packs, never the bundle.
+        let packs = PackFiles.folder().resolvingSymlinksInPath().path
         let names = try fileManager.contentsOfDirectory(atPath: folder.path)
             .filter { !legacyPaths.contains(folder.appendingPathComponent($0).path) }
+            .filter { folder.appendingPathComponent($0).path != packs }
         XCTAssertTrue(names.contains(userDatabase.lastPathComponent), "the launch created the user database: \(names)")
         XCTAssertTrue(Set(names).isSubset(of: userNames), "only the user database lives in \(folder.path): \(names.sorted())")
 
@@ -6779,6 +6795,7 @@ final class DictionaryFileTests: XCTestCase {
             .compactMap { fileManager.urls(for: $0, in: .userDomainMask).first }
             .flatMap(Self.regularFiles(under:))
             .filter { !legacyPaths.contains($0.url.resolvingSymlinksInPath().path) }
+            .filter { !$0.url.resolvingSymlinksInPath().path.hasPrefix(packs + "/") }
         let total = files.reduce(0) { $0 + $1.size }
         let listing = files.map { "\($0.url.lastPathComponent) \($0.size) B" }
         XCTAssertLessThan(total, 5_000_000, "Application Support and Documents hold \(total) bytes: \(listing)")
@@ -6797,6 +6814,908 @@ final class DictionaryFileTests: XCTestCase {
             if values.isRegularFile == true { files.append((url, values.fileSize ?? 0)) }
         }
         return files
+    }
+}
+
+// MARK: - Issue #237: the bundle, the stub and the packs
+
+/// The files `Scripts/cut_packs.py` writes (0237, "Files" and "The
+/// catalog"): the English bundle, the stub and the committed pack assets,
+/// installed through the app's install path.
+final class PackFileTests: XCTestCase {
+
+    /// The rows of each of `tables` that exist in `db`.
+    private static func rowCounts(_ db: Database, _ tables: [String]) throws -> [Int] {
+        var counts: [Int] = []
+        for table in tables where try db.tableExists(table) {
+            counts.append(try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM \(table)") ?? 0)
+        }
+        return counts
+    }
+
+    /// The bundled stub of the host app.
+    private func stubURL() throws -> URL {
+        let bundled = try TestDictionary.bundledURL()
+        return bundled.deletingLastPathComponent()
+            .appendingPathComponent(DictionaryFile.stubResourceName + "." + DictionaryFile.resourceExtension)
+    }
+
+    /// #237: the App Store download holds English only. The bundle's
+    /// `dict_metadata` is `wordnet` alone, its forms and list tables are
+    /// empty, and the catalog lists `spa`, `rus`, `arb`, `ell` and
+    /// `eng-lists` with their sources.
+    func testBundleHoldsEnglishOnly() throws {
+        let file = try BundledDictionary().read { db in
+            (sources: try String.fetchAll(db, sql: "SELECT source FROM dict_metadata"),
+             entrySources: try String.fetchAll(db, sql: "SELECT DISTINCT source FROM entries"),
+             forms: try Self.rowCounts(db, ["lemma", "tagset", "paradigm", "form_lookup", "form_link"]),
+             lists: try Self.rowCounts(db, ["wordlist", "wordlist_item", "word_rank"]))
+        }
+        XCTAssertEqual(file.sources, ["wordnet"])
+        XCTAssertEqual(file.entrySources, ["wordnet"])
+        XCTAssertEqual(file.forms, [0, 0, 0, 0, 0], "the Greek forms are in the Greek pack")
+        XCTAssertTrue(file.lists.allSatisfy { $0 == 0 }, "the word lists are in the packs: \(file.lists)")
+
+        let catalog = try PackFixtures.catalog()
+        XCTAssertEqual(catalog.packs.map(\.id), PackID.all)
+        XCTAssertEqual(catalog.packs.map(\.ord), [1, 2, 3, 4, 5])
+        let sources = Dictionary(grouping: catalog.sources, by: \.packID).mapValues { Set($0.map(\.source)) }
+        XCTAssertEqual(sources, [
+            .spa: ["freedict-eng-spa", "wordnet-spa-eng"],
+            .rus: ["openrussian"],
+            .arb: ["wordnet-arb-eng"],
+            .ell: ["freedict-ell-eng", "wordnet-ell-eng", "freedict-eng-ell", "wordnet-eng-ell"],
+        ])
+        for pack in catalog.packs {
+            XCTAssertEqual(pack.version, String(pack.fileSHA256.prefix(12)), "\(pack.id): the version names the file")
+            XCTAssertEqual(pack.url?.absoluteString,
+                           "https://github.com/kyukhin/dict-app/releases/download/"
+                           + (pack.url?.deletingLastPathComponent().lastPathComponent ?? "") + "/" + pack.assetName)
+            XCTAssertTrue(pack.url?.deletingLastPathComponent().lastPathComponent.hasPrefix("packs-") ?? false,
+                          "\(pack.id): a packs-YYYYMMDD release")
+            XCTAssertEqual(pack.sha256.count, 64)
+            XCTAssertGreaterThan(pack.size, 0)
+        }
+        XCTAssertEqual(catalog.languages.map(\.lang), ["eng", "spa", "rus", "arb", "ell"])
+        XCTAssertEqual(catalog.languages.first?.isBundled, true)
+        XCTAssertEqual(catalog.languages.first?.listsPack, .engLists)
+        XCTAssertEqual(catalog.languages.last?.dictionaryPack, .ell)
+        XCTAssertEqual(catalog.languages.last?.listsPack, .ell)
+    }
+
+    /// One format everywhere: the bundle, the stub and every committed asset,
+    /// decompressed, have `DictionaryFile.formatVersion`, in the header the
+    /// app reads without SQLite too; the stub has the tables and no rows.
+    func testEveryFileHasTheFormat() throws {
+        let packs = try PackFixtures.all()
+        let files = [try TestDictionary.bundledURL(), try stubURL()] + PackID.all.compactMap { packs[$0] }
+        for url in files {
+            XCTAssertEqual(DictionaryFile.headerFormat(of: url), DictionaryFile.formatVersion, url.lastPathComponent)
+            let version = try BundledDictionary(url: url).read { db in try Int.fetchOne(db, sql: "PRAGMA user_version") }
+            XCTAssertEqual(version, DictionaryFile.formatVersion, url.lastPathComponent)
+        }
+        let stub = try BundledDictionary(url: try stubURL()).read { db in
+            (tables: try String.fetchAll(db, sql: "SELECT name FROM sqlite_master WHERE type = 'table'"),
+             rows: try Int.fetchOne(db, sql: "SELECT (SELECT COUNT(*) FROM entries) + (SELECT COUNT(*) FROM dict_metadata)"))
+        }
+        XCTAssertTrue(Set(["entries", "entries_fts", "dict_metadata", "lemma", "form_lookup", "catalog_pack",
+                           "catalog_pair"] + Self.laterTables.keys)
+            .isSubset(of: Set(stub.tables)), "\(stub.tables)")
+        XCTAssertEqual(stub.rows, 0)
+        XCTAssertNil(DictionaryFile.headerFormat(of: FileManager.default.temporaryDirectory
+            .appendingPathComponent("missing-\(UUID().uuidString).sqlite")))
+    }
+
+    /// #237: word forms and lists go with their language. The Greek forms
+    /// tables and their credits are in the Greek pack and nowhere else.
+    func testGreekFormsAndListsAreInTheGreekPack() throws {
+        let packs = try PackFixtures.all()
+        let files = [try TestDictionary.bundledURL()] + PackID.all.compactMap { packs[$0] }
+        for url in files {
+            let file = try BundledDictionary(url: url).read { db in
+                (forms: try Self.rowCounts(db, ["lemma", "paradigm", "form_lookup", "form_link"]),
+                 credits: try String.fetchAll(db, sql: "SELECT id FROM data_source"),
+                 lists: try db.tableExists("wordlist")
+                    ? try String.fetchAll(db, sql: "SELECT DISTINCT lang FROM wordlist") : [])
+            }
+            let isGreek = url == packs[.ell]
+            for count in file.forms {
+                XCTAssertEqual(count > 0, isGreek, "\(url.lastPathComponent): forms tables \(file.forms)")
+            }
+            XCTAssertEqual(file.credits.contains("wiktionary-ell-forms"), isGreek, url.lastPathComponent)
+            XCTAssertTrue(file.lists.allSatisfy { lang in
+                (lang == "ell" && isGreek) || (lang == "eng" && url == packs[.engLists])
+            }, "\(url.lastPathComponent): lists of \(file.lists)")
+        }
+    }
+
+    /// #237: the English forms (morphy) stay in the bundle.
+    func testEnglishFormsStayInTheBundle() throws {
+        let packs = try PackFixtures.all()
+        let files = [try TestDictionary.bundledURL()] + PackID.all.compactMap { packs[$0] }
+        for (index, url) in files.enumerated() {
+            let rows = try BundledDictionary(url: url).read { db in
+                try Int.fetchOne(db, sql: "SELECT (SELECT COUNT(*) FROM morphy_exception) + (SELECT COUNT(*) FROM morphy_lemma)")
+            }
+            if index == 0 {
+                XCTAssertGreaterThan(rows ?? 0, 80_000, "the bundle has morphy")
+            } else {
+                XCTAssertEqual(rows, 0, "\(url.lastPathComponent) has no morphy rows")
+            }
+        }
+    }
+
+    /// SQLite on iOS attaches at least the bundle, every pack and `legacy`
+    /// during a 1.x move (0237, "Connection layout").
+    func testAttachLimit() throws {
+        let limit = try DatabaseQueue().inDatabase { db in
+            sqlite3_limit(db.sqliteConnection, SQLITE_LIMIT_ATTACHED, -1)
+        }
+        XCTAssertGreaterThanOrEqual(Int(limit), PackID.all.count + 2, "SQLITE_MAX_ATTACHED is \(limit)")
+    }
+
+    /// The launch scan (0237, "Launch"): partial files, unknown packs and
+    /// superseded versions are deleted; each pack gets its current file.
+    func testLaunchScanPicksTheCurrentFiles() throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("scan-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let files = try PackFixtures.install([.arb, .rus], into: folder)
+        let catalog = try PackFixtures.catalog()
+        let partial = folder.appendingPathComponent("ell-\(try XCTUnwrap(catalog.pack(.ell)).version).sqlite.partial")
+        let unknown = folder.appendingPathComponent("xyz-0123456789ab.sqlite")
+        let older = folder.appendingPathComponent("rus-0123456789ab.sqlite")
+        for url in [partial, unknown] {
+            XCTAssertTrue(FileManager.default.createFile(atPath: url.path, contents: Data("x".utf8)))
+        }
+        try FileManager.default.copyItem(at: try XCTUnwrap(files[.rus]), to: older)
+
+        let scan = PackFiles.scan(folder: folder, catalog: catalog)
+        XCTAssertEqual(scan.files, files)
+        XCTAssertEqual(Set(scan.installed.map(\.id)), [.arb, .rus])
+        XCTAssertTrue(scan.installed.allSatisfy(\.usable))
+        for url in [partial, unknown, older] {
+            XCTAssertFalse(FileManager.default.fileExists(atPath: url.path), "\(url.lastPathComponent) is deleted")
+        }
+        let excluded = try XCTUnwrap(files[.arb]).resourceValues(forKeys: [.isExcludedFromBackupKey])
+        XCTAssertEqual(excluded.isExcludedFromBackup, true, "installed packs are excluded from backup")
+    }
+
+    /// A damaged asset installs nothing (0237, "Download and install", step 3).
+    func testDamagedAssetInstallsNothing() throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("damaged-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let pack = try XCTUnwrap(try PackFixtures.catalog().pack(.arb))
+        let asset = folder.appendingPathComponent(pack.assetName)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        var data = try Data(contentsOf: PackFixtures.assets.appendingPathComponent(pack.assetName))
+        data[data.count / 2] ^= 0xFF
+        try data.write(to: asset)
+        XCTAssertThrowsError(try PackFiles.install(asset: asset, pack: pack, into: folder)) { error in
+            XCTAssertEqual(error as? PackError, .damaged)
+        }
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: folder.path), [pack.assetName])
+    }
+
+    // MARK: QA (#241)
+
+    /// A temp folder, deleted after the test.
+    private func makeFolder(_ name: String) throws -> URL {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("\(name)-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        addTeardownBlock { try? FileManager.default.removeItem(at: folder) }
+        return folder
+    }
+
+    /// `pack` with the asset or file pins changed, for an install that
+    /// must fail on the second check.
+    private static func pinned(_ pack: CatalogPack, sha256: String? = nil, size: Int64? = nil,
+                               fileSHA256: String? = nil) -> CatalogPack {
+        CatalogPack(id: pack.id, ord: pack.ord, lang: pack.lang, kind: pack.kind, version: pack.version,
+                    url: pack.url, sha256: sha256 ?? pack.sha256, size: size ?? pack.size,
+                    fileSHA256: fileSHA256 ?? pack.fileSHA256, fileSize: pack.fileSize)
+    }
+
+    /// Writes `format` as the `user_version` in the SQLite header of `url`
+    /// (4 bytes, big-endian, at offset 60).
+    private static func setHeaderFormat(_ format: UInt32, of url: URL) throws {
+        let handle = try FileHandle(forUpdating: url)
+        defer { try? handle.close() }
+        try handle.seek(toOffset: 60)
+        try handle.write(contentsOf: withUnsafeBytes(of: format.bigEndian) { Data($0) })
+    }
+
+    /// 0237 "Launch": the scan deletes a planted `.partial` file and the
+    /// downloads folder with what it holds, and installs nothing for them.
+    func testLaunchDeletesPartialFiles() throws {
+        let folder = try makeFolder("partial")
+        let downloads = try makeFolder("downloads").appendingPathComponent("Downloads", isDirectory: true)
+        try FileManager.default.createDirectory(at: downloads, withIntermediateDirectories: true)
+        let catalog = try PackFixtures.catalog()
+        let ell = try XCTUnwrap(catalog.pack(.ell))
+        let partial = folder.appendingPathComponent(ell.fileName + ".partial")
+        let download = downloads.appendingPathComponent("CFNetworkDownload_x.tmp")
+        for url in [partial, download] {
+            XCTAssertTrue(FileManager.default.createFile(atPath: url.path, contents: Data(repeating: 7, count: 4096)))
+        }
+
+        let scan = PackFiles.scan(folder: folder, catalog: catalog, downloads: downloads)
+        XCTAssertEqual(scan, PackFiles.Scan(), "a partial file is no install")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: partial.path), "the partial file is deleted")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: downloads.path), "the downloads folder is deleted")
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: folder.path), [])
+    }
+
+    /// The scan of a folder that does not exist (no pack ever installed)
+    /// finds nothing and creates nothing.
+    func testLaunchScanOfAMissingFolderFindsNothing() throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("none-\(UUID().uuidString)")
+        let scan = PackFiles.scan(folder: folder, catalog: try PackFixtures.catalog())
+        XCTAssertEqual(scan, PackFiles.Scan())
+        XCTAssertFalse(FileManager.default.fileExists(atPath: folder.path))
+    }
+
+    /// 0237 "Launch": without the catalog's version, an older file of the
+    /// app's format stays usable until an update, the newest of several.
+    func testOlderVersionStaysUsable() throws {
+        let folder = try makeFolder("older")
+        let source = try PackFixtures.file(.rus)
+        let oldest = folder.appendingPathComponent("rus-00000000000a.sqlite")
+        let newer = folder.appendingPathComponent("rus-00000000000b.sqlite")
+        for url in [oldest, newer] {
+            try FileManager.default.copyItem(at: source, to: url)
+        }
+        try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSinceNow: -3600)],
+                                              ofItemAtPath: oldest.path)
+        try FileManager.default.setAttributes([.modificationDate: Date()], ofItemAtPath: newer.path)
+
+        let scan = PackFiles.scan(folder: folder, catalog: try PackFixtures.catalog())
+        XCTAssertEqual(scan.files, [.rus: newer], "the newest older file is attached")
+        XCTAssertEqual(scan.installed, [InstalledPack(id: .rus, lang: "rus", version: "00000000000b", usable: true)])
+        XCTAssertTrue(FileManager.default.fileExists(atPath: oldest.path),
+                      "no current file supersedes it: it stays until an update")
+    }
+
+    /// 0237 "Format mismatch": a pack file of another format is not
+    /// attached (the stub stands in) and is listed as unusable; the scan
+    /// keeps it for the update.
+    func testWrongFormatFileIsUnusable() throws {
+        let folder = try makeFolder("format")
+        let catalog = try PackFixtures.catalog()
+        let arb = try XCTUnwrap(catalog.pack(.arb))
+        let file = folder.appendingPathComponent(arb.fileName)
+        try FileManager.default.copyItem(at: try PackFixtures.file(.arb), to: file)
+        try Self.setHeaderFormat(3, of: file)
+        XCTAssertEqual(DictionaryFile.headerFormat(of: file), 3)
+
+        let scan = PackFiles.scan(folder: folder, catalog: catalog)
+        XCTAssertEqual(scan.files, [:], "a format-3 file is never attached")
+        XCTAssertEqual(scan.installed, [InstalledPack(id: .arb, lang: "arb", version: arb.version, usable: false)])
+        XCTAssertTrue(FileManager.default.fileExists(atPath: file.path), "it stays until an update replaces it")
+    }
+
+    /// The header check reads no SQLite: a missing, short, text or empty
+    /// file has no format; the bundle has the app's.
+    func testHeaderFormatOfFilesThatAreNotSQLite() throws {
+        let folder = try makeFolder("header")
+        let short = folder.appendingPathComponent("short.sqlite")
+        let text = folder.appendingPathComponent("text.sqlite")
+        let empty = folder.appendingPathComponent("empty.sqlite")
+        try Data("SQLite format 3\u{0}".utf8).write(to: short)
+        try Data(repeating: 0x41, count: 4096).write(to: text)
+        try Data().write(to: empty)
+        for url in [short, text, empty, folder.appendingPathComponent("missing.sqlite")] {
+            XCTAssertNil(DictionaryFile.headerFormat(of: url), url.lastPathComponent)
+        }
+        XCTAssertEqual(DictionaryFile.headerFormat(of: try TestDictionary.bundledURL()), DictionaryFile.formatVersion)
+    }
+
+    /// `<id>-<version>.sqlite`: the id may hold a dash, the version is 12
+    /// hex digits; anything else is no pack file.
+    func testPackFileNames() {
+        XCTAssertEqual(PackFiles.parse("eng-lists-70644825cb51.sqlite").map { [$0.0.rawValue, $0.1] },
+                       ["eng-lists", "70644825cb51"])
+        XCTAssertEqual(PackFiles.parse("spa-21ee074f9223.sqlite").map { [$0.0.rawValue, $0.1] },
+                       ["spa", "21ee074f9223"])
+        for name in ["spa.sqlite", "spa-21ee074f922.sqlite", "spa-21ee074f92234.sqlite", "spa-21ee074f922g.sqlite",
+                     "spa-21ee074f9223.sqlite.partial", "spa-21ee074f9223.sqlite.xz", "spa-21ee074f9223.db", ""] {
+            XCTAssertNil(PackFiles.parse(name), "'\(name)' is no pack file")
+        }
+        XCTAssertEqual(PackID.engLists.schema, "eng_lists")
+        XCTAssertEqual(PackID.all.map(\.schema), ["spa", "rus", "arb", "ell", "eng_lists"])
+    }
+
+    /// 0237 step 4: an asset with the pinned sha256 that decompresses to
+    /// another file is damaged; nothing stays in the folder.
+    func testFileOfAnotherHashInstallsNothing() throws {
+        let folder = try makeFolder("filehash")
+        let pack = try XCTUnwrap(try PackFixtures.catalog().pack(.rus))
+        let asset = PackFixtures.assets.appendingPathComponent(pack.assetName)
+        let wrong = Self.pinned(pack, fileSHA256: String(repeating: "0", count: 64))
+        XCTAssertThrowsError(try PackFiles.install(asset: asset, pack: wrong, into: folder)) { error in
+            XCTAssertEqual(error as? PackError, .damaged)
+        }
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: folder.path), [],
+                       "no partial and no installed file")
+    }
+
+    /// 0237 step 3: the size is pinned with the sha256.
+    func testAssetOfAnotherSizeInstallsNothing() throws {
+        let folder = try makeFolder("size")
+        let pack = try XCTUnwrap(try PackFixtures.catalog().pack(.arb))
+        let asset = PackFixtures.assets.appendingPathComponent(pack.assetName)
+        XCTAssertThrowsError(try PackFiles.install(asset: asset, pack: Self.pinned(pack, size: pack.size + 1),
+                                                   into: folder)) { error in
+            XCTAssertEqual(error as? PackError, .damaged)
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: folder.appendingPathComponent(pack.fileName).path))
+    }
+
+    /// A pinned asset that is no xz stream (the right sha256 of the wrong
+    /// bytes) is damaged when the decompressor rejects it; no partial stays.
+    func testAssetThatIsNotXzInstallsNothing() throws {
+        let folder = try makeFolder("notxz")
+        let pack = try XCTUnwrap(try PackFixtures.catalog().pack(.arb))
+        let asset = try makeFolder("notxz-asset").appendingPathComponent(pack.assetName)
+        try Data((0..<65_536).map { UInt8(truncatingIfNeeded: $0 &* 31) }).write(to: asset)
+        let (sha, size) = try PackFiles.sha256(of: asset)
+        XCTAssertThrowsError(try PackFiles.install(asset: asset, pack: Self.pinned(pack, sha256: sha, size: size),
+                                                   into: folder)) { error in
+            XCTAssertEqual(error as? PackError, .damaged, "\(error)")
+        }
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: folder.path), [])
+    }
+
+    /// A missing asset throws before the packs folder is touched.
+    func testMissingAssetThrows() throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("missing-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let pack = try XCTUnwrap(try PackFixtures.catalog().pack(.arb))
+        let asset = folder.appendingPathComponent("nowhere").appendingPathComponent(pack.assetName)
+        XCTAssertThrowsError(try PackFiles.install(asset: asset, pack: pack, into: folder))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: folder.path), "nothing was created")
+    }
+
+    /// The SHA-256 of the streamed reader equals CryptoKit's of the whole
+    /// file, across the 1 MB chunk boundary, and of an empty file.
+    func testStreamedSHA256() throws {
+        let folder = try makeFolder("sha")
+        let big = folder.appendingPathComponent("big")
+        let data = Data((0..<(1 << 20) + 17).map { UInt8(truncatingIfNeeded: $0) })
+        try data.write(to: big)
+        let (sha, size) = try PackFiles.sha256(of: big)
+        XCTAssertEqual(sha, SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined())
+        XCTAssertEqual(size, Int64(data.count))
+        let empty = folder.appendingPathComponent("empty")
+        try Data().write(to: empty)
+        let (emptySHA, emptySize) = try PackFiles.sha256(of: empty)
+        XCTAssertEqual(emptySHA, "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855")
+        XCTAssertEqual(emptySize, 0)
+    }
+
+    /// The tables of later epics that land empty in format 4 with #240, so
+    /// their data never forces a format bump: E3's word lists
+    /// (0130-word-lists.md, `Scripts/wordlists_schema.sql`), E6's grammar
+    /// (0133-grammar.md, `Scripts/grammar_schema.sql`) and E7's example
+    /// sentences (0134-example-sentences.md, `build_examples.py`), with
+    /// their columns in order.
+    private static let laterTables: [String: [String]] = [
+        "wordlist": ["id", "lang", "series", "level", "level_ord", "word_count", "data_source"],
+        "wordlist_item": ["series", "term", "headword", "translation", "endings", "pos", "tags", "level", "level_ord",
+                          "rank", "seq", "sort_key"],
+        "word_rank": ["lang", "key", "rank"],
+        "grammar_topic": ["id", "lang", "level", "ord"],
+        "grammar_text": ["topic_id", "explain_lang", "title", "body"],
+        "grammar_link": ["topic_id", "kind", "key", "ord"],
+        "example_sentence": ["id", "lang", "text", "author"],
+        "example_translation": ["sentence_id", "lang", "id", "text", "author"],
+        "example_word": ["lang", "word", "ord", "sentence_id", "form_start", "form_length"],
+    ]
+
+    /// Kirill 2026-11-04 (0133 Open question 2, 0134 Open question 3): the
+    /// bundle, the stub and every committed pack have the list, grammar and
+    /// example tables with their columns; the bundle and the stub keep them
+    /// empty (the rows go into the `ell` and `eng-lists` packs).
+    func testEveryFileHasTheGrammarAndExampleTables() throws {
+        let packs = try PackFixtures.all()
+        let bundle = try TestDictionary.bundledURL(), stub = try stubURL()
+        for url in [bundle, stub] + PackID.all.compactMap({ packs[$0] }) {
+            let file = try BundledDictionary(url: url).read { db in
+                try Self.laterTables.keys.sorted().map { table in
+                    (table: table,
+                     columns: try db.tableExists(table) ? try db.columns(in: table).map(\.name) : [],
+                     rows: try db.tableExists(table) ? try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM \(table)") ?? 0 : 0)
+                }
+            }
+            for table in file {
+                XCTAssertEqual(table.columns, Self.laterTables[table.table], "\(url.lastPathComponent): \(table.table)")
+                if url == bundle || url == stub {
+                    XCTAssertEqual(table.rows, 0, "\(url.lastPathComponent): \(table.table) is empty")
+                }
+            }
+        }
+    }
+}
+
+/// The languages and the learning pairs the catalog offers (0237, "For E3
+/// and E4" and "Pairs"). Pure but for the real catalog of the bundle.
+final class PackCatalogTests: XCTestCase {
+
+    /// A pair as the tests compare it: "lang/via", its meanings language
+    /// when it is limited, its dictionaries and its packs.
+    private static func summary(_ pair: CatalogPair) -> String {
+        "\(pair.lang)/\(pair.via)" + (pair.limited ? " limited, meanings \(pair.meaningsLang)" : "")
+            + ": \(pair.sources.joined(separator: ",")) → " + pair.packs.map(\.rawValue).joined(separator: ",")
+    }
+
+    /// Kirill 2026-11-04: the seven pairs of 2.0's dictionaries, with their
+    /// dictionaries in catalog order and the packs they download, as in 0237
+    /// "Learning a pair"; none into Russian or Arabic, which only go into
+    /// English; and the limited Greek via Russian the catalog declares, with
+    /// English meanings. A later source adds its pair, or makes the limited
+    /// one normal, with no code change; `und` gives none.
+    func testPairsComeFromTheCatalog() throws {
+        let catalog = try PackFixtures.catalog()
+        XCTAssertEqual(catalog.directions.first, CatalogDirection(source: "wordnet", fromLang: "eng", toLang: "eng"),
+                       "the bundle's dictionary first")
+        XCTAssertEqual(catalog.directions.count, 9, "the bundle's and the catalog's nine dictionaries")
+        XCTAssertEqual(catalog.limitedPairs, [LimitedPair(lang: "ell", via: "rus", meaningsLang: "eng")])
+        XCTAssertEqual(catalog.pairs.map(Self.summary), [
+            "eng/eng: wordnet → eng-lists",
+            "eng/spa: freedict-eng-spa → eng-lists,spa",
+            "eng/ell: wordnet-eng-ell,freedict-eng-ell → eng-lists,ell",
+            "spa/eng: wordnet-spa-eng → spa",
+            "rus/eng: openrussian → rus",
+            "arb/eng: wordnet-arb-eng → arb",
+            "ell/eng: wordnet-ell-eng,freedict-ell-eng → ell",
+            "ell/rus limited, meanings eng: wordnet-ell-eng,freedict-ell-eng → ell",
+        ])
+        XCTAssertTrue(catalog.pairs.filter { !$0.limited }.allSatisfy { $0.meaningsLang == $0.via })
+        let keys = Set(catalog.pairs.map { "\($0.lang)/\($0.via)" })
+        for missing in ["eng/rus", "eng/arb", "rus/ell"] {
+            XCTAssertFalse(keys.contains(missing), missing)
+        }
+
+        // A limited pair needs a dictionary for its meanings, and is never
+        // declared twice or into `und`.
+        var declared = catalog
+        declared.limitedPairs += [LimitedPair(lang: "arb", via: "rus", meaningsLang: "ell"),
+                                  LimitedPair(lang: "ell", via: "rus", meaningsLang: "spa"),
+                                  LimitedPair(lang: "ell", via: "und", meaningsLang: "eng")]
+        XCTAssertEqual(declared.pairs, catalog.pairs)
+
+        // A 2.1 Greek–Russian dictionary in a pack of its own makes Greek via
+        // Russian normal: it downloads the Greek pack (its lists), then that
+        // pack.
+        var later = catalog
+        let greekRussian = PackID("ell-rus")
+        later.packs.append(CatalogPack(id: greekRussian, ord: 6, lang: "ell", kind: "language", version: "0",
+                                       url: nil, sha256: "", size: 1_000, fileSHA256: "", fileSize: 4_000))
+        later.sources.append(CatalogSource(packID: greekRussian, source: "llm-ell-rus", displayName: "El–Ru",
+                                           wordCount: 1, fromLang: "ell", toLang: "rus"))
+        later.directions.append(CatalogDirection(source: "llm-ell-rus", fromLang: "ell", toLang: "rus"))
+        later.directions.append(CatalogDirection(source: "my-notes", fromLang: "und", toLang: "eng"))
+        later.directions.append(CatalogDirection(source: "my-words", fromLang: "ell", toLang: "und"))
+        XCTAssertEqual(later.pairs.map(Self.summary), catalog.pairs.dropLast().map(Self.summary)
+                       + ["ell/rus: llm-ell-rus → ell,ell-rus"])
+        XCTAssertFalse(later.pairs.contains { $0.lang == "und" || $0.via == "und" || $0.limited })
+    }
+
+    /// A pair downloads only the assets of its packs that are not
+    /// installed: nothing once all are.
+    func testDownloadSizeCountsOnlyMissingPacks() throws {
+        let catalog = try PackFixtures.catalog()
+        func size(_ id: PackID) throws -> Int64 { try XCTUnwrap(catalog.pack(id)).size }
+        func pair(_ lang: String, _ via: String) throws -> CatalogPair {
+            try XCTUnwrap(catalog.pairs.first { $0.lang == lang && $0.via == via }, "\(lang)/\(via)")
+        }
+
+        let englishViaGreek = try pair("eng", "ell")
+        XCTAssertEqual(englishViaGreek.downloadSize(installed: []), try size(.engLists) + size(.ell))
+        XCTAssertEqual(englishViaGreek.downloadSize(installed: [.ell, .spa]), try size(.engLists))
+        XCTAssertEqual(englishViaGreek.downloadSize(installed: [.engLists, .ell]), 0)
+        XCTAssertEqual(try pair("ell", "eng").downloadSize(installed: [.engLists]), try size(.ell))
+        XCTAssertEqual(try pair("spa", "eng").downloadSize(installed: []), try size(.spa))
+        XCTAssertEqual(try pair("eng", "eng").downloadSize(installed: [.engLists]), 0, "WordNet is in the bundle")
+        XCTAssertEqual(try pair("ell", "rus").downloadSize(installed: [.rus]), try size(.ell),
+                       "Greek via Russian needs the Greek pack only")
+        XCTAssertGreaterThan(try size(.ell), 0)
+    }
+}
+
+/// The pure map of which file holds which dictionary (0237, "Reading
+/// across files").
+final class DictionarySchemasTests: XCTestCase {
+    private let schemas = DictionarySchemas(
+        sources: [(schema: "dict", source: "wordnet"),
+                  (schema: "spa", source: "freedict-eng-spa"), (schema: "spa", source: "wordnet-spa-eng"),
+                  (schema: "rus", source: "openrussian"), (schema: "ell", source: "wordnet-ell-eng"),
+                  (schema: "arb", source: "wordnet")],   // a later row of a source never wins
+        installed: ["spa", "ell"])
+
+    func testSchemaOfSource() {
+        XCTAssertEqual(schemas.schema(ofSource: "wordnet"), "dict")
+        XCTAssertEqual(schemas.schema(ofSource: "wordnet-spa-eng"), "spa")
+        XCTAssertEqual(schemas.schema(ofSource: "wordnet-ell-eng"), "ell")
+        XCTAssertNil(schemas.schema(ofSource: "openrussian"), "its pack is not installed")
+        // Known deviation (#241): a source no file claims reads from the bundle.
+        XCTAssertEqual(schemas.schema(ofSource: "my-import"), "dict")
+        XCTAssertEqual(schemas.installed, ["dict", "spa", "ell"], "the bundle is always installed")
+    }
+
+    func testFilesASearchReads() {
+        XCTAssertEqual(schemas.files(holding: nil), ["dict", "spa", "ell"], "every installed file with a dictionary")
+        XCTAssertEqual(schemas.files(holding: ["wordnet-ell-eng", "wordnet"]), ["dict", "ell"], "in attach order")
+        XCTAssertEqual(schemas.files(holding: ["freedict-eng-spa", "wordnet-spa-eng"]), ["spa"], "one branch per file")
+        XCTAssertEqual(schemas.files(holding: ["openrussian"]), [], "a pack that is not installed reads nothing")
+        XCTAssertEqual(schemas.files(holding: []), [])
+        XCTAssertEqual(DictionarySchemas.bundleOnly.files(holding: nil), ["dict"])
+        XCTAssertEqual(DictionarySchemas.bundleOnly.files(holding: ["openrussian"]), ["dict"])
+    }
+
+    func testNamesAndUnions() {
+        XCTAssertEqual(DictionarySchemas.all, ["dict", "spa", "rus", "arb", "ell", "eng_lists"])
+        XCTAssertEqual(DictionarySchemas.listsSchema(for: "ell"), "ell")
+        XCTAssertEqual(DictionarySchemas.listsSchema(for: "eng"), "eng_lists")
+        for lang in ["spa", "rus", "arb", "und", ""] {
+            XCTAssertNil(DictionarySchemas.listsSchema(for: lang), lang)
+        }
+        XCTAssertEqual(DictionarySchemas.union("word_rank", columns: "word", where: "lang = 'ell'"),
+                       ["dict", "spa", "rus", "arb", "ell", "eng_lists"]
+                        .map { "SELECT word FROM \($0).word_rank WHERE lang = 'ell'" }.joined(separator: " UNION ALL "))
+    }
+
+    /// Every SQL built over the schema names runs on a connection with the
+    /// bundle and the stub for every pack: no file needs to be installed.
+    func testSQLRunsWithEveryPackMissing() throws {
+        let queue = try DatabaseQueue()
+        let bundle = try TestDictionary.bundledURL()
+        let stub = bundle.deletingLastPathComponent()
+            .appendingPathComponent(DictionaryFile.stubResourceName + "." + DictionaryFile.resourceExtension)
+        let files = DictionaryFiles(bundle: bundle, packs: [:], stub: stub)
+        try queue.writeWithoutTransaction { db in
+            try files.attachAll(db)
+            // The user database's table that `englishHeadwordSourcesSQL` reads too.
+            try db.execute(sql: "CREATE TABLE imported_sources (source TEXT PRIMARY KEY, from_lang TEXT)")
+        }
+        let rows = try queue.read { db in
+            (sources: try Row.fetchAll(db, sql: DictionarySchemas.sourcesSQL)
+                .map { ($0["schema"] as String) + "/" + ($0["source"] as String) },
+             languages: try Row.fetchAll(db, sql: DictionarySchemas.sourceLanguageSQL).count,
+             metadata: try String.fetchAll(db, sql: "SELECT source FROM (\(DatabaseService.metadataSQL))"),
+             english: try String.fetchAll(db, sql: DatabaseService.englishHeadwordSourcesSQL),
+             union: try String.fetchAll(db, sql: DictionarySchemas.union("dict_metadata", columns: "source")))
+        }
+        XCTAssertEqual(files.installed, ["dict"])
+        XCTAssertEqual(rows.sources.first, "dict/wordnet")
+        XCTAssertEqual(rows.sources.count, 1 + 8, "the bundle's and the catalog's nine dictionaries")
+        XCTAssertEqual(rows.languages, 9)
+        XCTAssertEqual(rows.metadata, ["wordnet"], "only the bundle's dictionary is installed")
+        XCTAssertEqual(Set(rows.english), ["wordnet"])
+        XCTAssertEqual(rows.union, ["wordnet"], "the stub's tables read as empty")
+    }
+}
+
+/// Packs attached while the app runs (0237, "Connection layout"): #241's
+/// re-attach, through the install path with no network. #242 adds the
+/// download tests.
+@MainActor
+final class PackServiceTests: XCTestCase {
+    private var tempDir: URL!
+    private var db: DatabaseService { .shared }
+
+    override func setUp() async throws {
+        try await super.setUp()
+        await DictAppTests.waitForHostAppLaunch()
+        tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+    }
+
+    override func tearDown() async throws {
+        try? FileManager.default.removeItem(at: tempDir)
+        try await super.tearDown()
+    }
+
+    /// A pack installed after `setup` is searchable with no new `setup`: a
+    /// reader opened before the install finds it after, and an import's key
+    /// check on the writer sees it. Removing it (the stub again) hides it.
+    func testInstallReattachesReadersAndWriter() async throws {
+        try await db.setup(userPath: tempDir.appendingPathComponent("user.sqlite").path,
+                           dictionaryURL: try TestDictionary.bundledURL())
+        _ = try await db.fetchMetadata()   // a reader, opened before the install
+        let before = try await db.search(query: "casa")
+        XCTAssertFalse(before.contains { $0.source == "wordnet-spa-eng" }, "no Spanish pack yet")
+        let reopens = await db.dictionaryReopenCount
+
+        let service = PackService(folder: tempDir.appendingPathComponent("Packs"), database: db)
+        try await service.prepare()
+        try await service.install([.spa], fromAssetsIn: PackFixtures.assets)
+        let reopened = await db.dictionaryReopenCount
+        XCTAssertEqual(reopened, reopens + 1, "one re-attach")
+        let installed = await service.installedPacks().map(\.id)
+        XCTAssertEqual(installed, [.spa])
+
+        let after = try await db.search(query: "casa")
+        XCTAssertTrue(after.contains { $0.source == "wordnet-spa-eng" && $0.word == "casa" }, "the pack is searchable")
+        let entry = try await db.entry(for: EntryKey(source: "wordnet-spa-eng", word: "casa"))
+        XCTAssertEqual(entry?.source, "wordnet-spa-eng", "History and My words resolve the pack's keys")
+        let metadata = try await db.fetchMetadata().map(\.source)
+        XCTAssertEqual(metadata, ["wordnet", "freedict-eng-spa", "wordnet-spa-eng"])
+
+        // The import's key check runs on the writer: a word the pack has is
+        // skipped, a word it lacks is stored.
+        let json = tempDir.appendingPathComponent("wordnet-spa-eng.json")
+        try Data(#"[{"word": "casa", "definition": "x"}, {"word": "casaqzx", "definition": "y"}]"#.utf8).write(to: json)
+        _ = try await db.importJSON(at: json, source: "wordnet-spa-eng")
+        let pack = try XCTUnwrap(try PackFixtures.catalog().sources.first { $0.source == "wordnet-spa-eng" })
+        let count = try await db.entryCount(source: "wordnet-spa-eng")
+        XCTAssertEqual(count, pack.wordCount + 1, "only the word the pack lacks is imported")
+
+        try await db.attachPacks([.spa: nil])
+        let removed = try await db.search(query: "casa", enabledSources: ["wordnet-spa-eng"])
+        XCTAssertEqual(removed.map(\.word), ["casaqzx"], "the stub again: only the import is left")
+    }
+
+    /// 0237 "Launch": `setup` attaches every pack name on the stub; then the
+    /// launch scan reads the catalog through the pool (the attached bundle's,
+    /// no connection of its own, #111), keeps the current file, falls back
+    /// to an older one of the right format, deletes an unknown pack's file,
+    /// a superseded one and a partial file, and attaches the kept packs in
+    /// one re-attach, so they are searchable before `isReady`.
+    func testLaunchScansAfterSetup() async throws {
+        let launched = PackCatalog.shared
+        defer { PackCatalog.shared = launched }
+
+        // The catalog is the attached file's: a test bundle has none.
+        let plain = try TestDictionary.make(rows: [.init(word: "dog", definition: "a dog", source: "wordnet")],
+                                            at: tempDir.appendingPathComponent("plain.sqlite"))
+        try await db.setup(userPath: userPath, dictionaryURL: plain)
+        let noPacks = PackService(folder: tempDir.appendingPathComponent("NoPacks", isDirectory: true), database: db)
+        try await noPacks.prepare()
+        let none = await noPacks.catalog
+        XCTAssertEqual(none.packs, [], "the catalog is read through the pool, from the attached file")
+        XCTAssertEqual(none.sources, [])
+
+        let catalog = try PackFixtures.catalog()
+        let files = try PackFixtures.install([.spa, .arb], into: packsFolder)
+        let spa = try XCTUnwrap(files[.spa]), arb = try XCTUnwrap(files[.arb])
+        let olderRus = packsFolder.appendingPathComponent("rus-0000000000bb.sqlite")
+        try FileManager.default.copyItem(at: try PackFixtures.file(.rus), to: olderRus)
+        let supersededArb = packsFolder.appendingPathComponent("arb-0000000000cc.sqlite")
+        try FileManager.default.copyItem(at: try PackFixtures.file(.arb), to: supersededArb)
+        let unknown = packsFolder.appendingPathComponent("xyz-0123456789ab.sqlite")
+        try FileManager.default.copyItem(at: try PackFixtures.file(.arb), to: unknown)
+        let partial = packsFolder.appendingPathComponent(try XCTUnwrap(catalog.pack(.ell)).fileName + ".partial")
+        XCTAssertTrue(FileManager.default.createFile(atPath: partial.path, contents: Data("x".utf8)))
+
+        try await db.setup(userPath: userPath, dictionaryURL: try TestDictionary.bundledURL())
+        let stubbed = try await db.search(query: "casa", enabledSources: ["wordnet-spa-eng"])
+        XCTAssertEqual(stubbed, [], "setup attaches every pack name on the stub")
+        let bundleOnly = try await db.fetchMetadata().map(\.source)
+        XCTAssertEqual(bundleOnly, ["wordnet"])
+        let reopens = await db.dictionaryReopenCount
+
+        let service = PackService(folder: packsFolder, database: db)
+        let scanned = try await service.prepare()
+        XCTAssertEqual(scanned, [.spa: spa, .rus: olderRus, .arb: arb])
+        let reopened = await db.dictionaryReopenCount
+        XCTAssertEqual(reopened, reopens + 1, "one re-attach for every pack found")
+        for url in [supersededArb, unknown, partial] {
+            XCTAssertFalse(FileManager.default.fileExists(atPath: url.path), "\(url.lastPathComponent) is deleted")
+        }
+        let states = await service.installedPacks()
+        XCTAssertEqual(states, [
+            InstalledPack(id: .spa, lang: "spa", version: try XCTUnwrap(catalog.pack(.spa)).version, usable: true),
+            InstalledPack(id: .rus, lang: "rus", version: "0000000000bb", usable: true),
+            InstalledPack(id: .arb, lang: "arb", version: try XCTUnwrap(catalog.pack(.arb)).version, usable: true),
+        ])
+        XCTAssertEqual(PackCatalog.shared, catalog)
+
+        for (query, source) in [("casa", "wordnet-spa-eng"), ("дом", "openrussian"), ("ماء", "wordnet-arb-eng")] {
+            let rows = try await db.search(query: query, enabledSources: [source])
+            XCTAssertFalse(rows.isEmpty, "'\(query)' in \(source) after the scan")
+        }
+        let metadata = try await db.fetchMetadata().map(\.source)
+        XCTAssertEqual(metadata, ["wordnet", "freedict-eng-spa", "wordnet-spa-eng", "openrussian", "wordnet-arb-eng"])
+        let greek = try await db.search(query: "νερό", enabledSources: ["freedict-ell-eng"])
+        XCTAssertEqual(greek, [], "a pack without a file stays on the stub")
+    }
+
+    // MARK: QA (#241)
+
+    private var userPath: String { tempDir.appendingPathComponent("user.sqlite").path }
+    private var packsFolder: URL { tempDir.appendingPathComponent("Packs", isDirectory: true) }
+
+    /// 0237 "Connection layout": with no pack installed every pack name
+    /// reads the stub. English answers; a pack's dictionaries find nothing,
+    /// resolve no key and count no row; the Greek form step and tables are
+    /// empty; an import under a pack source is not checked against it.
+    func testMissingPacksReadAsEmpty() async throws {
+        try await db.setup(userPath: userPath, dictionaryURL: try TestDictionary.bundledURL())
+        let dog = try await db.search(query: "dog")
+        XCTAssertTrue(dog.contains { $0.word == "dog" }, "English works from the bundle")
+        XCTAssertEqual(Set(dog.map(\.source)), ["wordnet"])
+        let cases = [("casa", "wordnet-spa-eng"), ("house", "freedict-eng-spa"), ("дом", "openrussian"),
+                     ("ماء", "wordnet-arb-eng"), ("νερό", "freedict-ell-eng"), ("water", "wordnet-eng-ell")]
+        for (query, source) in cases {
+            let all = try await db.search(query: query)
+            XCTAssertTrue(all.allSatisfy { $0.source == "wordnet" }, "'\(query)': only the bundle answers")
+            let only = try await db.search(query: query, enabledSources: [source])
+            XCTAssertEqual(only, [], "'\(query)' in \(source), not installed")
+            let preferred = try await db.searchPreferred(query: query, groups: [[source], ["wordnet"]],
+                                                         enabledSources: [source, "wordnet"])
+            XCTAssertTrue(preferred.allSatisfy { $0.source == "wordnet" }, "preferred '\(query)'")
+            let count = try await db.entryCount(source: source)
+            XCTAssertEqual(count, 0, "\(source) has no rows without its pack")
+        }
+        let greek = try await db.searchResults(query: "έγραψα")
+        XCTAssertTrue(greek.allSatisfy { $0.formMatch == nil }, "no Greek form step without the Greek pack")
+        let table = try await db.inflection(for: InflectionFixture.entry("γράφω", pos: "verb"))
+        XCTAssertNil(table, "no inflection table without the Greek pack")
+
+        let key = EntryKey(source: "wordnet-spa-eng", word: "casa")
+        let entry = try await db.entry(for: key)
+        XCTAssertNil(entry, "the key of a missing pack does not resolve")
+        try await db.addToMyWords(key)
+        let myWords = try await db.fetchMyWords()
+        XCTAssertEqual(myWords, [], "its My words row stays stored, unresolved")
+        let metadata = try await db.fetchMetadata().map(\.source)
+        XCTAssertEqual(metadata, ["wordnet"])
+        let stats = try await db.fetchSourceStats().map(\.source)
+        XCTAssertEqual(stats, ["wordnet"])
+
+        let json = tempDir.appendingPathComponent("wordnet-spa-eng.json")
+        try Data(#"[{"word": "casa", "definition": "imported casa"}, {"word": "perro", "definition": "y"}]"#.utf8)
+            .write(to: json)
+        let read = try await db.importJSON(at: json, source: "wordnet-spa-eng")
+        XCTAssertEqual(read, 2)
+        let imported = try await db.entryCount(source: "wordnet-spa-eng")
+        XCTAssertEqual(imported, 2, "without the pack no key check skips a row")
+        let resolved = try await db.entry(for: key)
+        XCTAssertEqual(resolved?.definition, "imported casa", "the key resolves to the import")
+    }
+
+    /// 0237 "Format mismatch": a pack file of another format is attached
+    /// as the stub even when handed to `setup`, and the launch lists it as
+    /// unusable; an install of the catalog's file replaces it in place.
+    func testWrongFormatAttachesTheStub() async throws {
+        let files = try PackFixtures.install([.rus, .arb], into: packsFolder)
+        let arb = try XCTUnwrap(files[.arb]), rus = try XCTUnwrap(files[.rus])
+        let handle = try FileHandle(forUpdating: arb)
+        try handle.seek(toOffset: 60)
+        try handle.write(contentsOf: Data([0, 0, 0, 3]))
+        try handle.close()
+        let bundle = try TestDictionary.bundledURL()
+
+        try await db.setup(userPath: userPath, dictionaryURL: bundle)
+        let service = PackService(folder: packsFolder, database: db)
+        let scanned = try await service.prepare()
+        XCTAssertEqual(scanned, [.rus: rus], "only the usable file is attached")
+        let states = await service.installedPacks()
+        XCTAssertEqual(states.map(\.id), [.rus, .arb])
+        XCTAssertEqual(states.map(\.usable), [true, false])
+
+        try await db.setup(userPath: userPath, dictionaryURL: bundle, packFiles: [.rus: rus, .arb: arb])
+        let water = try await db.search(query: "ماء", enabledSources: ["wordnet-arb-eng"])
+        XCTAssertEqual(water, [], "the format-3 file is not read: the stub stands in")
+        let house = try await db.search(query: "дом", enabledSources: ["openrussian"])
+        XCTAssertFalse(house.isEmpty, "the other pack reads")
+        let metadata = try await db.fetchMetadata().map(\.source)
+        XCTAssertEqual(metadata, ["wordnet", "openrussian"])
+
+        try await service.install([.arb], fromAssetsIn: PackFixtures.assets)
+        XCTAssertEqual(DictionaryFile.headerFormat(of: arb), DictionaryFile.formatVersion, "replaced in place")
+        let fixed = await service.installedPacks()
+        XCTAssertEqual(fixed.map(\.usable), [true, true])
+        let after = try await db.search(query: "ماء", enabledSources: ["wordnet-arb-eng"])
+        XCTAssertFalse(after.isEmpty, "the update is searchable without a new setup")
+    }
+
+    /// 0237 "Download and install", update: an older version stays usable
+    /// until the catalog's is installed next to it, attached, and the old
+    /// file deleted.
+    func testUpdateReplacesTheOldFile() async throws {
+        try FileManager.default.createDirectory(at: packsFolder, withIntermediateDirectories: true)
+        let old = packsFolder.appendingPathComponent("spa-0000000000aa.sqlite")
+        try TestDictionary.make(rows: [TestDictionary.Row(word: "casa", definition: "old pack row",
+                                                          source: "wordnet-spa-eng")], at: old)
+        let bundle = try TestDictionary.bundledURL()
+        try await db.setup(userPath: userPath, dictionaryURL: bundle)
+        let service = PackService(folder: packsFolder, database: db)
+        let scanned = try await service.prepare()
+        XCTAssertEqual(scanned, [.spa: old])
+        let key = EntryKey(source: "wordnet-spa-eng", word: "casa")
+        let before = try await db.entry(for: key)
+        XCTAssertEqual(before?.definition, "old pack row", "the older version is usable")
+
+        try await service.install([.spa], fromAssetsIn: PackFixtures.assets)
+        let pack = try XCTUnwrap(try PackFixtures.catalog().pack(.spa))
+        let after = try await db.entry(for: key)
+        XCTAssertNotNil(after)
+        XCTAssertNotEqual(after?.definition, "old pack row", "the new file is attached")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: old.path), "the old file is deleted after the attach")
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: packsFolder.path), [pack.fileName])
+        let installed = await service.installedPacks()
+        XCTAssertEqual(installed, [InstalledPack(id: .spa, lang: "spa", version: pack.version, usable: true)])
+    }
+
+    /// The DEBUG `-installPacks` hook (0237 "Launch"): `ids` or `all`, one
+    /// re-attach per call, a pack installed at the catalog's version is
+    /// skipped, an unknown id is ignored, a missing asset throws and
+    /// installs nothing; the next launch's scan finds every file.
+    func testInstallFixturesSkipsAnInstalledPack() async throws {
+        let bundle = try TestDictionary.bundledURL()
+        try await db.setup(userPath: userPath, dictionaryURL: bundle)
+        let service = PackService(folder: packsFolder, database: db)
+        try await service.prepare()
+        let start = await db.dictionaryReopenCount
+
+        try await service.installFixtures("rus,arb", from: PackFixtures.assets)
+        let two = await service.installedPacks().map(\.id)
+        XCTAssertEqual(two, [.rus, .arb])
+        let afterTwo = await db.dictionaryReopenCount
+        XCTAssertEqual(afterTwo - start, 1, "one re-attach for both packs")
+        let rus = packsFolder.appendingPathComponent(try XCTUnwrap(try PackFixtures.catalog().pack(.rus)).fileName)
+        let created = try rus.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate
+
+        try await service.installFixtures("rus,xyz", from: PackFixtures.assets)
+        let afterSkip = await db.dictionaryReopenCount
+        XCTAssertEqual(afterSkip, afterTwo, "an installed pack and an unknown id change nothing")
+        XCTAssertEqual(try rus.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate, created)
+
+        let empty = tempDir.appendingPathComponent("no-assets", isDirectory: true)
+        try FileManager.default.createDirectory(at: empty, withIntermediateDirectories: true)
+        do {
+            try await service.installFixtures("ell", from: empty)
+            XCTFail("an asset that is not there cannot install")
+        } catch {}
+        let afterMissing = await service.installedPacks().map(\.id)
+        XCTAssertEqual(afterMissing, [.rus, .arb], "nothing installed for the missing asset")
+
+        try await service.installFixtures("all", from: PackFixtures.assets)
+        let all = await service.installedPacks().map(\.id)
+        XCTAssertEqual(all, PackID.all)
+        let afterAll = await db.dictionaryReopenCount
+        XCTAssertEqual(afterAll - start, 2)
+        for (query, source) in [("casa", "wordnet-spa-eng"), ("дом", "openrussian"), ("ماء", "wordnet-arb-eng"),
+                                ("νερό", "freedict-ell-eng")] {
+            let rows = try await db.search(query: query, enabledSources: [source])
+            XCTAssertFalse(rows.isEmpty, "'\(query)' in \(source) after -installPacks all")
+        }
+
+        let relaunch = PackService(folder: packsFolder, database: db)
+        let rescanned = try await relaunch.prepare()
+        XCTAssertEqual(Set(rescanned.keys), Set(PackID.all), "the next launch attaches every installed pack")
+    }
+
+    /// QA fix (#241): when the second of two installs fails, the first is
+    /// installed and attached (searchable), not only on disk, and the
+    /// failed one leaves nothing.
+    func testAFailedInstallAttachesThePacksBeforeIt() async throws {
+        let bundle = try TestDictionary.bundledURL()
+        try await db.setup(userPath: userPath, dictionaryURL: bundle)
+        let catalog = try PackFixtures.catalog()
+        let assets = tempDir.appendingPathComponent("assets", isDirectory: true)
+        try FileManager.default.createDirectory(at: assets, withIntermediateDirectories: true)
+        let rus = try XCTUnwrap(catalog.pack(.rus)), ell = try XCTUnwrap(catalog.pack(.ell))
+        try FileManager.default.copyItem(at: PackFixtures.assets.appendingPathComponent(rus.assetName),
+                                         to: assets.appendingPathComponent(rus.assetName))
+        var damaged = try Data(contentsOf: PackFixtures.assets.appendingPathComponent(ell.assetName))
+        damaged[damaged.count / 3] ^= 0x01
+        try damaged.write(to: assets.appendingPathComponent(ell.assetName))
+
+        let service = PackService(folder: packsFolder, database: db)
+        try await service.prepare()
+        do {
+            try await service.install([.rus, .ell], fromAssetsIn: assets)
+            XCTFail("the damaged Greek asset must fail the install")
+        } catch {
+            XCTAssertEqual(error as? PackError, .damaged)
+        }
+        let installed = await service.installedPacks().map(\.id)
+        XCTAssertEqual(installed, [.rus])
+        let house = try await db.search(query: "дом", enabledSources: ["openrussian"])
+        XCTAssertFalse(house.isEmpty, "Russian is attached although Greek failed")
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: packsFolder.path), [rus.fileName])
     }
 }
 
@@ -6887,6 +7806,8 @@ enum TestDictionary {
         let queue = try DatabaseQueue(path: url.path)
         try queue.write { db in
             for sql in statements { try db.execute(sql: sql) }
+            // The bundle's format, so a test file can be attached as a pack too (#237).
+            try db.execute(sql: "PRAGMA user_version = \(DictionaryFile.formatVersion)")
             let insert = try db.makeStatement(sql: """
                 INSERT OR IGNORE INTO entries(word, word_normalized, definition, phonetic, pos, source)
                 VALUES (?, ?, ?, ?, ?, ?)
@@ -6927,6 +7848,9 @@ enum TestDictionary {
 /// first, assert after.
 struct BundledDictionary {
     let url: URL
+    /// Since #237: more files whose `entries` and `dict_metadata` rows the
+    /// reads see too (`shipped()`).
+    private(set) var packs: [URL] = []
 
     init() throws {
         url = try TestDictionary.bundledURL()
@@ -6934,6 +7858,17 @@ struct BundledDictionary {
 
     init(url: URL) {
         self.url = url
+    }
+
+    /// Every shipped dictionary as one (#237): the bundle and every pack,
+    /// installed from the committed assets. `entries` and `dict_metadata`
+    /// are TEMP views over all the files; FTS, `sqlite_master` and the other
+    /// tables need the one file (`BundledDictionary(url: PackFixtures.file(…))`).
+    static func shipped() throws -> BundledDictionary {
+        var dictionary = try BundledDictionary()
+        let files = try PackFixtures.all()
+        dictionary.packs = PackID.all.compactMap { files[$0] }
+        return dictionary
     }
 
     func read<T>(_ value: (Database) throws -> T) throws -> T {
@@ -6953,9 +7888,81 @@ struct BundledDictionary {
     }
 
     private func open() throws -> DatabaseQueue {
-        var config = Configuration()
-        config.readonly = true
-        return try DatabaseQueue(path: url.path, configuration: config)
+        guard !packs.isEmpty else {
+            var config = Configuration()
+            config.readonly = true
+            return try DatabaseQueue(path: url.path, configuration: config)
+        }
+        // In memory, every file attached read-only as the app attaches them.
+        let queue = try DatabaseQueue()
+        let files = [url] + packs
+        try queue.writeWithoutTransaction { db in
+            for (index, file) in files.enumerated() {
+                try db.execute(sql: "ATTACH DATABASE ? AS f\(index)", arguments: [DatabaseService.dictionaryURI(file)])
+            }
+            for table in ["entries", "dict_metadata"] {
+                try db.execute(sql: "CREATE TEMP VIEW \(table) AS "
+                               + files.indices.map { "SELECT * FROM f\($0).\(table)" }.joined(separator: " UNION ALL "))
+            }
+        }
+        return queue
+    }
+}
+
+// MARK: - Issue #237: the committed pack assets
+
+/// The language packs for unit tests (0237, "For E3 and E4"): the committed
+/// assets in `Packs/`, read from the source tree through `#filePath` like
+/// the search probe, and installed through the app's install path
+/// (`PackFiles.install`: verify, decompress, rename). A test attaches them
+/// with `setup(userPath:dictionaryURL:packFiles:)`.
+enum PackFixtures {
+    /// `Packs/` at the repository root.
+    static let assets = URL(fileURLWithPath: #filePath)
+        .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        .appendingPathComponent("Packs", isDirectory: true)
+
+    /// The catalog of the host app's bundled file, read as the app reads it
+    /// (`PackCatalog.read`), on a test connection that attaches the bundle.
+    static func catalog() throws -> PackCatalog {
+        let bundle = try TestDictionary.bundledURL()
+        return try DatabaseQueue().inDatabase { db in
+            try db.execute(sql: "ATTACH DATABASE ? AS dict", arguments: [DatabaseService.dictionaryURI(bundle)])
+            return try PackCatalog.read(db)
+        }
+    }
+
+    /// Installs `ids` from the committed assets into `folder`, and returns
+    /// each pack's installed file.
+    @discardableResult
+    static func install(_ ids: [PackID], into folder: URL) throws -> [PackID: URL] {
+        let catalog = try catalog()
+        var files: [PackID: URL] = [:]
+        for id in ids {
+            let pack = try XCTUnwrap(catalog.pack(id), "the catalog lists \(id)")
+            files[id] = try PackFiles.install(asset: assets.appendingPathComponent(pack.assetName), pack: pack,
+                                              into: folder)
+        }
+        return files
+    }
+
+    private static var installed: [PackID: URL]?
+
+    /// Every pack, installed once per test run into a temp folder the tests
+    /// share: an attached file is never written.
+    static func all() throws -> [PackID: URL] {
+        if let installed, installed.values.allSatisfy({ FileManager.default.fileExists(atPath: $0.path) }) {
+            return installed
+        }
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("PackFixtures-\(UUID().uuidString)")
+        let files = try install(PackID.all, into: folder)
+        installed = files
+        return files
+    }
+
+    /// The installed file of one pack.
+    static func file(_ id: PackID) throws -> URL {
+        try XCTUnwrap(try all()[id], "pack \(id)")
     }
 }
 
@@ -7400,7 +8407,7 @@ final class UserDatabaseTests: XCTestCase {
     /// `dictionaries.sqlite` no longer carries the 1.x seed's empty
     /// `history` and `bookmarks` tables.
     func testUserSchemaSharesNoTableNameWithTheDictionaryFile() async throws {
-        try await db.setup(userPath: userPath, dictionaryURL: try TestDictionary.bundledURL())
+        try await db.setup(userPath: userPath, dictionaryURL: try TestDictionary.bundledURL(), packFiles: try PackFixtures.all())
         let (user, dictionary) = try await db.writeForTesting { conn in
             let tables = "type IN ('table', 'view') AND name NOT LIKE 'sqlite%'"
             return (try String.fetchAll(conn, sql: "SELECT name FROM main.sqlite_master WHERE \(tables)"),
@@ -7549,7 +8556,7 @@ final class SearchProbeTests: XCTestCase {
         tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
         try await db.setup(userPath: tempDir.appendingPathComponent("user.sqlite").path,
-                           dictionaryURL: try TestDictionary.bundledURL())
+                           dictionaryURL: try TestDictionary.bundledURL(), packFiles: try PackFixtures.all())
     }
 
     override func tearDown() async throws {
@@ -7557,13 +8564,15 @@ final class SearchProbeTests: XCTestCase {
         try await super.tearDown()
     }
 
-    private static func loadProbe() throws -> Probe {
+    /// A golden file: the 2.0 lists by default (`make_search_probe.py
+    /// --packs`, #237), or 1.4.0's.
+    private static func loadProbe(_ name: String = "search-probe-2.0.json", tag: String = "2.0") throws -> Probe {
         let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
-            .appendingPathComponent("search-probe-1.4.0.json")
+            .appendingPathComponent(name)
         let data = try XCTUnwrap(try? Data(contentsOf: url),
                                  "golden file missing at \(url.path); run Scripts/make_search_probe.py")
         let probe = try JSONDecoder().decode(Probe.self, from: data)
-        XCTAssertEqual(probe.tag, "v1.4.0")
+        XCTAssertEqual(probe.tag, tag)
         XCTAssertEqual(probe.limit, 50)
         XCTAssertEqual(probe.topN, Search.preferredDictionaryTopN)
         XCTAssertGreaterThanOrEqual(probe.relevance.count, 20)
@@ -7577,7 +8586,7 @@ final class SearchProbeTests: XCTestCase {
         entries.map { [$0.source, $0.word] }
     }
 
-    /// Fails with the first position where `got` leaves the 1.4.0 list.
+    /// Fails with the first position where `got` leaves the golden list.
     private func assertSameList(_ got: [[String]], _ expected: [[String]], _ label: String,
                                 file: StaticString = #filePath, line: UInt = #line) {
         guard got != expected else { return }
@@ -7585,16 +8594,32 @@ final class SearchProbeTests: XCTestCase {
             ?? min(got.count, expected.count)
         let gotRow = index < got.count ? got[index].joined(separator: "/") : "end"
         let expectedRow = index < expected.count ? expected[index].joined(separator: "/") : "end"
-        XCTFail("\(label): row \(index + 1) is \(gotRow), 1.4.0 has \(expectedRow) "
+        XCTFail("\(label): row \(index + 1) is \(gotRow), the golden file has \(expectedRow) "
                 + "(\(got.count) rows against \(expected.count))", file: file, line: line)
+    }
+
+    /// The rows of `rows` that match the query exactly: their
+    /// `word_normalized` is its folded or raw key, as `is_exact` ranks them.
+    private static func exactRows(_ rows: [[String]], query: String, in shipped: BundledDictionary) throws -> [[String]] {
+        let fts = Search.ftsQuery(sanitized: query.trimmingCharacters(in: .whitespaces))
+        return try shipped.read { db in
+            try rows.filter { row in
+                try Bool.fetchOne(db, sql: """
+                    SELECT EXISTS (SELECT 1 FROM entries WHERE source = ? AND word = ? COLLATE NOCASE AND word = ?
+                        AND (word_normalized = ? COLLATE NOCASE OR word_normalized = ? COLLATE NOCASE))
+                    """, arguments: [row[0], row[1], row[1], fts.rankKey, fts.rawKey]) ?? false
+            }
+        }
     }
 
     private func fixture(_ ext: String) throws -> URL {
         try XCTUnwrap(Bundle.main.url(forResource: "test_import_fixture", withExtension: ext))
     }
 
-    /// Every probe list, relevance and preferred mode, equals 1.4.0's.
-    func testBundledProbeMatches140() async throws {
+    /// #237 (0237, "Search ranking"): with every pack installed, every probe
+    /// list, relevance and preferred mode, equals the 2.0 golden list, which
+    /// `make_search_probe.py --packs` writes with the same SQL.
+    func testProbeMatches20() async throws {
         let probe = try Self.loadProbe()
         for item in probe.relevance {
             let got = try await db.search(query: item.query, limit: probe.limit)
@@ -7609,8 +8634,121 @@ final class SearchProbeTests: XCTestCase {
         }
     }
 
+    /// #237 (Kirill, 2026-11-04): across the files, every relevance query
+    /// keeps 1.4.0's exact-match rows; only the order of the prefix and FTS
+    /// tiers changes.
+    func testExactRowsMatch140() async throws {
+        let probe = try Self.loadProbe("search-probe-1.4.0.json", tag: "v1.4.0")
+        let shipped = try BundledDictionary.shipped()
+        for item in probe.relevance {
+            let got = Self.keys(try await db.search(query: item.query, limit: probe.limit))
+            let exactGot = try Self.exactRows(got, query: item.query, in: shipped)
+            let exactExpected = try Self.exactRows(item.results, query: item.query, in: shipped)
+            XCTAssertEqual(Set(exactGot.map { $0.joined(separator: "/") }),
+                           Set(exactExpected.map { $0.joined(separator: "/") }), "exact rows of '\(item.query)'")
+        }
+    }
+
+    /// #241 (0237, "Reading across files"): the per-branch `ORDER BY …
+    /// LIMIT` keeps every probe list, relevance and preferred mode, the same
+    /// as one ORDER BY over every matching row. The seam really drops the
+    /// branch sorts: the plan has one sort per branch more with them.
+    func testBranchLimitKeepsTheLists() async throws {
+        let probe = try Self.loadProbe()
+        defer { DatabaseService.branchLimitEnabled = true }
+        for item in probe.relevance {
+            DatabaseService.branchLimitEnabled = true
+            let limited = Self.keys(try await db.search(query: item.query, limit: probe.limit))
+            DatabaseService.branchLimitEnabled = false
+            let unlimited = Self.keys(try await db.search(query: item.query, limit: probe.limit))
+            assertSameList(limited, unlimited, "relevance '\(item.query)' with and without the branch limit")
+            XCTAssertEqual(limited.count, item.results.count, "relevance '\(item.query)'")
+        }
+        for item in probe.preferred {
+            let groups = try XCTUnwrap(item.groups)
+            var lists: [[[String]]] = []
+            for enabled in [true, false] {
+                DatabaseService.branchLimitEnabled = enabled
+                lists.append(Self.keys(try await db.searchPreferred(query: item.query, groups: groups,
+                                                                    enabledSources: Set(groups.joined()),
+                                                                    topN: probe.topN, limit: probe.limit)))
+            }
+            assertSameList(lists[0], lists[1], "preferred '\(item.query)' with and without the branch limit")
+        }
+
+        let sorts: (Bool) async throws -> Int = { enabled in
+            DatabaseService.branchLimitEnabled = enabled
+            return try await self.db.searchFilesForTesting(query: "casa").plan
+                .filter { $0.contains("TEMP B-TREE") }.count
+        }
+        let withLimit = try await sorts(true)
+        let withoutLimit = try await sorts(false)
+        XCTAssertEqual(withLimit - withoutLimit, 5, "one sort per file: the bundle and four language packs")
+    }
+
+    /// #241 (0237, "Reading across files"): a search reads only the files
+    /// that hold an enabled source; `nil` reads every file with a
+    /// dictionary (not `eng_lists`). The bytecode's `OpenRead`s name the
+    /// files; the plan has one FTS scan per file.
+    func testOnlyEnabledFilesAreSearched() async throws {
+        let cases: [(enabled: Set<String>?, files: Set<String>)] = [
+            (["wordnet-spa-eng"], ["spa"]),
+            (["freedict-eng-spa", "wordnet-spa-eng"], ["spa"]),
+            (["wordnet"], ["dict"]),
+            (["openrussian", "wordnet-arb-eng"], ["rus", "arb"]),
+            (["wordnet", "wordnet-ell-eng", "freedict-eng-ell"], ["dict", "ell"]),
+            (nil, ["dict", "spa", "rus", "arb", "ell"]),
+        ]
+        for (enabled, files) in cases {
+            let read = try await db.searchFilesForTesting(query: "casa", enabledSources: enabled)
+            let label = enabled.map { $0.sorted().joined(separator: ",") } ?? "nil"
+            XCTAssertEqual(read.files, files, "enabled \(label)")
+            XCTAssertEqual(read.plan.filter { $0.contains("VIRTUAL TABLE") }.count, files.count,
+                           "enabled \(label): one FTS scan per file: \(read.plan)")
+        }
+
+        // An enabled import adds the user database's branch. Known deviation
+        // (#241): a source no file claims reads from the bundle, so the
+        // bundle's FTS is scanned too, finding nothing of the import's.
+        _ = try await db.importJSON(at: fixture("json"), source: jsonSource)
+        let imported = try await db.searchFilesForTesting(query: "json", enabledSources: [jsonSource])
+        XCTAssertEqual(imported.files, ["dict", "main"])
+        let both = try await db.searchFilesForTesting(query: "json", enabledSources: [jsonSource, "openrussian"])
+        XCTAssertEqual(both.files, ["dict", "rus", "main"])
+
+        // With only the Spanish pack attached, Russian reads no file at all.
+        try await db.setup(userPath: tempDir.appendingPathComponent("spa-user.sqlite").path,
+                           dictionaryURL: try TestDictionary.bundledURL(),
+                           packFiles: [.spa: try PackFixtures.file(.spa)])
+        let missing = try await db.searchFilesForTesting(query: "дом", enabledSources: ["openrussian"])
+        XCTAssertEqual(missing.files, [])
+        XCTAssertEqual(missing.plan, [])
+        let everything = try await db.searchFilesForTesting(query: "casa")
+        XCTAssertEqual(everything.files, ["dict", "spa"], "nil: the installed files only")
+    }
+
+    /// Ids never collide across files: a search over every file returns
+    /// each id once, and each row's id lies in its file's `ord << 32` range.
+    func testIdsAreUniqueAcrossFiles() async throws {
+        let catalog = try PackFixtures.catalog()
+        let ord = Dictionary(uniqueKeysWithValues: catalog.sources.map { source in
+            (source.source, Int64(catalog.pack(source.packID)?.ord ?? -1))
+        })
+        for query in ["a", "casa", "νερο", "дом", "ماء"] {
+            let rows = try await db.search(query: query, limit: 200)
+            let ids = rows.compactMap(\.id)
+            XCTAssertEqual(ids.count, rows.count, "'\(query)': every row has an id")
+            XCTAssertEqual(Set(ids).count, ids.count, "'\(query)': ids are unique across files")
+            for row in rows {
+                let id = try XCTUnwrap(row.id)
+                XCTAssertEqual(id >> 32, ord[row.source] ?? 0, "\(row.source) '\(row.word)': id \(id) in its file's range")
+                XCTAssertLessThan(id, Int64(1) << 40)
+            }
+        }
+    }
+
     /// With both fixtures imported: the bundled rows of every list keep
-    /// 1.4.0's order (imported rows only interleave), each list holds every
+    /// the golden order (imported rows only interleave), each list holds every
     /// imported match up to the limit, `qaflux` and `zarboom` come first and
     /// `json` returns exactly the 10 JSON fixture rows.
     func testProbeWithFixtureImports() async throws {
@@ -7718,7 +8856,7 @@ final class LegacyMigrationTests: XCTestCase {
         await DictAppTests.waitForHostAppLaunch()
         tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: appSupport, withIntermediateDirectories: true)
-        try await db.setup(userPath: userPath, dictionaryURL: try TestDictionary.bundledURL())
+        try await db.setup(userPath: userPath, dictionaryURL: try TestDictionary.bundledURL(), packFiles: try PackFixtures.all())
     }
 
     override func tearDown() async throws {
@@ -8507,18 +9645,23 @@ final class LegacyMigrationTests: XCTestCase {
         if exists(path + "-wal") {
             try FileManager.default.copyItem(atPath: path + "-wal", toPath: legacyURL.path + "-wal")
         }
-        let bundledPath = try TestDictionary.bundledURL().path
+        let bundledURL = try TestDictionary.bundledURL()
+        let packs = try PackFixtures.all()
+        let inFiles = DictionarySchemas.all.map { schema in
+            "NOT EXISTS (SELECT 1 FROM \(schema).entries d WHERE d.word = l.word COLLATE NOCASE AND d.source = l.source)"
+        }.joined(separator: " AND ")
         let expected = try await inspectCopy(of: legacyURL).writeWithoutTransaction { conn in
-            try conn.execute(sql: "ATTACH DATABASE ? AS dict", arguments: ["file:\(bundledPath)?mode=ro&immutable=1"])
+            try conn.execute(sql: "ATTACH DATABASE ? AS dict", arguments: [DatabaseService.dictionaryURI(bundledURL)])
+            for pack in PackID.all {
+                try conn.execute(sql: "ATTACH DATABASE ? AS \(pack.schema)",
+                                 arguments: [DatabaseService.dictionaryURI(try XCTUnwrap(packs[pack]))])
+            }
             return (history: try Int.fetchOne(conn, sql: "SELECT COUNT(*) FROM history") ?? 0,
                     bookmarks: Set(try Row.fetchAll(conn, sql: """
                         SELECT e.source, e.word FROM bookmarks b JOIN entries e ON e.id = b.entry_id
                         """).map { EntryKey(source: $0["source"], word: $0["word"]) }),
                     rows: try Int.fetchOne(conn, sql: "SELECT COUNT(*) FROM entries") ?? 0,
-                    imported: try Int.fetchOne(conn, sql: """
-                        SELECT COUNT(*) FROM entries l WHERE NOT EXISTS (
-                            SELECT 1 FROM dict.entries d WHERE d.word = l.word COLLATE NOCASE AND d.source = l.source)
-                        """) ?? 0)
+                    imported: try Int.fetchOne(conn, sql: "SELECT COUNT(*) FROM entries l WHERE \(inFiles)") ?? 0)
         }
 
         let seconds = try await move()
@@ -8539,10 +9682,11 @@ final class LegacyMigrationTests: XCTestCase {
 /// forms"). They read the real file, as the app attaches it.
 final class WordFormsLookupTests: XCTestCase {
 
+    /// The Greek pack, which holds the forms tables since #237.
     private func readDictionaryFile<T>(_ body: (Database) throws -> T) throws -> T {
         var config = Configuration()
         config.readonly = true
-        return try DatabaseQueue(path: TestDictionary.bundledURL().path, configuration: config).read(body)
+        return try DatabaseQueue(path: PackFixtures.file(.ell).path, configuration: config).read(body)
     }
 
     /// The lemmas a query maps to, looked up as Search will: the folded query
@@ -9116,7 +10260,7 @@ final class WordFormsSearchTests: XCTestCase {
         tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
         try await db.setup(userPath: tempDir.appendingPathComponent("user.sqlite").path,
-                           dictionaryURL: try TestDictionary.bundledURL())
+                           dictionaryURL: try TestDictionary.bundledURL(), packFiles: try PackFixtures.all())
     }
 
     override func tearDown() async throws {
@@ -9258,7 +10402,9 @@ extension WordFormsSearchTests {
                 INSERT INTO form_lookup(form_norm, lemma_id, tagset_id) VALUES ('εγραψα', 1, 1), ('γραφω', 1, 2);
                 """)
         }
-        try await db.setup(userPath: tempDir.appendingPathComponent("forms-user.sqlite").path, dictionaryURL: url)
+        // #237: the app reads the forms from the Greek pack: the same file.
+        try await db.setup(userPath: tempDir.appendingPathComponent("forms-user.sqlite").path, dictionaryURL: url,
+                           packFiles: [.ell: url])
     }
 
     func testPreferredModeMergesLemmaRowsPerBucketBeforeTheTail() async throws {
@@ -9317,7 +10463,7 @@ extension WordFormsSearchTests {
     /// Every lemma word `form_lookup` holds for the folded `query`.
     private func lemmaWords(of query: String) async throws -> Set<String> {
         let key = Search.foldGreek(query)
-        return Set(try await BundledDictionary().read { db in
+        return Set(try await BundledDictionary(url: try PackFixtures.file(.ell)).read { db in
             try String.fetchAll(db, sql: """
                 SELECT l.word FROM form_lookup AS f JOIN lemma AS l ON l.id = f.lemma_id WHERE f.form_norm = ?
                 """, arguments: [key])
@@ -9630,8 +10776,10 @@ extension WordFormsLookupTests {
             (DatabaseService.morphyLemmaSQL(count: bases.count), StatementArguments(bases)),
             (DatabaseService.linkedLemmasSQL, ["στύλος", "στύλος", "στυλοσ", -1, "noun"]),
         ]
+        let greek = try PackFixtures.file(.ell)
         let plans = try DatabaseQueue().inDatabase { db -> [[String]] in
             try db.execute(sql: "ATTACH DATABASE ? AS dict", arguments: [DatabaseService.dictionaryURI(url)])
+            try db.execute(sql: "ATTACH DATABASE ? AS ell", arguments: [DatabaseService.dictionaryURI(greek)])
             return try queries.map { sql, arguments in
                 try Row.fetchAll(db, sql: "EXPLAIN QUERY PLAN " + sql, arguments: arguments).map { $0["detail"] as String }
             }
@@ -9658,7 +10806,7 @@ extension WordFormsLookupTests {
         try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: tempDir) }
         try await DatabaseService.shared.setup(userPath: tempDir.appendingPathComponent("user.sqlite").path,
-                                               dictionaryURL: try TestDictionary.bundledURL())
+                                               dictionaryURL: try TestDictionary.bundledURL(), packFiles: try PackFixtures.all())
         for query in ["κανείς", "κάνεις", "κανεις"] {
             let results = try await DatabaseService.shared.searchResults(query: query)
             var lemmas: [String] = []
@@ -10199,7 +11347,7 @@ extension WordFormsLookupTests {
     /// folds like it (στύλος, βολέ) can be told apart; a synonym gloss is no
     /// form link, so υποδηματοποιός and ψωμάς keep their own tables.
     func testLinkPagesKeepTheirSpelling() throws {
-        let file = try BundledDictionary().read { db in
+        let file = try BundledDictionary(url: try PackFixtures.file(.ell)).read { db in
             (schema: try String.fetchOne(db, sql: "SELECT sql FROM sqlite_master WHERE name = 'form_link'"),
              key: try Row.fetchAll(db, sql: "PRAGMA table_info(form_link)")
                 .filter { ($0["pk"] as Int) > 0 }.sorted { ($0["pk"] as Int) < ($1["pk"] as Int) }.map { $0["name"] as String },
@@ -10779,6 +11927,60 @@ final class DictionaryReopenTests: XCTestCase {
     }
 }
 
+extension DictionaryReopenTests {
+    /// #237 (0237 "Connection layout", Test plan "No regression"): the
+    /// reopen after the bundle is invalidated attaches every name again,
+    /// the packs too. New readers find a pack's rows, the writer's key
+    /// check sees them, and the writer has every name on its file.
+    func testAReopenReattachesThePacks() async throws {
+        let pack = tempDir.appendingPathComponent("spa-pack.sqlite")
+        try TestDictionary.make(rows: (0..<10).map {
+            TestDictionary.Row(word: "casa\($0)", definition: "pack row \($0)", pos: "noun", source: "wordnet-spa-eng")
+        }, at: pack)
+        try await db.setup(userPath: userPath, dictionaryURL: dictionaryURL, packFiles: [.spa: pack])
+        let before = try await db.search(query: "casa3")
+        XCTAssertEqual(before.map(\.word), ["casa3"])
+        try await withThrowingTaskGroup(of: Void.self) { group in
+            for _ in 0..<4 {
+                group.addTask { _ = try await DatabaseService.shared.fetchMetadata() }
+            }
+            try await group.waitForAll()
+        }
+        try await invalidate(removing: stagingURL)
+        let reopens = await db.dictionaryReopenCount
+
+        let house = try await db.search(query: "house")
+        XCTAssertFalse(house.isEmpty, "the bundle reads again")
+        let afterReopen = await db.dictionaryReopenCount
+        XCTAssertEqual(afterReopen - reopens, 1, "one reopen")
+        let casa = try await db.search(query: "casa3")
+        XCTAssertEqual(casa, before, "the pack reads on the new readers")
+
+        let json = tempDir.appendingPathComponent("wordnet-spa-eng.json")
+        try JSONSerialization.data(withJSONObject: [
+            ["word": "casa5", "definition": "already in the pack"],
+            ["word": "mesa", "definition": "a table"],
+        ]).write(to: json)
+        let read = try await db.importJSON(at: json, source: "wordnet-spa-eng")
+        XCTAssertEqual(read, 2)
+        let count = try await db.entryCount(source: "wordnet-spa-eng")
+        XCTAssertEqual(count, 11, "the writer's key check read the re-attached pack: only mesa was stored")
+        let afterImport = await db.dictionaryReopenCount
+        XCTAssertEqual(afterImport - reopens, 1, "no further reopen")
+
+        let attached = try await db.writeForTesting { conn in
+            try Row.fetchAll(conn, sql: "PRAGMA database_list").map { ($0["name"] as String, $0["file"] as String) }
+        }
+        let files = Dictionary(uniqueKeysWithValues: attached.filter { $0.0 != "temp" })
+        XCTAssertEqual(Set(files.keys), Set(["main"] + DictionarySchemas.all), "every name on the writer")
+        XCTAssertEqual(files["dict"].map { URL(fileURLWithPath: $0).lastPathComponent }, dictionaryURL.lastPathComponent)
+        XCTAssertEqual(files["spa"].map { URL(fileURLWithPath: $0).lastPathComponent }, "spa-pack.sqlite")
+        for schema in ["rus", "arb", "ell", "eng_lists"] {
+            XCTAssertEqual(files[schema].map { URL(fileURLWithPath: $0).lastPathComponent }, "empty-pack.sqlite", schema)
+        }
+    }
+}
+
 // MARK: - Issue #144: inflection tables on the Definition screen
 //
 // 0136-word-forms.md, "Inflection tables (#144)" and "Tables (#144)". The
@@ -10795,7 +11997,7 @@ private enum InflectionFixture {
     static func open(in directory: URL) async throws {
         await DictAppTests.waitForHostAppLaunch()
         try await DatabaseService.shared.setup(userPath: directory.appendingPathComponent("user.sqlite").path,
-                                               dictionaryURL: try TestDictionary.bundledURL())
+                                               dictionaryURL: try TestDictionary.bundledURL(), packFiles: try PackFixtures.all())
     }
 
     static func entry(_ word: String, pos: String, source: String = "freedict-ell-eng") -> DictionaryEntry {
@@ -11017,7 +12219,7 @@ final class ParadigmLayoutTests: XCTestCase {
     /// table's plain slots is in it: the present (any person and voice), a
     /// noun's case and number, an adjective's case, number and gender.
     func testEveryShippedTableIsWellFormed() throws {
-        let rows: [(id: Int64, word: String, pos: String, form: String, tags: String)] = try BundledDictionary().read { db in
+        let rows: [(id: Int64, word: String, pos: String, form: String, tags: String)] = try BundledDictionary(url: try PackFixtures.file(.ell)).read { db in
             try Row.fetchAll(db, sql: """
                 SELECT l.id, l.word, l.pos, p.form, t.tags
                 FROM lemma l JOIN paradigm p ON p.lemma_id = l.id JOIN tagset t ON t.id = p.tagset_id
@@ -11620,6 +12822,9 @@ final class InflectionLookupTests: XCTestCase {
         try queue.writeWithoutTransaction { db in
             try db.execute(sql: "ATTACH DATABASE ? AS dict",
                            arguments: [DatabaseService.dictionaryURI(try TestDictionary.bundledURL())])
+            // #237: the forms tables are in the Greek pack.
+            try db.execute(sql: "ATTACH DATABASE ? AS ell",
+                           arguments: [DatabaseService.dictionaryURI(try PackFixtures.file(.ell))])
         }
         let plans = try queue.read { db in
             try [DatabaseService.lemmaCandidatesSQL, DatabaseService.paradigmSQL, DatabaseService.linkedLemmasSQL]
@@ -12244,9 +13449,10 @@ final class QuickSwitchSearchTests: XCTestCase {
 
 // MARK: - Issue #151: word lists, the data model (0130-word-lists.md)
 
-/// Dictionary files with word lists for unit tests: `TestDictionary.make`
-/// plus the list tables of `Scripts/wordlists_schema.sql`, read through
-/// `#filePath`, so the DDL exists once (0130, "List data").
+/// Dictionary files with word lists for unit tests: `TestDictionary.make`,
+/// whose schema (the bundle's) has the list tables since #240, or else
+/// `Scripts/wordlists_schema.sql`, read through `#filePath`, so the DDL
+/// exists once (0130, "List data").
 enum WordListFixture {
     struct List {
         var id: String
@@ -12285,7 +13491,7 @@ enum WordListFixture {
         let schema = try String(contentsOf: schemaURL, encoding: .utf8)
         let queue = try DatabaseQueue(path: url.path)
         try queue.write { db in
-            try db.execute(sql: schema)
+            if try !db.tableExists("wordlist") { try db.execute(sql: schema) }
             for list in lists {
                 let count = items.filter { $0.series == list.series && $0.levelOrd == list.levelOrd }.count
                 try db.execute(sql: """
@@ -12812,9 +14018,11 @@ final class WordListModelTests: XCTestCase {
         XCTAssertEqual(after.applied, ["129-1-core", "130-1-word-lists"])
     }
 
-    /// The linking rules on the real dictionary file.
+    /// The linking rules on the real dictionary files: the bundle and every
+    /// pack (#237).
     func testLinkingOnTheFile() async throws {
-        try await db.setup(userPath: userPath, dictionaryURL: try TestDictionary.bundledURL())
+        try await db.setup(userPath: userPath, dictionaryURL: try TestDictionary.bundledURL(),
+                           packFiles: try PackFixtures.all())
         let greek = try await db.links(for: ["σπίτι", "Ευχαριστώ!", "Καλή όρεξη!", "λίγοι", "έχει αέρα"], lang: "ell")
         XCTAssertEqual(greek, [.init(headword: "σπίτι", rule: .exact), .init(headword: "ευχαριστώ", rule: .near),
                                .init(headword: "καλή όρεξη", rule: .near), .init(headword: "λίγος", rule: .form), nil])
@@ -12832,14 +14040,14 @@ final class WordListModelTests: XCTestCase {
     func testRankLookupUsesPrimaryKey() async throws {
         let url = try WordListFixture.make(rows: Self.rows, metadata: Self.metadata, lists: Self.lists, items: Self.items,
                                            at: tempDir.appendingPathComponent("dictionary.sqlite"))
-        let bundled = try TestDictionary.bundledURL()
+        let greek = try PackFixtures.file(.ell)  // the Greek forms are in the Greek pack (#237)
         let plans = try DatabaseQueue().inDatabase { db -> [[String]] in
             try db.execute(sql: "ATTACH DATABASE ? AS dict", arguments: [DatabaseService.dictionaryURI(url)])
-            try db.execute(sql: "ATTACH DATABASE ? AS bundled", arguments: [DatabaseService.dictionaryURI(bundled)])
+            try db.execute(sql: "ATTACH DATABASE ? AS ell", arguments: [DatabaseService.dictionaryURI(greek)])
             let queries: [(String, StatementArguments)] = [
                 (DatabaseService.wordRankSQL(schema: "dict"), ["ell", "σπιτι"]),
                 (DatabaseService.wordListItemsSQL(schema: "dict", order: "seq"), ["ky-ell", 1]),
-                (DatabaseService.greekFormLemmasSQL(schema: "bundled"), ["λιγοι", "λίγοι"]),
+                (DatabaseService.greekFormLemmasSQL(schema: "ell"), ["λιγοι", "λίγοι"]),
             ]
             return try queries.map { sql, arguments in
                 try Row.fetchAll(db, sql: "EXPLAIN QUERY PLAN " + sql, arguments: arguments).map { $0["detail"] as String }
@@ -13158,9 +14366,9 @@ extension WordListModelTests {
         }
     }
 
-    /// A dictionary file without the list tables (every file before #152
+    /// A dictionary file whose list tables are empty (every file until #152
     /// and #153 fill them) has no built-in lists; My words still shows.
-    func testFileWithoutListTablesHasNoBuiltInLists() async throws {
+    func testFileWithEmptyListTablesHasNoBuiltInLists() async throws {
         let url = try TestDictionary.make(rows: Self.rows, metadata: Self.metadata,
                                           at: tempDir.appendingPathComponent("plain.sqlite"))
         try await db.setup(userPath: userPath, dictionaryURL: url)

@@ -147,7 +147,7 @@ struct FormMatch: Hashable, Sendable {
     /// What the form step knows about the query as a form of the lemma.
     enum Analysis: Hashable, Sendable {
         /// Greek: the Wiktextract tags of the form's caption tag set
-        /// (`dict.form_lookup.tagset_id`), e.g. aorist 1sg is `active
+        /// (`ell.form_lookup.tagset_id`), e.g. aorist 1sg is `active
         /// first-person indicative past perfective singular`.
         case greek(tags: Set<String>)
         /// English (Issue #143): how `Morphy` found the lemma, its part of
@@ -297,18 +297,160 @@ enum Morphy {
     }
 }
 
-// MARK: - DictionaryFile (Issue #140)
+// MARK: - DictionaryFile (Issues #140, #237)
 
-/// The bundled, read-only dictionary file `dictionaries.sqlite`, written by
-/// `Scripts/build_dictionaries.py` and attached as `dict`.
+/// The read-only dictionary files, written by `Scripts/cut_packs.py` with one
+/// schema (0237, "The catalog"): the English bundle `dictionaries.sqlite`,
+/// attached as `dict`; the empty stub `empty-pack.sqlite`, attached for a
+/// pack that is not installed; and the language packs.
 enum DictionaryFile {
     static let resourceName = "dictionaries"
     static let resourceExtension = "sqlite"
+    /// The stub: every table, no rows (#237).
+    static let stubResourceName = "empty-pack"
 
-    /// The file's `PRAGMA user_version`. The app and the file ship together,
-    /// so nothing checks it at runtime; a unit test checks the bundled file.
-    /// A changed table shape bumps it and `FORMAT_VERSION` in the build script.
-    static let formatVersion = 3
+    /// `PRAGMA user_version` of the bundle, the stub and every pack (4 since
+    /// #237 added the catalog). The bundle ships with the app; a pack is
+    /// attached only when its header says this format. A changed table shape
+    /// bumps it and `FORMAT_VERSION` in the build script.
+    static let formatVersion = 4
+
+    /// The `user_version` in the header of the SQLite file at `url` (4 bytes,
+    /// big-endian, at offset 60), read without opening SQLite; nil for a file
+    /// that is missing, short or not SQLite.
+    static func headerFormat(of url: URL) -> Int? {
+        guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }
+        defer { try? handle.close() }
+        guard let header = try? handle.read(upToCount: 64), header.count == 64,
+              header.prefix(16).elementsEqual(Array("SQLite format 3\u{0}".utf8)) else { return nil }
+        return header.dropFirst(60).prefix(4).reduce(0) { $0 << 8 | Int($1) }
+    }
+}
+
+// MARK: - Language packs (Issue #237)
+
+/// A language pack's permanent id (0237, "The catalog"): `spa`, `rus`, `arb`,
+/// `ell`, `eng-lists`. The app knows every pack of the catalog it ships
+/// with; each one is attached under `schema` on every connection, as its
+/// installed file or the stub.
+struct PackID: RawRepresentable, Hashable, Codable, Sendable, CustomStringConvertible {
+    let rawValue: String
+
+    init(rawValue: String) {
+        self.rawValue = rawValue
+    }
+
+    init(_ rawValue: String) {
+        self.rawValue = rawValue
+    }
+
+    static let spa = PackID("spa")
+    static let rus = PackID("rus")
+    static let arb = PackID("arb")
+    static let ell = PackID("ell")
+    static let engLists = PackID("eng-lists")
+
+    /// Every pack, in the catalog's `ord` order.
+    static let all: [PackID] = [.spa, .rus, .arb, .ell, .engLists]
+
+    /// The schema name it is attached under: the id with `-` as `_`.
+    var schema: String { rawValue.replacingOccurrences(of: "-", with: "_") }
+
+    var description: String { rawValue }
+}
+
+/// The schema names of the dictionary files on every connection, and which
+/// file holds which dictionary (0237, "Connection layout" and "Reading across
+/// files"). Every name is always attached, to the installed file or the
+/// stub, so the SQL is the same with or without a pack. Pure: the map comes
+/// from the rows of `sourcesSQL`, which `DatabaseService` reads.
+struct DictionarySchemas: Equatable, Sendable {
+    /// The English bundle.
+    static let bundle = "dict"
+    /// Every pack, in catalog order.
+    static let packs: [String] = PackID.all.map(\.schema)
+    /// The bundle, then every pack: the attach order and the branch order of
+    /// a search.
+    static let all: [String] = [bundle] + packs
+
+    /// The schema of each dictionary: the bundle's own, then the catalog's
+    /// (installed or not), then those of an installed pack the catalog lacks.
+    private let schemaOfSource: [String: String]
+    /// The schemas attached to a file rather than the stub; always the bundle.
+    let installed: Set<String>
+
+    /// `sources`: rows of `sourcesSQL`, in its order; the first schema of a
+    /// source wins.
+    init(sources: [(schema: String, source: String)], installed: Set<String>) {
+        var map: [String: String] = [:]
+        for row in sources where map[row.source] == nil {
+            map[row.source] = row.schema
+        }
+        schemaOfSource = map
+        self.installed = installed.union([Self.bundle])
+    }
+
+    /// No file holds a dictionary yet: every source reads from the bundle.
+    static let bundleOnly = DictionarySchemas(sources: [], installed: [])
+
+    /// The installed file that holds `source`: its pack's schema, `nil` when
+    /// that pack is not installed, and the bundle for a source no file
+    /// claims (an import, a test dictionary without metadata).
+    func schema(ofSource source: String) -> String? {
+        guard let schema = schemaOfSource[source] else { return Self.bundle }
+        return installed.contains(schema) ? schema : nil
+    }
+
+    /// The files a search reads, in `all` order: those that hold one of
+    /// `sources`; for `nil`, the bundle and every installed pack that holds
+    /// a dictionary.
+    func files(holding sources: [String]?) -> [String] {
+        let wanted: Set<String>
+        if let sources {
+            wanted = Set(sources.compactMap(schema(ofSource:)))
+        } else {
+            wanted = Set(schemaOfSource.values).intersection(installed).union([Self.bundle])
+        }
+        return Self.all.filter(wanted.contains)
+    }
+
+    /// The schema of a language's built-in word lists (E3, 0130): Greek in
+    /// the Greek pack, English in the English lists pack; nil without lists.
+    static func listsSchema(for lang: String) -> String? {
+        switch lang {
+        case "ell": return PackID.ell.schema
+        case "eng": return PackID.engLists.schema
+        default: return nil
+        }
+    }
+
+    /// `SELECT <columns> FROM <schema>.<table> [WHERE …]` over every file,
+    /// joined by `UNION ALL`. A pack that is not installed reads as empty.
+    static func union(_ table: String, columns: String = "*", where condition: String? = nil) -> String {
+        all.map { schema in
+            "SELECT \(columns) FROM \(schema).\(table)" + (condition.map { " WHERE " + $0 } ?? "")
+        }.joined(separator: " UNION ALL ")
+    }
+
+    /// The rows (schema, source) of the map: the bundle's dictionaries, the
+    /// catalog's, then every attached pack's own `dict_metadata`.
+    static let sourcesSQL: String = {
+        var parts = ["SELECT 0 AS file_order, rowid AS row_order, 'dict' AS schema, source FROM dict.dict_metadata",
+                     "SELECT 1, rowid, replace(pack_id, '-', '_'), source FROM dict.catalog_source"]
+        for (index, schema) in packs.enumerated() {
+            parts.append("SELECT \(index + 2), rowid, '\(schema)', source FROM \(schema).dict_metadata")
+        }
+        return parts.joined(separator: " UNION ALL ") + " ORDER BY file_order, row_order"
+    }()
+
+    /// A dictionary's languages for E4's enrol SQL (0237, "For E3 and E4"):
+    /// `(source, from_lang, to_lang)` of the bundle's dictionaries and of the
+    /// catalog's, so a My words row of a pack that is not installed keeps
+    /// its language.
+    static let sourceLanguageSQL = """
+        SELECT source, from_lang, to_lang FROM dict.dict_metadata
+        UNION SELECT source, from_lang, to_lang FROM dict.catalog_source
+        """
 }
 
 // MARK: - Word forms: inflection tables (Issue #144)
@@ -319,7 +461,7 @@ enum DictionaryFile {
 // maps its cells to slots and builds the `InflectionTable` that
 // `InflectionTableView` (DefinitionView.swift) renders.
 
-/// One `dict.paradigm` cell: a form and its Wiktextract tag set.
+/// One `ell.paradigm` cell: a form and its Wiktextract tag set.
 struct ParadigmCell: Equatable, Sendable {
     let form: String
     let tags: Set<String>
@@ -329,7 +471,7 @@ struct ParadigmCell: Equatable, Sendable {
         self.tags = tags
     }
 
-    /// `tags` as `dict.tagset.tags` stores them: space-separated.
+    /// `tags` as `ell.tagset.tags` stores them: space-separated.
     init(form: String, tags: String) {
         self.init(form: form, tags: Set(tags.split(separator: " ").map(String.init)))
     }
@@ -341,7 +483,7 @@ struct LemmaParadigm: Equatable, Sendable {
     let word: String
     /// Its Wiktextract part of speech: `verb`, `noun`, `adj` or `name`.
     let pos: String
-    /// The cells in table order (`dict.paradigm.ord`).
+    /// The cells in table order (`ell.paradigm.ord`).
     let cells: [ParadigmCell]
     /// The entry's own lemma has no table, and this is the lemma it is an
     /// alternative or form of (πάω → πηγαίνω): the view names it under the title.
@@ -356,7 +498,7 @@ enum InflectionLookup {
     /// The parts of speech with a table. An entry without a `pos` tries them all.
     static let posOrder = ["verb", "noun", "adj", "name"]
 
-    /// A `dict.lemma` row.
+    /// An `ell.lemma` row.
     struct Lemma: Equatable, Sendable {
         let id: Int64
         let word: String

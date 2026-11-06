@@ -58,6 +58,8 @@ final class GreekLocalizationTests: XCTestCase {
         continueAfterFailure = false
         app = XCUIApplication()
         app.launchArguments.append("-disableReviewPrompt")
+        // Issue #237: every language pack, installed from the committed assets.
+        app.launchArguments += UITestHelpers.packArguments()
         app.launchArguments.append("-resetData")
         app.launchArguments += ["-AppleLanguages", "(el)"]
         app.launchArguments += ["-AppleLocale", "el"]

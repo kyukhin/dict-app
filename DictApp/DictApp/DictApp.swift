@@ -81,7 +81,9 @@ struct DictApp: App {
     /// Issue #138: opening the user database (the dictionary file is
     /// attached, nothing is unpacked) and migrating it takes milliseconds,
     /// so Search is ready with every dictionary when the UI shows. A 1.x
-    /// database moves in the background (Issue #139).
+    /// database moves in the background (Issue #139). Issue #237: then a
+    /// scan of the packs folder picks each language pack's file, which is
+    /// attached next to the bundle (0237, "Launch").
     private func initializeDatabase() async {
         // `.task` runs once per scene: a second iPad window must not reopen the
         // pool. The window shares `isReady` / `setupError`, so it simply waits
@@ -95,8 +97,17 @@ struct DictApp: App {
             if CommandLine.arguments.contains("-resetDatabase") {
                 DatabaseService.removeDatabaseFiles()
             }
+            // Issue #237: no pack installed, no download in progress.
+            if CommandLine.arguments.contains("-resetPacks") {
+                PackFiles.removeAll()
+            }
             #endif
+            // Issue #237 (0237, "Launch"): the pool with the bundle and every
+            // pack name on the stub, then the launch scan, which reads the
+            // catalog through the pool and attaches the usable packs in one
+            // re-attach before any reader is busy.
             try await DatabaseService.shared.setup()
+            try await PackService.shared.prepare()
 
             #if DEBUG
             // UI-test hooks. Release builds ignore these launch arguments.
@@ -129,15 +140,30 @@ struct DictApp: App {
             if CommandLine.arguments.contains("-clearFixtureImports") {
                 try? await DatabaseService.shared.clearEntries(fromSource: "test_import_fixture")
             }
+
+            // Issue #237: the first-launch sheet does not show.
+            if CommandLine.arguments.contains("-skipWelcome") {
+                SettingsService.shared.packsOffered = true
+            }
+
+            // Issue #237, last of the hooks: install packs from the committed
+            // assets through the install path, with no network.
+            if let packs = Self.argument(after: "-installPacks"), let assets = Self.argument(after: "-packFixtures") {
+                try await PackService.shared.installFixtures(packs, from: URL(fileURLWithPath: assets))
+            }
             #endif
 
             // Issue #92: migrate per-source prefs to the pair invariants
             // (enabled-if-any, contiguous pair members) before the first search
             // can read them. Runs after the `-resetData` block (nil / nil is a
-            // no-op). The bundled sources from `dict.dict_metadata` are enough:
-            // custom imports are singleton pairs and never need sibling
-            // expansion, and this avoids a full `entries` scan at launch.
-            let knownSources = try await DatabaseService.shared.fetchMetadata().map(\.source)
+            // no-op). The sources of `dict_metadata` are enough: custom
+            // imports are singleton pairs and never need sibling expansion,
+            // and this avoids a full `entries` scan at launch. Issue #237: the
+            // installed dictionaries and the catalog's, so a pack that is not
+            // installed keeps its place and switch.
+            let installedSources = try await DatabaseService.shared.fetchMetadata().map(\.source)
+            let catalogSources = PackCatalog.shared.sources.map(\.source)
+            let knownSources = installedSources + catalogSources.filter { !installedSources.contains($0) }
             SettingsService.shared.normalizeDictionaryPreferences(knownSources: knownSources)
 
             // Issue #139: a 1.x database moves into the user database as a
@@ -151,4 +177,13 @@ struct DictApp: App {
             setupError = error.localizedDescription
         }
     }
+
+    #if DEBUG
+    /// The launch argument that follows `flag`, if any.
+    private static func argument(after flag: String) -> String? {
+        let arguments = CommandLine.arguments
+        guard let index = arguments.firstIndex(of: flag), arguments.indices.contains(index + 1) else { return nil }
+        return arguments[index + 1]
+    }
+    #endif
 }

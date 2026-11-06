@@ -20,6 +20,8 @@ final class WordFormsSearchFlowTests: XCTestCase {
         continueAfterFailure = false
         app = XCUIApplication()
         app.launchArguments.append("-disableReviewPrompt")
+        // Issue #237: every language pack, installed from the committed assets.
+        app.launchArguments += UITestHelpers.packArguments()
         app.launchArguments.append("-resetData")
 
         // iOS 26 "Enable Dictation?" springboard alert — tap a dismissal button
@@ -93,7 +95,7 @@ final class WordFormsSearchFlowTests: XCTestCase {
         for (code, label) in spoken {
             app.terminate()
             app = XCUIApplication()
-            app.launchArguments = ["-disableReviewPrompt", "-resetData", "-AppleLanguages", "(\(code))", "-AppleLocale", code]
+            app.launchArguments = ["-disableReviewPrompt", "-resetData", "-AppleLanguages", "(\(code))", "-AppleLocale", code] + UITestHelpers.packArguments()
             app.launch()
             XCTAssertTrue(app.waitForDictionariesReady(), "\(code): Search after launch")
 
@@ -193,7 +195,7 @@ extension WordFormsSearchFlowTests {
         for (code, label) in spoken {
             app.terminate()
             app = XCUIApplication()
-            app.launchArguments = ["-disableReviewPrompt", "-resetData", "-AppleLanguages", "(\(code))", "-AppleLocale", code]
+            app.launchArguments = ["-disableReviewPrompt", "-resetData", "-AppleLanguages", "(\(code))", "-AppleLocale", code] + UITestHelpers.packArguments()
             app.launch()
             XCTAssertTrue(app.waitForDictionariesReady(), "\(code): Search after launch")
 

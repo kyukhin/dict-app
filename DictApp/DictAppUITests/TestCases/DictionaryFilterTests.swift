@@ -76,6 +76,8 @@ final class DictionaryFilterTests: XCTestCase {
         continueAfterFailure = false
         app = XCUIApplication()
         app.launchArguments.append("-disableReviewPrompt")
+        // Issue #237: every language pack, installed from the committed assets.
+        app.launchArguments += UITestHelpers.packArguments()
         app.launchArguments.append("-resetData")
         // Issue #145: the chip tests query the whole tree often; on iOS 17.5
         // that hit the os_log quarantine crash of `DictionaryInfoTests` (#125).
