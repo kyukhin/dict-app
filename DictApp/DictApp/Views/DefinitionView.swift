@@ -57,6 +57,12 @@ struct DefinitionView: View {
                         .foregroundStyle(.secondary)
                 }
 
+                // 0166, #165: the word's learning status, under the part of speech.
+                let statusLines = vm.statusLines(locale: locale)
+                if !statusLines.isEmpty {
+                    LearningStatusView(lines: statusLines)
+                }
+
                 Divider()
 
                 // Definition with Markdown rendering
@@ -159,6 +165,28 @@ struct DefinitionView: View {
             return parsed
         }
         return AttributedString(vm.entry.definition)
+    }
+}
+
+// MARK: - 0166, #165: a word's learning status
+
+/// `WordStatusText`'s lines: the stage and the next review, then the cards
+/// and the mistakes in the secondary colour. VoiceOver reads them as one
+/// element.
+struct LearningStatusView: View {
+    let lines: [String]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            ForEach(Array(lines.enumerated()), id: \.offset) { index, line in
+                Text(verbatim: line)
+                    .font(index == 0 ? .subheadline.weight(.semibold) : .subheadline)
+                    .foregroundStyle(index == 0 ? HierarchicalShapeStyle.primary : .secondary)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("learning_status")
     }
 }
 

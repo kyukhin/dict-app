@@ -784,6 +784,78 @@ enum Forecast: Hashable, Sendable {
     }
 }
 
+// MARK: Word status on the Definition screen (#165)
+
+extension LearnDay {
+    /// "12 Dec" in the in-app language, Gregorian; with the year when it
+    /// is not `today`'s.
+    func shortDate(locale: Locale, today: LearnDay) -> String {
+        var style = Date.FormatStyle(date: .omitted, time: .omitted, locale: locale, calendar: Self.calendar,
+                                     timeZone: Self.calendar.timeZone).day().month(.abbreviated)
+        if rawValue.prefix(4) != today.rawValue.prefix(4) { style = style.year() }
+        return utcDate.formatted(style)
+    }
+}
+
+/// A word's learning status under the part of speech (0166, "Word status
+/// on the Definition screen"), composed with the in-app language's bundle:
+///
+///     Learning · next review tomorrow
+///     Recognition: every 7 days · Production: learning
+///     3 mistakes
+///
+/// - learned: "Learned · next review 12 Dec", then its cards and mistakes;
+/// - started, not learned: "Learning", with the earlier due day of its two
+///   cards: "today" (also when overdue), "tomorrow" or a short date;
+/// - new: "New · not started yet", alone;
+/// - paused, or without word cards: nothing.
+///
+/// Mistakes are every wrong answer on the two cards, ever; the line shows
+/// from 1. In a right-to-left language each line starts with U+200F (#119).
+enum WordStatusText {
+    static func lines(state: WordLearningState, errors: Int, today: LearnDay, locale: Locale) -> [String] {
+        let status = WordStatus(state)
+        let cards = state.wordCards.sorted { order($0.key.kind) < order($1.key.kind) }
+        guard let due = cards.map(\.dueDay).min(), !status.isPaused else { return [] }
+        let bundle = SettingsViewModel.localizedBundle(for: locale)
+        let mark = locale.language.characterDirection == .rightToLeft ? "\u{200F}" : ""
+        func text(_ key: String) -> String { bundle.localizedString(forKey: key, value: key, table: nil) }
+        func text(_ key: String, _ argument: String) -> String {
+            String(format: text(key), locale: locale, argument)
+        }
+
+        guard status.stage != .new else { return [mark + text("status.new")] }
+        let date = due <= today ? text("status.today")
+            : due == today.adding(days: 1) ? text("status.tomorrow")
+            : due.shortDate(locale: locale, today: today)
+        var lines = [mark + text(status.stage == .learned ? "status.learned %@" : "status.learning %@", date)]
+        lines.append(mark + cards.map { card in
+            text(card.key.kind == .recognition ? "status.recognition %@" : "status.production %@",
+                 stage(WordStatus.stage(of: card), bundle: bundle, locale: locale))
+        }.joined(separator: " · "))
+        if errors > 0 {
+            lines.append(mark + String(localized: "status.mistakes \(errors)", bundle: bundle, locale: locale))
+        }
+        return lines
+    }
+
+    /// A card's stage in a sentence: "new", "learning", "every 7 days",
+    /// "learned".
+    private static func stage(_ stage: CardStage, bundle: Bundle, locale: Locale) -> String {
+        switch stage {
+        case .new: return bundle.localizedString(forKey: "status.card.new", value: nil, table: nil)
+        case .learning: return bundle.localizedString(forKey: "status.card.learning", value: nil, table: nil)
+        case .learned: return bundle.localizedString(forKey: "status.card.learned", value: nil, table: nil)
+        case let .every(days): return String(localized: "status.card.every \(days)", bundle: bundle, locale: locale)
+        }
+    }
+
+    /// Recognition first, then production.
+    private static func order(_ kind: CardKind) -> Int {
+        CardKind.wordKinds.firstIndex(of: kind) ?? CardKind.wordKinds.count
+    }
+}
+
 // MARK: - Conjugation drill: tenses and levels (0132, #167)
 //
 // 0132-conjugation-drill.md, "Tenses and levels", "Verbs" and "Questions and
