@@ -19947,8 +19947,7 @@ final class LearningStatsStoreTests: XCTestCase {
 /// The grammar rows `Scripts/build_grammar.py` writes and `Scripts/cut_packs.py`
 /// routes into the Greek pack (0133, "Build step" and "Data placement"),
 /// against the topic sources in `Scripts/data/grammar/<explain_lang>/`, read
-/// through `#filePath`. Until #173 commits the 17 A1 topics the sources and
-/// the pack hold none, and these tests check that they agree on that.
+/// through `#filePath`: since #173, the 17 A1 topics in English and Russian.
 final class GrammarFileTests: XCTestCase {
 
     /// The repository root.
@@ -19965,6 +19964,13 @@ final class GrammarFileTests: XCTestCase {
     private static let classes: Set<String> = ["verb", "verb.conj1", "verb.conj2", "verb.passive", "noun", "adj"]
     /// Link kinds and their front matter keys.
     private static let linkKeys = ["word": "words", "topic": "topics", "tense": "tenses", "class": "classes"]
+    /// 0133's Content: the 17 Greek A1 topics of 2.0.0, in their order (#173).
+    private static let greekA1 = [
+        "ell-alphabet", "ell-articles", "ell-noun-endings", "ell-adjectives", "ell-pronouns", "ell-possessives",
+        "ell-eimai-echo", "ell-present-1", "ell-present-2", "ell-negation-questions", "ell-se-prepositions",
+        "ell-numbers-time", "ell-aorist-regular", "ell-aorist-irregular", "ell-future", "ell-na-perfective",
+        "ell-imperative",
+    ]
 
     /// One topic file: its front matter and its title.
     private struct SourceText {
@@ -20001,7 +20007,7 @@ final class GrammarFileTests: XCTestCase {
 
     /// Every topic file of `<source>/<explain_lang>/`, as the build reads
     /// them: the top-level files (README, checklist, review drafts) are no
-    /// topics. `Scripts/data/grammar` has none before #173.
+    /// topics.
     private static func sourceTexts(in source: String = "Scripts/data/grammar") throws -> [SourceText] {
         let manager = FileManager.default
         let root = repository.appendingPathComponent(source, isDirectory: true)
@@ -20052,7 +20058,7 @@ final class GrammarFileTests: XCTestCase {
                 file.links["\(topic)/\(kind)", default: []].append(row["key"])
             }
             file.dataSource = try Row.fetchOne(db, sql: """
-                SELECT kind, display_name, license FROM data_source WHERE id = 'libredict-grammar-ell'
+                SELECT kind, display_name, version, license FROM data_source WHERE id = 'libredict-grammar-ell'
                 """)
             return file
         }
@@ -20065,9 +20071,8 @@ final class GrammarFileTests: XCTestCase {
 
     /// The source reader the pack tests compare with, on the self-check's
     /// valid topic (`Scripts/fixtures/grammar/valid`): its two texts with
-    /// their front matter and titles, and not the README.md beside them.
-    /// Until #173 the real sources are empty, so this keeps those tests from
-    /// passing on a reader that reads nothing or reads a top-level file.
+    /// their front matter and titles, and not the README.md beside them, so
+    /// those tests cannot pass on a reader that reads a top-level file.
     func testSourceReaderReadsTheFixtureTopic() throws {
         let folder = "Scripts/fixtures/grammar/valid"
         XCTAssertTrue(FileManager.default.fileExists(
@@ -20131,15 +20136,20 @@ final class GrammarFileTests: XCTestCase {
         }
     }
 
-    /// 0237: Greek grammar comes in the Greek pack. Its topics are the
-    /// source topics, all Greek; the bundle and the stub have the three
-    /// tables, empty; no other pack holds a Greek topic.
+    /// 0237, #173: Greek grammar comes in the Greek pack: 0133's 17 A1
+    /// topics in their order, each in English and Russian, which are the
+    /// source topics; the bundle and the stub have the three tables, empty;
+    /// no other pack holds a Greek topic.
     func testGreekGrammarIsInTheGreekPack() throws {
         let packs = try PackFixtures.all()
         let greek = try Self.grammar(of: try XCTUnwrap(packs[.ell]))
         let sourceIDs = Set(try Self.sourceTexts().filter { $0.front["lang"] == "ell" }.map(\.id))
+        XCTAssertEqual(greek.topics, Dictionary(uniqueKeysWithValues: Self.greekA1.enumerated().map {
+            ($0.element, "ell A1 \($0.offset + 1)")
+        }), "the 17 A1 topics in 0133's order")
+        XCTAssertEqual(Set(greek.titles.keys), Set(Self.greekA1.flatMap { ["\($0)/eng", "\($0)/rus"] }),
+                       "each topic in English and Russian")
         XCTAssertEqual(Set(greek.topics.keys), sourceIDs)
-        XCTAssertTrue(greek.topics.values.allSatisfy { $0.hasPrefix("ell ") }, "\(greek.topics)")
         for url in [try TestDictionary.bundledURL(), try Self.stubURL()] {
             let file = try Self.grammar(of: url)
             XCTAssertEqual(file.rowCount, 0, "\(url.lastPathComponent): the grammar tables are empty")
@@ -20183,17 +20193,19 @@ final class GrammarFileTests: XCTestCase {
     }
 
     /// Open question 3: the Greek pack credits its grammar notes,
-    /// `libredict-grammar-ell` under CC BY-SA 4.0, once it has topics.
+    /// `libredict-grammar-ell` under CC BY-SA 4.0, versioned by the date of
+    /// the last review in `reviewed.tsv`.
     func testGrammarDataSourceRow() throws {
         let pack = try Self.grammar(of: PackFixtures.file(.ell))
-        guard !pack.topics.isEmpty else {
-            XCTAssertNil(pack.dataSource, "no credit without topics")
-            return
-        }
-        let row = try XCTUnwrap(pack.dataSource)
+        let row = try XCTUnwrap(pack.dataSource, "the Greek pack credits its grammar notes")
         XCTAssertEqual(row["kind"] as String, "grammar")
         XCTAssertEqual(row["display_name"] as String, "Greek grammar notes (LibreDict)")
         XCTAssertEqual(row["license"] as String, "CC BY-SA 4.0")
+        let reviewed = try String(contentsOf: Self.repository.appendingPathComponent(
+            "Scripts/data/grammar/reviewed.tsv"), encoding: .utf8)
+        let dates = reviewed.split(separator: "\n").filter { !$0.hasPrefix("#") && !$0.hasPrefix("topic") }
+            .compactMap { $0.split(separator: "\t").last.map(String.init) }
+        XCTAssertEqual(row["version"] as String, try XCTUnwrap(dates.max()), "the date of the last review")
     }
 }
 

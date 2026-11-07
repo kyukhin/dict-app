@@ -1,11 +1,11 @@
 ---
-id: ell-thirteen-words
+id: ell-seventeen-words
 lang: ell
 level: A1
 order: 2
-words: ο, η, το, ένας, δύο, τρία, τέσσερα, πέντε, έξι, επτά, οκτώ, εννέα, δέκα
+words: ο, η, το, ένας, δύο, τρία, τέσσερα, πέντε, έξι, επτά, οκτώ, εννέα, δέκα, έντεκα, δώδεκα, δεκατρία, δεκατέσσερα
 ---
-# Fixture: ell-thirteen-words
+# Fixture: ell-seventeen-words
 
 A short rule: *σπίτι* is a house.
 
