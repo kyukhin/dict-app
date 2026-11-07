@@ -26,9 +26,11 @@ The step:
      A verb table has one voice (`voice`, else the words' common main voice)
      and the persons as rows; a nominal table has the (case.number) rows
      and one `pos` per word (noun, else a proper noun; adj with `genders`).
-     A block without a caption line before it gets one: its `title`, else
-     the tense name, "Noun endings" or "Adjective endings", in the file's
-     explanation language;
+     A cell shows the first Wiktionary form and the variants in -ουνε or
+     -ανε (`shown`); an -άω verb's present shows the first set of endings
+     (`first_set`). A block without a caption line before it gets one: its
+     `title`, else the tense name, "Noun endings" or "Adjective endings",
+     in the file's explanation language;
   3. writes `grammar_topic`, `grammar_text` and `grammar_link` in sorted
      order, and one `data_source` row per taught language with topics
      (`libredict-grammar-<lang>`, version the date of the last review);
@@ -87,19 +89,22 @@ LANGUAGES = {
 FALLBACK = "eng"
 
 # Rendered labels and the translation script, per explanation language. A
-# file in a language without labels fails. Tense names are E5's
-# `ConjugationTense.title` (#144's labels, the mood and its aspect joined by
-# " · "); row headers as the drafted written tables write them.
+# file in a language without labels fails. Tense names are Kirill's terms
+# (review of 2026-11-07): a tense or mood, then "simple form" or "continuous
+# form", the same words as the topics' texts and the topic's Practise button
+# (#172); row headers as the drafted written tables write them.
 EXPLAIN = {
     "eng": {
         "name": "English",
         "script": "LATIN",
         "tenses": {
-            "present": "Present", "imperfect": "Imperfect", "aorist": "Aorist", "future": "Future",
-            "imperativeContinuous": "Imperative · continuous", "imperativeSimple": "Imperative · simple",
-            "futureContinuous": "Future continuous", "perfect": "Perfect", "pluperfect": "Pluperfect",
-            "futurePerfect": "Future perfect", "subjunctiveContinuous": "Subjunctive · continuous",
-            "subjunctiveSimple": "Subjunctive · simple",
+            "present": "Present", "imperfect": "Imperfect", "aorist": "Aorist",
+            "future": "Future: simple form", "futureContinuous": "Future: continuous form",
+            "imperativeSimple": "Imperative: simple form",
+            "imperativeContinuous": "Imperative: continuous form",
+            "subjunctiveSimple": "Subjunctive: simple form",
+            "subjunctiveContinuous": "Subjunctive: continuous form",
+            "perfect": "Perfect", "pluperfect": "Pluperfect", "futurePerfect": "Future perfect",
         },
         "cases": {"nominative": "Nominative", "genitive": "Genitive", "accusative": "Accusative",
                   "vocative": "Vocative"},
@@ -113,12 +118,13 @@ EXPLAIN = {
         "name": "Russian",
         "script": "CYRILLIC",
         "tenses": {
-            "present": "Настоящее", "imperfect": "Имперфект", "aorist": "Аорист", "future": "Будущее",
-            "imperativeContinuous": "Повелительное · длительное",
-            "imperativeSimple": "Повелительное · простое",
-            "futureContinuous": "Будущее длительное", "perfect": "Перфект", "pluperfect": "Плюсквамперфект",
-            "futurePerfect": "Будущее совершенное", "subjunctiveContinuous": "Сослагательное · длительное",
-            "subjunctiveSimple": "Сослагательное · простое",
+            "present": "Настоящее", "imperfect": "Имперфект", "aorist": "Аорист",
+            "future": "Будущее: простая форма", "futureContinuous": "Будущее: длительная форма",
+            "imperativeSimple": "Повелительное наклонение: простая форма",
+            "imperativeContinuous": "Повелительное наклонение: длительная форма",
+            "subjunctiveSimple": "Сослагательное наклонение: простая форма",
+            "subjunctiveContinuous": "Сослагательное наклонение: длительная форма",
+            "perfect": "Перфект", "pluperfect": "Плюсквамперфект", "futurePerfect": "Будущее совершенное",
         },
         "cases": {"nominative": "Именительный", "genitive": "Родительный", "accusative": "Винительный",
                   "vocative": "Звательный"},
@@ -139,7 +145,7 @@ TENSES = ("present", "imperfect", "aorist", "future", "imperativeContinuous", "i
           "subjunctiveSimple")
 CLASSES = ("verb", "verb.conj1", "verb.conj2", "verb.passive", "noun", "adj")
 LINK_KINDS = (("word", "words"), ("topic", "topics"), ("tense", "tenses"), ("class", "classes"))
-MAX_WORDS = 12
+MAX_WORDS = 16  # topic 14 links the 16 verbs it teaches (Kirill, 2026-11-07)
 MAX_RULE_WORDS = 120
 # The tenses and classes of 0133's Content table, by topic id, in order:
 # #174's links depend on them. They are front matter, which the review hash
@@ -295,6 +301,38 @@ def tense_forms(voice: dict, tense: str, person: str) -> list[str]:
 
 def tense_persons(tense: str) -> tuple[str, ...]:
     return IMPERATIVE_PERSONS if tense in ("imperativeContinuous", "imperativeSimple") else PERSONS
+
+
+# A topic's table shows what its rule teaches, not every Wiktionary variant
+# (Kirill's review of the forms tables, 2026-11-07). The Definition tables
+# (#144) keep them all.
+LONG_ENDINGS = ("ουνε", "ανε")  # folded: γράφουνε, γράψανε, θα δούνε
+FIRST_SET = dict(zip(PERSONS, ("άω", "άς", "άει", "άμε", "άτε", "άνε")))
+
+
+def shown(forms: list[str]) -> list[str]:
+    """A cell of a topic's table: the first Wiktionary form and the variants
+    in -ουνε or -ανε (γράφουν / γράφουνε, έγραψαν / γράψανε); the other
+    variants are dropped (γράψαν, πατεράδες, γράφτε, θα παν)."""
+    return forms[:1] + [f for f in forms[1:] if normalize_greek(f).endswith(LONG_ENDINGS)]
+
+
+def first_set(word: str, voices: dict) -> dict:
+    """An -άω verb (αγαπάω, μιλάω) has two sets of present endings, mixed in
+    its Wiktionary cells; a topic's table shows the first, -άω, -άς, -άει,
+    -άμε, -άτε, -άνε, as `ell-present-2` teaches it (the rule names the
+    second in words). So do the tenses built on the present (θα, να + the
+    present). A cell with no form of the first set keeps its forms."""
+    active = voices.get("active")
+    if not word.endswith("άω") or not active:
+        return voices
+    filtered = dict(active)
+    for person, ending in FIRST_SET.items():
+        forms = active.get(("present", person), [])
+        first = [f for f in forms if f.endswith(ending)]
+        if first:
+            filtered[("present", person)] = first
+    return {**voices, "active": filtered}
 
 
 def single(options: tuple[str, ...], tags: frozenset) -> str | None:
@@ -625,7 +663,7 @@ def render_forms(params: dict, lang: str, labels: dict, paradigms: Paradigms,
                 errors.append(f"{where}: {word} has no verb table")
                 failed = True
                 continue
-            voices_of.append((word, voice_forms(cells)))
+            voices_of.append((word, first_set(word, voice_forms(cells))))
         if failed:
             return None
         voice = params["voice"]
@@ -642,7 +680,7 @@ def render_forms(params: dict, lang: str, labels: dict, paradigms: Paradigms,
                 forms = tense_forms(voices.get(voice, {}), tense, person)
                 if not forms:
                     missing.append(PRONOUNS[person])
-                row.append(" / ".join(forms))
+                row.append(" / ".join(shown(forms)))
             if missing:
                 errors.append(f"{where}: {word} has no {voice} {tense} form for {', '.join(missing)}")
                 failed = True
@@ -676,7 +714,7 @@ def render_forms(params: dict, lang: str, labels: dict, paradigms: Paradigms,
                 forms = forms_of(case, number)
                 if not forms:
                     missing.append(f"{case} {number}")
-                row.append(" / ".join(forms))
+                row.append(" / ".join(shown(forms)))
             if missing:
                 name = f"{words[0]} ({column})" if adjective else column
                 errors.append(f"{where}: {name} has no {', '.join(missing)}")
@@ -705,9 +743,20 @@ def default_caption(params: dict, labels: dict) -> str:
     return labels["adjectives"] if params["genders"] else labels["nouns"]
 
 
+def check_words(lines: list[str], where: str, errors: list[str]) -> None:
+    """Greek words with a Latin or Cyrillic lookalike letter, word by word:
+    the title, the rule, captions and Watch out mix the explanation
+    language with Greek ("καλός, хороший"), so a line as a whole is no
+    test."""
+    for line in lines:
+        for word in mixed_words(line):
+            errors.append(f"{where}: {', '.join(lookalikes(word))} in Greek text {word!r}")
+
+
 def render(text: Text, lang: str, paradigms: Paradigms, errors: list[str]) -> None:
     """Fills `text.body` and its figures, and checks the body gates."""
     labels = EXPLAIN[text.explain]
+    check_words([text.title], f"{text.name}: title", errors)
     out: list[str] = []
     rule: list[str] = []
     previous: Part | None = None
@@ -726,6 +775,8 @@ def render(text: Text, lang: str, paradigms: Paradigms, errors: list[str]) -> No
             text.tables += 1
         else:
             out += part.lines
+            if part.kind in ("text", "caption", "watch"):
+                check_words(part.lines, f"{text.name}: line {part.line_no}", errors)
             if part.kind == "table":
                 check_pipe_table(part, text, errors)
                 text.tables += 1
@@ -1055,28 +1106,38 @@ def first_sense(definition: str) -> str:
     return definition.strip().splitlines()[0] if definition.strip() else ""
 
 
+def lemmas_of(word: str, data: sqlite3.Connection) -> set[str]:
+    """A word's folded dictionary forms (lowercase, no accents): the word
+    itself and the lemmas whose tables hold it (`form_lookup`), so αδερφές
+    gives αδελφή and Δεν gives δεν."""
+    key = normalize_greek(word)
+    return {key} | {normalize_greek(w) for (w,) in data.execute(
+        "SELECT l.word FROM form_lookup f JOIN lemma l ON l.id = f.lemma_id WHERE f.form_norm = ?", (key,))}
+
+
 def list_words(data: sqlite3.Connection, lang: str) -> set[str]:
-    """The folded words of the language's A1 and A2 lists (E3), empty until
-    #152 fills them."""
+    """The folded dictionary forms of the language's A1 and A2 list words
+    (E3), empty until #152 fills them: αδερφή gives αδερφη and αδελφη."""
     if not data.execute("SELECT 1 FROM sqlite_master WHERE name = 'wordlist_item'").fetchone():
         return set()
-    return {normalize_greek(w) for (w,) in data.execute(
+    return {lemma for (w,) in data.execute(
         "SELECT COALESCE(headword, term) FROM wordlist_item WHERE level IN ('A1', 'A2') "
-        "AND series IN (SELECT series FROM wordlist WHERE lang = ?)", (lang,))}
+        "AND series IN (SELECT series FROM wordlist WHERE lang = ?)", (lang,)) for lemma in lemmas_of(w, data)}
 
 
 def outside_lists(greek_lines: list[str], data: sqlite3.Connection, words: set[str]) -> list[str]:
-    """The example words that are no form of a list word."""
+    """The example words, lowercased, that share no dictionary form with a
+    list word (both sides through `lemmas_of`), each once."""
     found: list[str] = []
+    seen: set[str] = set()
     for line in greek_lines:
         for token in re.findall(r"[^\W\d_]+", line):
             key = normalize_greek(token)
-            if key in words or token in found:
+            if key in seen:
                 continue
-            lemmas = {normalize_greek(w) for (w,) in data.execute(
-                "SELECT l.word FROM form_lookup f JOIN lemma l ON l.id = f.lemma_id WHERE f.form_norm = ?", (key,))}
-            if not lemmas & words:
-                found.append(token)
+            seen.add(key)
+            if not lemmas_of(token, data) & words:
+                found.append(token.lower())
     return found
 
 
@@ -1251,12 +1312,13 @@ INVALID_CASES = {
     "unknown-tense": "tense 'past' is no ConjugationTense",
     "unknown-class": "class 'verb.conj3' is not one of",
     "no-links": "no word or topic link",
-    "thirteen-words": "13 words, at most 12",
+    "seventeen-words": "17 words, at most 16",
     "no-lemma": "κάνος has no noun table",
     "empty-cell": "έχω has no active aorist form for εγώ",
     "typed-verb-table": "a topic with tenses has no typed table",
     "latin-lookalike": "Latin 'o' in Greek text",
     "cyrillic-lookalike": "Cyrillic 'о' in Greek text 'τо'",
+    "cyrillic-lookalike-in-rule": "line 10: Cyrillic 'о' in Greek text 'τо'",
     "no-rule": "no rule",
     "six-examples": "6 examples, needs 3 to 5",
     "no-watch-out-items": "0 Watch out items, needs 1 or 2",
@@ -1279,7 +1341,7 @@ def fixture_database() -> sqlite3.Connection:
                  "VALUES ('freedict-ell-eng', 'Greek – English (FreeDict)', 'ell', 'eng')")
     headwords = ["γράφω", "σπίτι", "καλός", "βλέπω", "κάνω", "έχω", "πηγαίνω", "ο", "η", "το", "ένας", "δύο",
                  "τρία", "τέσσερα", "πέντε", "έξι", "επτά", "οκτώ", "εννέα", "δέκα", "έντεκα", "δώδεκα",
-                 "δεκατρία"]
+                 "δεκατρία", "δεκατέσσερα"]
     conn.executemany("INSERT INTO entries(word, word_normalized, definition, source) "
                      "VALUES (?, ?, '1. test', 'freedict-ell-eng')",
                      [(w, normalize_greek(w)) for w in headwords])
@@ -1313,6 +1375,12 @@ def self_check() -> int:
     def adjective(word: str, case: str, number: str, gender: str) -> str:
         return " / ".join(nominal_forms(paradigms.cells("ell", word, "adj"), True).get((case, number, gender), []))
 
+    def table(words: str, tense: str) -> list[str]:
+        """The cells of a rendered verb table, row by row, without the pronouns."""
+        params = parse_forms([f"words: {words}", f"tense: {tense}"], "self-check", 1, [])
+        lines = render_forms(params, "ell", EXPLAIN["eng"], paradigms, "self-check", []) or []
+        return [" | ".join(table_cells(line)[1:]) for line in lines[3:]]
+
     checks += [
         ("γράφω aorist: έγραψα, γράψαμε, έγραψαν / γράψαν / γράψανε (variants in table order)",
          (verb("γράφω", "aorist", "1sg"), verb("γράφω", "aorist", "1pl"), verb("γράφω", "aorist", "3pl"))
@@ -1341,7 +1409,43 @@ def self_check() -> int:
          word_count(["- -ος, *έγραψα*, ~~εδιάβασα~~ — 1, 2 and **3**"]) == 4),
         ("a caption is one bold span, not a rule line that starts and ends in bold",
          bool(CAPTION.fullmatch("**Most verbs**")) and not CAPTION.fullmatch("**ο** and **η**")),
+        ("lookalikes word by word: 'καλός, хороший' passes, 'τо' (Cyrillic о) fails",
+         mixed_words("**καλός, хороший** и *το σπίτι*, «дом»") == [] and mixed_words("*τо σπίτι*") == ["τо"]),
+        ("the tense terms: «Сослагательное наклонение: простая форма», Imperative: continuous form",
+         [default_caption({"title": None, "tense": t, "genders": []}, EXPLAIN[e])
+          for e, t in (("rus", "subjunctiveSimple"), ("rus", "imperativeContinuous"), ("rus", "future"),
+                       ("eng", "imperativeContinuous"))]
+         == ["Сослагательное наклонение: простая форма", "Повелительное наклонение: длительная форма",
+             "Будущее: простая форма", "Imperative: continuous form"]),
+        ("a table cell keeps the first form and the -ουνε, -ανε variants: έγραψαν / γράψανε, γράψτε, "
+         "γράφουν / γράφουνε, θα πάνε; έκαναν / κάνανε",
+         table("γράφω", "aorist")[5] == "έγραψαν / γράψανε" and table("γράφω", "imperativeSimple") == ["γράψε", "γράψτε"]
+         and table("γράφω", "present")[5] == "γράφουν / γράφουνε" and table("πηγαίνω", "future")[5] == "θα πάνε"
+         and table("κάνω", "aorist") == ["έκανα", "έκανες", "έκανε", "κάναμε", "κάνατε", "έκαναν / κάνανε"]),
+        ("the cell rule on nouns and accents: πατέρες, θα δουν / θα δούνε",
+         shown(["πατέρες", "πατεράδες"]) == ["πατέρες"] and shown(["θα δουν", "θα δούνε"]) == ["θα δουν", "θα δούνε"]),
+        ("an -άω verb's present shows the first set: αγαπάω, αγαπάς, αγαπάει, αγαπάμε, αγαπάτε, αγαπάνε",
+         table("αγαπάω", "present") == ["αγαπάω", "αγαπάς", "αγαπάει", "αγαπάμε", "αγαπάτε", "αγαπάνε"]
+         and verb("αγαπάω", "present", "3pl") == "αγαπάνε / αγαπάν / αγαπούν / αγαπούνε"),
+        ("so do the tenses built on its present; its other tenses and other verbs keep the cell rule",
+         table("αγαπάω", "futureContinuous")[0] == "θα αγαπάω" and table("αγαπάω", "futureContinuous")[5] == "θα αγαπάνε"
+         and table("αγαπάω", "future")[5] == "θα αγαπήσουν / θα αγαπήσουνε"
+         and table("αγαπάω", "aorist")[5] == "αγάπησαν / αγαπήσανε"
+         and table("πηγαίνω", "present")[0] == "πηγαίνω"),
     ]
+    # The review document's list check: lowercased, both sides lemmatised.
+    words = set().union(*(lemmas_of(w, data) for w in ("αγαπώ", "καλός")))
+    checks.append(("list words: Είδα once, lowercased; αγαπάμε (a form of αγαπάω, as the list's αγαπώ is) and "
+                   "Καλό pass", outside_lists(["Είδα είδα αγαπάμε.", "Καλό!"], data, words) == ["είδα"]))
+    # A Russian translation line takes «», ё and dashes; a Greek or Latin
+    # letter in it fails.
+    for translation, wanted in (("«Ёлка» — это ель, а не сосна.", []),
+                                ("Это «σπίτι».", ["has Greek"]), ("Это house.", ["has Latin"])):
+        found: list[str] = []
+        check_example(Part("example", ["- Το σπίτι είναι μεγάλο.", "  " + translation], 1),
+                      Text(Path("ell-check.md"), "rus", {}), found)
+        checks.append((f"a Russian translation {translation!r}: " + ("; ".join(found) or "passes"),
+                       len(found) == len(wanted) and all(w in e for w, e in zip(wanted, found))))
 
     with tempfile.TemporaryDirectory() as folder:
         valid = merged_source([VALID], Path(folder) / "valid")
@@ -1368,8 +1472,9 @@ def self_check() -> int:
         checks += [
             ("the forms comment of a verb table",
              "<!-- forms words=γράφω,βλέπω,κάνω tense=aorist voice=active -->" in eng.body),
-            ("the aorist rows: | εγώ | έγραψα | …",
-             f"| εγώ | έγραψα | {verb('βλέπω', 'aorist', '1sg')} | {verb('κάνω', 'aorist', '1sg')} |" in eng.body),
+            ("the aorist rows by the cell rule: | εγώ | έγραψα | είδα | έκανα |, | αυτοί | έγραψαν / γράψανε | …",
+             "| εγώ | έγραψα | είδα | έκανα |" in eng.body
+             and f"| αυτοί | έγραψαν / γράψανε | {table('βλέπω', 'aorist')[5]} | έκαναν / κάνανε |" in eng.body),
             ("a noun table with a genitive row, its header from headers",
              "<!-- forms words=σπίτι pos=noun rows=nominative.singular,genitive.singular,nominative.plural -->"
              in eng.body and "| | το σπίτι |" in eng.body and "| Genitive singular | σπιτιού |" in eng.body),
@@ -1380,6 +1485,9 @@ def self_check() -> int:
              all(line in rus.body for line in (
                  "| Именительный, ед. ч. | καλός | καλή | καλό |", "| | Мужской род | Женский род | Средний род |",
                  "**Окончания прилагательных**", "| Родительный, ед. ч. | σπιτιού |"))),
+            ("a Russian verb table's rows are the Greek pronouns, as on Definition (#144)",
+             [line.split(" | ")[0] for line in rus.body.split("\n") if "| έγραψα |" in line
+              or "| γράψαμε |" in line] == ["| εγώ", "| εμείς"]),
             ("the body starts after the title and keeps the markers",
              not eng.body.startswith("#") and "\n## Examples\n" in eng.body and "\n## Watch out\n" in eng.body),
         ]
@@ -1426,9 +1534,9 @@ def self_check() -> int:
         checks.append(("the review document: state, words with their first sense, both texts, list words",
                        all(line in document.split("\n") for line in (
                            "`ell-valid` · reviewed", "- γράφω: test (Greek – English (FreeDict))",
-                           "#### Russian: " + rus.title, "| εγώ | έγραψα | είδα | έκανα / έκαμα |",
+                           "#### Russian: " + rus.title, "| εγώ | έγραψα | είδα | έκανα |",
                            # έγραψα is a form of γράφω, a list word; είδα of βλέπω, which is in no list
-                           "Example words in no Greek A1 or A2 list: Χθες, ένα, γράμμα, Το, είναι, μεγάλο, Είδα, "
+                           "Example words in no Greek A1 or A2 list: χθες, ένα, γράμμα, το, είναι, μεγάλο, είδα, "
                            "έναν, φίλο."))))
         os.remove(valid / "reviewed.tsv")
         unreviewed = compile_topics(valid, data, allow_unreviewed=False)
