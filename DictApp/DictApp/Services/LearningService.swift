@@ -1,11 +1,13 @@
 // LearningService.swift
 // Learning words with spaced repetition (0131-learning.md): the services
 // around the store. The clock (#157), the languages (#158), the feedback
-// and the runs' launch options (#159), the new words a run starts (#161).
+// and the runs' launch options (#159), the new words a run starts (#161),
+// the daily reminder and the tab router (#162).
 
 import AVFoundation
 import Foundation
 import SwiftUI
+import UserNotifications
 
 // MARK: - Clock (#157)
 
@@ -401,5 +403,207 @@ enum LearningLaunchOptions {
         #else
         return false
         #endif
+    }
+}
+
+// MARK: - Reminder (#162)
+
+/// What the reminder needs of `UNUserNotificationCenter`, which implements
+/// it in the app; tests use a fake.
+protocol NotificationScheduling: AnyObject {
+    func requestAuthorization(options: UNAuthorizationOptions) async throws -> Bool
+    func authorizationStatus() async -> UNAuthorizationStatus
+    func pendingNotificationRequests() async -> [UNNotificationRequest]
+    func removePendingNotificationRequests(withIdentifiers identifiers: [String])
+    func add(_ request: UNNotificationRequest) async throws
+}
+
+extension UNUserNotificationCenter: NotificationScheduling {
+    func authorizationStatus() async -> UNAuthorizationStatus {
+        await notificationSettings().authorizationStatus
+    }
+}
+
+/// The opt-in daily reminder (0131, "Reminder"): "Time for today's words.
+/// Your goal: 20 exercises.", at the set time, only on a day whose goal is
+/// not met yet. One request per learning day, for today and the next 6
+/// days, so reminders stop after a week without opening the app. Turning
+/// it on is the only place the app asks for the notification permission.
+@MainActor
+final class LearningReminder {
+    static let shared = LearningReminder()
+
+    /// A request's identifier is this prefix and its learning day.
+    nonisolated static let identifierPrefix = "learning.reminder."
+    /// Today and the next 6 days.
+    static let days = 7
+    /// The time a reminder is turned on at: 19:00.
+    static let defaultTime = 19 * 60
+
+    private let center: any NotificationScheduling
+    private let settings: SettingsService
+    private let db: DatabaseService
+    private let clock: LearningClock
+    /// The in-app language, which the reminder's text is in.
+    private let locale: @MainActor () -> Locale
+
+    init(center: (any NotificationScheduling)? = nil, settings: SettingsService = .shared,
+         db: DatabaseService = .shared, clock: LearningClock = LearningClock(),
+         locale: @escaping @MainActor () -> Locale = { LocalizationManager.shared.currentLocale }) {
+        self.center = center ?? UNUserNotificationCenter.current()
+        self.settings = settings
+        self.db = db
+        self.clock = clock
+        self.locale = locale
+    }
+
+    /// Turns the reminder on at `minutes` after midnight, asking iOS for
+    /// permission first. Denied: the reminder stays off and this returns
+    /// false.
+    @discardableResult
+    func turnOn(at minutes: Int) async -> Bool {
+        let granted = (try? await center.requestAuthorization(options: [.alert, .sound])) ?? false
+        settings.learningReminder = granted ? minutes : nil
+        await reschedule()
+        return granted
+    }
+
+    func turnOff() async {
+        settings.learningReminder = nil
+        await reschedule()
+    }
+
+    /// A new time, while the reminder is on.
+    func setTime(_ minutes: Int) async {
+        settings.learningReminder = minutes
+        await reschedule()
+    }
+
+    /// iOS refuses LibreDict's notifications: Settings offers "Open Settings".
+    var isDenied: Bool {
+        get async { await center.authorizationStatus() == .denied }
+    }
+
+    /// Reschedules for the learning day of now, with today's goal met or
+    /// not. Runs on every return to the foreground and on a reminder or
+    /// goal change.
+    func reschedule() async {
+        let today = clock.today
+        var goalMet = false
+        if settings.learningReminder != nil {
+            goalMet = ((try? await db.answeredCount(on: today)) ?? 0) >= settings.learningDailyGoal
+        }
+        await reschedule(today: today, goalMetToday: goalMet)
+    }
+
+    /// Removes every pending reminder; then, when the reminder is on and
+    /// authorised, adds one per day for `today` and the next 6 days, at the
+    /// set time. Today is skipped when its goal is met or its time passed.
+    func reschedule(today: LearnDay, goalMetToday: Bool) async {
+        await removeAll()
+        guard let minutes = settings.learningReminder,
+              Self.isAuthorized(await center.authorizationStatus()) else { return }
+        let now = clock.now()
+        let body = Self.body(goal: settings.learningDailyGoal, locale: locale())
+        for offset in 0..<Self.days {
+            let day = today.adding(days: offset)
+            if offset == 0 && goalMetToday { continue }
+            let components = Self.fireComponents(of: day, minutes: minutes)
+            guard let date = clock.calendar.date(from: components), date > now else { continue }
+            let content = UNMutableNotificationContent()
+            content.body = body
+            content.sound = .default
+            let request = UNNotificationRequest(identifier: Self.identifierPrefix + day.rawValue, content: content,
+                                                trigger: UNCalendarNotificationTrigger(dateMatching: components,
+                                                                                       repeats: false))
+            try? await center.add(request)
+        }
+    }
+
+    /// After an answer is written: the answer that reaches today's goal
+    /// cancels today's reminder.
+    func answerRecorded(today: LearnDay) async {
+        guard settings.learningReminder != nil,
+              let count = try? await db.answeredCount(on: today), count == settings.learningDailyGoal else { return }
+        await reschedule(today: today, goalMetToday: true)
+    }
+
+    /// Every pending reminder removed (`-resetData`, and before rescheduling).
+    func removeAll() async {
+        let pending = await center.pendingNotificationRequests().map(\.identifier)
+            .filter { $0.hasPrefix(Self.identifierPrefix) }
+        if !pending.isEmpty {
+            center.removePendingNotificationRequests(withIdentifiers: pending)
+        }
+    }
+
+    /// When learning `day`'s reminder fires: `minutes` after its midnight,
+    /// or after the next midnight for a time before 4 AM, which belongs to
+    /// the learning day before. Floating: no time zone, so it follows the
+    /// device's.
+    nonisolated static func fireComponents(of day: LearnDay, minutes: Int) -> DateComponents {
+        let date = minutes < LearningClock.dayStartHour * 60 ? day.adding(days: 1) : day
+        let parts = date.rawValue.split(separator: "-").compactMap { Int($0) }
+        return DateComponents(year: parts[0], month: parts[1], day: parts[2], hour: minutes / 60, minute: minutes % 60)
+    }
+
+    /// "Time for today's words. Your goal: 20 exercises." in `locale`'s language.
+    nonisolated static func body(goal: Int, locale: Locale) -> String {
+        String(localized: "reminder.body \(goal)", bundle: SettingsViewModel.localizedBundle(for: locale), locale: locale)
+    }
+
+    private static func isAuthorized(_ status: UNAuthorizationStatus) -> Bool {
+        switch status {
+        case .authorized, .provisional, .ephemeral: return true
+        case .denied, .notDetermined: return false
+        @unknown default: return false
+        }
+    }
+}
+
+// MARK: - Tabs (#162)
+
+/// A reminder's tap asks for the Learn tab. Each window keeps its own
+/// selection (`ContentView`), so iPad windows do not switch tabs together;
+/// the request waits until a window takes it, so a tap that launches the
+/// app opens Learn once the tabs show.
+@MainActor
+final class AppRouter: ObservableObject {
+    static let shared = AppRouter()
+
+    enum Tab: Hashable {
+        case search, learn, history, settings
+    }
+
+    /// The tab a tapped notification opens, until the windows have taken it.
+    @Published private(set) var request: Tab?
+
+    /// A tapped notification: a reminder opens the Learn tab, on its
+    /// remembered language.
+    func open(notification identifier: String) {
+        if identifier.hasPrefix(LearningReminder.identifierPrefix) {
+            request = .learn
+        }
+    }
+
+    /// A window took `request`. It goes after this turn of the main actor,
+    /// so every window open now takes it too.
+    func taken() {
+        Task { @MainActor in self.request = nil }
+    }
+}
+
+/// `UNUserNotificationCenter`'s delegate, set at launch so a tap that
+/// launches the app is not lost.
+final class NotificationTapHandler: NSObject, UNUserNotificationCenterDelegate {
+    static let shared = NotificationTapHandler()
+
+    func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse,
+                                withCompletionHandler completionHandler: @escaping () -> Void) {
+        let identifier = response.notification.request.identifier
+        Task { @MainActor in
+            AppRouter.shared.open(notification: identifier)
+            completionHandler()
+        }
     }
 }

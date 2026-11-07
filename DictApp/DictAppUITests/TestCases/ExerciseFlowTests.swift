@@ -3,12 +3,14 @@ import XCTest
 /// 0131, #159: the Recognition and Production trainers, typed answers by
 /// answer mode, instant feedback, and meanings in the pair's meanings
 /// language. English UI, `-resetData`, `-learningAnswerHints` (the right
-/// option's value is `answer`) and a fixed `-learningSeed`. The answer mode
-/// is set through the `learning_answer_mode` default until #162's Settings
-/// screen can.
+/// option's value is `answer`) and a fixed `-learningSeed`. Strict accents
+/// is set in Settings → Learning (#162); Multiple choice, which only gives
+/// the Production trainer its choices, through the `learning_answer_mode`
+/// default.
 final class ExerciseFlowTests: XCTestCase {
 
     var app: XCUIApplication!
+    var tabBarPage: TabBarPage!
     var learnPage: LearnPage!
 
     /// `-learningFixture due` through Greek via English: each word's meaning
@@ -27,9 +29,6 @@ final class ExerciseFlowTests: XCTestCase {
         if name.contains("testProductionTrainer") {
             return ["-learningFixture", "due", "-learning_answer_mode", "choice"]
         }
-        if name.contains("testTypedStrictAccentIsWrong") {
-            return ["-learningFixture", "due", "-learning_answer_mode", "strict"]
-        }
         return ["-learningFixture", "due"]
     }
 
@@ -44,12 +43,14 @@ final class ExerciseFlowTests: XCTestCase {
         // Sim orientation persists across sessions; landscape breaks swipes.
         XCUIDevice.shared.orientation = .portrait
         app.launch()
-        learnPage = TabBarPage(app: app).tapLearnTab()
+        tabBarPage = TabBarPage(app: app)
+        learnPage = tabBarPage.tapLearnTab()
         XCTAssertTrue(learnPage.waitForHome(timeout: TestData.Timeouts.long), "the Learn home")
     }
 
     override func tearDownWithError() throws {
         app = nil
+        tabBarPage = nil
         learnPage = nil
     }
 
@@ -141,8 +142,13 @@ final class ExerciseFlowTests: XCTestCase {
         XCTAssertTrue(run.feedbackText.contains(word), run.feedbackText)
     }
 
-    /// Strict: the word without its accents is wrong, with "Mind the accent".
+    /// Strict, set in Settings: the word without its accents is wrong, with
+    /// "Mind the accent".
     func testTypedStrictAccentIsWrong() throws {
+        tabBarPage.tapSettingsTab()
+        let settings = LearningSettingsPage(app: app)
+        settings.choose("Strict accents", in: settings.answerMode)
+        learnPage = tabBarPage.tapLearnTab()
         let run = learnPage.openTrainer(production: true)
         guard let prompt = nextPrompt(run, after: nil) else { return }
         XCTAssertTrue(run.isTyped)
