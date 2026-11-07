@@ -22,6 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - [#171] The build turns grammar topics written in Markdown into the Greek pack, with verb and noun tables rendered from the Wiktionary forms, gates that fail a malformed or unreviewed topic, and a review document. No topic ships yet.
 - [#153] The English lists pack carries the English word lists A1 to C2 from CEFR-J and Octanove (8,647 words, 98.6% linked to an English dictionary) with English frequency ranks; Credits cites both lists.
 - [#167] The Greek conjugation drill gets its question logic: tenses by ΚΕΓ level, the verbs of the checked Greek lists with their meanings in the language of Greek's learning pair, and four real forms of the verb per question with exactly one right. No screen uses it yet.
+- [#177] The Greek pack and the English lists pack carry up to five Tatoeba example sentences per word, with direct translations and their authors, built from a pinned export and filtered by Tatoeba's tags and a reviewed stoplist. 428 of the 500 most frequent Greek verbs have three or more, as do 6,651 English list words. No screen shows them yet.
 
 ### Changed
 - [#138] Every dictionary is searchable right after install, with no "Preparing dictionaries" bar: the app reads the bundled dictionaries in place and keeps your history, saved words and imports in a small database of their own.

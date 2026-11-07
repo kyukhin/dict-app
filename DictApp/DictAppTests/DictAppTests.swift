@@ -22643,3 +22643,329 @@ final class MyWordsViewModelTests: LearnTabTestCase {
         XCTAssertNil(vm.errorMessage)
     }
 }
+
+// MARK: - Issue #177: example sentences from Tatoeba
+
+/// The example tables as #177 builds them into the Greek pack and the
+/// English lists pack (0134-example-sentences.md, Test plan), read from the
+/// committed assets through `PackFixtures`; the stoplist through `#filePath`.
+final class ExampleDataTests: XCTestCase {
+    private static let tables: [String: [String]] = [
+        "example_sentence": ["id", "lang", "text", "author"],
+        "example_translation": ["sentence_id", "lang", "id", "text", "author"],
+        "example_word": ["lang", "word", "ord", "sentence_id", "form_start", "form_length"],
+    ]
+    /// The translations an example may have, per sentence language.
+    private static let translationLanguages: [String: Set<String>] = [
+        "ell": ["eng", "rus", "spa", "arb"], "eng": ["rus", "spa", "arb", "ell"],
+    ]
+    private static let word = try! NSRegularExpression(pattern: "\\p{L}+(?:['’]\\p{L}+)*")
+
+    /// A word's examples from `pack`, in `ord` order: the text and its
+    /// highlighted form.
+    private func examples(_ pack: PackID, lang: String, word: String) throws -> [(text: String, form: String)] {
+        try BundledDictionary(url: try PackFixtures.file(pack)).read { db in
+            try GRDB.Row.fetchAll(db, sql: """
+                SELECT s.text, w.form_start, w.form_length FROM example_word w
+                JOIN example_sentence s ON s.id = w.sentence_id
+                WHERE w.lang = ? AND w.word = ? ORDER BY w.ord
+                """, arguments: [lang, word]).map { row in
+                let text: String = row["text"]
+                return (text, Self.span(text, start: row["form_start"], length: row["form_length"]) ?? "")
+            }
+        }
+    }
+
+    /// The text of a span in Unicode scalars, or nil when it does not fit.
+    private static func span(_ text: String, start: Int, length: Int) -> String? {
+        let scalars = Array(text.unicodeScalars)
+        guard start >= 0, length > 0, start + length <= scalars.count else { return nil }
+        var view = String.UnicodeScalarView()
+        view.append(contentsOf: scalars[start..<start + length])
+        return String(view)
+    }
+
+    /// The words of a text, each also split at its apostrophes, lowercased.
+    private static func words(_ text: String) -> [String] {
+        let range = NSRange(text.startIndex..., in: text)
+        return word.matches(in: text, range: range).flatMap { match -> [String] in
+            let token = (text as NSString).substring(with: match.range).lowercased()
+            let pieces = token.split(whereSeparator: { $0 == "'" || $0 == "’" }).map(String.init)
+            return pieces.count > 1 ? [token] + pieces : [token]
+        }
+    }
+
+    private func stubURL() throws -> URL {
+        try TestDictionary.bundledURL().deletingLastPathComponent()
+            .appendingPathComponent(DictionaryFile.stubResourceName + "." + DictionaryFile.resourceExtension)
+    }
+
+    /// #134, #177: frequent Greek verbs have 3 to 5 examples in the Greek
+    /// pack; the build gates the top 500 at 85%.
+    func testFrequentVerbsHaveThreeExamples() throws {
+        for verb in ["γράφω", "είμαι", "έχω", "κάνω", "θέλω", "ξέρω", "λέω", "πάω"] {
+            let found = try examples(.ell, lang: "ell", word: verb)
+            XCTAssertTrue((3...5).contains(found.count), "\(verb): \(found.count) examples")
+        }
+        let written = try examples(.ell, lang: "ell", word: "γράφω").map { $0.form.lowercased() }
+        XCTAssertEqual(Set(written).count, written.count, "one sentence per form first: \(written)")
+        XCTAssertTrue(written.contains("έγραψα"), "\(written)")
+    }
+
+    /// #134, #177, #178: in both packs every Greek sentence has an English
+    /// translation and every English one a Russian, Spanish, Arabic or Greek
+    /// one; every text is NFC with an author; every word row points at a
+    /// sentence of its language, with `ord` 1… and a span on a whole word.
+    func testEveryExampleIsComplete() throws {
+        for (pack, lang) in [(PackID.ell, "ell"), (PackID.engLists, "eng")] {
+            let file = try BundledDictionary(url: try PackFixtures.file(pack)).read { db in
+                (sentences: try GRDB.Row.fetchAll(db, sql: "SELECT id, lang, text, author FROM example_sentence"),
+                 translations: try GRDB.Row.fetchAll(db, sql: "SELECT sentence_id, lang, text, author FROM example_translation"),
+                 words: try GRDB.Row.fetchAll(db, sql: "SELECT * FROM example_word ORDER BY lang, word, ord"))
+            }
+            XCTAssertGreaterThan(file.sentences.count, 10_000, "\(pack)")
+            var texts: [Int64: String] = [:]
+            var problems: [String] = []
+            for row in file.sentences {
+                let id: Int64 = row["id"], text: String = row["text"], author: String = row["author"]
+                texts[id] = text
+                if row["lang"] as String != lang { problems.append("\(id): language \(row["lang"] as String)") }
+                if text.isEmpty || author.isEmpty || text != text.precomposedStringWithCanonicalMapping {
+                    problems.append("\(id): empty, no author or not NFC")
+                }
+            }
+            var languages: [Int64: Set<String>] = [:]
+            for row in file.translations {
+                let id: Int64 = row["sentence_id"], text: String = row["text"], author: String = row["author"]
+                languages[id, default: []].insert(row["lang"])
+                if texts[id] == nil { problems.append("translation of \(id), which is not stored") }
+                if text.isEmpty || author.isEmpty || text != text.precomposedStringWithCanonicalMapping {
+                    problems.append("translation of \(id): empty, no author or not NFC")
+                }
+            }
+            let allowed = Self.translationLanguages[lang] ?? []
+            for id in texts.keys {
+                let found = languages[id] ?? []
+                if !found.isSubset(of: allowed) { problems.append("\(id): translations \(found.sorted())") }
+                if lang == "ell" ? !found.contains("eng") : found.isEmpty {
+                    problems.append("\(id): no \(lang == "ell" ? "English " : "")translation")
+                }
+            }
+            var orders: [String: [Int]] = [:]
+            for row in file.words {
+                let word: String = row["word"], id: Int64 = row["sentence_id"]
+                orders[word, default: []].append(row["ord"])
+                guard let text = texts[id], row["lang"] as String == lang else {
+                    problems.append("\(word): sentence \(id) not stored in \(lang)")
+                    continue
+                }
+                let start: Int = row["form_start"], length: Int = row["form_length"]
+                let scalars = Array(text.unicodeScalars)
+                guard let form = Self.span(text, start: start, length: length) else {
+                    problems.append("\(word): span \(start)+\(length) outside \(text)")
+                    continue
+                }
+                let before = start > 0 ? Character(scalars[start - 1]) : " "
+                let after = start + length < scalars.count ? Character(scalars[start + length]) : " "
+                if before.isLetter || after.isLetter || form.unicodeScalars.contains(where: { $0.properties.isWhitespace }) {
+                    problems.append("\(word): \(form) is not a whole word of \(text)")
+                }
+            }
+            for (word, ords) in orders where ords != Array(1...ords.count) || ords.count > 5 {
+                problems.append("\(word): ord \(ords)")
+            }
+            XCTAssertEqual(problems.prefix(20), [], "\(pack): \(problems.count) problems")
+        }
+    }
+
+    /// #134, #177: no stored sentence or translation holds a word of
+    /// `examples-stoplist.tsv`: a Greek lemma in any form of the Greek
+    /// pack's forms tables, an English lemma or a form `Morphy` takes to it,
+    /// or a Russian, Spanish or Arabic word start. (The build also checks
+    /// its Greek seed, which it computes from Wiktionary.)
+    func testNoStoplistedWordInThePack() throws {
+        let stoplist = try String(contentsOf: WordListData.repository
+            .appendingPathComponent("Scripts/data/examples-stoplist.tsv"), encoding: .utf8)
+        var lemmas: [String: Set<String>] = [:], prefixes: [String: [String]] = [:]
+        for line in stoplist.split(separator: "\n") where !line.hasPrefix("#") {
+            let fields = line.split(separator: "\t").map(String.init)
+            guard fields.count == 3 else { continue }
+            if fields[1] == "lemma" { lemmas[fields[0], default: []].insert(fields[2]) }
+            if fields[1] == "prefix" { prefixes[fields[0], default: []].append(fields[2]) }
+        }
+        XCTAssertFalse(lemmas["ell", default: []].isEmpty)
+        XCTAssertFalse(lemmas["eng", default: []].isEmpty)
+        XCTAssertEqual(Set(prefixes.keys), ["rus", "spa", "arb"])
+
+        let greekStop = lemmas["ell", default: []]
+        let greek = try BundledDictionary(url: try PackFixtures.file(.ell)).read { db -> (forms: Set<String>, sentences: [String], english: [String], others: [(String, String)]) in
+            let ids = try GRDB.Row.fetchAll(db, sql: "SELECT id, word FROM lemma WHERE lang = 'ell'")
+                .filter { greekStop.contains(($0["word"] as String).lowercased()) }.map { $0["id"] as Int64 }
+            var forms = greekStop
+            if !ids.isEmpty {
+                let list = ids.map(String.init).joined(separator: ",")
+                forms.formUnion(try String.fetchAll(db, sql: "SELECT form FROM paradigm WHERE lemma_id IN (\(list))").map { $0.lowercased() })
+                forms.formUnion(try String.fetchAll(db, sql: "SELECT form FROM form_link WHERE lemma_id IN (\(list))").map { $0.lowercased() })
+            }
+            return (forms,
+                    try String.fetchAll(db, sql: "SELECT text FROM example_sentence"),
+                    try String.fetchAll(db, sql: "SELECT text FROM example_translation WHERE lang = 'eng'"),
+                    try GRDB.Row.fetchAll(db, sql: "SELECT lang, text FROM example_translation WHERE lang IN ('rus', 'spa', 'arb')")
+                        .map { ($0["lang"] as String, $0["text"] as String) })
+        }
+        XCTAssertGreaterThan(greek.forms.count, greekStop.count, "the forms tables give the lemmas' forms")
+        let english = try BundledDictionary(url: try PackFixtures.file(.engLists)).read { db in
+            (sentences: try String.fetchAll(db, sql: "SELECT text FROM example_sentence"),
+             greek: try String.fetchAll(db, sql: "SELECT text FROM example_translation WHERE lang = 'ell'"),
+             others: try GRDB.Row.fetchAll(db, sql: "SELECT lang, text FROM example_translation WHERE lang IN ('rus', 'spa', 'arb')")
+                .map { ($0["lang"] as String, $0["text"] as String) })
+        }
+        let morphy = try BundledDictionary().read { db in
+            (exceptions: Dictionary(grouping: try GRDB.Row.fetchAll(db, sql: "SELECT form, pos, base FROM morphy_exception"),
+                                    by: { $0["form"] as String })
+                .mapValues { rows in rows.compactMap { row in
+                    Morphy.PartOfSpeech(rawValue: row["pos"]).map { Morphy.Exception(pos: $0, base: row["base"]) } } },
+             lemmas: Dictionary(uniqueKeysWithValues: try GRDB.Row.fetchAll(db, sql: "SELECT word, pos_mask FROM morphy_lemma")
+                .map { ($0["word"] as String, $0["pos_mask"] as Int) }))
+        }
+        let englishStop = lemmas["eng", default: []]
+        var bases: [String: [String]] = [:]
+        func englishHit(_ word: String) -> Bool {
+            if englishStop.contains(word) { return true }
+            guard word.allSatisfy({ $0.isASCII && $0.isLetter }) else { return false }
+            if bases[word] == nil {
+                bases[word] = Morphy.analyses(of: word, exceptions: morphy.exceptions[word] ?? [], lemmas: morphy.lemmas)
+                    .map(\.base)
+            }
+            return bases[word]!.contains(where: englishStop.contains)
+        }
+
+        var hits: [String] = []
+        for text in greek.sentences + english.greek where Self.words(text).contains(where: greek.forms.contains) {
+            hits.append(text)
+        }
+        for text in english.sentences + greek.english where Self.words(text).contains(where: englishHit) {
+            hits.append(text)
+        }
+        for (lang, text) in greek.others + english.others {
+            let starts = prefixes[lang] ?? []
+            // A word start matches the word without its combining marks
+            // (Arabic harakat, Russian stress marks), as the build checks it.
+            let bare = String(String.UnicodeScalarView(text.unicodeScalars.filter {
+                $0.properties.generalCategory != .nonspacingMark
+            }))
+            if Self.words(bare).contains(where: { word in starts.contains(where: word.hasPrefix) }) { hits.append(text) }
+        }
+        XCTAssertEqual(hits.prefix(20), [], "\(hits.count) stored texts hold a stoplisted word")
+        XCTAssertFalse(english.sentences.isEmpty || greek.sentences.isEmpty)
+    }
+
+    /// Kirill 2026-11-04: English examples ship in the English lists pack,
+    /// for its list words only. go, house, write and good have 3 or more; go
+    /// shows went, going and gone.
+    func testEnglishListWordsHaveExamples() throws {
+        for word in ["go", "house", "write", "good"] {
+            let found = try examples(.engLists, lang: "eng", word: word)
+            XCTAssertTrue((3...5).contains(found.count), "\(word): \(found.count)")
+        }
+        let go = try examples(.engLists, lang: "eng", word: "go").map { $0.form.lowercased() }
+        XCTAssertTrue(Set(["went", "going", "gone"]).isSubset(of: go), "\(go)")
+        let strangers = try BundledDictionary(url: try PackFixtures.file(.engLists)).read { db in
+            try String.fetchAll(db, sql: """
+                SELECT DISTINCT word FROM example_word
+                WHERE word NOT IN (SELECT lower(term) FROM wordlist_item WHERE series = 'cefr-eng')
+                """)
+        }
+        XCTAssertEqual(strangers, [], "every English example word is a word of the English lists")
+    }
+
+    /// #177 (CodeRabbit): morphy's suffix rules over-generate, so a token
+    /// that is itself a list word keys no lemma they guess (evening ↛ even),
+    /// and a token with two list-word lemmas keys neither (lives ↛ live,
+    /// life); WordNet's exception lists still key their lemma (was → be).
+    /// Per part of speech only the first rule whose base is a lemma counts,
+    /// as the app's `Morphy` has it: hopes → hope, never hop.
+    func testMorphyGuessesKeyNoOtherListWord() throws {
+        let even = try examples(.engLists, lang: "eng", word: "even").map { $0.form.lowercased() }
+        XCTAssertFalse(even.isEmpty)
+        XCTAssertFalse(even.contains("evening"), "\(even)")
+        let hope = try examples(.engLists, lang: "eng", word: "hope").map { $0.form.lowercased() }
+        let hop = try examples(.engLists, lang: "eng", word: "hop").map { $0.form.lowercased() }
+        XCTAssertTrue(hope.contains("hopes"), "\(hope)")
+        XCTAssertFalse(hop.isEmpty)
+        XCTAssertFalse(hop.contains("hopes"), "\(hop)")
+        for word in ["live", "life"] {
+            let forms = try examples(.engLists, lang: "eng", word: word).map { $0.form.lowercased() }
+            XCTAssertFalse(forms.contains("lives"), "\(word): \(forms)")
+        }
+        let be = try examples(.engLists, lang: "eng", word: "be").map { $0.form.lowercased() }
+        XCTAssertFalse(Set(be).isDisjoint(with: ["is", "was", "are", "am", "were"]), "\(be)")
+    }
+
+    /// Kirill 2026-11-04: Greek rows are in the Greek pack only, English rows
+    /// in the English lists pack only; the bundle, the stub and the other
+    /// packs have none.
+    func testExamplesGoWithTheirLanguage() throws {
+        let packs = try PackFixtures.all()
+        let files = [try TestDictionary.bundledURL(), try stubURL()] + PackID.all.compactMap { packs[$0] }
+        for url in files {
+            let file = try BundledDictionary(url: url).read { db in
+                (languages: try String.fetchAll(db, sql: "SELECT DISTINCT lang FROM example_sentence ORDER BY lang"),
+                 words: try String.fetchAll(db, sql: "SELECT DISTINCT lang FROM example_word ORDER BY lang"),
+                 translations: try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM example_translation") ?? 0,
+                 orphans: try Int.fetchOne(db, sql: """
+                    SELECT COUNT(*) FROM example_translation WHERE sentence_id NOT IN (SELECT id FROM example_sentence)
+                    """) ?? 0)
+            }
+            let expected = url == packs[.ell] ? ["ell"] : url == packs[.engLists] ? ["eng"] : []
+            XCTAssertEqual(file.languages, expected, url.lastPathComponent)
+            XCTAssertEqual(file.words, expected, url.lastPathComponent)
+            XCTAssertEqual(file.translations > 0, !expected.isEmpty, url.lastPathComponent)
+            XCTAssertEqual(file.orphans, 0, "\(url.lastPathComponent): translations go with their sentence")
+        }
+    }
+
+    /// Kirill 2026-11-04 (Open question 3): every file has the three tables
+    /// with their columns in format 4; the bundle and the stub keep them
+    /// empty. #177 changes no table shape.
+    func testEveryFileHasTheExampleTables() throws {
+        let packs = try PackFixtures.all()
+        let bundle = try TestDictionary.bundledURL(), stub = try stubURL()
+        for url in [bundle, stub] + PackID.all.compactMap({ packs[$0] }) {
+            XCTAssertEqual(DictionaryFile.headerFormat(of: url), DictionaryFile.formatVersion, url.lastPathComponent)
+            let found = try BundledDictionary(url: url).read { db in
+                try Self.tables.keys.sorted().map { table in
+                    (table, try db.tableExists(table) ? try db.columns(in: table).map(\.name) : [],
+                     try db.tableExists(table) ? try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM \(table)") ?? 0 : 0)
+                }
+            }
+            for (table, columns, rows) in found {
+                XCTAssertEqual(columns, Self.tables[table], "\(url.lastPathComponent): \(table)")
+                if url == bundle || url == stub { XCTAssertEqual(rows, 0, "\(url.lastPathComponent): \(table)") }
+            }
+        }
+    }
+
+    /// #134, #177: the Greek pack and the English lists pack credit Tatoeba
+    /// (CC BY 2.0 FR) with a `data_source` row, never a dictionary.
+    func testTatoebaDataSourceRow() throws {
+        let packs = try PackFixtures.all()
+        for url in [try TestDictionary.bundledURL()] + PackID.all.compactMap({ packs[$0] }) {
+            let file = try BundledDictionary(url: url).read { db in
+                (credit: try GRDB.Row.fetchOne(db, sql: "SELECT * FROM data_source WHERE id = 'tatoeba'"),
+                 dictionary: try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM dict_metadata WHERE source LIKE '%tatoeba%'") ?? 0)
+            }
+            XCTAssertEqual(file.dictionary, 0, url.lastPathComponent)
+            guard url == packs[.ell] || url == packs[.engLists] else {
+                XCTAssertNil(file.credit, url.lastPathComponent)
+                continue
+            }
+            let credit = try XCTUnwrap(file.credit, url.lastPathComponent)
+            XCTAssertEqual(credit["kind"] as String, "example_sentences")
+            XCTAssertEqual(credit["display_name"] as String, "Tatoeba (example sentences)")
+            XCTAssertEqual(credit["version"] as String, "export 2026-10-31")
+            XCTAssertEqual(credit["license"] as String, "CC BY 2.0 FR")
+            XCTAssertEqual(credit["url"] as String, "https://tatoeba.org")
+        }
+    }
+}

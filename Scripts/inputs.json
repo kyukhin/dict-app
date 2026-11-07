@@ -8,6 +8,177 @@
     "dump_lines": 11121531,
     "lines": 85425
   },
+  "Scripts/data/tatoeba-20261031": {
+    "about": "Two projections of Tatoeba's weekly export (CC BY 2.0 FR), committed because Tatoeba keeps only its latest export (docs/specs/0134-example-sentences.md, \"Source and pin\"). Written by build_examples.py --refresh.",
+    "export_date": "2026-10-31",
+    "export_url": "https://downloads.tatoeba.org/exports/per_language/",
+    "export_files": [
+      {
+        "path": "ell/ell_sentences_detailed.tsv.bz2",
+        "url": "https://downloads.tatoeba.org/exports/per_language/ell/ell_sentences_detailed.tsv.bz2",
+        "bytes": 817801,
+        "sha256": "9e724855f0c0fc44e2a46762f628fe4ee8849ac54e9a4043f6e86b50e7d7ae44"
+      },
+      {
+        "path": "ell/ell-eng_links.tsv.bz2",
+        "url": "https://downloads.tatoeba.org/exports/per_language/ell/ell-eng_links.tsv.bz2",
+        "bytes": 192619,
+        "sha256": "c4220bfa0c57d852716aa090eb995374cbcd36a65bdb42f2e281ade31579af46"
+      },
+      {
+        "path": "ell/ell-rus_links.tsv.bz2",
+        "url": "https://downloads.tatoeba.org/exports/per_language/ell/ell-rus_links.tsv.bz2",
+        "bytes": 39818,
+        "sha256": "e28cfbc546802c3a50d845f183e83609ad217e744abda86d89a7ab0534f9680a"
+      },
+      {
+        "path": "ell/ell-spa_links.tsv.bz2",
+        "url": "https://downloads.tatoeba.org/exports/per_language/ell/ell-spa_links.tsv.bz2",
+        "bytes": 19423,
+        "sha256": "9d8b26ffdb97b7e0399fbbc2d975ced5bf113c46ac9bbd15be5f174af30dd1b0"
+      },
+      {
+        "path": "ell/ell-ara_links.tsv.bz2",
+        "url": "https://downloads.tatoeba.org/exports/per_language/ell/ell-ara_links.tsv.bz2",
+        "bytes": 2383,
+        "sha256": "544a8a75b7e04d43c7df37de72c4981174896e3eba012262a18fbd44c4b74f83"
+      },
+      {
+        "path": "eng/eng-rus_links.tsv.bz2",
+        "url": "https://downloads.tatoeba.org/exports/per_language/eng/eng-rus_links.tsv.bz2",
+        "bytes": 5011078,
+        "sha256": "a732da5398ea5026aca8aabe2a0d588f42a2139a17347fc7b6ec8e16f528467b"
+      },
+      {
+        "path": "eng/eng-spa_links.tsv.bz2",
+        "url": "https://downloads.tatoeba.org/exports/per_language/eng/eng-spa_links.tsv.bz2",
+        "bytes": 1761958,
+        "sha256": "13bcf23b8890f9666d30c0e1c03ab4fc3e6be9fa5f8dbb587a4cd5f61e167b8f"
+      },
+      {
+        "path": "eng/eng-ara_links.tsv.bz2",
+        "url": "https://downloads.tatoeba.org/exports/per_language/eng/eng-ara_links.tsv.bz2",
+        "bytes": 299441,
+        "sha256": "20f4671b42bbbcb037fb7498519096d8a90053d34274c58aae9d3c103fcada93"
+      },
+      {
+        "path": "eng/eng_sentences_detailed.tsv.bz2",
+        "url": "https://downloads.tatoeba.org/exports/per_language/eng/eng_sentences_detailed.tsv.bz2",
+        "bytes": 34969370,
+        "sha256": "7d8a98a1322c63eb62199b0e928efc5b9afbf8f4bb9bc4b60ebde1ea99a30cda"
+      },
+      {
+        "path": "rus/rus_sentences_detailed.tsv.bz2",
+        "url": "https://downloads.tatoeba.org/exports/per_language/rus/rus_sentences_detailed.tsv.bz2",
+        "bytes": 23620785,
+        "sha256": "16e6147510b4f09f97636940aaf674dee68a47910276c9a122e81453527eb329"
+      },
+      {
+        "path": "spa/spa_sentences_detailed.tsv.bz2",
+        "url": "https://downloads.tatoeba.org/exports/per_language/spa/spa_sentences_detailed.tsv.bz2",
+        "bytes": 9521526,
+        "sha256": "8ebe95f5a71651c9407606e898fa59efe43295c461d24d32c1804a5dd908e67e"
+      },
+      {
+        "path": "ara/ara_sentences_detailed.tsv.bz2",
+        "url": "https://downloads.tatoeba.org/exports/per_language/ara/ara_sentences_detailed.tsv.bz2",
+        "bytes": 1213294,
+        "sha256": "d6f188e382e437d0632f2bdcad23941acd9bf7eba984069327977b84837f411d"
+      },
+      {
+        "path": "ell/ell_tags.tsv.bz2",
+        "url": "https://downloads.tatoeba.org/exports/per_language/ell/ell_tags.tsv.bz2",
+        "bytes": 4633,
+        "sha256": "c85217922d10ecf4d171a69e78b8965908317104a126b10f6f3310b73f882a0e"
+      },
+      {
+        "path": "eng/eng_tags.tsv.bz2",
+        "url": "https://downloads.tatoeba.org/exports/per_language/eng/eng_tags.tsv.bz2",
+        "bytes": 2338387,
+        "sha256": "b681bd2a38453765464a69e3da61f1adb1e2e54914b571a7960e4f5cf7c9751d"
+      },
+      {
+        "path": "rus/rus_tags.tsv.bz2",
+        "url": "https://downloads.tatoeba.org/exports/per_language/rus/rus_tags.tsv.bz2",
+        "bytes": 254344,
+        "sha256": "a16d7ad9f873d528b0061547a2ff7fed8a80da5dc63ca425e9159f811aab0413"
+      },
+      {
+        "path": "spa/spa_tags.tsv.bz2",
+        "url": "https://downloads.tatoeba.org/exports/per_language/spa/spa_tags.tsv.bz2",
+        "bytes": 70726,
+        "sha256": "27753b89b9b74e1f4ebc0d8fe676386dd4f32e496852dfebdb859fa9394900a4"
+      },
+      {
+        "path": "ara/ara_tags.tsv.bz2",
+        "url": "https://downloads.tatoeba.org/exports/per_language/ara/ara_tags.tsv.bz2",
+        "bytes": 4435,
+        "sha256": "f31a67a0ac99762c3a4bf657d84c6cff5a095d0e4bc5f34526ce0f13054a5115"
+      },
+      {
+        "path": "ell/ell_user_languages.tsv.bz2",
+        "url": "https://downloads.tatoeba.org/exports/per_language/ell/ell_user_languages.tsv.bz2",
+        "bytes": 3641,
+        "sha256": "9db1d182ffe506e4d8612c3f1195d8d1ddda169428a7f15646809aff769db422"
+      },
+      {
+        "path": "eng/eng_user_languages.tsv.bz2",
+        "url": "https://downloads.tatoeba.org/exports/per_language/eng/eng_user_languages.tsv.bz2",
+        "bytes": 291815,
+        "sha256": "8fe1e08ec64e4ff76a9b642e5a77db950ae09513c6a72af78de290c81c6c323e"
+      },
+      {
+        "path": "rus/rus_user_languages.tsv.bz2",
+        "url": "https://downloads.tatoeba.org/exports/per_language/rus/rus_user_languages.tsv.bz2",
+        "bytes": 28027,
+        "sha256": "4a344119972443d01b1270b065a265b5d04f6548a58286f06b98f857a049c012"
+      },
+      {
+        "path": "spa/spa_user_languages.tsv.bz2",
+        "url": "https://downloads.tatoeba.org/exports/per_language/spa/spa_user_languages.tsv.bz2",
+        "bytes": 39725,
+        "sha256": "1324a9a46e1469b3dfcee91244b23f93be830147acef921ba8d86b7eb8ed1cba"
+      },
+      {
+        "path": "ara/ara_user_languages.tsv.bz2",
+        "url": "https://downloads.tatoeba.org/exports/per_language/ara/ara_user_languages.tsv.bz2",
+        "bytes": 15552,
+        "sha256": "9975fabe921f3033ad135e5954a900b2c6f3141f82a41b35643cbb5c978124d9"
+      }
+    ]
+  },
+  "Scripts/data/tatoeba-20261031/ell-links.tsv.xz": {
+    "sha256": "1d755e9a19d3f362d05f5fbd423480bffea6dfd3dccd9f634939a985ad70e413",
+    "rows": 42276
+  },
+  "Scripts/data/tatoeba-20261031/ell-natives.tsv.xz": {
+    "sha256": "19fe4458e0ac7a220a8ae9d3f788a0e0daeeef577d43edf600653264a93aa426",
+    "rows": 531
+  },
+  "Scripts/data/tatoeba-20261031/ell-sentences.tsv.xz": {
+    "sha256": "8522974e0c192c434bad81bc2794044f91d64a7fae656006f153d8593fc8a8ff",
+    "rows": 75127
+  },
+  "Scripts/data/tatoeba-20261031/ell-tags.tsv.xz": {
+    "sha256": "97a1cb8f1e9d980b104918347ea6ec9c317627a35ff9c45840708d3bba0142d4",
+    "rows": 31110
+  },
+  "Scripts/data/tatoeba-20261031/eng-links.tsv.xz": {
+    "sha256": "ea21d35d2f9f1e77a5732cb3002de0c70deff6e6326adfe8abb1763f21f34aa7",
+    "rows": 1198407
+  },
+  "Scripts/data/tatoeba-20261031/eng-natives.tsv.xz": {
+    "sha256": "3ca697b02883397e46ac355c634e7c13444daa3da93aa7347369052aaee1d324",
+    "rows": 2595
+  },
+  "Scripts/data/tatoeba-20261031/eng-sentences.tsv.xz": {
+    "sha256": "0405d3d703bb2f37b3570b95cf54fe4175cb8c0500391d07c928c3fdfe4e9e17",
+    "rows": 1728400
+  },
+  "Scripts/data/tatoeba-20261031/eng-tags.tsv.xz": {
+    "sha256": "1a170e6ea613af58519910c6774b8d433e2575cbc358c9354ec2a0c5be310a6b",
+    "rows": 596211
+  },
   "Scripts/data/wordlists/ky-ell-a1.csv": {
     "sha256": "591d5c1fbe6714e3f9c6c3099f32c196f46eb4afe424badb950a787171c98d7b",
     "about": "Kirill Yukhin's Greek list, CC BY-SA 4.0 (docs/specs/0130-word-lists.md, Decisions): his file of 2026-10-22 with the Latin lookalike letters in the Greek columns and the Greek ones in the English column fixed, είμαι moved to A1, and 7, 9 and 21 spelled as grammar topic 12 (επτά/εφτά and εννέα/εννιά one word each, merged into A1)"

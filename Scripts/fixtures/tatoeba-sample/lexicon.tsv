@@ -1,0 +1,39 @@
+lemma	γράφω	verb	γράφω,γράφεις,γράφει,έγραψα,έγραψε,γράψω,γράψε
+lemma	ημέρα	noun	ημέρα,ημέρας,ημέρες,μέρα
+lemma	μαλάκας	noun	μαλάκας,μαλάκα,μαλάκες
+lemma	πηγαίνω	verb	πηγαίνω,πήγα
+link	πάω	πηγαίνω
+headword	γράφω
+headword	μέρα
+headword	πότε
+headword	ποτέ
+headword	σπίτι
+exception	went	v	go
+exception	gone	v	go
+exception	lives	n	life
+exception	was	v	be
+morphy	go	3
+morphy	live	6
+morphy	life	1
+morphy	evening	1
+morphy	even	14
+morphy	walk	3
+morphy	house	3
+morphy	write	2
+morphy	fuck	2
+morphy	good	5
+morphy	be	2
+morphy	hope	3
+morphy	hop	3
+list	go
+list	house
+list	write
+list	live
+list	life
+list	evening
+list	even
+list	good
+list	was
+list	be
+list	hope
+list	hop
