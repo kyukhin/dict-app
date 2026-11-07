@@ -283,6 +283,8 @@ final class ExerciseRunViewModel: ObservableObject {
     private let languages: LearningLanguageService
     private let clock: LearningClock
     private let player: FeedbackPlayer
+    /// The answer that reaches today's goal cancels today's reminder (#162).
+    private let reminder: LearningReminder?
     private var rng: SplitMix64
     private var plan: [PlannedItem] = []
     private var index = 0
@@ -301,7 +303,7 @@ final class ExerciseRunViewModel: ObservableObject {
 
     init(run: Run, lang: String, meaningsLang: String?, db: DatabaseService = .shared,
          settings: SettingsService = .shared, languages: LearningLanguageService? = nil,
-         clock: LearningClock = LearningClock(), player: FeedbackPlayer? = nil,
+         clock: LearningClock = LearningClock(), player: FeedbackPlayer? = nil, reminder: LearningReminder? = nil,
          seed: UInt64? = LearningLaunchOptions.seed, answerHints: Bool = LearningLaunchOptions.answerHints) {
         self.run = run
         self.lang = lang
@@ -311,6 +313,9 @@ final class ExerciseRunViewModel: ObservableObject {
         self.languages = languages ?? .shared
         self.clock = clock
         self.player = player ?? .shared
+        // The app's reminder works on the app's settings; a test's own
+        // settings get none unless it brings one.
+        self.reminder = reminder ?? (settings === SettingsService.shared ? .shared : nil)
         self.rng = SplitMix64(seed: seed ?? UInt64.random(in: .min ... .max))
         self.answerHints = answerHints
     }
@@ -510,6 +515,7 @@ final class ExerciseRunViewModel: ObservableObject {
     private func write(_ record: AnswerRecord, today: LearnDay, wrongAt index: Int?) async {
         do {
             let card = try await db.recordAnswer(record, today: today, goal: settings.learningDailyGoal)
+            await reminder?.answerRecorded(today: today)
             if let index {
                 plan = SessionPlanner.separatingWords(SessionPlanner.requeue(plan, wrongAt: index, card: card),
                                                       from: index + 1)

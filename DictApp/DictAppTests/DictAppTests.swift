@@ -12,6 +12,7 @@ import CoreText
 import UIKit
 import OSLog
 import CryptoKit
+import UserNotifications
 
 final class DictAppTests: XCTestCase {
 
@@ -20688,6 +20689,38 @@ final class SessionPlannerTests: ExerciseTestCase {
         XCTAssertEqual(english.pool.map(\.key.word), ["house"])
     }
 
+    /// #162: New words per day (`learning_new_per_day`) is each run's daily
+    /// limit, read when the run starts: 3 gives three new words, each asked
+    /// twice; 0 none, so the session has nothing to ask; 50, every word.
+    func testNewPerDaySetting() async throws {
+        for index in 0..<5 {
+            try await db.learnWord(greek("ουσία\(index)"), today: today)
+        }
+        settings.learningAnswerMode = .choice
+        settings.learningNewPerDay = 3
+        var vm = sessionRun()
+        await vm.start()
+        XCTAssertNil(vm.errorMessage)
+        XCTAssertEqual(vm.total, 6, "three new words, recognition then production")
+
+        settings.learningNewPerDay = 0
+        vm = sessionRun()
+        await vm.start()
+        XCTAssertEqual(vm.phase, .empty, "no new word, nothing due")
+        let none = try await NewWordPicker(db: db, settings: settings).left(lang: "ell", today: today)
+        XCTAssertEqual(none, 0)
+
+        settings.learningNewPerDay = 50
+        vm = sessionRun()
+        await vm.start()
+        XCTAssertEqual(vm.total, 10, "all five words")
+        let asked = try await answer(vm)
+        XCTAssertEqual(asked.count, 10)
+        settings.learningNewPerDay = 4
+        let left = try await NewWordPicker(db: db, settings: settings).left(lang: "ell", today: today)
+        XCTAssertEqual(left, 0, "5 started today: a lower limit leaves none, never below 0")
+    }
+
     /// QA (#161): a wrong card requeued at the end does not land next to
     /// its word's other card while another card remains. γράφω's
     /// recognition, σπίτι's production, then γράφω's production are due;
@@ -21168,5 +21201,459 @@ extension LearnViewModelTests {
         await vm.load(locale: Locale(identifier: "en"))
         XCTAssertEqual(vm.today, .allDone, "only άγνωστο is due: no Start")
         XCTAssertEqual(vm.mistakeCount, 0, "only άγνωστο is a mistake: no row")
+    }
+}
+
+// MARK: - Learning settings and the reminder (0131, #162)
+
+/// `UNUserNotificationCenter` in memory: the authorization, its requests,
+/// and the pending requests.
+final class FakeNotificationCenter: NotificationScheduling {
+    var status: UNAuthorizationStatus
+    /// What the user answers to the permission alert.
+    var grants: Bool
+    private(set) var authorizationRequests = 0
+    private(set) var requests: [UNNotificationRequest] = []
+
+    init(status: UNAuthorizationStatus = .authorized, grants: Bool = true) {
+        self.status = status
+        self.grants = grants
+    }
+
+    func requestAuthorization(options: UNAuthorizationOptions) async throws -> Bool {
+        authorizationRequests += 1
+        if status == .notDetermined {
+            status = grants ? .authorized : .denied
+        }
+        return status == .authorized
+    }
+
+    func authorizationStatus() async -> UNAuthorizationStatus { status }
+
+    func pendingNotificationRequests() async -> [UNNotificationRequest] { requests }
+
+    func removePendingNotificationRequests(withIdentifiers identifiers: [String]) {
+        requests.removeAll { identifiers.contains($0.identifier) }
+    }
+
+    func add(_ request: UNNotificationRequest) async throws {
+        requests.removeAll { $0.identifier == request.identifier }
+        requests.append(request)
+    }
+
+    /// Another app feature's request, which the reminder never touches.
+    func addOther(_ identifier: String) {
+        requests.append(UNNotificationRequest(identifier: identifier, content: UNMutableNotificationContent(),
+                                              trigger: nil))
+    }
+
+    /// Each pending reminder as `<learning day> <fire date and time>`.
+    var reminders: [String] {
+        requests.filter { $0.identifier.hasPrefix(LearningReminder.identifierPrefix) }.map { request in
+            let day = request.identifier.dropFirst(LearningReminder.identifierPrefix.count)
+            guard let trigger = request.trigger as? UNCalendarNotificationTrigger else { return "\(day) no trigger" }
+            let c = trigger.dateComponents
+            let fire = String(format: "%04d-%02d-%02d %02d:%02d", c.year ?? 0, c.month ?? 0, c.day ?? 0,
+                              c.hour ?? 0, c.minute ?? 0)
+            return "\(day) \(fire)\(trigger.repeats ? " repeats" : "")"
+        }
+    }
+}
+
+/// The reminder and the Learning settings on `LearnTabTestCase`'s database
+/// and store, at noon UTC on 2026-11-04.
+@MainActor
+class LearningReminderTestCase: LearnTabTestCase {
+    var center: FakeNotificationCenter!
+    var clock: TestClock!
+    let day = LearnDay(year: 2026, month: 11, day: 4)
+
+    override func setUp() async throws {
+        try await super.setUp()
+        center = FakeNotificationCenter()
+        clock = TestClock("2026-11-04T12:00:00Z")
+    }
+
+    func reminder(locale: Locale = Locale(identifier: "en")) -> LearningReminder {
+        LearningReminder(center: center, settings: settings, db: db, clock: clock.clock, locale: { locale })
+    }
+
+    /// `count` answers logged on `day`.
+    func logAnswers(_ count: Int, on day: LearnDay) async throws {
+        for _ in 0..<count {
+            try await execute("""
+                INSERT INTO learn_review(day, lang, word, kind, exercise, mode, run_id, outcome, step_before, step_after)
+                VALUES (?, 'ell', 'γράφω', 'recognition', 'recognition', 'trainer', 'run', 'right', 0, 1)
+                """, [day.rawValue])
+        }
+    }
+
+    /// The days `first` and the following, as `reminders` lists them at `time`.
+    func week(from first: Int = 0, at time: String = "19:00") -> [String] {
+        (first..<7).map { offset in
+            let learningDay = day.adding(days: offset).rawValue
+            return "\(learningDay) \(learningDay) \(time)"
+        }
+    }
+
+    /// Waits for what a `didSet` started in a task.
+    func eventually(_ what: String, timeout: TimeInterval = 5,
+                    _ condition: () async throws -> Bool) async throws {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if try await condition() { return }
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+        XCTFail("timed out: \(what)")
+    }
+}
+
+final class LearningReminderTests: LearningReminderTestCase {
+    /// Off: nothing is scheduled, and a reminder left pending goes; other
+    /// requests stay.
+    func testOffSchedulesNothing() async throws {
+        center.addOther("other.request")
+        try await center.add(UNNotificationRequest(identifier: "learning.reminder.2026-11-01",
+                                                   content: UNMutableNotificationContent(), trigger: nil))
+        await reminder().reschedule()
+        XCTAssertEqual(center.reminders, [])
+        XCTAssertEqual(center.requests.map(\.identifier), ["other.request"])
+        XCTAssertEqual(center.authorizationRequests, 0)
+    }
+
+    /// On at 19:00: one request per learning day, today and the next 6, at
+    /// 19:00, not repeating, with the goal in the text.
+    func testSchedulesSevenDays() async throws {
+        settings.learningReminder = 19 * 60
+        await reminder().reschedule()
+        XCTAssertEqual(center.reminders, week())
+        let body = center.requests.first?.content.body
+        XCTAssertEqual(body, "Time for today's words. Your goal: 20 exercises.")
+        XCTAssertNotNil(center.requests.first?.content.sound, "with a sound")
+
+        await reminder().reschedule()
+        XCTAssertEqual(center.reminders, week(), "rescheduling replaces, never doubles")
+
+        center.status = .denied
+        await reminder().reschedule()
+        XCTAssertEqual(center.reminders, [], "not authorised: nothing")
+    }
+
+    /// Today's goal met (answers in any language reach it): today is skipped.
+    func testGoalMetTodaySkipsToday() async throws {
+        settings.learningReminder = 19 * 60
+        settings.learningDailyGoal = 5
+        try await logAnswers(4, on: day)
+        await reminder().reschedule()
+        XCTAssertEqual(center.reminders, week(), "4 of 5: today stays")
+        try await logAnswers(1, on: day)
+        await reminder().reschedule()
+        XCTAssertEqual(center.reminders, week(from: 1), "5 of 5: from tomorrow")
+        await reminder().reschedule(today: day, goalMetToday: false)
+        XCTAssertEqual(center.reminders, week())
+    }
+
+    /// Today's time passed: from tomorrow. A time before 4 AM belongs to the
+    /// learning day before, so it fires after the next midnight.
+    func testTimePassedSkipsToday() async throws {
+        settings.learningReminder = 9 * 60
+        await reminder().reschedule()
+        XCTAssertEqual(center.reminders, week(from: 1, at: "09:00"), "09:00 has passed at noon")
+
+        clock.set("2026-11-04T18:59:00Z")
+        settings.learningReminder = 19 * 60
+        await reminder().reschedule()
+        XCTAssertEqual(center.reminders.first, "2026-11-04 2026-11-04 19:00", "a minute to go")
+
+        settings.learningReminder = 30
+        await reminder().reschedule()
+        XCTAssertEqual(center.reminders.prefix(2), ["2026-11-04 2026-11-05 00:30", "2026-11-05 2026-11-06 00:30"])
+        XCTAssertEqual(center.reminders.count, 7)
+
+        clock.set("2026-11-05T01:00:00Z")
+        await reminder().reschedule()
+        XCTAssertEqual(center.reminders.first, "2026-11-05 2026-11-06 00:30",
+                       "01:00 is still 2026-11-04's learning day: its 00:30 passed")
+    }
+
+    /// The answer that reaches the goal cancels today's reminder; the
+    /// answers before it and after it change nothing.
+    func testReachingTheGoalCancelsToday() async throws {
+        settings.learningReminder = 19 * 60
+        settings.learningDailyGoal = 5
+        let reminder = reminder()
+        await reminder.reschedule()
+        try await logAnswers(4, on: day)
+        await reminder.answerRecorded(today: day)
+        XCTAssertEqual(center.reminders, week(), "4 of 5")
+        try await logAnswers(1, on: day)
+        await reminder.answerRecorded(today: day)
+        XCTAssertEqual(center.reminders, week(from: 1), "the 5th answer cancels today")
+        await reminder.reschedule(today: day, goalMetToday: false)
+        try await logAnswers(1, on: day)
+        await reminder.answerRecorded(today: day)
+        XCTAssertEqual(center.reminders, week(), "the 6th crosses nothing")
+    }
+
+    /// The text is in the in-app language, with its plural.
+    func testContentInTheInAppLanguage() async throws {
+        settings.learningReminder = 19 * 60
+        await reminder(locale: Locale(identifier: "el")).reschedule()
+        XCTAssertEqual(center.requests.first?.content.body,
+                       "Ώρα για τις λέξεις της ημέρας. Ο στόχος σας: 20 ασκήσεις.")
+        settings.learningDailyGoal = 25
+        await reminder(locale: Locale(identifier: "ru")).reschedule()
+        XCTAssertEqual(center.requests.first?.content.body, "Пора учить слова. Ваша цель: 25 упражнений.")
+        XCTAssertEqual(LearningReminder.body(goal: 21, locale: Locale(identifier: "ru")),
+                       "Пора учить слова. Ваша цель: 21 упражнение.")
+        XCTAssertEqual(LearningReminder.body(goal: 1, locale: Locale(identifier: "en")),
+                       "Time for today's words. Your goal: 1 exercise.")
+        XCTAssertEqual(LearningReminder.body(goal: 20, locale: Locale(identifier: "es")),
+                       "Es hora de las palabras de hoy. Tu objetivo: 20 ejercicios.")
+        XCTAssertTrue(LearningReminder.body(goal: 20, locale: Locale(identifier: "ar")).hasPrefix("حان وقت كلمات اليوم."))
+    }
+
+    /// Launch, answers, the time, the goal and other settings never ask iOS;
+    /// turning the reminder on asks once. Denied: it stays off, nothing is
+    /// scheduled.
+    func testAuthorizationOnlyOnTurningOn() async throws {
+        center.status = .notDetermined
+        center.grants = false
+        let reminder = reminder()
+        await reminder.reschedule()
+        settings.learningReminder = 19 * 60
+        await reminder.reschedule()
+        await reminder.answerRecorded(today: day)
+        await reminder.setTime(8 * 60)
+        let vm = LearningSettingsViewModel(settings: settings, db: db, languages: languages, reminder: reminder,
+                                           clock: clock.clock, supportsHaptics: true)
+        await vm.load(locale: Locale(identifier: "en"))
+        vm.dailyGoal = 30
+        vm.newPerDay = 5
+        vm.sounds = false
+        try await eventually("the goal's write") { try await self.db.learnDayGoals()[self.day] == 30 }
+        await reminder.turnOff()
+        XCTAssertEqual(center.authorizationRequests, 0, "nothing asks before the switch")
+        XCTAssertEqual(center.reminders, [])
+
+        let denied = await reminder.turnOn(at: 19 * 60)
+        XCTAssertFalse(denied)
+        XCTAssertEqual(center.authorizationRequests, 1)
+        XCTAssertNil(settings.learningReminder, "denied: off")
+        XCTAssertEqual(center.reminders, [])
+
+        center.status = .notDetermined
+        center.grants = true
+        let granted = await reminder.turnOn(at: 19 * 60)
+        XCTAssertTrue(granted)
+        XCTAssertEqual(settings.learningReminder, 19 * 60)
+        XCTAssertEqual(center.reminders, week())
+    }
+
+    /// `-resetData`: every pending reminder goes, other requests stay.
+    func testRemoveAllClearsPendingReminders() async throws {
+        settings.learningReminder = 19 * 60
+        center.addOther("other.request")
+        await reminder().reschedule()
+        XCTAssertEqual(center.reminders.count, 7)
+        await reminder().removeAll()
+        XCTAssertEqual(center.requests.map(\.identifier), ["other.request"])
+    }
+
+    /// A tapped reminder asks for the Learn tab; another notification does
+    /// not. The request waits for a window, stays for every window open
+    /// when one takes it, and then goes, so a window rebuilt later (a UI
+    /// language change) starts on Search (QA: tabs are per window).
+    func testReminderTapOpensLearn() async throws {
+        let router = AppRouter()
+        router.open(notification: "other.request")
+        XCTAssertNil(router.request)
+        router.open(notification: LearningReminder.identifierPrefix + "2026-11-04")
+        XCTAssertEqual(router.request, .learn)
+        router.taken()
+        XCTAssertEqual(router.request, .learn, "every window open now takes it")
+        try await eventually("the request goes") { router.request == nil }
+    }
+}
+
+final class LearningSettingsViewModelTests: LearningReminderTestCase {
+    private func model() -> LearningSettingsViewModel {
+        LearningSettingsViewModel(settings: settings, db: db, languages: languages, reminder: reminder(),
+                                  clock: clock.clock, supportsHaptics: true)
+    }
+
+    /// The section reads each key and writes it on a change.
+    func testValuesWriteTheirKeys() async throws {
+        settings.learningNewPerDay = 7
+        settings.learningAnswerMode = .choice
+        let vm = model()
+        XCTAssertEqual(vm.newPerDay, 7)
+        XCTAssertEqual(vm.dailyGoal, 20)
+        XCTAssertEqual(vm.newOrder, .frequency)
+        XCTAssertEqual(vm.answerMode, .choice)
+        XCTAssertTrue(vm.sounds)
+        XCTAssertTrue(vm.haptics)
+        XCTAssertFalse(vm.reminderOn)
+        XCTAssertEqual(vm.reminderTime, 19 * 60, "19:00 until set")
+
+        vm.newPerDay = 0
+        vm.newOrder = .random
+        vm.answerMode = .strict
+        vm.sounds = false
+        vm.haptics = false
+        XCTAssertEqual(settings.learningNewPerDay, 0)
+        XCTAssertEqual(settings.learningNewOrder, .random)
+        XCTAssertEqual(settings.learningAnswerMode, .strict)
+        XCTAssertFalse(settings.learningSounds)
+        XCTAssertFalse(settings.learningHaptics)
+
+        settings.learningNewPerDay = 12
+        await vm.load(locale: Locale(identifier: "en"))
+        XCTAssertEqual(vm.newPerDay, 12, "a change made elsewhere shows on the next load")
+    }
+
+    /// A goal change writes today's `learn_day` row (0166) and reschedules
+    /// the reminders with the new goal.
+    func testGoalChangeStoresTodaysGoalAndReschedules() async throws {
+        settings.learningReminder = 19 * 60
+        let vm = model()
+        vm.dailyGoal = 35
+        XCTAssertEqual(settings.learningDailyGoal, 35)
+        try await eventually("today's goal") { try await self.db.learnDayGoals()[self.day] == 35 }
+        try await eventually("the new text") {
+            self.center.requests.first?.content.body == "Time for today's words. Your goal: 35 exercises."
+        }
+        XCTAssertEqual(center.reminders, week())
+    }
+
+    /// The learned languages with their pairs: Greek's via is a menu of
+    /// English (its default) and Russian; English has one pair. Changing
+    /// Greek to via Russian stores it and installs its packs; the row is
+    /// then limited.
+    func testLanguagesAndTheirVias() async throws {
+        settings.learningLanguages = ["ell", "eng"]
+        let vm = model()
+        await vm.load(locale: Locale(identifier: "en"))
+        XCTAssertNil(vm.errorMessage)
+        XCTAssertEqual(vm.languages.map(\.lang), ["ell", "eng"], "in the order chosen")
+        XCTAssertEqual(vm.languages[0].pair, greekViaEnglish)
+        XCTAssertEqual(vm.languages[0].vias, [greekViaEnglish, greekViaRussian], "the default first")
+        XCTAssertEqual(vm.languages[1].vias, [englishViaEnglish], "one pair: no menu")
+        XCTAssertEqual(vm.addable, [], "every offered language is learned")
+        XCTAssertEqual(vm.learnedNames(locale: Locale(identifier: "en")), "Greek, English")
+
+        await vm.setVia("rus", for: "ell", locale: Locale(identifier: "en"))
+        XCTAssertEqual(settings.learningVia["ell"], "rus")
+        XCTAssertEqual(vm.languages[0].pair, greekViaRussian)
+        XCTAssertEqual(vm.languages[0].pair?.isLimited, true)
+        try await eventually("the install") { self.packs.installed == ["ell-rus"] }
+        await vm.setVia("rus", for: "ell", locale: Locale(identifier: "en"))
+        XCTAssertEqual(packs.installed, ["ell-rus"], "the same via: nothing to do")
+    }
+
+    /// Stop learning keeps the data and offers the language again under
+    /// "Add a language"; adding it resumes it with its cards.
+    func testStopThenAddAgain() async throws {
+        try await db.addToMyWords(house)
+        try await languages.learn(greekViaEnglish).value
+        try await languages.learn(englishViaEnglish).value
+        try await answerRight(houseKey)
+        let before = try await cards(houseKey)
+        settings.learningListIDs = ["cefr-eng-a1", "ky-ell-a1"]
+        let vm = model()
+        await vm.stop("eng", locale: Locale(identifier: "en"))
+        XCTAssertEqual(settings.learningLanguages, ["ell"])
+        XCTAssertEqual(vm.languages.map(\.lang), ["ell"])
+        XCTAssertEqual(vm.addable, [englishViaEnglish])
+        let stopped = try await cards(houseKey)
+        XCTAssertEqual(stopped, before, "stopping changes no data")
+        XCTAssertEqual(settings.learningListIDs, ["cefr-eng-a1", "ky-ell-a1"], "its lists stay checked")
+        XCTAssertEqual(settings.learningVia["eng"], "eng", "its via stays")
+
+        await vm.add(englishViaEnglish, locale: Locale(identifier: "en"))
+        XCTAssertEqual(settings.learningLanguages, ["ell", "eng"])
+        XCTAssertEqual(languages.chosen, "eng", "the language added is chosen")
+        XCTAssertEqual(vm.addable, [])
+        let resumed = try await cards(houseKey)
+        XCTAssertEqual(resumed, before)
+    }
+
+    /// The switch: denied, it goes back off and the footer shows; allowed,
+    /// it schedules at 19:00; a new time reschedules; off removes them.
+    func testReminderSwitch() async throws {
+        center.status = .notDetermined
+        center.grants = false
+        let vm = model()
+        await vm.setReminder(true)
+        XCTAssertFalse(vm.reminderOn, "denied: back off")
+        XCTAssertTrue(vm.notificationsDenied, "the footer offers Open Settings")
+        XCTAssertNil(settings.learningReminder)
+
+        center.status = .notDetermined
+        center.grants = true
+        await vm.refreshAuthorization()
+        XCTAssertFalse(vm.notificationsDenied)
+        await vm.setReminder(true)
+        XCTAssertTrue(vm.reminderOn)
+        XCTAssertEqual(settings.learningReminder, 19 * 60)
+        XCTAssertEqual(center.reminders, week())
+
+        await vm.setReminderTime(20 * 60 + 15)
+        XCTAssertEqual(settings.learningReminder, 20 * 60 + 15)
+        XCTAssertEqual(center.reminders, week(at: "20:15"))
+
+        await vm.setReminder(false)
+        XCTAssertFalse(vm.reminderOn)
+        XCTAssertNil(settings.learningReminder)
+        XCTAssertEqual(center.reminders, [])
+        XCTAssertEqual(center.authorizationRequests, 2, "only the two turns on asked")
+        XCTAssertEqual(vm.reminderTime, 20 * 60 + 15, "the time is kept for the next turn on")
+    }
+
+    /// The time picker's date and minutes after midnight.
+    func testTimeConversion() {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "Europe/Athens")!
+        let date = LearningSettingsViewModel.date(ofMinutes: 19 * 60 + 5, calendar: calendar)
+        XCTAssertEqual(calendar.component(.hour, from: date), 19)
+        XCTAssertEqual(LearningSettingsViewModel.minutes(of: date, calendar: calendar), 19 * 60 + 5)
+    }
+}
+
+/// QA (#162): a run's answers reach the reminder. Goal 5, three new words
+/// (six questions): today's reminder stays through the 4th answer, the 5th
+/// cancels it, and the 6th does not bring it back; the other days stay.
+final class LearningReminderRunTests: ExerciseTestCase {
+    func testRunAnswerReachingTheGoalCancelsToday() async throws {
+        for index in 0..<3 {
+            try await db.learnWord(greek("ουσία\(index)"), today: today)
+        }
+        settings.learningAnswerMode = .choice
+        settings.learningDailyGoal = 5
+        settings.learningReminder = 19 * 60
+        let center = FakeNotificationCenter()
+        let clock = TestClock("2026-11-04T12:00:00Z")
+        let reminder = LearningReminder(center: center, settings: settings, db: db, clock: clock.clock,
+                                        locale: { Locale(identifier: "en") })
+        await reminder.reschedule()
+        let todays = LearningReminder.identifierPrefix + today.rawValue
+        XCTAssertEqual(center.reminders.count, 7)
+        XCTAssertTrue(center.requests.contains { $0.identifier == todays })
+
+        let vm = ExerciseRunViewModel(run: .session, lang: "ell", meaningsLang: "eng", db: db, settings: settings,
+                                      languages: languages, clock: clock.clock,
+                                      player: FeedbackPlayer(settings: settings, sink: RecordingFeedbackSink()),
+                                      reminder: reminder, seed: 162, answerHints: true)
+        await vm.start()
+        XCTAssertEqual(vm.total, 6)
+        try await answer(vm, limit: 4)
+        XCTAssertTrue(center.requests.contains { $0.identifier == todays }, "4 of 5: today's reminder stays")
+        try await answer(vm, limit: 1)
+        XCTAssertFalse(center.requests.contains { $0.identifier == todays }, "the 5th answer cancels today's")
+        XCTAssertEqual(center.reminders.count, 6, "the next 6 days stay")
+        try await answer(vm)
+        XCTAssertEqual(vm.phase, .summary)
+        XCTAssertFalse(center.requests.contains { $0.identifier == todays }, "the 6th does not bring it back")
+        XCTAssertEqual(center.authorizationRequests, 0, "a run never asks for the permission")
     }
 }

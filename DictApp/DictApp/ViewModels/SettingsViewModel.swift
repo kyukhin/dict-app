@@ -1,9 +1,11 @@
 // SettingsViewModel.swift
 // ViewModel for Settings view with UI language and dictionary management.
-// Also holds `DictionarySelection`, the pair list shared with Search (#145).
+// Also holds `DictionarySelection`, the pair list shared with Search (#145),
+// and `LearningSettingsViewModel`, the Learning section (0131, #162).
 
 import Foundation
 import Combine
+import CoreHaptics
 import SwiftUI
 
 // MARK: - Dictionary selection (Issue #145)
@@ -481,5 +483,217 @@ class SettingsViewModel: ObservableObject {
     /// language's lproj, not the device language.
     nonisolated static func localizedString(_ key: String, locale: Locale) -> String {
         localizedBundle(for: locale).localizedString(forKey: key, value: key, table: nil)
+    }
+}
+
+// MARK: - Learning (0131, #162)
+
+/// The Learning section of Settings and its Languages screen. Every value
+/// is a `learning_*` key of `SettingsService`, written at once; a change
+/// applies from the next question, and words already started keep their
+/// cards.
+@MainActor
+final class LearningSettingsViewModel: ObservableObject {
+    /// A learned language on the Languages screen.
+    struct LanguageRow: Identifiable, Equatable {
+        let lang: String
+        /// Its pair now; nil for Other, which has none.
+        let pair: LearningPair?
+        /// The pairs its via menu offers, the default first; a menu with two or more.
+        let vias: [LearningPair]
+
+        var id: String { lang }
+    }
+
+    /// The learned languages, in the order chosen.
+    @Published private(set) var languages: [LanguageRow] = []
+    /// "Add a language": the picker's rows, without the learned languages.
+    @Published private(set) var addable: [LearningPair] = []
+    @Published private(set) var downloadSizes: [LearningPair: Int64] = [:]
+
+    @Published var newPerDay: Int {
+        didSet { if newPerDay != oldValue { settings.learningNewPerDay = newPerDay } }
+    }
+    /// Today's `learn_day` row takes the new goal (0166), and the reminders
+    /// are rescheduled with it.
+    @Published var dailyGoal: Int {
+        didSet {
+            guard dailyGoal != oldValue else { return }
+            settings.learningDailyGoal = dailyGoal
+            let goal = dailyGoal
+            Task { await goalChanged(goal) }
+        }
+    }
+    @Published var newOrder: NewWordOrder {
+        didSet { if newOrder != oldValue { settings.learningNewOrder = newOrder } }
+    }
+    @Published var answerMode: AnswerMode {
+        didSet { if answerMode != oldValue { settings.learningAnswerMode = answerMode } }
+    }
+    @Published var sounds: Bool {
+        didSet { if sounds != oldValue { settings.learningSounds = sounds } }
+    }
+    @Published var haptics: Bool {
+        didSet { if haptics != oldValue { settings.learningHaptics = haptics } }
+    }
+    /// The reminder's switch; on at once when tapped, back off if iOS denies it.
+    @Published private(set) var reminderOn: Bool
+    /// The reminder's time in minutes after midnight, 19:00 until set.
+    @Published private(set) var reminderTime: Int
+    /// iOS refuses the notifications: the footer offers "Open Settings".
+    @Published private(set) var notificationsDenied = false
+    @Published var errorMessage: String?
+
+    /// Haptics is hidden on devices without them (iPad, the simulator).
+    let supportsHaptics: Bool
+
+    private let settings: SettingsService
+    private let db: DatabaseService
+    private let languageService: LearningLanguageService
+    private let reminder: LearningReminder
+    private let clock: LearningClock
+
+    init(settings: SettingsService = .shared, db: DatabaseService = .shared,
+         languages: LearningLanguageService? = nil, reminder: LearningReminder? = nil,
+         clock: LearningClock = LearningClock(),
+         supportsHaptics: Bool = CHHapticEngine.capabilitiesForHardware().supportsHaptics) {
+        self.settings = settings
+        self.db = db
+        self.languageService = languages ?? .shared
+        self.reminder = reminder ?? .shared
+        self.clock = clock
+        self.supportsHaptics = supportsHaptics
+        newPerDay = settings.learningNewPerDay
+        dailyGoal = settings.learningDailyGoal
+        newOrder = settings.learningNewOrder
+        answerMode = settings.learningAnswerMode
+        sounds = settings.learningSounds
+        haptics = settings.learningHaptics
+        reminderOn = settings.learningReminder != nil
+        reminderTime = settings.learningReminder ?? LearningReminder.defaultTime
+    }
+
+    /// The picker's first group: the languages with built-in lists.
+    var languagesWithLists: Set<String> { languageService.packs.languagesWithLists }
+
+    /// Rereads the values, which the Learn tab may have changed (a language
+    /// added from a word), the learned languages with their pairs, and the
+    /// notification permission. `locale` names the languages for the order.
+    func load(locale: Locale) async {
+        newPerDay = settings.learningNewPerDay
+        newOrder = settings.learningNewOrder
+        answerMode = settings.learningAnswerMode
+        sounds = settings.learningSounds
+        haptics = settings.learningHaptics
+        reminderOn = settings.learningReminder != nil
+        reminderTime = settings.learningReminder ?? reminderTime
+        do {
+            let offered = try await db.learningPairs().keys
+            let ui = languageService.uiLanguage()
+            func name(_ code: String) -> String { LearnViewModel.languageName(code, locale: locale) }
+            let learned = languageService.learned
+            languages = learned.map { lang in
+                LanguageRow(lang: lang,
+                            pair: LearningPairs.pair(for: lang, stored: settings.learningVia, offered: offered,
+                                                     uiLanguage: ui),
+                            vias: LearningPairs.vias(for: lang, offered: offered, uiLanguage: ui, name: name)
+                                .compactMap { via in offered.first { $0.lang == lang && $0.via == via } })
+            }
+            addable = LearningPairs.pickerRows(offered: offered, withLists: languagesWithLists, learned: learned,
+                                               uiLanguage: ui, name: name)
+            var sizes: [LearningPair: Int64] = [:]
+            for pair in addable {
+                sizes[pair] = await languageService.packs.downloadSize(of: pair)
+            }
+            downloadSizes = sizes
+            errorMessage = nil
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+        await refreshAuthorization()
+    }
+
+    /// The learned languages' names for the Settings row, "Greek, English".
+    func learnedNames(locale: Locale) -> String {
+        languages.map { LearnViewModel.languageName($0.lang, locale: locale) }
+            .formatted(.list(type: .and, width: .narrow).locale(locale))
+    }
+
+    // MARK: Languages
+
+    /// A learned language's new via, from the next question; installs the
+    /// new pair's missing packs. Cards, log, progress and lists stay.
+    func setVia(_ via: String, for lang: String, locale: Locale) async {
+        guard languages.first(where: { $0.lang == lang })?.pair?.via != via else { return }
+        // ponytail: #241 shows the install's progress row and Try again
+        languageService.setVia(via, for: lang)
+        await load(locale: locale)
+    }
+
+    /// Stop learning `lang`, after "Stop learning Greek?": it leaves the
+    /// learned languages; its data and via stay.
+    func stop(_ lang: String, locale: Locale) async {
+        languageService.stop(lang)
+        await load(locale: locale)
+    }
+
+    /// "Add a language": learns `pair` as the picker does.
+    func add(_ pair: LearningPair, locale: Locale) async {
+        do {
+            try await languageService.learn(pair)
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+        await load(locale: locale)
+    }
+
+    // MARK: Reminder
+
+    /// The switch. On asks iOS for permission, the only place the app
+    /// does; denied, the switch goes back off and the footer shows.
+    func setReminder(_ on: Bool) async {
+        guard on != (settings.learningReminder != nil) else { return }
+        reminderOn = on
+        if on {
+            let granted = await reminder.turnOn(at: reminderTime)
+            reminderOn = granted
+            notificationsDenied = !granted
+        } else {
+            await reminder.turnOff()
+        }
+    }
+
+    /// The time picker, while the reminder is on.
+    func setReminderTime(_ minutes: Int) async {
+        guard minutes != reminderTime else { return }
+        reminderTime = minutes
+        guard settings.learningReminder != nil else { return }
+        await reminder.setTime(minutes)
+    }
+
+    /// The footer follows iOS Settings, where the user may allow the
+    /// notifications after a denial (the app reschedules on its return).
+    func refreshAuthorization() async {
+        notificationsDenied = await reminder.isDenied
+    }
+
+    private func goalChanged(_ goal: Int) async {
+        do {
+            try await db.setGoal(goal, today: clock.today)
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+        await reminder.reschedule()
+    }
+
+    /// The reminder's time as a date today, for the time picker.
+    static func date(ofMinutes minutes: Int, calendar: Calendar = .current) -> Date {
+        calendar.date(bySettingHour: minutes / 60, minute: minutes % 60, second: 0, of: Date()) ?? Date()
+    }
+
+    /// A time picker's date as minutes after midnight.
+    static func minutes(of date: Date, calendar: Calendar = .current) -> Int {
+        let parts = calendar.dateComponents([.hour, .minute], from: date)
+        return (parts.hour ?? 0) * 60 + (parts.minute ?? 0)
     }
 }

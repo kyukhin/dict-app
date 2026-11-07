@@ -3,6 +3,7 @@
 // attached, before showing UI (Issue #138).
 
 import SwiftUI
+import UserNotifications
 
 @main
 struct DictApp: App {
@@ -16,6 +17,12 @@ struct DictApp: App {
     // heuristic. The service tracks the active-interval start itself (and counts
     // the in-progress interval live), so we only forward scene-phase edges.
     @Environment(\.scenePhase) private var scenePhase
+
+    init() {
+        // 0131, #162: a reminder's tap opens the Learn tab. Set before
+        // launch ends, so a tap that launches the app is not lost.
+        UNUserNotificationCenter.current().delegate = NotificationTapHandler.shared
+    }
 
     var body: some Scene {
         WindowGroup {
@@ -74,6 +81,11 @@ struct DictApp: App {
                 if newPhase == .background {
                     ReadingModeService.shared.sceneDidEnterBackground()
                 }
+                // 0131, #162: the reminders follow today's goal and the
+                // week ahead on every return to the foreground.
+                if newPhase == .active, isReady {
+                    Task { await LearningReminder.shared.reschedule() }
+                }
             }
         }
     }
@@ -121,6 +133,7 @@ struct DictApp: App {
                 // 0131: the learning tables and the `learning_*` keys.
                 try await DatabaseService.shared.clearLearning()
                 SettingsService.shared.resetLearning()
+                await LearningReminder.shared.removeAll()
                 // Reset per-source enable/disable preference to first-launch default.
                 SettingsService.shared.enabledSources = nil
                 // Issue #74: also drop the persisted dictionary order so the
@@ -198,6 +211,7 @@ struct DictApp: App {
             await DatabaseService.shared.startLegacyMigration()
 
             isReady = true
+            await LearningReminder.shared.reschedule()
         } catch {
             setupError = error.localizedDescription
         }

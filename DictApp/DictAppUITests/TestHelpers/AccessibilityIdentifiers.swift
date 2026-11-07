@@ -211,6 +211,28 @@ struct AccessibilityIdentifiers {
         }
     }
 
+    // MARK: - Settings → Learning (0131, #162)
+    struct LearningSettings {
+        static let languages = "settings_learning_languages"
+        static let languagesView = "settings_learning_languages_view"
+        static let newPerDay = "settings_learning_new_per_day"
+        static let goal = "settings_learning_goal"
+        static let order = "settings_learning_order"
+        static let answerMode = "settings_learning_answer_mode"
+        static let sounds = "settings_learning_sounds"
+        static let haptics = "settings_learning_haptics"
+        static let reminder = "settings_learning_reminder"
+        static let reminderTime = "settings_learning_reminder_time"
+        static let addLanguage = "learning_language_add"
+        /// The learned language's name, on the Languages screen.
+        static func row(_ lang: String) -> String { "learning_language_row_\(lang)" }
+        /// Its via: a menu with two or more pairs ("via English"), else text.
+        static func via(_ lang: String) -> String { "learning_language_via_\(lang)" }
+        /// A limited pair's warning under the via.
+        static func limited(_ lang: String) -> String { "learning_language_limited_\(lang)" }
+        static func stop(_ lang: String) -> String { "learning_language_stop_\(lang)" }
+    }
+
     // MARK: - Dictionary Info detail (Issue #91)
     //
     // Per-source ids are keyed by source ID (`TestData.Sources`), not pair key.
