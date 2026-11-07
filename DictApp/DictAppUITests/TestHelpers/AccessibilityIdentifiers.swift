@@ -146,6 +146,8 @@ struct AccessibilityIdentifiers {
         /// The Trainers section (#159).
         static let trainerRecognition = "learn_trainer_recognition"
         static let trainerProduction = "learn_trainer_production"
+        /// Match the pairs (#160); disabled with fewer than 5 words.
+        static let trainerMatch = "learn_trainer_match"
         /// Today's Start, the daily session (#161); hidden when all is done.
         static let startButton = "learn_start_button"
         /// "Practise mistakes · 2 words" (#161); hidden at 0.
@@ -178,6 +180,27 @@ struct AccessibilityIdentifiers {
         static let summaryReviewed = "run_summary_reviewed"
         static let summaryTime = "run_summary_time"
         static let summaryGoal = "run_summary_goal"
+    }
+
+    // MARK: - Match the pairs (0131, #160)
+    struct Match {
+        static let view = "match_view"
+        /// Its value is the elapsed time, `m:ss`.
+        static let timer = "match_timer"
+        /// The word column's tiles from the top, `match_word_0` … `match_word_4`.
+        static func word(_ position: Int) -> String {
+            return "match_word_\(position)"
+        }
+        /// The meaning column's tiles from the top, `match_meaning_0` … `match_meaning_4`.
+        static func meaning(_ position: Int) -> String {
+            return "match_meaning_\(position)"
+        }
+        /// The round's result, with its time and mistakes.
+        static let result = "match_result"
+        static let resultTime = "match_result_time"
+        static let resultMistakes = "match_result_mistakes"
+        static let nextRound = "match_next_round"
+        static let done = "match_done"
     }
 
     // MARK: - My words (0131, #158: the former Bookmarks list)
