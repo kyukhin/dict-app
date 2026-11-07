@@ -24,6 +24,10 @@ class LearnPage: BasePage {
     var trainerMatch: XCUIElement { app.buttons[IDs.trainerMatch].firstMatch }
     var startButton: XCUIElement { app.buttons[IDs.startButton].firstMatch }
     var mistakesRow: XCUIElement { app.buttons[IDs.mistakesRow].firstMatch }
+    /// 0166, #164: the ring's value is `12/20`, the streak's `5`.
+    var goalRing: XCUIElement { app.buttons[IDs.goalRing].firstMatch }
+    var streak: XCUIElement { app.buttons[IDs.streak].firstMatch }
+    var statisticsRow: XCUIElement { element(IDs.statisticsRow) }
 
     /// The picker's row of the pair `lang` via `via`.
     func pickerRow(_ lang: String, via: String) -> XCUIElement {
@@ -110,6 +114,21 @@ class LearnPage: BasePage {
         row.tap()
         let page = ExercisePage(app: app)
         XCTAssertTrue(page.view.waitForExistence(timeout: TestData.Timeouts.medium), "the run")
+        return page
+    }
+
+    /// Statistics (#164), from its row at the bottom of the home, or from
+    /// `row` (the ring or the streak).
+    @discardableResult
+    func openStatistics(from row: XCUIElement? = nil) -> StatisticsPage {
+        let target = row ?? statisticsRow
+        XCTAssertTrue(target.waitForExistence(timeout: TestData.Timeouts.medium), "the way to Statistics")
+        if row == nil {
+            app.scrollToElement(target)
+        }
+        target.tap()
+        let page = StatisticsPage(app: app)
+        XCTAssertTrue(page.waitForScreen(), "Statistics")
         return page
     }
 

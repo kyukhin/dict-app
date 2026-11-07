@@ -1,7 +1,8 @@
 // LearnViewModel.swift
 // The Learn tab (0131-learning.md, #158): the pair picker, the Learn home
 // and the interim My words list. The runs: the trainers (#159), the session
-// and mistakes practice (#161); match the pairs (#160).
+// and mistakes practice (#161); match the pairs (#160). The daily goal and
+// the streak on the home, and the statistics screen (0166, #164).
 
 import Foundation
 import SwiftUI
@@ -40,6 +41,10 @@ final class LearnViewModel: ObservableObject {
     @Published private(set) var canMatch = false
     /// False until the first load ends, so the picker never flashes before the home.
     @Published private(set) var isLoaded = false
+    /// Today's exercises in every language and the daily goal (0166, #164).
+    @Published private(set) var goal: GoalProgress?
+    /// The streak, every language (0166, #164).
+    @Published private(set) var streak: StreakState?
     @Published var errorMessage: String?
 
     private let db: DatabaseService
@@ -128,6 +133,7 @@ final class LearnViewModel: ObservableObject {
     private func loadHome() async throws {
         guard let language else { return }
         let day = clock.today
+        try await loadGoal(today: day)
         pair = try await languages.pair(for: language)
         myWordsCount = try await db.fetchMyWords().count
         var hasWork = try await db.learningWordCount(lang: language) > 0
@@ -153,6 +159,17 @@ final class LearnViewModel: ObservableObject {
         mistakeCount = mistakeWords.intersection(asked).count
         canMatch = try await MatchWordPicker(db: db).pick(lang: language, meaningsLang: meaningsLang,
                                                           sourceOrder: sourceOrder, newWords: newWords) != nil
+    }
+
+    /// The ring and the flame (0166): today's exercises of every language
+    /// against the current goal, and the streak over every day's count.
+    private func loadGoal(today: LearnDay) async throws {
+        async let counts = db.dayCounts()
+        async let goals = db.learnDayGoals()
+        let exercises = try await counts.mapValues(\.exercises)
+        let current = settings.learningDailyGoal
+        goal = GoalProgress(answered: exercises[today] ?? 0, goal: current)
+        streak = Streak.compute(counts: exercises, goals: try await goals, currentGoal: current, today: today)
     }
 
     /// A list of `lang` is checked (`learning_lists`): new words come from it.
@@ -211,6 +228,9 @@ final class LearnViewModel: ObservableObject {
 struct GoalProgress: Equatable {
     let answered: Int
     let goal: Int
+
+    /// Today's goal is met: the ring closes and the flame lights up.
+    var isMet: Bool { answered >= goal }
 }
 
 /// A graded answer, as the feedback bar shows it.
@@ -813,6 +833,254 @@ final class MyWordsViewModel: ObservableObject {
             errorMessage = nil
         } catch {
             errorMessage = error.localizedDescription
+        }
+    }
+}
+
+// MARK: - The goal and the streak on the Learn home (0166, #164)
+
+extension LearnViewModel {
+    /// The ring, as VoiceOver reads it: "Daily goal: 12 of 20 exercises".
+    nonisolated static func goalLabel(_ goal: GoalProgress, locale: Locale) -> String {
+        String(localized: "learn.goal.a11y \(goal.answered) \(goal.goal)",
+               bundle: SettingsViewModel.localizedBundle(for: locale), locale: locale)
+    }
+
+    /// The flame and the snowflake, as VoiceOver reads them: "5-day streak,
+    /// 2 freezes".
+    nonisolated static func streakLabel(_ streak: StreakState, locale: Locale) -> String {
+        let bundle = SettingsViewModel.localizedBundle(for: locale)
+        let freezes = String(localized: "learn.streak.freezes \(streak.freezes)", bundle: bundle, locale: locale)
+        return String(localized: "learn.streak.a11y \(streak.current) \(freezes)", bundle: bundle, locale: locale)
+    }
+}
+
+// MARK: - Statistics (0166, #164)
+
+/// A list's progress in one language (0166, "Lists"; 0130, "For E4 and
+/// E10", item 8): `ListProgress.of` over E3's keys of the list and the
+/// language's word states (`wordStates(lang:)`). My words keeps only its
+/// keys of `lang`. The statistics screen's Lists block reads it; E3's list
+/// rows (#154) take the same.
+struct ListProgressReader: Sendable {
+    let db: DatabaseService
+
+    func progress(of id: WordListID, lang: String,
+                  states: [WordKey: WordLearningState]) async throws -> ListProgress {
+        let keys = try await db.wordListItems(id).map(\.key).filter { $0.lang == lang }
+        return ListProgress.of(items: keys, states: states)
+    }
+}
+
+/// The statistics screen (0166, "Statistics screen"). One `load()` reads
+/// every block with `async let`, on `LearningClock.today` and the language
+/// chosen on the Learn home (`learning_language`). The goal, the streak and
+/// the 30-day chart count every language; the other blocks count the chosen
+/// one, and the switch reloads only them. Every number comes from #163's
+/// queries and aggregates.
+@MainActor
+final class StatisticsViewModel: ObservableObject {
+    /// A list of the Lists block.
+    struct ListRow: Identifiable, Equatable {
+        let list: WordList
+        let progress: ListProgress
+        /// nil for an empty list: no forecast.
+        let forecast: Forecast?
+        var id: WordListID { list.id }
+    }
+
+    /// A row of the hardest words or verbs.
+    struct WordRow: Identifiable, Equatable {
+        let word: HardWord
+        /// In the pair's meanings language (0131, "Meanings"); "" when none.
+        let meaning: String
+        /// The Definition it opens; nil when its entry does not resolve.
+        let entry: DictionaryEntry?
+        var id: WordKey { word.key }
+    }
+
+    /// A tense of the Conjugation block.
+    struct TenseRow: Identifiable, Equatable {
+        /// `ConjugationTense.rawValue`.
+        let tense: String
+        let tally: Tally
+        var id: String { tense }
+    }
+
+    /// The chosen language's blocks.
+    struct LanguageBlocks: Equatable {
+        /// Today's answers of the language (`ReviewSummary`).
+        var today = ReviewSummary()
+        var lists: [ListRow] = []
+        var accuracy = DirectionAccuracy()
+        var hardestWords: [WordRow] = []
+        /// In the tables' order; empty without drill answers: no block.
+        var tenses: [TenseRow] = []
+        var hardestVerbs: [WordRow] = []
+    }
+
+    /// The learned languages: the switch shows with two or more.
+    @Published private(set) var learned: [String] = []
+    /// The chosen language; nil while none is learned.
+    @Published private(set) var language: String?
+    @Published private(set) var isLoaded = false
+    /// No answer yet in any language: "Your statistics appear after your
+    /// first exercise."
+    @Published private(set) var isEmpty = true
+    /// The day the numbers are for.
+    @Published private(set) var today: LearnDay
+    /// Today's exercises in every language and the current goal.
+    @Published private(set) var goal = GoalProgress(answered: 0, goal: 0)
+    /// Every language.
+    @Published private(set) var streak = StreakState()
+    /// The 30-day chart, every language: oldest first, today last.
+    @Published private(set) var series: [DayPoint] = []
+    @Published private(set) var blocks = LanguageBlocks()
+    @Published var errorMessage: String?
+
+    private let db: DatabaseService
+    private let settings: SettingsService
+    private let languages: LearningLanguageService
+    private let clock: LearningClock
+
+    init(db: DatabaseService = .shared, settings: SettingsService = .shared,
+         languages: LearningLanguageService? = nil, clock: LearningClock = LearningClock()) {
+        self.db = db
+        self.settings = settings
+        self.languages = languages ?? .shared
+        self.clock = clock
+        today = clock.today
+    }
+
+    /// Every block.
+    func load() async {
+        learned = languages.learned
+        language = languages.chosen
+        let day = clock.today
+        today = day
+        do {
+            async let counts = db.dayCounts()
+            async let goals = db.learnDayGoals()
+            async let perLanguage = languageBlocks(language, today: day)
+            let exercises = try await counts.mapValues(\.exercises)
+            let current = settings.learningDailyGoal
+            goal = GoalProgress(answered: exercises[day] ?? 0, goal: current)
+            streak = Streak.compute(counts: exercises, goals: try await goals, currentGoal: current, today: day)
+            series = DailySeries.last30(exercises, today: day)
+            blocks = try await perLanguage
+            isEmpty = language == nil || exercises.values.allSatisfy { $0 == 0 }
+            errorMessage = nil
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+        isLoaded = true
+    }
+
+    /// The switch: remembers `lang`, as the Learn home's does, and reloads
+    /// the chosen language's blocks.
+    func select(_ lang: String) async {
+        guard lang != language, learned.contains(lang) else { return }
+        languages.chosen = lang
+        language = lang
+        do {
+            blocks = try await languageBlocks(lang, today: today)
+            errorMessage = nil
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    /// Today, the lists, the accuracy, the hardest words and the Conjugation
+    /// block of `lang`: the last 30 days are today and the 29 days before.
+    private func languageBlocks(_ lang: String?, today: LearnDay) async throws -> LanguageBlocks {
+        guard let lang else { return LanguageBlocks() }
+        let since = DailySeries.start(today: today)
+        async let rows = db.reviewRows(day: today, lang: lang)
+        async let accuracy = db.directionAccuracy(since: since, lang: lang)
+        async let words = db.hardestWords(since: since, lang: lang)
+        async let tenses = db.tenseAccuracy(since: since, lang: lang)
+        async let verbs = db.hardestVerbs(since: since, lang: lang)
+        async let lists = listRows(lang: lang, today: today)
+        var blocks = LanguageBlocks()
+        blocks.today = ReviewSummary.of(try await rows)
+        blocks.accuracy = try await accuracy
+        blocks.tenses = ConjugationTense.ordered(try await tenses).map { TenseRow(tense: $0.tense, tally: $0.tally) }
+        let hardWords = try await words
+        let shown = try await wordRows(hardWords + (try await verbs), lang: lang)
+        blocks.hardestWords = Array(shown.prefix(hardWords.count))
+        blocks.hardestVerbs = Array(shown.dropFirst(hardWords.count))
+        blocks.lists = try await lists
+        return blocks
+    }
+
+    /// The checked lists of `lang` and every list of it with a started word,
+    /// My words included with its words of `lang`, each with its forecast.
+    private func listRows(lang: String, today: LearnDay) async throws -> [ListRow] {
+        let checked = settings.learningListIDs
+        let states = try await db.wordStates(lang: lang)
+        let reader = ListProgressReader(db: db)
+        var rows: [ListRow] = []
+        for list in try await db.wordLists() where list.lang == lang || list.kind == .myWords {
+            let progress = try await reader.progress(of: list.id, lang: lang, states: states)
+            guard checked.contains(list.id) || !progress.startedDays.isEmpty else { continue }
+            rows.append(ListRow(list: list, progress: progress,
+                                forecast: Forecast.days(progress: progress, states: states, today: today)))
+        }
+        return rows
+    }
+
+    /// Each word with its meaning in the pair's meanings language (English
+    /// for Greek via Russian), as the exercises show it, and its entry. The
+    /// via changes only these meanings, never a number.
+    private func wordRows(_ words: [HardWord], lang: String) async throws -> [WordRow] {
+        guard !words.isEmpty else { return [] }
+        let meaningsLang = try await languages.pair(for: lang)?.meaningsLang
+        let sourceOrder = try await languages.sourceOrder(lang: lang, meaningsLang: meaningsLang)
+        let queries = words.map {
+            MeaningQuery(key: $0.key, lookup: $0.entry?.word ?? $0.term, translation: $0.translation,
+                         translationLang: $0.translationLang, entry: $0.entry)
+        }
+        let meanings = try await db.meanings(of: queries, lang: lang, meaningsLang: meaningsLang, sourceOrder: sourceOrder)
+        var entries: [EntryKey: DictionaryEntry] = [:]
+        for key in Set(words.compactMap(\.entry)) {
+            entries[key] = try await db.entry(for: key)
+        }
+        return words.map { word in
+            WordRow(word: word, meaning: meanings[word.key] ?? "", entry: word.entry.flatMap { entries[$0] })
+        }
+    }
+
+    /// A list's title (0130): "Greek A1", with the Greek certificate letters
+    /// in a Greek UI ("Ελληνικά Α1"); My words; an import's own name.
+    nonisolated static func listTitle(_ list: WordList, locale: Locale) -> String {
+        switch list.kind {
+        case .myWords:
+            return SettingsViewModel.localizedString("learn.myWords", locale: locale)
+        case .user:
+            return list.title
+        case .builtIn:
+            var level = list.level
+            if locale.language.languageCode?.identifier == "el" {
+                level = String(level.map { ["A": "Α", "B": "Β", "C": "Γ"][$0] ?? $0 })
+            }
+            return "\(LearnViewModel.languageName(list.lang, locale: locale)) \(level)"
+        }
+    }
+
+    /// A list's forecast (0166, "Lists"): "All learned in ~129 days", over
+    /// 365 days "All learned in over a year", "Start learning to see a
+    /// forecast" or "All learned".
+    nonisolated static func forecastText(_ forecast: Forecast, locale: Locale) -> String {
+        let bundle = SettingsViewModel.localizedBundle(for: locale)
+        switch forecast {
+        case let .days(days) where days > 365:
+            return String(localized: "stats.forecast.overYear", bundle: bundle, locale: locale)
+        case let .days(days):
+            return String(localized: "stats.forecast.days \(days)", bundle: bundle, locale: locale)
+        case .noPace:
+            return String(localized: "stats.forecast.noPace", bundle: bundle, locale: locale)
+        case .done:
+            return String(localized: "stats.forecast.done", bundle: bundle, locale: locale)
         }
     }
 }

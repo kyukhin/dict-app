@@ -22113,3 +22113,472 @@ extension LearningReminderRunTests {
         XCTAssertEqual(goal, ["2026-11-04|5"], "the answers write the goal in force, not the default")
     }
 }
+
+// MARK: - Statistics screen (0166, #164)
+
+/// What VoiceOver reads for the charts and the calendar, in the 5 UI
+/// languages; Arabic starts with U+200F (#119).
+final class ChartSummaryTests: XCTestCase {
+    private let today = LearningFixture.today
+
+    /// Three active days in the window, two over the goal, and one before it.
+    private func points() -> (points: [DayPoint], streak: StreakState) {
+        let counts = [today.adding(days: -1): 45, today.adding(days: -5): 20, today.adding(days: -10): 30,
+                      today.adding(days: -30): 50, today: 4]
+        let streak = Streak.compute(counts: counts, goals: [:], currentGoal: 20, today: today)
+        return (DailySeries.last30(counts, today: today), streak)
+    }
+
+    func testLast30InEveryLanguage() {
+        let (points, streak) = points()
+        XCTAssertEqual(ChartSummary.last30(points, streak: streak, locale: Locale(identifier: "en")),
+                       "Last 30 days: 99 exercises on 4 days. Goal met on 3 days. Best day: November 3, 45 exercises.")
+        let ru = ChartSummary.last30(points, streak: streak, locale: Locale(identifier: "ru"))
+        XCTAssertTrue(ru.hasPrefix("Последние 30 дней: 99 упражнений за 4 дня. Цель выполнена: 3 дня. Лучший день: 3"), ru)
+        XCTAssertTrue(ru.hasSuffix(", 45 упражнений."), ru)
+        let es = ChartSummary.last30(points, streak: streak, locale: Locale(identifier: "es"))
+        XCTAssertTrue(es.hasPrefix("Últimos 30 días: 99 ejercicios en 4 días. Meta cumplida en 3 días. Mejor día: 3"), es)
+        let el = ChartSummary.last30(points, streak: streak, locale: Locale(identifier: "el"))
+        XCTAssertTrue(el.hasPrefix("Τελευταίες 30 ημέρες: 99 ασκήσεις σε 4 ημέρες. Ο στόχος επιτεύχθηκε σε 3 ημέρες."), el)
+        XCTAssertTrue(el.hasSuffix(", 45 ασκήσεις."), el)
+        let ar = ChartSummary.last30(points, streak: streak, locale: Locale(identifier: "ar"))
+        XCTAssertEqual(ar.unicodeScalars.first, "\u{200F}", ar)
+        XCTAssertTrue(ar.contains("آخر 30 يومًا"), ar)
+        XCTAssertTrue(ar.contains("أفضل يوم"), ar)
+        for locale in ["en", "ru", "es", "el"].map(Locale.init(identifier:)) {
+            XCTAssertNotEqual(ChartSummary.last30(points, streak: streak, locale: locale).unicodeScalars.first, "\u{200F}")
+        }
+    }
+
+    /// One exercise, one day: the singular forms.
+    func testSingularForms() {
+        let counts = [today: 1]
+        let streak = Streak.compute(counts: counts, goals: [:], currentGoal: 1, today: today)
+        let points = DailySeries.last30(counts, today: today)
+        XCTAssertEqual(ChartSummary.last30(points, streak: streak, locale: Locale(identifier: "en")),
+                       "Last 30 days: 1 exercise on 1 day. Goal met on 1 day. Best day: November 4, 1 exercise.")
+    }
+
+    func testEmptyWindow() {
+        let points = DailySeries.last30([today.adding(days: -40): 20], today: today)
+        XCTAssertEqual(ChartSummary.last30(points, streak: StreakState(), locale: Locale(identifier: "en")),
+                       "Last 30 days: no exercises.")
+        XCTAssertEqual(ChartSummary.last30(points, streak: StreakState(), locale: Locale(identifier: "ar")),
+                       "\u{200F}آخر 30 يومًا: لا تمارين.")
+    }
+
+    /// The tenses in the order given, in running text.
+    func testTenses() {
+        let tenses = [(tense: "present", tally: Tally(answers: 16, right: 12)),
+                      (tense: "aorist", tally: Tally(answers: 10, right: 8)),
+                      (tense: "subjunctiveSimple", tally: Tally(answers: 4, right: 1))]
+        XCTAssertEqual(ChartSummary.tenses(tenses, locale: Locale(identifier: "en")),
+                       "Conjugation, last 30 days: present 75%, aorist 80%, subjunctive · simple 25%.")
+        let el = ChartSummary.tenses(tenses, locale: Locale(identifier: "el"))
+        XCTAssertTrue(el.hasPrefix("Κλίση ρημάτων, τελευταίες 30 ημέρες: ενεστώτας 75"), el)
+        let ar = ChartSummary.tenses(tenses, locale: Locale(identifier: "ar"))
+        XCTAssertEqual(ar.unicodeScalars.first, "\u{200F}", ar)
+    }
+
+    /// A calendar day reads its date and its mark.
+    func testCalendarDays() {
+        let en = Locale(identifier: "en")
+        XCTAssertEqual(ChartSummary.day(today, mark: .met, locale: en), "November 4, goal met")
+        XCTAssertEqual(ChartSummary.day(today, mark: .frozen, locale: en), "November 4, frozen")
+        XCTAssertEqual(ChartSummary.day(today, mark: .missed, locale: en), "November 4, missed")
+        XCTAssertEqual(ChartSummary.day(today, mark: .open, locale: en), "November 4, today, goal not met yet")
+        XCTAssertEqual(ChartSummary.day(today, mark: .none, locale: en), "November 4, no exercises")
+        XCTAssertEqual(ChartSummary.day(today, mark: .met, locale: Locale(identifier: "ru")), "4 ноября, цель выполнена")
+        XCTAssertEqual(ChartSummary.day(today, mark: .met, locale: Locale(identifier: "el")), "4 Νοεμβρίου, ο στόχος επιτεύχθηκε")
+        XCTAssertEqual(ChartSummary.day(today, mark: .missed, locale: Locale(identifier: "es")), "4 de noviembre, perdido")
+        let ar = ChartSummary.day(today, mark: .met, locale: Locale(identifier: "ar"))
+        XCTAssertEqual(ar.unicodeScalars.first, "\u{200F}", ar)
+        XCTAssertTrue(ar.hasSuffix("تحقق الهدف"), ar)
+    }
+}
+
+/// E5's tense names, added by #164 for the Conjugation block (0132).
+final class ConjugationTenseTests: XCTestCase {
+    func testTitlesAndOrder() {
+        let en = Locale(identifier: "en")
+        XCTAssertEqual(ConjugationTense.allCases.map(\.rawValue).first, "present")
+        XCTAssertTrue(ConjugationTense.allCases.allSatisfy { !$0.rawValue.contains(".") }, "a facet's tense is before its dot")
+        XCTAssertEqual(ConjugationTense.aorist.title(locale: en), "Aorist")
+        XCTAssertEqual(ConjugationTense.futureContinuous.title(locale: en), "Future continuous")
+        XCTAssertEqual(ConjugationTense.subjunctiveSimple.title(locale: en), "Subjunctive · simple")
+        XCTAssertEqual(ConjugationTense.imperativeContinuous.title(locale: en), "Imperative · continuous")
+        XCTAssertEqual(ConjugationTense.imperativeContinuous.text(locale: en), "imperative · continuous")
+        XCTAssertEqual(ConjugationTense.aorist.title(locale: Locale(identifier: "el")), "Αόριστος")
+        XCTAssertEqual(ConjugationTense.title(of: "optative", locale: en), "optative", "an unknown tense as stored")
+
+        let ordered = ConjugationTense.ordered(["future": Tally(answers: 1, right: 1), "optative": Tally(answers: 2, right: 0),
+                                                "present": Tally(answers: 3, right: 2), "aorist": Tally(answers: 4, right: 4)])
+        XCTAssertEqual(ordered.map(\.tense), ["present", "aorist", "future", "optative"], "the tables' order, unknown last")
+    }
+}
+
+/// The streak calendar's 5 weeks, Monday first.
+final class StreakCalendarTests: XCTestCase {
+    func testFiveWeeksFromMonday() {
+        let today = LearnDay(year: 2026, month: 11, day: 4)   // a Wednesday
+        let weeks = StreakCalendar.days(today: today)
+        XCTAssertEqual(weeks.count, 5)
+        XCTAssertTrue(weeks.allSatisfy { $0.count == 7 && $0[0].isMonday })
+        XCTAssertEqual(weeks.first?.first, LearnDay(year: 2026, month: 10, day: 5))
+        XCTAssertEqual(weeks.last?.first, LearnDay(year: 2026, month: 11, day: 2))
+        XCTAssertEqual(weeks.last?.last, LearnDay(year: 2026, month: 11, day: 8), "the rest of this week, blank")
+        let days = weeks.flatMap { $0 }
+        for (a, b) in zip(days, days.dropFirst()) {
+            XCTAssertEqual(LearningFixture.days(from: a, to: b), 1)
+        }
+        let monday = LearnDay(year: 2026, month: 11, day: 2)
+        XCTAssertEqual(StreakCalendar.days(today: monday).last?.first, monday)
+        let sunday = LearnDay(year: 2026, month: 11, day: 8)
+        XCTAssertEqual(StreakCalendar.days(today: sunday).last?.last, sunday)
+    }
+}
+
+/// The `stats` fixture the UI tests read: the same streak whatever
+/// today's weekday.
+final class StatsFixtureTests: XCTestCase {
+    func testSameStreakEveryWeekday() {
+        for offset in 0..<7 {
+            let today = LearningFixture.today.adding(days: offset)
+            let gap = DatabaseService.statsFixtureGap(today: today)
+            let days = DatabaseService.statsFixtureDays(today: today, gap: gap)
+            XCTAssertEqual(days.count, 21)
+            XCTAssertEqual(days.last, today)
+            XCTAssertLessThan(LearningFixture.days(from: days[0], to: today), DailySeries.length, "every day in the chart")
+            let state = Streak.compute(counts: Dictionary(uniqueKeysWithValues: days.map { ($0, 20) }), goals: [:],
+                                       currentGoal: 20, today: today)
+            XCTAssertEqual([state.current, state.best], [9, 12], "\(today)")
+            XCTAssertEqual(state.marks.values.filter { $0 == .frozen }.count, 2, "\(today)")
+            XCTAssertTrue(state.marks.values.contains(.missed), "\(today)")
+        }
+    }
+}
+
+/// The statistics screen's view model on `ExerciseFixture`'s dictionary,
+/// with a fixed clock on `LearningFixture.today`.
+final class StatisticsViewModelTests: ExerciseTestCase {
+    private let clock = TestClock("2026-11-04T12:00:00Z")
+    private let house = WordKey(lang: "eng", word: "house"), water = WordKey(lang: "eng", word: "water")
+    private let grafo = WordKey(lang: "ell", word: "γράφω")
+
+    private func statistics() -> StatisticsViewModel {
+        StatisticsViewModel(settings: settings, languages: languages, clock: clock.clock)
+    }
+
+    /// `-learningFixture stats` on `today`, Greek and English learned.
+    private func writeStatsFixture(learned: [String] = ["ell", "eng"], chosen: String = "ell") async throws {
+        let languages = try await db.writeLearningFixture("stats", today: today)
+        XCTAssertEqual(languages, ["ell", "eng"])
+        settings.learningLanguages = learned
+        settings.learningLanguage = chosen
+    }
+
+    private func answer(_ word: WordKey, _ outcome: Outcome, kind: CardKind = .recognition) async throws {
+        try await db.recordAnswer(AnswerRecord(card: CardKey(word: word, kind: kind), exercise: .recognition,
+                                               mode: .trainer, runID: UUID(), outcome: outcome, durationMs: 4000),
+                                  today: today, goal: 20)
+    }
+
+    /// The numbers without the meanings, to compare two loads.
+    private func numbers(_ vm: StatisticsViewModel) -> [String] {
+        let words = (vm.blocks.hardestWords + vm.blocks.hardestVerbs).map {
+            "\($0.word.key.word) \($0.word.tally.answers) \($0.word.tally.right) \($0.entry?.word ?? "-")"
+        }
+        return words + ["\(vm.goal)", "\(vm.streak.current) \(vm.streak.best)", "\(vm.series)",
+                        "\(vm.blocks.today)", "\(vm.blocks.accuracy)", "\(vm.blocks.lists)", "\(vm.blocks.tenses)"]
+    }
+
+    /// Every block equals #163's aggregates over the `stats` fixture.
+    func testBlocksEqualTheAggregates() async throws {
+        try await writeStatsFixture()
+        let vm = statistics()
+        await vm.load()
+        XCTAssertNil(vm.errorMessage)
+        XCTAssertTrue(vm.isLoaded)
+        XCTAssertFalse(vm.isEmpty)
+        XCTAssertEqual(vm.learned, ["ell", "eng"])
+        XCTAssertEqual(vm.language, "ell")
+        XCTAssertEqual(vm.today, today)
+
+        let counts = try await db.dayCounts().mapValues(\.exercises)
+        let streak = Streak.compute(counts: counts, goals: try await db.learnDayGoals(), currentGoal: 20, today: today)
+        XCTAssertEqual(vm.streak, streak)
+        XCTAssertEqual([vm.streak.current, vm.streak.best], [9, 12])
+        XCTAssertEqual(vm.streak.marks.values.filter { $0 == .frozen }.count, 2)
+        XCTAssertEqual(vm.goal, GoalProgress(answered: 22, goal: 20), "20 Greek and 2 English answers today")
+        XCTAssertEqual(vm.series, DailySeries.last30(counts, today: today))
+        XCTAssertEqual(vm.series.map(\.exercises).reduce(0, +), 434)
+        XCTAssertEqual(vm.series.filter { $0.exercises > 0 }.count, 21)
+        XCTAssertEqual(vm.series.max { $0.exercises < $1.exercises }?.day, today.adding(days: -1))
+
+        let since = DailySeries.start(today: today)
+        let todayRows = try await db.reviewRows(day: today, lang: "ell")
+        XCTAssertEqual(vm.blocks.today, ReviewSummary.of(todayRows))
+        XCTAssertEqual([vm.blocks.today.exercises, vm.blocks.today.newWords, vm.blocks.today.reviewedWords], [20, 1, 7])
+        XCTAssertEqual(vm.blocks.today.timeMs, 120_000)
+        let accuracy = try await db.directionAccuracy(since: since, lang: "ell")
+        XCTAssertEqual(vm.blocks.accuracy, accuracy)
+        XCTAssertEqual(vm.blocks.accuracy.recognition.answers + vm.blocks.accuracy.production.answers, 434 - 6 - 40)
+
+        let hardestWords = try await db.hardestWords(since: since, lang: "ell")
+        XCTAssertEqual(vm.blocks.hardestWords.map(\.word), hardestWords)
+        XCTAssertEqual(vm.blocks.hardestWords.map { "\($0.word.term) \($0.word.tally.wrong)" },
+                       ["γράφω 5", "σπίτι 3", "νερό 2"])
+        XCTAssertEqual(vm.blocks.hardestWords.map(\.meaning), ["write", "house, home, habitation", "water"])
+        XCTAssertEqual(vm.blocks.hardestWords.map { $0.entry.map(EntryKey.init) },
+                       ["γράφω", "σπίτι", "νερό"].map { EntryKey(source: fd, word: $0) })
+
+        XCTAssertEqual(vm.blocks.tenses.map(\.tense), ["present", "aorist", "future"], "the tables' order")
+        XCTAssertEqual(vm.blocks.tenses.map(\.tally), [Tally(answers: 16, right: 12), Tally(answers: 12, right: 8),
+                                                        Tally(answers: 12, right: 7)])
+        let hardestVerbs = try await db.hardestVerbs(since: since, lang: "ell")
+        XCTAssertEqual(vm.blocks.hardestVerbs.map(\.word), hardestVerbs)
+        XCTAssertEqual(vm.blocks.hardestVerbs.map { "\($0.word.term) \($0.word.tally.wrong)" }, ["γράφω 10", "είμαι 3"])
+
+        let states = try await db.wordStates(lang: "ell")
+        XCTAssertEqual(vm.blocks.lists.map(\.id), [.myWords, "user-fixture-stats"],
+                       "My words and the list with started words, not checked")
+        guard vm.blocks.lists.count == 2 else { return }
+        let myWordsKeys = try await db.wordListItems(.myWords).map(\.key).filter { $0.lang == "ell" }
+        let myWords = ListProgress.of(items: myWordsKeys, states: states)
+        XCTAssertEqual(vm.blocks.lists[0].progress, myWords)
+        XCTAssertEqual([myWords.learned, myWords.learning, myWords.new], [1, 7, 1], "βιβλίο learned; μήλο new")
+        XCTAssertEqual(vm.blocks.lists[0].forecast, Forecast.days(progress: myWords, states: states, today: today))
+        let list = vm.blocks.lists[1].progress
+        XCTAssertEqual([list.learned, list.learning, list.new], [0, 2, 1], "θάλασσα and ψωμί learning, ήλιος new")
+    }
+
+    /// The goal, the streak and the chart count every language; the other
+    /// blocks follow the switch, which the Learn home remembers.
+    func testBlocksFollowTheChosenLanguage() async throws {
+        try await writeStatsFixture()
+        let vm = statistics()
+        await vm.load()
+        let greek = vm.blocks
+        let shared = (vm.goal, vm.streak, vm.series)
+
+        await vm.select("eng")
+        XCTAssertNil(vm.errorMessage)
+        XCTAssertEqual(vm.language, "eng")
+        XCTAssertEqual(settings.learningLanguage, "eng", "the Learn home's preference")
+        let english = vm.blocks
+        XCTAssertEqual([english.today.exercises, english.today.newWords, english.today.reviewedWords], [2, 0, 2])
+        XCTAssertNotEqual(english.today, greek.today)
+        XCTAssertEqual(english.accuracy.recognition, Tally(answers: 6, right: 6))
+        XCTAssertNotEqual(english.accuracy, greek.accuracy)
+        XCTAssertEqual(english.hardestWords, [])
+        XCTAssertEqual(english.tenses, [], "no drill rows in English: no Conjugation block")
+        XCTAssertEqual(english.lists.map(\.id), [.myWords])
+        XCTAssertEqual(Set(english.lists.first?.progress.words ?? []), [house, water])
+        XCTAssertEqual(vm.goal, shared.0)
+        XCTAssertEqual(vm.streak, shared.1)
+        XCTAssertEqual(vm.series, shared.2)
+
+        await vm.select("spa")
+        XCTAssertEqual(vm.language, "eng", "a language not learned is no choice")
+    }
+
+    /// A stopped language leaves the switch and its numbers are hidden; its
+    /// past answers still count for the goal and the streak.
+    func testOnlyLearnedLanguages() async throws {
+        try await writeStatsFixture(learned: ["ell"], chosen: "eng")
+        let vm = statistics()
+        await vm.load()
+        XCTAssertEqual(vm.learned, ["ell"], "one language: no switch")
+        XCTAssertEqual(vm.language, "ell")
+        await vm.select("eng")
+        XCTAssertEqual(vm.language, "ell")
+        XCTAssertEqual(vm.blocks.today.newWords, 1, "Greek's")
+        XCTAssertEqual(vm.goal.answered, 22, "today's English answers count")
+        XCTAssertEqual(vm.series.last?.exercises, 22)
+        XCTAssertEqual(vm.streak.current, 9)
+    }
+
+    /// Before the first answer: the empty state.
+    func testEmptyBeforeTheFirstAnswer() async throws {
+        try await db.learnWord(greek("γράφω"), today: today)
+        settings.learningLanguages = ["ell"]
+        let vm = statistics()
+        await vm.load()
+        XCTAssertNil(vm.errorMessage)
+        XCTAssertTrue(vm.isEmpty)
+
+        try await answer(grafo, .right)
+        await vm.load()
+        XCTAssertFalse(vm.isEmpty)
+        XCTAssertEqual(vm.goal, GoalProgress(answered: 1, goal: 20))
+    }
+
+    /// Kirill, 2026-11-04: the via changes only the meanings shown with the
+    /// hardest words: English via English reads WordNet's, via Spanish
+    /// En–Es · FD's; every number and their order stay.
+    func testViaChangesOnlyTheMeanings() async throws {
+        for word in ["house", "water"] {
+            try await db.learnWord(EntryKey(source: wordnet, word: word), today: today)
+        }
+        try await answer(house, .wrong)
+        try await answer(house, .wrong, kind: .production)
+        try await answer(water, .wrong)
+        try await answer(water, .right, kind: .production)
+        settings.learningLanguages = ["eng"]
+        settings.learningVia = ["eng": "eng"]
+        let vm = statistics()
+        await vm.load()
+        XCTAssertNil(vm.errorMessage)
+        let viaEnglish = numbers(vm)
+        XCTAssertEqual(vm.blocks.hardestWords.map(\.word.term), ["house", "water"])
+        let wordNet = ExerciseFixture.meanings(in: wordnet)
+        XCTAssertEqual(vm.blocks.hardestWords.map(\.meaning), [wordNet["house"], wordNet["water"]])
+
+        settings.learningVia = ["eng": "spa"]
+        await vm.load()
+        XCTAssertEqual(numbers(vm), viaEnglish)
+        let spanish = ExerciseFixture.meanings(in: enEs)
+        XCTAssertEqual(vm.blocks.hardestWords.map(\.meaning), [spanish["house"], spanish["water"]])
+        XCTAssertEqual(vm.blocks.hardestWords.map(\.meaning), ["casalicio, casa", "agua, aguacha, linfa, wata"])
+    }
+
+    /// Greek via Russian is limited: its meanings are English, so the
+    /// hardest words read as via English, with the same numbers.
+    func testLimitedPairShowsEnglishMeanings() async throws {
+        try await db.learnWord(greek("γράφω"), today: today)
+        try await answer(grafo, .wrong)
+        settings.learningLanguages = ["ell"]
+        settings.learningVia = ["ell": "eng"]
+        let vm = statistics()
+        await vm.load()
+        let viaEnglish = numbers(vm)
+        XCTAssertEqual(vm.blocks.hardestWords.map(\.meaning), ["write"])
+
+        settings.learningVia = ["ell": "rus"]
+        await vm.load()
+        XCTAssertNil(vm.errorMessage)
+        let pair = try await languages.pair(for: "ell")
+        XCTAssertEqual(pair?.isLimited, true)
+        XCTAssertEqual(vm.blocks.hardestWords.map(\.meaning), ["write"])
+        XCTAssertEqual(numbers(vm), viaEnglish)
+    }
+
+    /// A list's title: "Greek A1", with the Greek letters in a Greek UI; My
+    /// words; an import's own name.
+    func testListTitles() {
+        let a1 = WordList(id: "ky-ell-a1", kind: .builtIn, lang: "ell", level: "A1", title: "", count: 3)
+        let c2 = WordList(id: "cefr-eng-c2", kind: .builtIn, lang: "eng", level: "C2", title: "", count: 3)
+        XCTAssertEqual(StatisticsViewModel.listTitle(a1, locale: Locale(identifier: "en")), "Greek A1")
+        XCTAssertEqual(StatisticsViewModel.listTitle(a1, locale: Locale(identifier: "el")), "Ελληνικά Α1")
+        XCTAssertEqual(StatisticsViewModel.listTitle(c2, locale: Locale(identifier: "el")), "Αγγλικά Γ2")
+        let myWords = WordList(id: .myWords, kind: .myWords, lang: WordList.myWordsLanguage, level: "", title: "", count: 0)
+        XCTAssertEqual(StatisticsViewModel.listTitle(myWords, locale: Locale(identifier: "en")), "My words")
+        let user = WordList(id: "user-1", kind: .user, lang: "ell", level: "", title: "KLIK - A1", count: 0)
+        XCTAssertEqual(StatisticsViewModel.listTitle(user, locale: Locale(identifier: "ru")), "KLIK - A1")
+    }
+
+    /// A list's forecast: "~N days" up to 365, then "over a year"; no pace;
+    /// all learned. Plural forms follow the UI language.
+    func testForecastTexts() {
+        let en = Locale(identifier: "en")
+        XCTAssertEqual(StatisticsViewModel.forecastText(.days(129), locale: en), "All learned in ~129 days")
+        XCTAssertEqual(StatisticsViewModel.forecastText(.days(1), locale: en), "All learned in ~1 day")
+        XCTAssertEqual(StatisticsViewModel.forecastText(.days(365), locale: en), "All learned in ~365 days")
+        XCTAssertEqual(StatisticsViewModel.forecastText(.days(366), locale: en), "All learned in over a year")
+        XCTAssertEqual(StatisticsViewModel.forecastText(.noPace, locale: en), "Start learning to see a forecast")
+        XCTAssertEqual(StatisticsViewModel.forecastText(.done, locale: en), "All learned")
+        let ru = Locale(identifier: "ru")
+        XCTAssertEqual(StatisticsViewModel.forecastText(.days(21), locale: ru), "Всё будет выучено через ~21 день")
+        XCTAssertEqual(StatisticsViewModel.forecastText(.days(25), locale: ru), "Всё будет выучено через ~25 дней")
+        XCTAssertEqual(StatisticsViewModel.forecastText(.days(400), locale: ru), "Всё будет выучено больше чем через год")
+        XCTAssertEqual(StatisticsViewModel.forecastText(.noPace, locale: Locale(identifier: "es")),
+                       "Empieza a aprender para ver una previsión")
+        XCTAssertEqual(StatisticsViewModel.forecastText(.done, locale: Locale(identifier: "el")), "Όλες μαθημένες")
+    }
+
+    /// A list word without a dictionary entry, and one whose import was
+    /// removed, are hardest words with their list text and no Definition to
+    /// open; a word with an entry opens it.
+    func testHardestWordsWithoutAnEntry() async throws {
+        try await insertListWord("γιουβέτσι", pos: "noun", translation: "baked orzo", translationLang: "eng")
+        try await insertListWord("θάλασσα", translation: "sea", translationLang: "eng",
+                                 entry: EntryKey(source: "user-removed", word: "θάλασσα"))
+        try await db.learnWord(greek("γράφω"), today: today)
+        let giouvetsi = WordKey(lang: "ell", word: "γιουβέτσι"), thalassa = WordKey(lang: "ell", word: "θάλασσα")
+        try await answer(giouvetsi, .wrong)
+        try await answer(giouvetsi, .wrong, kind: .production)
+        try await answer(thalassa, .wrong)
+        try await answer(thalassa, .right, kind: .production)
+        try await answer(grafo, .wrong)
+        try await answer(grafo, .right, kind: .production)
+        try await answer(grafo, .right, kind: .production)
+        settings.learningLanguages = ["ell"]
+        let vm = statistics()
+        await vm.load()
+        XCTAssertNil(vm.errorMessage)
+        XCTAssertEqual(vm.blocks.hardestWords.map(\.word.term), ["γιουβέτσι", "θάλασσα", "γράφω"])
+        XCTAssertEqual(vm.blocks.hardestWords.map(\.meaning), ["baked orzo", "sea", "write"])
+        XCTAssertNil(vm.blocks.hardestWords[0].entry, "a standalone list word: no Definition")
+        XCTAssertNil(vm.blocks.hardestWords[1].entry, "a removed import: no Definition")
+        XCTAssertEqual(vm.blocks.hardestWords[2].entry.map(EntryKey.init), greek("γράφω"))
+    }
+
+    /// E3's list rows (#154) take the same progress: My words keeps its
+    /// words of the language.
+    func testListProgressReader() async throws {
+        for word in ["γράφω", "σπίτι"] {
+            try await db.learnWord(greek(word), today: today)
+        }
+        try await db.learnWord(EntryKey(source: wordnet, word: "house"), today: today)
+        try await answer(grafo, .right)
+        let reader = ListProgressReader(db: db)
+        let greek = try await reader.progress(of: .myWords, lang: "ell", states: try await db.wordStates(lang: "ell"))
+        XCTAssertEqual(Set(greek.words), [grafo, WordKey(lang: "ell", word: "σπίτι")])
+        XCTAssertEqual([greek.learned, greek.learning, greek.new], [0, 1, 1])
+        let english = try await reader.progress(of: .myWords, lang: "eng", states: try await db.wordStates(lang: "eng"))
+        XCTAssertEqual(english.words, [house])
+        XCTAssertEqual(english.new, 1)
+    }
+}
+
+/// The ring and the flame on the Learn home (0166, #164).
+extension LearnViewModelTests {
+    /// Today's exercises of every language against the goal, and the streak.
+    func testGoalAndStreakOnTheHome() async throws {
+        try await db.learnWord(grafoFD, today: today)
+        try await db.learnWord(house, today: today)
+        settings.learningLanguages = ["ell", "eng"]
+        settings.learningDailyGoal = 5
+        try await answerRight(grafo)
+        try await answerRight(houseKey)
+        let vm = LearnViewModel(settings: settings, languages: languages)
+        await vm.load(locale: Locale(identifier: "en"))
+        XCTAssertNil(vm.errorMessage)
+        XCTAssertEqual(vm.goal, GoalProgress(answered: 2, goal: 5), "both languages count")
+        XCTAssertEqual(vm.goal?.isMet, false)
+        XCTAssertEqual(vm.streak?.current, 0)
+        XCTAssertEqual(vm.streak?.mark(on: today), .open)
+
+        for _ in 0..<3 { try await answerRight(grafo, kind: .production) }
+        await vm.select("eng")
+        XCTAssertEqual(vm.goal, GoalProgress(answered: 5, goal: 5))
+        XCTAssertEqual(vm.goal?.isMet, true)
+        XCTAssertEqual(vm.streak?.current, 1)
+    }
+
+    func testGoalAndStreakLabels() {
+        let en = Locale(identifier: "en")
+        XCTAssertEqual(LearnViewModel.goalLabel(GoalProgress(answered: 12, goal: 20), locale: en),
+                       "Daily goal: 12 of 20 exercises")
+        XCTAssertEqual(LearnViewModel.streakLabel(StreakState(current: 5, best: 7, freezes: 2), locale: en),
+                       "5-day streak, 2 freezes")
+        XCTAssertEqual(LearnViewModel.streakLabel(StreakState(current: 1, best: 1, freezes: 1), locale: en),
+                       "1-day streak, 1 freeze")
+        XCTAssertEqual(LearnViewModel.streakLabel(StreakState(current: 5, best: 7, freezes: 2), locale: Locale(identifier: "ru")),
+                       "Серия 5 дней, 2 заморозки")
+        XCTAssertEqual(LearnViewModel.goalLabel(GoalProgress(answered: 12, goal: 20), locale: Locale(identifier: "el")),
+                       "Ημερήσιος στόχος: 12 από 20 ασκήσεις")
+        let ar = LearnViewModel.streakLabel(StreakState(current: 5, best: 7, freezes: 2), locale: Locale(identifier: "ar"))
+        XCTAssertEqual(ar.unicodeScalars.first, "\u{200F}", ar)
+    }
+}

@@ -474,6 +474,37 @@ final class GreekLocalizationTests: XCTestCase {
         try assertNoEnglishLeak(on: "Search, every chip off")
     }
 
+    /// 0166, #164: the ring and Statistics in Greek: the title, Today's
+    /// "22 από 20", the streak in days, the chart's and the tenses' VoiceOver
+    /// summaries, the tense titles.
+    func testStatisticsInGreek() throws {
+        app.terminate()
+        app.launchArguments += ["-learningFixture", "stats"]
+        app.launch()
+        XCTAssertTrue(app.waitForDictionariesReady(), "Search screen after launch")
+        openTab(.learn)
+        let learnPage = LearnPage(app: app)
+        XCTAssertTrue(learnPage.waitForHome(timeout: TestData.Timeouts.long), "the Learn home")
+        XCTAssertTrue(learnPage.goalRing.waitForExistence(timeout: TestData.Timeouts.medium))
+        XCTAssertEqual(learnPage.goalRing.label, "Ημερήσιος στόχος: 22 από 20 ασκήσεις")
+        XCTAssertEqual(learnPage.statisticsRow.label, "Στατιστικά")
+        let stats = learnPage.openStatistics()
+        let ids = AccessibilityIdentifiers.Statistics.self
+        XCTAssertTrue(app.navigationBars["Στατιστικά"].waitForExistence(timeout: TestData.Timeouts.medium))
+        XCTAssertEqual(stats.label(ids.todayExercises), "22 από 20")
+        XCTAssertEqual(stats.label(ids.streakCurrent), "9 ημέρες")
+        XCTAssertEqual(stats.label(ids.streakBest), "12 ημέρες")
+        attachScreenshot("15-statistics")
+        XCTAssertTrue(stats.label(ids.chart30d).hasPrefix("Τελευταίες 30 ημέρες: 434 ασκήσεις σε 21 ημέρες."),
+                      stats.chart.label)
+        XCTAssertTrue(stats.reveal(ids.tenseChart))
+        XCTAssertTrue(stats.tenseChart.label.hasPrefix("Κλίση ρημάτων, τελευταίες 30 ημέρες: ενεστώτας 75"),
+                      stats.tenseChart.label)
+        XCTAssertTrue(stats.reveal(ids.tense("aorist")))
+        XCTAssertTrue(waitForText("Αόριστος"), "the tense titled 'Αόριστος'")
+        attachScreenshot("16-statistics-conjugation")
+    }
+
     // MARK: - Launch
 
     /// The one launch wait. While the loading screen shows (a few ms) it must
