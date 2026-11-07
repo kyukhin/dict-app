@@ -164,6 +164,47 @@ struct AccessibilityIdentifiers {
         static let startButton = "learn_start_button"
         /// "Practise mistakes · 2 words" (#161); hidden at 0.
         static let mistakesRow = "learn_mistakes_row"
+        /// 0166, #164: the daily goal ring (value `12/20`), the streak
+        /// (value `5`) and the Statistics row; each opens Statistics.
+        static let goalRing = "learn_goal_ring"
+        static let streak = "learn_streak"
+        static let statisticsRow = "learn_statistics_row"
+    }
+
+    // MARK: - Statistics (0166, #164)
+    struct Statistics {
+        static let view = "stats_view"
+        /// The segmented switch, with two or more learned languages.
+        static let languageSwitch = "stats_language_switch"
+        static let empty = "stats_empty"
+        /// Today: exercises of every language, "12 of 20"; the others of the chosen language.
+        static let todayExercises = "stats_today_exercises"
+        static let todayNew = "stats_today_new"
+        static let todayReviewed = "stats_today_reviewed"
+        static let todayAccuracy = "stats_today_accuracy"
+        static let todayTime = "stats_today_time"
+        /// "9 days", "12 days", "2 of 3".
+        static let streakCurrent = "stats_streak_current"
+        static let streakBest = "stats_streak_best"
+        static let streakFreeze = "stats_streak_freeze"
+        /// A calendar day, `stats_streak_day_2026-11-04`; its value is
+        /// `met`, `frozen`, `missed`, `open` or `none`.
+        static func streakDay(_ day: String) -> String { "stats_streak_day_\(day)" }
+        /// The 30-day chart, labelled with its VoiceOver summary, and the
+        /// dates under it: the oldest day and "Today".
+        static let chart30d = "stats_chart_30d"
+        static let chartStart = "stats_chart_start"
+        static let chartEnd = "stats_chart_end"
+        static func list(_ id: String) -> String { "stats_list_\(id)" }
+        static func listForecast(_ id: String) -> String { "stats_list_forecast_\(id)" }
+        static let accuracyRecognition = "stats_accuracy_recognition"
+        static let accuracyProduction = "stats_accuracy_production"
+        /// The hardest words from 1.
+        static func hardest(_ n: Int) -> String { "stats_hardest_\(n)" }
+        /// The tense chart, labelled with its summary, and a tense's accuracy.
+        static let tenseChart = "stats_chart_tenses"
+        static func tense(_ tense: String) -> String { "stats_tense_\(tense)" }
+        static func hardestVerb(_ n: Int) -> String { "stats_hardest_verb_\(n)" }
     }
 
     // MARK: - Exercises (0131, #159)

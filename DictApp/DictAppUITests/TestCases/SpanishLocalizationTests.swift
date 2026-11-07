@@ -150,6 +150,8 @@ final class SpanishLocalizationTests: XCTestCase {
         XCTAssertTrue(selectLanguage(code: "es"), "Must be able to switch to Spanish via the picker")
         let learnPage = TabBarPage(app: app).tapLearnTab()
         XCTAssertTrue(learnPage.waitForHome(timeout: TestData.Timeouts.long), "Greek learned: the home")
+        // Below the goal ring (#164).
+        app.scrollToElement(learnPage.allListsRow)
         XCTAssertTrue(learnPage.allListsRow.staticTexts["Todas las listas"].waitForExistence(timeout: 5))
         let page = learnPage.tapAllLists()
         XCTAssertTrue(app.navigationBars["Listas"].waitForExistence(timeout: 5))
