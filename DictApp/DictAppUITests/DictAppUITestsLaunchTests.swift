@@ -21,6 +21,8 @@ final class DictAppUITestsLaunchTests: XCTestCase {
     @MainActor
     func testLaunch() throws {
         let app = XCUIApplication()
+        // Issue #237: no first-launch sheet over the launch screenshot.
+        app.launchArguments += [UITestHelpers.skipWelcome]
         app.launch()
 
         // Insert steps here to perform after app launch but before taking a screenshot,

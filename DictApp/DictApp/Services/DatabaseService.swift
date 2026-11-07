@@ -1449,14 +1449,32 @@ actor DatabaseService {
     /// My words whose entry resolves, newest first. A key that no longer
     /// resolves stays stored and is skipped here.
     func fetchMyWords() async throws -> [DictionaryEntry] {
+        try await fetchMyWordRows().compactMap(\.entry)
+    }
+
+    /// My words, newest first (#245): each key with its entry, or with none
+    /// while its dictionary's pack is not installed, so the row can open
+    /// the "not downloaded" view. A key that resolves neither way (a
+    /// headword a dictionary dropped, an import that is gone) is skipped.
+    func fetchMyWordRows() async throws -> [(key: EntryKey, entry: DictionaryEntry?)] {
         let pool = try await userPool()
         let schemas = schemas
         return try await read(pool) { db in
             try Row.fetchAll(db, sql: "SELECT source, word FROM my_words ORDER BY added_at DESC")
                 .compactMap { row in
-                    try Self.entry(for: EntryKey(source: row["source"], word: row["word"]), in: db, schemas: schemas)
+                    let key = EntryKey(source: row["source"], word: row["word"])
+                    if let entry = try Self.entry(for: key, in: db, schemas: schemas) {
+                        return (key, entry)
+                    }
+                    return schemas.schema(ofSource: key.source) == nil ? (key, nil) : nil
                 }
         }
+    }
+
+    /// Whether `source` is a dictionary of a pack that is not installed
+    /// (#245): its entries resolve only once the pack is downloaded.
+    func needsPack(source: String) -> Bool {
+        schemas.schema(ofSource: source) == nil
     }
 
     func clearMyWords() async throws {
@@ -2321,6 +2339,9 @@ actor DatabaseService {
     /// a bundled source counts its `word_count` plus any rows imported under
     /// its ID; an imported source counts its rows (indexed) and shows its ID
     /// with an empty license and version. No scan of the bundled rows.
+    /// Equal counts keep the file order, then each file's own (#237), and
+    /// imported-only sources come after them by ID, so the Dictionary Order
+    /// default built from this list is stable (#245).
     func fetchSourceStats() async throws -> [SourceStat] {
         let pool = try await userPool()
         return try await read(pool) { db in
@@ -2329,14 +2350,15 @@ actor DatabaseService {
                 WITH i AS MATERIALIZED (SELECT source, COUNT(*) AS cnt FROM imported_entries GROUP BY source),
                      m AS MATERIALIZED (\(Self.metadataSQL))
                 SELECT m.source AS source, m.display_name AS display_name, m.license AS license,
-                       m.version AS version, m.word_count + COALESCE(i.cnt, 0) AS cnt
+                       m.version AS version, m.word_count + COALESCE(i.cnt, 0) AS cnt,
+                       m.file_order AS file_order, m.row_order AS row_order
                 FROM m
                 LEFT JOIN i ON i.source = m.source
                 UNION ALL
-                SELECT i.source, i.source, '', '', i.cnt
+                SELECT i.source, i.source, '', '', i.cnt, \(DictionarySchemas.all.count), 0
                 FROM i
                 WHERE i.source NOT IN (SELECT source FROM m)
-                ORDER BY cnt DESC
+                ORDER BY cnt DESC, file_order, row_order, source
                 """
             let rows = try Row.fetchAll(db, sql: sql)
             return rows.map { row in

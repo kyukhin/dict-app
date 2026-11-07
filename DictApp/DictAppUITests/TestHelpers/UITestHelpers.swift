@@ -95,6 +95,18 @@ enum UITestHelpers {
         [skipWelcome, "-installPacks", packs, "-packFixtures", packAssets.path]
     }
 
+    /// The 1.4.0 database the unit tests move (`DictAppTests/`), for
+    /// `-legacyFixture <path>` (Issue #244): this launch is an update from 1.x.
+    static let legacyFixture140 = URL(fileURLWithPath: #filePath)
+        .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        .appendingPathComponent("DictAppTests/legacy-1.4.0.sqlite")
+
+    /// `s` without Foundation's U+2068/U+2069 isolates around arguments and
+    /// without U+200F (RLM, #119): the text a reader sees.
+    static func visible(_ s: String) -> String {
+        String(s.unicodeScalars.filter { !["\u{2068}", "\u{2069}", "\u{200F}"].contains($0) })
+    }
+
     /// `-packDownloads <mode>` with `-packFixtures` (Issue #242): every
     /// download the app starts is answered from the committed assets, never
     /// the network. Modes: `ok`, `slow`, `offline`, `failOnce`, `http404`,

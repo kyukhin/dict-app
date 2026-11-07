@@ -921,14 +921,30 @@ actor PackService {
     func install(_ id: PackID) async throws {
         guard catalog.pack(id) != nil else { throw PackError.unavailable }
         if isCurrent(id) { return }
-        if (current?.id != id || current?.cancelled == true) && !queue.contains(id) {
-            queue.append(id)
-            publish(id, .waiting)
-            startWorker()
-        }
+        enqueue(id)
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             waiters[id, default: []].append(continuation)
         }
+    }
+
+    /// The first-launch sheet's Download (#245): queues each of `ids` in
+    /// that order, so the first is usable soonest and the others show
+    /// Waiting, and returns at once. Each pack's state tells how it goes,
+    /// as `install` would; a failure does not stop the others. Skips a pack
+    /// the catalog lacks or that is current.
+    func enqueue(_ ids: [PackID]) {
+        for id in ids where catalog.pack(id) != nil && !isCurrent(id) {
+            enqueue(id)
+        }
+    }
+
+    /// Queues `id` behind the installs asked for earlier, unless it is
+    /// already queued or running.
+    private func enqueue(_ id: PackID) {
+        guard (current?.id != id || current?.cancelled == true) && !queue.contains(id) else { return }
+        queue.append(id)
+        publish(id, .waiting)
+        startWorker()
     }
 
     /// Installs what learning `lang` via `via` needs (0237, "Learning a
@@ -1014,6 +1030,11 @@ actor PackService {
                 current = nil
                 if !cancelled {
                     finish(id, result)
+                } else if !queue.contains(id) {
+                    // `cancel` has answered its callers; the resting state
+                    // comes last, after anything the run published since
+                    // (CodeRabbit, PR #257). Queued again, it shows Waiting.
+                    publish(id, restingState(id))
                 }
             }
             await background.end()
@@ -1057,9 +1078,16 @@ actor PackService {
         guard let pack = catalog.pack(id), let url = pack.url else { throw PackError.unavailable }
         // Installed meanwhile (a cancel that came too late, a second queue entry).
         guard !isCurrent(id) else { return publish(id, .installed) }
+        try Task.checkCancellation()
         publish(id, .downloading(received: 0, total: pack.size))
         let asset = try await download(pack, from: url)
         defer { try? FileManager.default.removeItem(at: asset) }
+        #if DEBUG
+        await downloaded?(id)
+        #endif
+        // A cancel as the download ended has shown the resting state: no
+        // "Installing…" after it (CodeRabbit, PR #257).
+        try Task.checkCancellation()
         publish(id, .installing)
         let file = try await Self.installDetached(asset: asset, pack: pack, folder: folder, fault: writeFault)
         // The rename has committed the file: a cancel from here on must not
@@ -1286,6 +1314,14 @@ actor PackService {
     func expireBackgroundTime() {
         stopAll()
     }
+
+    /// Unit-test seam: awaited after each download, before the install goes
+    /// on, so a cancel from it lands between the two.
+    private var downloaded: (@Sendable (PackID) async -> Void)?
+
+    func onDownloaded(_ hook: (@Sendable (PackID) async -> Void)?) {
+        downloaded = hook
+    }
     #endif
 }
 
@@ -1510,10 +1546,30 @@ final class PackFixtureURLProtocol: URLProtocol {
 
     private func complete() {
         if failsAtEnd {
-            client?.urlProtocol(self, didFailWithError: URLError(.networkConnectionLost))
+            dropOnceReceived(Int64(end))
         } else {
             client?.urlProtocolDidFinishLoading(self)
         }
+    }
+
+    /// Drops the connection once the session has taken the `bytes` sent
+    /// (QA #245). Reported while they are still in flight, the drop leaves
+    /// resume data that counts fewer of them, down to none, and Try again
+    /// starts early. Polls on this thread's run loop, where the client
+    /// expects its calls; gives up waiting after 5 s.
+    private func dropOnceReceived(_ bytes: Int64) {
+        let deadline = Date().addingTimeInterval(5)
+        let timer = Timer(timeInterval: 0.005, repeats: true) { [weak self] timer in
+            guard let self else {
+                timer.invalidate()
+                return
+            }
+            guard (task?.countOfBytesReceived ?? bytes) >= bytes || Date() >= deadline else { return }
+            timer.invalidate()
+            client?.urlProtocol(self, didFailWithError: URLError(.networkConnectionLost))
+        }
+        RunLoop.current.add(timer, forMode: .common)
+        self.timer = timer
     }
 }
 #endif

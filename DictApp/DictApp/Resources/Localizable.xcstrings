@@ -3943,6 +3943,114 @@
         }
       }
     },
+    "languages.remove.message.dictionaries": {
+      "comment": "Remove alert of a language whose pack holds dictionaries only: what is deleted and what stays.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Its dictionaries are deleted. Your History, My words and learning progress stay."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Его словари будут удалены. История, «Мои слова» и прогресс обучения сохранятся."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se eliminarán sus diccionarios. Tu historial, Mis palabras y tu progreso de aprendizaje se conservan."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ستُحذف قواميسها. يبقى سجلك وكلماتي وتقدّمك في التعلّم."
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Τα λεξικά της γλώσσας διαγράφονται. Το Ιστορικό, οι λέξεις μου και η πρόοδος εκμάθησης παραμένουν."
+          }
+        }
+      }
+    },
+    "languages.remove.message.forms": {
+      "comment": "Remove alert of a language whose pack holds dictionaries and word forms, no word lists: what is deleted and what stays.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Its dictionaries and word forms are deleted. Your History, My words and learning progress stay."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Его словари и формы слов будут удалены. История, «Мои слова» и прогресс обучения сохранятся."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se eliminarán sus diccionarios y formas de las palabras. Tu historial, Mis palabras y tu progreso de aprendizaje se conservan."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ستُحذف قواميسها وصيغ كلماتها. يبقى سجلك وكلماتي وتقدّمك في التعلّم."
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Τα λεξικά και οι μορφές λέξεων της γλώσσας διαγράφονται. Το Ιστορικό, οι λέξεις μου και η πρόοδος εκμάθησης παραμένουν."
+          }
+        }
+      }
+    },
+    "languages.remove.message.lists": {
+      "comment": "Remove alert of a pack of word lists only (English word lists): what is deleted and what stays.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The word lists are deleted. Your History, My words and learning progress stay."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Списки слов будут удалены. История, «Мои слова» и прогресс обучения сохранятся."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se eliminarán las listas de palabras. Tu historial, Mis palabras y tu progreso de aprendizaje se conservan."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ستُحذف قوائم الكلمات. يبقى سجلك وكلماتي وتقدّمك في التعلّم."
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Οι λίστες λέξεων διαγράφονται. Το Ιστορικό, οι λέξεις μου και η πρόοδος εκμάθησης παραμένουν."
+          }
+        }
+      }
+    },
     "languages.remove.pair %@ %@": {
       "comment": "Remove alert, when a learned pair takes its meanings from this language: the pair's name ('English via Greek'), then this language's name inside a sentence. ar: leading U+200F (RLM) makes the line right-to-left (#119).",
       "extractionState": "manual",
@@ -4638,6 +4746,114 @@
           "stringUnit": {
             "state": "translated",
             "value": "Διαχείριση λεξικών"
+          }
+        }
+      }
+    },
+    "notDownloaded.download %@ %@": {
+      "comment": "The Download button of a word or a Search query whose language is not downloaded: the language's name inside a sentence (lower case except in English), then its download size. ar: leading U+200F (RLM) makes the line right-to-left (#119).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Download %1$@ · %2$@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Скачать %1$@ · %2$@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Descargar %1$@ · %2$@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "\u200Fتنزيل %1$@ · %2$@"
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Λήψη (%1$@) · %2$@"
+          }
+        }
+      }
+    },
+    "notDownloaded.message %@": {
+      "comment": "A History or My words word whose language is not downloaded; the argument is the language's name inside a sentence (lower case except in English). ar: leading U+200F (RLM) makes the line right-to-left (#119).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This word is in the %@ dictionaries."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Это слово есть в словарях (%@)."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esta palabra está en los diccionarios de %@."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "\u200Fهذه الكلمة موجودة في قواميس %@."
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Αυτή η λέξη βρίσκεται στα λεξικά για τα %@."
+          }
+        }
+      }
+    },
+    "notDownloaded.search %@": {
+      "comment": "Search, no results: the query's language is not downloaded; also the caption of a My words word waiting for it. The argument is the language's name inside a sentence (lower case except in English). ar: leading U+200F (RLM) makes the line right-to-left (#119).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ is not downloaded."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Словари (%@) не скачаны."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El %@ no está descargado."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "\u200F%@ غير مُنزّلة."
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Τα %@ δεν έχουν ληφθεί."
           }
         }
       }
@@ -6579,6 +6795,330 @@
           "stringUnit": {
             "state": "translated",
             "value": "Γράψτε μια κριτική"
+          }
+        }
+      }
+    },
+    "welcome.body": {
+      "comment": "First-launch sheet, fresh install: under the title.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "English is included and works offline. Add other languages: each downloads once, then works offline too."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Английский уже есть и работает без интернета. Добавьте другие языки: каждый скачивается один раз и потом тоже работает без интернета."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El inglés está incluido y funciona sin conexión. Añade otros idiomas: cada uno se descarga una vez y después también funciona sin conexión."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الإنجليزية مضمّنة وتعمل دون اتصال. أضف لغات أخرى: تُنزَّل كل لغة مرة واحدة، ثم تعمل دون اتصال أيضًا."
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Τα Αγγλικά περιλαμβάνονται και λειτουργούν χωρίς σύνδεση. Προσθέστε άλλες γλώσσες: η καθεμία κατεβαίνει μία φορά και μετά λειτουργεί κι αυτή χωρίς σύνδεση."
+          }
+        }
+      }
+    },
+    "welcome.continue": {
+      "comment": "First-launch sheet: the main button with no language checked; closes the sheet.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Continue"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Продолжить"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Continuar"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "متابعة"
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Συνέχεια"
+          }
+        }
+      }
+    },
+    "welcome.done": {
+      "comment": "First-launch sheet, after Download: closes the sheet; the downloads go on.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Done"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Готово"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم"
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Τέλος"
+          }
+        }
+      }
+    },
+    "welcome.download %@": {
+      "comment": "First-launch sheet: the main button, with the checked languages' total download size. ar: leading U+200F (RLM) makes the line right-to-left (#119).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Download %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Скачать %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Descargar %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "\u200Fتنزيل %@"
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Λήψη %@"
+          }
+        }
+      }
+    },
+    "welcome.import": {
+      "comment": "First-launch sheet: the link to Manage Dictionaries, to import a dictionary file.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Import your own dictionary"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Импортировать свой словарь"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Importar tu propio diccionario"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "استيراد قاموسك الخاص"
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Εισαγωγή δικού σας λεξικού"
+          }
+        }
+      }
+    },
+    "welcome.missing.body": {
+      "comment": "First-launch sheet, languages gone after a restore from a backup or an app update: under the title.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your languages need to be downloaded again."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ваши языки нужно скачать заново."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tus idiomas deben descargarse de nuevo."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يجب تنزيل لغاتك مرة أخرى."
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Οι γλώσσες σας πρέπει να ληφθούν ξανά."
+          }
+        }
+      }
+    },
+    "welcome.notNow": {
+      "comment": "First-launch sheet: closes it with nothing downloaded; Settings → Languages does it later.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not now"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не сейчас"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ahora no"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ليس الآن"
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Όχι τώρα"
+          }
+        }
+      }
+    },
+    "welcome.title": {
+      "comment": "First-launch sheet: its title.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Welcome to LibreDict"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Добро пожаловать в LibreDict"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Te damos la bienvenida a LibreDict"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مرحبًا بك في LibreDict"
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Καλώς ήρθατε στο LibreDict"
+          }
+        }
+      }
+    },
+    "welcome.upgrade.body": {
+      "comment": "First-launch sheet after an update from 1.x or the 2.0 alpha: under the title.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "LibreDict 2.0 downloads languages other than English once. Your History and My words are here."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "LibreDict 2.0 один раз скачивает языки, кроме английского. Ваша история и «Мои слова» на месте."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "LibreDict 2.0 descarga una vez los idiomas distintos del inglés. Tu historial y Mis palabras siguen aquí."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يُنزّل LibreDict 2.0 اللغات غير الإنجليزية مرة واحدة. سجلك وكلماتي هنا."
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Το LibreDict 2.0 κατεβάζει μία φορά τις γλώσσες εκτός από τα Αγγλικά. Το Ιστορικό και οι λέξεις μου είναι εδώ."
           }
         }
       }

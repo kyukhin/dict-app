@@ -4,6 +4,10 @@
 import SwiftUI
 
 struct ContentView: View {
+    /// The first-launch sheet launch decided on (#245, `PackOffer`): the
+    /// first window that appears takes it, so on iPad it shows in one.
+    @State private var welcome: WelcomeViewModel?
+
     var body: some View {
         TabView {
             SearchView()
@@ -29,6 +33,14 @@ struct ContentView: View {
                     Label("tab.settings", systemImage: "gearshape")
                 }
                 .accessibilityIdentifier("settings_tab")
+        }
+        .sheet(item: $welcome) { model in
+            WelcomeSheet(model: model)
+        }
+        .onAppear {
+            guard welcome == nil, let sheet = PackOffer.launchSheet else { return }
+            PackOffer.launchSheet = nil
+            welcome = WelcomeViewModel(sheet: sheet)
         }
     }
 }

@@ -4,11 +4,12 @@ import SwiftUI
 
 struct BookmarksView: View {
     @StateObject private var vm = BookmarksViewModel()
+    @Environment(\.locale) private var locale
 
     var body: some View {
         NavigationStack {
             Group {
-                if vm.entries.isEmpty {
+                if vm.rows.isEmpty {
                     ContentUnavailableView(
                         "bookmarks.empty.title",
                         systemImage: "bookmark",
@@ -16,23 +17,42 @@ struct BookmarksView: View {
                     )
                 } else {
                     List {
-                        ForEach(vm.entries) { entry in
-                            NavigationLink(value: entry) {
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Text(entry.word)
-                                        .font(.headline)
-                                    Text(strippedSnippet(entry.definition))
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                        .lineLimit(1)
+                        ForEach(vm.rows) { row in
+                            if let entry = row.entry {
+                                NavigationLink(value: entry) {
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        Text(entry.word)
+                                            .font(.headline)
+                                        Text(strippedSnippet(entry.definition))
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                            .lineLimit(1)
+                                    }
+                                }
+                            } else {
+                                // #245: its pack is not installed; the row
+                                // opens the "not downloaded" view.
+                                NavigationLink {
+                                    EntryDestination(key: row.key)
+                                } label: {
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        Text(row.key.word)
+                                            .font(.headline)
+                                        if let pack = NotDownloaded.pack(ofSource: row.key.source, catalog: .shared) {
+                                            Text(verbatim: PackTexts.notDownloadedSearch(pack, locale: locale))
+                                                .font(.caption)
+                                                .foregroundStyle(.secondary)
+                                                .lineLimit(1)
+                                        }
+                                    }
                                 }
                             }
                         }
                         .onDelete { offsets in
-                            let removed = offsets.map { vm.entries[$0] }
+                            let removed = offsets.map { vm.rows[$0].key }
                             Task {
-                                for entry in removed {
-                                    await vm.remove(entry)
+                                for key in removed {
+                                    await vm.remove(key)
                                 }
                             }
                         }

@@ -170,8 +170,30 @@ struct AccessibilityIdentifiers {
         static func update(_ id: String) -> String { "pack_update_\(id)" }
         static func retry(_ id: String) -> String { "pack_retry_\(id)" }
         static func error(_ id: String) -> String { "pack_error_\(id)" }
-        /// "Installed · 56.3 MB".
+        /// "Installed · 58.1 MB".
         static func installed(_ id: String) -> String { "pack_installed_\(id)" }
+    }
+
+    // MARK: - First-launch sheet and "not downloaded" (Issue #245)
+    //
+    // 0237, "UI". After Download the sheet's rows are `PackRow`s, with the
+    // `Languages` ids.
+    struct Welcome {
+        /// The sheet's list.
+        static let sheet = "welcome_sheet"
+        /// A language to check; checked, it has the selected trait.
+        static func language(_ id: String) -> String { "welcome_language_\(id)" }
+        /// "Download 18.1 MB", or "Continue" with nothing checked.
+        static let download = "welcome_download"
+        static let notNow = "welcome_not_now"
+        /// "Import your own dictionary": pushes Manage Dictionaries.
+        static let importLink = "welcome_import"
+        static let done = "welcome_done"
+        /// "Download Greek · 11.2 MB" of the "not downloaded" view and the
+        /// Search hint (then "Try again").
+        static let notDownloadedDownload = "not_downloaded_download"
+        /// The Search hint's text, "Greek is not downloaded."
+        static let searchHint = "search_not_downloaded"
     }
 
     // MARK: - Dictionary Info detail (Issue #91)

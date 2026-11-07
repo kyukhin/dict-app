@@ -20,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - [#163] Learning statistics data: each day keeps the daily goal in force when it ended, and the app computes on the device the streak with up to 3 freezes, today's numbers, the 30-day series, accuracy by direction and tense, the hardest words and verbs, and each list's progress with a forecast.
 - [#242] A language pack downloads from GitHub Releases only when the user asks, is checked against its pinned sha256 and size, and becomes searchable without a restart; a failed, cancelled or interrupted download installs nothing and can be tried again.
 - [#243] Settings → Dictionaries → Languages downloads, updates and removes each language with its size and progress, and Dictionary Order links to it; removing a language warns when learning needs it.
+- [#245] The first launch offers the other languages in one sheet, with the UI and device languages checked (after an update from 1.x, those that were on), their progress, Not now and a link to import one's own dictionary. A History or My words word, or a Greek, Cyrillic or Arabic query, whose language is not downloaded offers its download.
 
 ### Changed
 - [#138] Every dictionary is searchable right after install, with no "Preparing dictionaries" bar: the app reads the bundled dictionaries in place and keeps your history, saved words and imports in a small database of their own.

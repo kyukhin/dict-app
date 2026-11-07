@@ -97,9 +97,13 @@ struct DictApp: App {
             if CommandLine.arguments.contains("-resetDatabase") {
                 DatabaseService.removeDatabaseFiles()
             }
-            // Issue #237: no pack installed, no download in progress.
+            // Issue #237: no pack installed, no download in progress. #245:
+            // and none recorded or offered, so without `-skipWelcome` the
+            // launch shows a fresh install's sheet.
             if CommandLine.arguments.contains("-resetPacks") {
                 PackFiles.removeAll()
+                SettingsService.shared.packsOffered = false
+                SettingsService.shared.packsInstalled = []
             }
             // Issue #244: a 1.x install about to update. The fixture becomes
             // the 1.x database on an empty user database, and the keys 1.x

@@ -199,4 +199,32 @@ final class iPadSpecificTests: XCTestCase {
             }
         }
     }
+
+    /// Issue #245 (0237, "UI"): the first-launch sheet is a form sheet on
+    /// iPad, narrower than the window, with its rows and the Import link;
+    /// Not now closes it onto Search. Relaunches as a fresh install, without
+    /// `-skipWelcome`, offline.
+    func testWelcomeSheetOnIPad() throws {
+        app.terminate()
+        app.launchArguments = ["-disableReviewPrompt", "-resetDatabase", "-resetPacks", "-resetData"]
+            + UITestHelpers.downloadArguments("offline")
+        app.launch()
+        let welcome = WelcomePage(app: app)
+        XCTAssertTrue(welcome.waitForSheet(), "a fresh install shows the sheet")
+        let window = app.windows.firstMatch.frame
+        XCTAssertLessThan(welcome.sheet.frame.width, window.width - 100, "a form sheet, not the full width")
+        XCTAssertGreaterThan(welcome.sheet.frame.minX, window.minX, "centred")
+        for id in ["arb", "ell", "rus", "spa"] {
+            XCTAssertTrue(welcome.language(id).exists, "\(id) is offered")
+        }
+        XCTAssertTrue(welcome.importLink.exists, "the Import link")
+        let screenshot = XCTAttachment(screenshot: app.screenshot())
+        screenshot.name = "Welcome on iPad"
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
+
+        welcome.tapNotNow()
+        XCTAssertTrue(welcome.waitForSheetGone(), "Not now closes the sheet")
+        XCTAssertTrue(app.waitForDictionariesReady(), "Search shows")
+    }
 }

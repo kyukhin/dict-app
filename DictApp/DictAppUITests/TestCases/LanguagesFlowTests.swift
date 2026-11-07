@@ -96,6 +96,7 @@ final class LanguagesFlowTests: XCTestCase {
         let alert = languages.swipeToRemove("ell")
         XCTAssertTrue(alert.waitForExistence(timeout: TestData.Timeouts.medium), "Remove asks first")
         XCTAssertEqual(Self.visible(alert.label), "Remove Greek?")
+        // #245: only what the Greek pack holds, its word lists too (#152).
         XCTAssertTrue(alert.staticTexts["Its dictionaries, word forms and word lists are deleted. "
                                         + "Your History, My words and learning progress stay."].exists,
                       "the alert says what goes and what stays")
