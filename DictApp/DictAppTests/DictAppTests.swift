@@ -24761,3 +24761,650 @@ extension LearnViewModelTests {
         XCTAssertFalse(vm.canTrain, "a paused word is not in learning")
     }
 }
+
+// MARK: - 0131: the daily session and mistakes practice (#161)
+//
+// 0131-learning.md, Test plan: the rows of #161. The session's plan is pure
+// (`SessionPlanner`); its new words (`NewWordPicker`) and the runs work on
+// `ExerciseFixture`'s dictionary with user lists standing for E3's lists.
+
+/// Each item of `plan` as `word:kind`, `r` or `p`.
+private func planText(_ plan: [PlannedItem]) -> [String] {
+    plan.map { "\($0.card.key.word.word):\($0.card.key.kind == .recognition ? "r" : "p")" }
+}
+
+extension ExerciseTestCase {
+    /// A run of `run` in `lang` (Greek via English by default) on this
+    /// case's services, with answer hints and a fixed seed.
+    func sessionRun(_ run: ExerciseRunViewModel.Run = .session, lang: String = "ell", meaningsLang: String? = "eng",
+                    clock: TestClock = TestClock("2026-11-04T12:00:00Z")) -> ExerciseRunViewModel {
+        ExerciseRunViewModel(run: run, lang: lang, meaningsLang: meaningsLang, db: db, settings: settings,
+                             languages: languages, clock: clock.clock,
+                             player: FeedbackPlayer(settings: settings, sink: RecordingFeedbackSink()),
+                             seed: 161, answerHints: true)
+    }
+
+    /// Answers the questions until the summary, or `limit` questions, right
+    /// unless `wrong` says otherwise; returns the questions asked.
+    @discardableResult
+    func answer(_ vm: ExerciseRunViewModel, limit: Int = 60,
+                wrong: (Question) -> Bool = { _ in false }) async throws -> [Question] {
+        var asked: [Question] = []
+        while asked.count < limit, vm.phase == .question, let question = vm.question {
+            asked.append(question)
+            if question.input == .choice {
+                let right = try XCTUnwrap(question.rightIndex)
+                await vm.choose(wrong(question) ? (right + 1) % question.options.count : right)
+            } else {
+                vm.typed = wrong(question) ? "λάθος" : question.word.term
+                await vm.check()
+            }
+            XCTAssertNotNil(vm.feedback)
+            await vm.next()
+        }
+        return asked
+    }
+
+    /// The single number `sql` reads.
+    func count(_ sql: String) async throws -> Int {
+        try await db.writeForTesting { try Int.fetchOne($0, sql: sql) ?? 0 }
+    }
+
+    /// Two cards of one word asked back to back, while other cards remained.
+    func adjacentPairs(_ asked: [Question]) -> [String] {
+        zip(asked, asked.dropFirst()).enumerated().compactMap { index, pair in
+            let rest = asked.dropFirst(index + 2)
+            guard pair.0.card.key.word == pair.1.card.key.word,
+                  rest.contains(where: { $0.card.key.word != pair.0.card.key.word }) else { return nil }
+            return pair.0.card.key.word.word
+        }
+    }
+}
+
+final class SessionPlannerTests: ExerciseTestCase {
+    private func key(_ word: String) -> WordKey { WordKey(lang: "ell", word: word) }
+
+    private func card(_ word: String, _ kind: CardKind = .recognition, step: Int = 1,
+                      due: LearnDay? = nil, suspended: Bool = false) -> CardState {
+        LearningFixture.card(kind, word: key(word), step: step, due: due ?? today, last: (due ?? today).adding(days: -1),
+                             suspended: suspended)
+    }
+
+    private func newWord(_ word: String) -> LearnWord {
+        LearnWord(key: key(word), term: word, endings: "", partOfSpeech: "", translation: word, translationLang: "",
+                  entry: nil, listID: nil, introducedDay: nil)
+    }
+
+    /// Due cards first, as read (most overdue first), then the new words'
+    /// cards, new as created; paused and conjugation cards never.
+    func testDueCardsComeBeforeNewWords() {
+        let due = [card("α", .production, due: today.adding(days: -3)), card("β", step: 2),
+                   card("γ", suspended: true), LearningFixture.card(.conjugation, word: key("δ"), step: 1, due: today)]
+        let plan = SessionPlanner.session(due: due, newWords: [newWord("ν"), newWord("μ")], today: today)
+        XCTAssertEqual(planText(plan), ["α:p", "β:r", "ν:r", "μ:r", "ν:p", "μ:p"])
+        XCTAssertEqual(Array(plan.prefix(2).map(\.card)), Array(due.prefix(2)), "the due cards as read")
+        XCTAssertEqual(plan[2].card, CardState(key: CardKey(word: key("ν"), kind: .recognition), step: 0, dueDay: today))
+        XCTAssertTrue(plan.dropFirst(2).allSatisfy { $0.card.isNew && $0.card.step == 0 }, "new cards")
+        XCTAssertTrue(plan.allSatisfy { !$0.isRetry })
+        XCTAssertEqual(SessionPlanner.session(due: [], newWords: [], today: today), [], "nothing to ask")
+        XCTAssertEqual(planText(SessionPlanner.session(due: [card("α")], newWords: [newWord("α")], today: today)),
+                       ["α:r"], "a word with a due card is not new as well")
+    }
+
+    /// At most 30 due cards, the first 30 as read. Through a run, a due
+    /// card of a word without a meaning in the pair takes no slot: the next
+    /// due card fills it.
+    func testDueCardsCappedAt30() async throws {
+        XCTAssertEqual(SessionPlanner.sessionDueLimit, 30)
+        let due = (0..<35).map { card("w\($0)", due: today.adding(days: -$0)) }
+        let plan = SessionPlanner.session(due: due, newWords: [newWord("ν")], today: today)
+        XCTAssertEqual(Array(plan.prefix(30).map(\.card)), Array(due.prefix(30)))
+        XCTAssertEqual(planText(Array(plan.dropFirst(30))), ["ν:r", "ν:p"], "then the new words")
+
+        // 16 Greek words due (32 cards), and άγνωστο, without a meaning, the most overdue.
+        for index in 0..<16 {
+            try await db.learnWord(greek("ρήμα\(index)"), today: today)
+            for kind in CardKind.wordKinds {
+                try await setCard(WordKey(lang: "ell", word: "ρήμα\(index)"), kind, step: 1, due: today,
+                                  last: today.adding(days: -1))
+            }
+        }
+        let unknown = WordKey(lang: "ell", word: "άγνωστο")
+        try await insertListWord("άγνωστο", translation: "", translationLang: "", list: nil)
+        try await setCard(unknown, .recognition, step: 1, due: today.adding(days: -3), last: today.adding(days: -4))
+        settings.learningNewPerDay = 0
+        settings.learningAnswerMode = .choice
+        let vm = sessionRun()
+        await vm.start()
+        XCTAssertNil(vm.errorMessage)
+        XCTAssertEqual(vm.total, 30, "30 due cards with a meaning")
+        let asked = try await answer(vm)
+        XCTAssertEqual(asked.count, 30)
+        XCTAssertFalse(asked.contains { $0.card.key.word == unknown }, "no meaning: skipped, no slot")
+        XCTAssertEqual(adjacentPairs(asked), [])
+    }
+
+    /// The daily limit, 10, minus the 4 words of the language started
+    /// today: 6 new words, each asked twice.
+    func testNewWordsStopAtTheDailyLimit() async throws {
+        XCTAssertEqual(settings.learningNewPerDay, 10)
+        for index in 0..<12 {
+            try await db.learnWord(greek("ουσία\(index)"), today: today)
+            try await execute("UPDATE learn_word SET added_at = ? WHERE word = ?",
+                              ["2026-10-\(10 + index) 10:00:00", "ουσία\(index)"])
+        }
+        for index in 0..<4 {
+            for kind in CardKind.wordKinds {
+                try await setCard(WordKey(lang: "ell", word: "ουσία\(index)"), kind, step: 1, due: today.adding(days: 1),
+                                  last: today, introduced: today)
+            }
+        }
+        let picker = NewWordPicker(db: db, settings: settings)
+        let left = try await picker.left(lang: "ell", today: today)
+        XCTAssertEqual(left, 6)
+        let sourceOrder = try await languages.sourceOrder(lang: "ell", meaningsLang: "eng")
+        let pick = try await picker.pick(lang: "ell", meaningsLang: "eng", sourceOrder: sourceOrder, today: today)
+        XCTAssertEqual(pick.pool.map(\.key.word), (4..<10).map { "ουσία\($0)" }, "the oldest first")
+        XCTAssertEqual(pick.lists, [])
+
+        let vm = sessionRun()
+        await vm.start()
+        XCTAssertEqual(vm.total, 12, "6 new words, twice each")
+        let asked = try await answer(vm)
+        XCTAssertEqual(Set(asked.map(\.card.key.word.word)), Set((4..<10).map { "ουσία\($0)" }))
+        let started = try await db.startedCount(on: today, lang: "ell")
+        XCTAssertEqual(started, 10, "the limit reached")
+        let after = try await picker.left(lang: "ell", today: today)
+        XCTAssertEqual(after, 0)
+
+        // The limit is per language: Greek's 10 leave English its own 10.
+        try await db.learnWord(EntryKey(source: wordnet, word: "house"), today: today)
+        let englishLeft = try await picker.left(lang: "eng", today: today)
+        XCTAssertEqual(englishLeft, 10)
+        let englishOrder = try await languages.sourceOrder(lang: "eng", meaningsLang: "eng")
+        let english = try await picker.pick(lang: "eng", meaningsLang: "eng", sourceOrder: englishOrder, today: today)
+        XCTAssertEqual(english.pool.map(\.key.word), ["house"])
+    }
+
+    /// QA (#161): a wrong card requeued at the end does not land next to
+    /// its word's other card while another card remains. γράφω's
+    /// recognition, σπίτι's production, then γράφω's production are due;
+    /// the first two answered wrong: σπίτι's retry goes between γράφω's.
+    func testRequeueKeepsTheCardsOfAWordApart() async throws {
+        let grafo = WordKey(lang: "ell", word: "γράφω"), spiti = WordKey(lang: "ell", word: "σπίτι")
+        try await db.learnWord(greek("γράφω"), today: today)
+        try await db.learnWord(greek("σπίτι"), today: today)
+        try await setCard(grafo, .recognition, step: 1, due: today.adding(days: -3), last: today.adding(days: -4))
+        try await setCard(spiti, .production, step: 1, due: today.adding(days: -2), last: today.adding(days: -3))
+        try await setCard(grafo, .production, step: 1, due: today.adding(days: -1), last: today.adding(days: -2))
+        try await setCard(spiti, .recognition, step: 2, due: today.adding(days: 2), last: today.adding(days: -1))
+        settings.learningAnswerMode = .choice
+        let vm = sessionRun()
+        await vm.start()
+        XCTAssertEqual(vm.total, 3)
+        var answers = 0
+        let asked = try await answer(vm) { _ in
+            answers += 1
+            return answers <= 2
+        }
+        XCTAssertEqual(planText(asked.map { PlannedItem(card: $0.card) }),
+                       ["γράφω:r", "σπίτι:p", "γράφω:p", "σπίτι:p", "γράφω:r"])
+        XCTAssertEqual(adjacentPairs(asked), [])
+    }
+
+    /// QA (#161): a card skipped without a question (no other option)
+    /// leaves no two cards of a word side by side. Other, no source sample:
+    /// β's meaning shares a part with each other word's, so its
+    /// recognition has no option and is skipped between α's two cards.
+    func testSkippedCardKeepsTheCardsOfAWordApart() async throws {
+        let words = [("α", "x"), ("β", "x, y"), ("γ", "y, z")]
+        for (index, word) in words.enumerated() {
+            try await insertListWord(word.0, lang: "und", translation: word.1, translationLang: "", list: nil,
+                                     addedAt: "2026-10-0\(index + 1) 10:00:00")
+        }
+        func key(_ word: String) -> WordKey { WordKey(lang: "und", word: word) }
+        try await setCard(key("α"), .production, step: 1, due: today.adding(days: -4), last: today.adding(days: -5))
+        try await setCard(key("β"), .recognition, step: 1, due: today.adding(days: -3), last: today.adding(days: -5))
+        try await setCard(key("α"), .recognition, step: 1, due: today.adding(days: -2), last: today.adding(days: -5))
+        try await setCard(key("γ"), .production, step: 1, due: today.adding(days: -1), last: today.adding(days: -5))
+        try await setCard(key("β"), .production, step: 2, due: today.adding(days: 2), last: today.adding(days: -1))
+        try await setCard(key("γ"), .recognition, step: 2, due: today.adding(days: 2), last: today.adding(days: -1))
+        settings.learningAnswerMode = .choice
+        let vm = sessionRun(lang: "und", meaningsLang: nil)
+        await vm.start()
+        let asked = try await answer(vm)
+        XCTAssertEqual(planText(asked.map { PlannedItem(card: $0.card) }), ["α:p", "γ:p", "α:r"],
+                       "β's recognition skipped; γ goes between α's cards")
+        XCTAssertEqual(adjacentPairs(asked), [])
+        let logged = try await rows("SELECT word FROM learn_review WHERE word = 'β'")
+        XCTAssertEqual(logged, [], "skipped without a log row")
+    }
+
+    /// New words in groups of three: three recognitions, then those three
+    /// productions; a production of a new word is a choice in every mode.
+    func testNewWordsInGroupsOfThree() {
+        let words = ["α", "β", "γ", "δ", "ε", "ζ", "η"]
+        let plan = SessionPlanner.session(due: [], newWords: words.map(newWord), today: today)
+        XCTAssertEqual(planText(plan), ["α:r", "β:r", "γ:r", "α:p", "β:p", "γ:p",
+                                        "δ:r", "ε:r", "ζ:r", "δ:p", "ε:p", "ζ:p", "η:r", "η:p"],
+                       "the last word alone: nothing left to put between its cards")
+        for mode in AnswerMode.allCases {
+            XCTAssertTrue(plan.allSatisfy { QuestionBuilder.wantsChoice($0.card, mode: mode) }, "\(mode)")
+        }
+    }
+
+    /// Familiar production cards (rung 1 or higher) are typed in Strict and
+    /// Lenient, a choice in Multiple choice; learning ones are a choice.
+    func testFamiliarProductionFollowsTheAnswerMode() {
+        let due = [card("α", .production, step: 2), card("β", .production, step: 0), card("γ", step: 3)]
+        let plan = SessionPlanner.session(due: due, newWords: [newWord("ν")], today: today)
+        func choices(_ mode: AnswerMode) -> [Bool] { plan.map { QuestionBuilder.wantsChoice($0.card, mode: mode) } }
+        XCTAssertEqual(planText(plan), ["α:p", "β:p", "γ:r", "ν:r", "ν:p"])
+        XCTAssertEqual(choices(.strict), [false, true, true, true, true])
+        XCTAssertEqual(choices(.lenient), [false, true, true, true, true])
+        XCTAssertEqual(choices(.choice), [true, true, true, true, true])
+    }
+
+    /// The two cards of a word are never back to back while other cards
+    /// remain: the second swaps with the next card of another word. Items
+    /// before `from` stay; alone at the end, a word keeps its cards together.
+    func testCardsOfOneWordNotAdjacent() async throws {
+        let due = [card("α", .production), card("α"), card("β", .production), card("β"), card("γ", .production), card("γ")]
+        let plan = SessionPlanner.session(due: due, newWords: [], today: today)
+        XCTAssertEqual(planText(plan), ["α:p", "β:p", "α:r", "β:r", "γ:p", "γ:r"],
+                       "γ, last, keeps its cards together: no other card left")
+        XCTAssertEqual(Set(plan.map(\.card)), Set(due), "every card once")
+
+        let items = ["α", "α", "β", "β"].map { PlannedItem(card: card($0)) }
+        XCTAssertEqual(SessionPlanner.separatingWords(items, from: 2).map(\.card.key.word.word), ["α", "α", "β", "β"],
+                       "nothing before `from` moves; β alone at the end")
+        XCTAssertEqual(SessionPlanner.separatingWords(items).map(\.card.key.word.word), ["α", "β", "α", "β"])
+
+        // The `due` fixture: each word's two cards are read side by side.
+        _ = try await db.writeLearningFixture("due", today: today)
+        settings.learningAnswerMode = .choice
+        let vm = sessionRun()
+        await vm.start()
+        XCTAssertEqual(vm.total, 10, "five words due, two cards each")
+        let asked = try await answer(vm)
+        XCTAssertEqual(asked.count, 10)
+        XCTAssertEqual(adjacentPairs(asked), [])
+    }
+
+    /// A wrong card comes back once, at the end, apart from its word's other
+    /// card; wrong again, it does not come back a third time.
+    func testWrongItemComesBackOnce() async throws {
+        let plan = SessionPlanner.session(due: [], newWords: [newWord("α"), newWord("β")], today: today)
+        XCTAssertEqual(planText(plan), ["α:r", "β:r", "α:p", "β:p"])
+        let after = CardState(key: plan[3].card.key, step: 0, dueDay: today, lastDay: today)
+        let requeued = SessionPlanner.separatingWords(SessionPlanner.requeue(plan, wrongAt: 3, card: after), from: 4)
+        XCTAssertEqual(planText(requeued), ["α:r", "β:r", "α:p", "β:p", "β:p"],
+                       "at the end: no other card left to put between")
+        XCTAssertEqual(requeued.last, PlannedItem(card: after, isRetry: true))
+        let early = SessionPlanner.separatingWords(SessionPlanner.requeue(plan, wrongAt: 1, card: plan[1].card), from: 2)
+        XCTAssertEqual(planText(early), ["α:r", "β:r", "α:p", "β:p", "β:r"])
+
+        _ = try await db.writeLearningFixture("due", today: today)
+        settings.learningAnswerMode = .choice
+        let vm = sessionRun()
+        await vm.start()
+        let nero = CardKey(word: WordKey(lang: "ell", word: "νερό"), kind: .recognition)
+        let asked = try await answer(vm) { $0.card.key == nero }
+        XCTAssertEqual(asked.count, 11, "10 cards and one retry; wrong again, no third time")
+        XCTAssertEqual(asked.last?.card.key, nero, "the retry is last")
+        XCTAssertEqual(asked.last?.card.step, 0, "as the wrong answer left it")
+        let log = try await rows("SELECT outcome, mode FROM learn_review WHERE word = 'νερό' AND kind = 'recognition' ORDER BY id")
+        XCTAssertEqual(log, ["wrong|session", "wrong|session"])
+    }
+
+    /// Mistakes practice keeps the store's order (the latest mistake
+    /// first), each card once, paused ones never, the two cards of a word
+    /// apart.
+    func testMistakesKeepTheirOrder() {
+        let cards = [card("α"), card("α", .production), card("β"), card("α"), card("γ", suspended: true)]
+        XCTAssertEqual(planText(SessionPlanner.mistakes(cards: cards)), ["α:r", "β:r", "α:p"])
+        XCTAssertEqual(SessionPlanner.mistakesSince(today: today), today.adding(days: -6), "today and the 6 days before")
+    }
+}
+
+/// `NewWordPicker` against E3's lists: My words first, then the checked
+/// lists' next words, as E3 orders them.
+extension LearningStoreTests {
+    private func checkedListSettings(_ lists: Set<WordListID>, order: NewWordOrder = .frequency,
+                                     perDay: Int = 10) -> SettingsService {
+        let settings = SettingsService(store: InMemoryKeyValueStore())
+        settings.learningListIDs = lists
+        settings.learningNewOrder = order
+        settings.learningNewPerDay = perDay
+        return settings
+    }
+
+    private func pick(_ settings: SettingsService, lang: String = "ell") async throws -> NewWordPicker.Pick {
+        try await NewWordPicker(db: db, settings: settings)
+            .pick(lang: lang, meaningsLang: "eng", sourceOrder: ["freedict-ell-eng"], today: today)
+    }
+
+    private func listItems(_ words: [(String, String)], ranked: Bool = false) -> [WordListFixture.Item] {
+        words.enumerated().map { index, word in
+            WordListFixture.Item(term: word.0, translation: word.1, rank: ranked ? index + 1 : nil, seq: index)
+        }
+    }
+
+    /// The pool's words (My words not started) come first, oldest first;
+    /// then the checked Greek lists' next words. An unchecked list and a
+    /// list of another language give none; a word in learning is never a
+    /// list pick.
+    func testNewPoolTakesMyWordsFirstThenTheCheckedLists() async throws {
+        try await open()
+        try await db.learnWord(spiti, today: today)
+        try await db.learnWord(grafoFD, today: today)
+        try await execute("UPDATE learn_word SET added_at = '2026-10-01 10:00:00' WHERE word = 'γράφω'")
+        try await WordListFixture.saveUserList("user-1", title: "Greek 1", lang: "ell", createdAt: "2026-11-01 10:00:00",
+                                               items: listItems([("νερό", "water"), ("σπίτι", "house"), ("ψωμί", "bread")]))
+        try await WordListFixture.saveUserList("user-2", title: "Greek 2", lang: "ell", createdAt: "2026-11-02 10:00:00",
+                                               items: listItems([("ήλιος", "sun")]))
+        try await WordListFixture.saveUserList("user-en", title: "English", lang: "eng", createdAt: "2026-11-03 10:00:00",
+                                               items: listItems([("bread", "ψωμί")]))
+        let settings = checkedListSettings(["user-1", "user-en"])
+        let picked = try await pick(settings)
+        XCTAssertEqual(picked.pool.map(\.key.word), ["γράφω", "σπίτι"], "My words first, the oldest first")
+        XCTAssertEqual(Set(picked.lists.map(\.key.word)), ["νερό", "ψωμί"],
+                       "then the checked Greek list; σπίτι is in learning; user-2 is not checked")
+        XCTAssertTrue(picked.lists.allSatisfy { $0.listID == "user-1" })
+        let expected = try await db.nextNewWords(in: "ell", from: ["user-1", "user-en"], count: 10,
+                                                 excluding: try await db.enrolledKeys(), order: .frequency)
+        XCTAssertEqual(picked.lists, expected, "as E3 orders them")
+        let english = try await pick(settings, lang: "eng")
+        XCTAssertEqual(english.lists.map(\.key.word), ["bread"], "each language its own lists")
+
+        let none = try await pick(checkedListSettings([]))
+        XCTAssertEqual(none.lists, [], "nothing checked: My words only")
+        XCTAssertEqual(none.pool.count, 2)
+        let two = try await pick(checkedListSettings(["user-1"], perDay: 3))
+        XCTAssertEqual(two.count, 3, "the daily limit counts both parts")
+        XCTAssertEqual(two.pool.count, 2)
+    }
+
+    /// The picker asks E3 with the checked lists, the order setting and
+    /// every key in learning, paused ones too, so a stopped word never
+    /// comes back as new.
+    func testNewWordsAskE3WithTheSettingAndEveryEnrolledKey() async throws {
+        try await open()
+        let words = (0..<12).map { ("λέξη\($0)", "word \($0)") }
+        try await WordListFixture.saveUserList("user-1", title: "Greek", lang: "ell", createdAt: "2026-11-01 10:00:00",
+                                               items: listItems(words, ranked: true))
+        try await db.introduce(Array(try await db.wordListItems("user-1").filter { $0.term == "λέξη0" }),
+                               sourceOrder: [], today: today)
+        try await execute("UPDATE learn_card SET suspended = 1 WHERE word = 'λέξη0'")
+        let enrolled = try await db.enrolledKeys()
+        XCTAssertEqual(enrolled, [WordKey(lang: "ell", word: "λέξη0")])
+        for order in NewWordOrder.allCases {
+            let picked = try await pick(checkedListSettings(["user-1"], order: order))
+            let expected = try await db.nextNewWords(in: "ell", from: ["user-1"], count: 10, excluding: enrolled, order: order)
+            XCTAssertEqual(picked.lists, expected, "\(order)")
+            XCTAssertEqual(picked.lists.count, 10)
+            XCTAssertFalse(picked.lists.contains { $0.term == "λέξη0" }, "\(order): the paused word is not new")
+            XCTAssertEqual(picked.pool, [], "a paused word is not in the pool")
+        }
+        let frequency = try await pick(checkedListSettings(["user-1"], order: .frequency))
+        let random = try await pick(checkedListSettings(["user-1"], order: .random))
+        XCTAssertNotEqual(frequency.lists, random.lists, "the order setting is passed")
+    }
+
+    /// A list word without a meaning in the pair takes no slot: the picker
+    /// reads past it, in pages, and it gets no row. A pool word without one
+    /// is kept in learning and skipped. By frequency, the first page of 10
+    /// holds no word with a meaning, so the second page is read (QA).
+    func testListWordWithoutAMeaningTakesNoSlot() async throws {
+        try await open()
+        let empty = (0..<12).map { ("κενή\($0)", "") }
+        let items = listItems(empty + [("νερό", "water"), ("ψωμί", "bread"), ("ήλιος", "sun")], ranked: true)
+        try await WordListFixture.saveUserList("user-1", title: "Greek", lang: "ell", createdAt: "2026-11-01 10:00:00",
+                                               items: items)
+        try await execute("INSERT INTO learn_word(lang, word, term, added_at) VALUES ('ell', 'άγνωστο', 'άγνωστο', '2026-10-01')")
+        try await execute(LearningSQL.createWordCards, ["ell", "άγνωστο", today.rawValue])
+        let picked = try await pick(checkedListSettings(["user-1"], order: .frequency, perDay: 2))
+        XCTAssertEqual(picked.pool, [], "άγνωστο has no meaning: kept, skipped")
+        XCTAssertEqual(picked.lists.count, 2, "the next two words with a meaning")
+        XCTAssertTrue(picked.lists.allSatisfy { !$0.translation.isEmpty })
+        let stored = try await count("SELECT COUNT(*) FROM learn_word")
+        XCTAssertEqual(stored, 1, "picking writes nothing")
+    }
+}
+
+/// The runs of #161 on the store: the session's list picks, closing early,
+/// and mistakes practice.
+final class SessionRunTests: ExerciseTestCase {
+    /// `-learningFixture session`, its list checked: the due cards first,
+    /// then the list's words, introduced with their content when the run
+    /// starts, in groups of three, each word started once.
+    func testSessionAsksDueThenNewWordsFromTheLists() async throws {
+        _ = try await db.writeLearningFixture("session", today: today)
+        settings.learningListIDs = ["user-fixture-ell"]
+        settings.learningAnswerMode = .choice
+        let expected = try await db.nextNewWords(in: "ell", from: ["user-fixture-ell"], count: 10,
+                                                 excluding: try await db.enrolledKeys(), order: .frequency).map(\.key)
+        XCTAssertEqual(expected.count, 4)
+        let vm = sessionRun()
+        await vm.start()
+        XCTAssertNil(vm.errorMessage)
+        XCTAssertEqual(vm.total, 18, "10 due cards, then 4 new words twice")
+        let introduced = try await rows("""
+            SELECT word, list_id, translation, translation_lang, source, headword, introduced_day FROM learn_word
+            WHERE list_id IS NOT NULL ORDER BY word
+            """)
+        XCTAssertEqual(introduced, ["θάλασσα|user-fixture-ell|sea||∅|∅|∅", "ήλιος|user-fixture-ell|sun||∅|∅|∅",
+                                    "φίλος|user-fixture-ell|friend||∅|∅|∅", "ψωμί|user-fixture-ell|bread||∅|∅|∅"]
+                           .sorted(), "rows and cards when the run starts, nothing started yet")
+        let cards = try await count("SELECT COUNT(*) FROM learn_card WHERE word IN ('θάλασσα', 'ήλιος', 'ψωμί', 'φίλος')")
+        XCTAssertEqual(cards, 8)
+
+        let asked = try await answer(vm)
+        XCTAssertEqual(vm.phase, .summary)
+        XCTAssertEqual(asked.count, 18)
+        let dueAsked = asked.filter { !expected.contains($0.card.key.word) }
+        let newAsked = asked.filter { expected.contains($0.card.key.word) }
+        XCTAssertEqual(dueAsked.count, 10)
+        XCTAssertTrue(dueAsked.allSatisfy { !$0.isNew })
+        XCTAssertTrue(newAsked.allSatisfy(\.isNew), "the New word badge")
+        XCTAssertTrue(asked.prefix(9).allSatisfy { !expected.contains($0.card.key.word) },
+                      "the due cards first; the last may swap with a new card, away from its word's other card")
+        let groups = newAsked.map { "\($0.card.key.word.word):\($0.card.key.kind == .recognition ? "r" : "p")" }
+        let w = expected.map(\.word)
+        XCTAssertEqual(groups, ["\(w[0]):r", "\(w[1]):r", "\(w[2]):r", "\(w[0]):p", "\(w[1]):p", "\(w[2]):p",
+                                "\(w[3]):r", "\(w[3]):p"], "groups of three")
+        XCTAssertEqual(adjacentPairs(asked), [])
+        let log = try await rows("SELECT DISTINCT mode, run_id FROM learn_review")
+        XCTAssertEqual(log, ["session|\(vm.runID.uuidString)"])
+        let started = try await rows("SELECT word FROM learn_review WHERE introduced = 1 ORDER BY id")
+        XCTAssertEqual(started, w, "each new word started once")
+        XCTAssertEqual(vm.summary?.newWords, 4)
+        XCTAssertEqual(vm.summary?.reviewedWords, 5)
+    }
+
+    /// Closed early: the answers stay; the new words never answered come
+    /// first next time, and a word left with one card answered has its
+    /// other card due. The daily limit counts the words started.
+    func testClosedSessionKeepsItsNewWordsFirst() async throws {
+        let words = ["θάλασσα", "ήλιος", "ψωμί", "φίλος", "δέντρο", "πόλη"]
+        try await WordListFixture.saveUserList("user-1", title: "Greek", lang: "ell", createdAt: "2026-11-01 10:00:00",
+                                               items: words.enumerated().map { .init(term: $1, translation: "t\($0)", seq: $0) })
+        settings.learningListIDs = ["user-1"]
+        settings.learningNewPerDay = 4
+        let first = sessionRun()
+        await first.start()
+        XCTAssertEqual(first.total, 8, "4 new words twice")
+        let answered = try await answer(first, limit: 2)
+        XCTAssertEqual(answered.map(\.card.key.kind), [.recognition, .recognition])
+        let startedKeys = Set(answered.map(\.card.key.word))
+        let kept = try await rows("SELECT outcome FROM learn_review WHERE run_id = '\(first.runID.uuidString)'")
+        XCTAssertEqual(kept, ["right", "right"], "closed after two answers: both kept")
+        let introduced = try await rows("SELECT word FROM learn_word ORDER BY word")
+        XCTAssertEqual(introduced.count, 4, "only the four picked words have rows")
+
+        let second = sessionRun()
+        await second.start()
+        let asked = try await answer(second)
+        let due = asked.filter { startedKeys.contains($0.card.key.word) }
+        XCTAssertEqual(due.map(\.card.key.kind), [.production, .production], "the other cards of the started words")
+        XCTAssertEqual(Set(asked.prefix(2).map(\.card.key.word)), startedKeys, "due first")
+        let fresh = Set(asked.map(\.card.key.word)).subtracting(startedKeys)
+        XCTAssertEqual(fresh.count, 2, "the limit of 4 minus the 2 started")
+        let rowsAfter = try await count("SELECT COUNT(*) FROM learn_word")
+        XCTAssertEqual(rowsAfter, 4, "the words picked before, no new list words")
+        XCTAssertEqual(asked.count, 6)
+    }
+
+    /// `-learningFixture mistakes`: the cards wrong in the last 7 days and
+    /// not right since, the latest first, logged as `mistakes`; a wrong one
+    /// comes back once; right, they leave.
+    func testMistakesPractice() async throws {
+        _ = try await db.writeLearningFixture("mistakes", today: today)
+        let vm = sessionRun(.mistakes)
+        await vm.start()
+        XCTAssertEqual(vm.total, 2)
+        var answers = 0
+        let asked = try await answer(vm) { _ in
+            answers += 1
+            return answers == 1
+        }
+        XCTAssertEqual(asked.map { "\($0.card.key.word.word):\($0.card.key.kind.rawValue)" },
+                       ["γράφω:recognition", "σπίτι:production", "γράφω:recognition"])
+        XCTAssertEqual(asked[1].input, .choice, "back to learning: a choice")
+        let log = try await rows("SELECT word, mode, outcome FROM learn_review WHERE run_id = '\(vm.runID.uuidString)' ORDER BY id")
+        XCTAssertEqual(log, ["γράφω|mistakes|wrong", "σπίτι|mistakes|right", "γράφω|mistakes|right"])
+        let left = try await db.mistakeCards(since: SessionPlanner.mistakesSince(today: today), lang: "ell")
+        XCTAssertEqual(left, [], "answered right: out of mistakes practice")
+
+        let again = sessionRun(.mistakes)
+        await again.start()
+        XCTAssertEqual(again.phase, .empty, "nothing to practise")
+    }
+}
+
+/// #161: the run summary reads the run's log rows (E10's `reviewRows(run:)`).
+extension ExerciseRunViewModelTests {
+    /// The summary is `ReviewSummary` over the run's own log rows, as
+    /// Today's numbers are over the day's; each answer writes the day's
+    /// goal (E10); the summary shows the goal's progress.
+    func testSummaryEqualsTheRunsLogRows() async throws {
+        _ = try await db.writeLearningFixture("due", today: today)
+        settings.learningDailyGoal = 15
+        settings.learningAnswerMode = .choice
+        // Another run's answer: not in this summary, but in today's goal.
+        try await db.recordAnswer(AnswerRecord(card: CardKey(word: LearningFixture.grafo, kind: .recognition),
+                                               exercise: .recognition, mode: .trainer, runID: UUID(), outcome: .right),
+                                  today: today, goal: 15)
+        // QA: the run's own first answer writes today's goal.
+        try await execute("DELETE FROM learn_day")
+        let clock = TestClock("2026-11-04T12:00:00Z")
+        let vm = sessionRun(clock: clock)
+        await vm.start()
+        var answers = 0
+        let asked = try await answer(vm) { _ in
+            answers += 1
+            clock.advance(3)
+            return answers == 2
+        }
+        XCTAssertEqual(vm.phase, .summary)
+        let runRows = try await db.reviewRows(run: vm.runID)
+        XCTAssertEqual(vm.summary, ReviewSummary.of(runRows))
+        XCTAssertEqual(vm.summary?.exercises, asked.count)
+        XCTAssertEqual(vm.answered, asked.count)
+        XCTAssertEqual(vm.summary?.right, asked.count - 1)
+        XCTAssertEqual(vm.summary?.newWords, 0)
+        XCTAssertEqual(vm.summary?.reviewedWords, 5)
+        XCTAssertGreaterThan(vm.summary?.timeMs ?? 0, 0)
+        let todayRows = try await db.reviewRows(day: today, lang: "ell")
+        XCTAssertEqual(todayRows.count, asked.count + 1, "Today has the other run's answer too")
+        XCTAssertEqual(vm.goalProgress, GoalProgress(answered: asked.count + 1, goal: 15))
+        let goal = try await rows("SELECT day, goal FROM learn_day")
+        XCTAssertEqual(goal, ["\(today.rawValue)|15"])
+    }
+}
+
+/// #161 on the Learn home: Start follows Today, the checked lists count, and
+/// the mistakes row.
+extension LearnViewModelTests {
+    /// No word in learning and no list checked: the empty state; a checked
+    /// Greek list gives Start with its words; a checked list of another
+    /// language does not.
+    func testEmptyStateFollowsTheCheckedLists() async throws {
+        settings.learningLanguages = ["ell"]
+        try await WordListFixture.saveUserList("user-1", title: "Greek", lang: "ell", createdAt: "2026-11-01 10:00:00",
+                                               items: [.init(term: "νερό", translation: "water", seq: 0),
+                                                       .init(term: "ψωμί", translation: "bread", seq: 1)])
+        try await WordListFixture.saveUserList("user-en", title: "English", lang: "eng", createdAt: "2026-11-01 10:00:00",
+                                               items: [.init(term: "bread", translation: "ψωμί", seq: 0)])
+        let vm = LearnViewModel(settings: settings, languages: languages)
+        await vm.load(locale: Locale(identifier: "en"))
+        XCTAssertEqual(vm.today, .chooseLists)
+        XCTAssertFalse(vm.canTrain)
+
+        settings.learningListIDs = ["user-en"]
+        await vm.load(locale: Locale(identifier: "en"))
+        XCTAssertEqual(vm.today, .chooseLists, "another language's list")
+
+        settings.learningListIDs = ["user-en", "user-1"]
+        await vm.load(locale: Locale(identifier: "en"))
+        XCTAssertEqual(vm.today, .counts(due: 0, newLeft: 2), "Start, with the list's words")
+        XCTAssertTrue(vm.canTrain)
+        XCTAssertNil(vm.errorMessage)
+    }
+
+    /// New words left count My words, then the checked lists, within the
+    /// limit; the mistakes row counts words, hidden at 0.
+    func testTodayCountsTheListsAndTheMistakes() async throws {
+        settings.learningLanguages = ["ell"]
+        settings.learningNewPerDay = 3
+        try await db.learnWord(grafoFD, today: today)
+        try await WordListFixture.saveUserList("user-1", title: "Greek", lang: "ell", createdAt: "2026-11-01 10:00:00",
+                                               items: [.init(term: "νερό", translation: "water", seq: 0),
+                                                       .init(term: "ψωμί", translation: "bread", seq: 1),
+                                                       .init(term: "ήλιος", translation: "sun", seq: 2)])
+        let vm = LearnViewModel(settings: settings, languages: languages)
+        await vm.load(locale: Locale(identifier: "en"))
+        XCTAssertEqual(vm.today, .counts(due: 0, newLeft: 1), "My words only")
+        settings.learningListIDs = ["user-1"]
+        await vm.load(locale: Locale(identifier: "en"))
+        XCTAssertEqual(vm.today, .counts(due: 0, newLeft: 3), "γράφω and two list words: the limit")
+        XCTAssertEqual(vm.mistakeCount, 0)
+
+        for kind in CardKind.wordKinds {
+            try await db.recordAnswer(AnswerRecord(card: CardKey(word: grafo, kind: kind), exercise: .recognition,
+                                                   mode: .session, runID: UUID(), outcome: .wrong), today: today, goal: 20)
+        }
+        await vm.load(locale: Locale(identifier: "en"))
+        XCTAssertEqual(vm.mistakeCount, 1, "both cards of γράφω: one word")
+        XCTAssertEqual(vm.today, .counts(due: 1, newLeft: 2), "γράφω started today: two new words left")
+        try await answerRight(grafo)
+        try await answerRight(grafo, kind: .production)
+        await vm.load(locale: Locale(identifier: "en"))
+        XCTAssertEqual(vm.mistakeCount, 0, "right since: the row hides")
+    }
+
+    /// QA (#161): a due or mistaken word without a meaning in the pair
+    /// (rule 4) is not counted, as no run would ask it: Start and the
+    /// mistakes row never open an empty run.
+    func testWordsWithoutMeaningAreNotCounted() async throws {
+        settings.learningLanguages = ["ell"]
+        try await db.learnWord(grafoFD, today: today)
+        try await execute("INSERT INTO learn_word(lang, word, term, added_at) VALUES ('ell', 'άγνωστο', 'άγνωστο', '2026-10-01')")
+        try await execute(LearningSQL.createWordCards, ["ell", "άγνωστο", today.rawValue])
+        for word in [grafo, WordKey(lang: "ell", word: "άγνωστο")] {
+            try await db.recordAnswer(AnswerRecord(card: CardKey(word: word, kind: .recognition), exercise: .recognition,
+                                                   mode: .session, runID: UUID(), outcome: .wrong), today: today, goal: 20)
+        }
+        let vm = LearnViewModel(settings: settings, languages: languages)
+        await vm.load(locale: Locale(identifier: "en"))
+        XCTAssertNil(vm.errorMessage)
+        XCTAssertEqual(vm.today, .counts(due: 1, newLeft: 0), "γράφω only: άγνωστο has no meaning")
+        XCTAssertEqual(vm.mistakeCount, 1)
+
+        try await answerRight(grafo)
+        try await answerRight(grafo, kind: .production)
+        await vm.load(locale: Locale(identifier: "en"))
+        XCTAssertEqual(vm.today, .allDone, "only άγνωστο is due: no Start")
+        XCTAssertEqual(vm.mistakeCount, 0, "only άγνωστο is a mistake: no row")
+    }
+}
