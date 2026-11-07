@@ -7955,6 +7955,29 @@ final class PackServiceTests: XCTestCase {
         XCTAssertEqual(status.state(of: .arb), .installed)
     }
 
+    /// CodeRabbit, PR #257: a cancel that lands after the download has ended
+    /// but before the install goes on leaves "not installed", not
+    /// "Installing…" for good; the asset goes and the next pack installs.
+    func testCancelAsTheDownloadEndsShowsTheRestingState() async throws {
+        let service = try await downloadingService(.ok)
+        await service.onDownloaded { id in
+            if id == .arb { await service.cancel(.arb) }
+        }
+        await service.enqueue([.arb, .rus])
+        try await service.install(.rus)   // after Arabic's turn has ended
+        await settle()
+        XCTAssertEqual(status.state(of: .arb), .notInstalled)
+        XCTAssertEqual(status.state(of: .rus), .installed)
+        let catalog = try PackFixtures.catalog()
+        XCTAssertEqual(PackFixtureURLProtocol.requests.map(\.lastPathComponent),
+                       try [PackID.arb, .rus].map { try XCTUnwrap(catalog.pack($0)).assetName },
+                       "Arabic was downloaded before the cancel")
+        XCTAssertEqual(files(in: packsFolder), [try XCTUnwrap(catalog.pack(.rus)).fileName])
+        XCTAssertEqual(files(in: downloadsFolder), [])
+        let installed = await service.installedPacks().map(\.id)
+        XCTAssertEqual(installed, [.rus])
+    }
+
     /// One install at a time, in the order chosen; the next one waits.
     func testInstallsRunOneAtATime() async throws {
         let service = try await downloadingService(.slow)
@@ -9009,6 +9032,11 @@ final class LanguagesViewModelTests: XCTestCase {
     private let en = Locale(identifier: "en")
     private let base = "Its dictionaries, word forms and word lists are deleted. "
         + "Your History, My words and learning progress stay."
+    /// #245: the first sentence names only what the pack holds.
+    private let dictionariesOnly = "Its dictionaries are deleted. Your History, My words and learning progress stay."
+    private let dictionariesAndForms = "Its dictionaries and word forms are deleted. "
+        + "Your History, My words and learning progress stay."
+    private let listsOnly = "The word lists are deleted. Your History, My words and learning progress stay."
     private let greekLearned = "You can go on learning the words you have. "
         + "Greek lists come back when you download Greek again."
     private let englishViaGreek = "English via Greek shows no meanings until you download Greek again."
@@ -9019,8 +9047,8 @@ final class LanguagesViewModelTests: XCTestCase {
 
     /// The bundled catalog with one built-in list in each lists pack (`ell`,
     /// `eng-lists`), as E3's data gives it, so `hasBuiltInLists` holds for
-    /// Greek and English only. The bundled catalog has no `catalog_list`
-    /// rows until E3 fills them.
+    /// Greek and English only. The bundled catalog has Greek's lists (#152)
+    /// but none in `eng-lists` yet.
     private func catalogWithLists() throws -> PackCatalog {
         var catalog = try PackFixtures.catalog()
         catalog.lists = [CatalogList(packID: .ell, id: "ell-a1", lang: "ell", level: "A1", wordCount: 1),
@@ -9074,19 +9102,20 @@ final class LanguagesViewModelTests: XCTestCase {
         XCTAssertEqual(model.removal?.message, [base, englishViaGreek].joined(separator: " "),
                        "Greek not learned: the pair sentence alone")
         model.requestRemove(.spa)
-        XCTAssertEqual(model.removal?.message, base, "English via Greek needs nothing from Spanish")
+        XCTAssertEqual(model.removal?.message, dictionariesOnly, "English via Greek needs nothing from Spanish")
         model.requestRemove(.engLists)
         XCTAssertEqual(model.removal?.title, "Remove English word lists?")
-        XCTAssertEqual(model.removal?.message, base + " You can go on learning the words you have. "
+        XCTAssertEqual(model.removal?.message, listsOnly + " You can go on learning the words you have. "
                        + "English lists come back when you download English again.",
                        "English's own pair is the learning sentence, never the pair sentence")
 
         learned = (["eng", "ell"], ["eng": "spa", "ell": "rus"])
         model.requestRemove(.spa)
         XCTAssertEqual(model.removal?.message,
-                       base + " English via Spanish shows no meanings until you download Spanish again.")
+                       dictionariesOnly + " English via Spanish shows no meanings until you download Spanish again.")
         model.requestRemove(.rus)
-        XCTAssertEqual(model.removal?.message, base, "Greek via Russian takes its meanings from the Greek pack")
+        XCTAssertEqual(model.removal?.message, dictionariesOnly,
+                       "Greek via Russian takes its meanings from the Greek pack")
         model.requestRemove(.ell)
         XCTAssertEqual(model.removal?.message, [base, greekLearned].joined(separator: " "))
 
@@ -9108,22 +9137,24 @@ final class LanguagesViewModelTests: XCTestCase {
                                        locale: locale ?? en)?.message
         }
         for (id, lang) in [(PackID.spa, "spa"), (.rus, "rus"), (.arb, "arb")] {
-            XCTAssertEqual(message(id, learned: [lang], in: catalog), [base, learnedWithoutLists].joined(separator: " "),
+            XCTAssertEqual(message(id, learned: [lang], in: catalog),
+                           [dictionariesOnly, learnedWithoutLists].joined(separator: " "),
                            "\(lang) has no built-in lists")
         }
         XCTAssertEqual(message(.ell, learned: ["ell"], in: catalog), [base, greekLearned].joined(separator: " "))
         XCTAssertEqual(message(.spa, learned: ["spa", "eng"], via: ["eng": "spa"], in: catalog),
-                       [base, learnedWithoutLists,
+                       [dictionariesOnly, learnedWithoutLists,
                         "English via Spanish shows no meanings until you download Spanish again."]
                         .joined(separator: " "),
                        "Spanish learned and needed by English via Spanish: both sentences")
 
         var noLists = catalog
         noLists.lists = []
-        XCTAssertEqual(message(.ell, learned: ["ell"], in: noLists), [base, learnedWithoutLists].joined(separator: " "),
-                       "no Greek lists in the catalog: none come back")
+        XCTAssertEqual(message(.ell, learned: ["ell"], in: noLists),
+                       [dictionariesAndForms, learnedWithoutLists].joined(separator: " "),
+                       "no Greek lists in the catalog: none come back, none are named")
         XCTAssertEqual(message(.engLists, learned: ["eng"], in: noLists),
-                       [base, learnedWithoutLists].joined(separator: " "))
+                       [listsOnly, learnedWithoutLists].joined(separator: " "))
 
         // Its own sentence in every UI language: no raw key, no English, no list.
         for code in ["ru", "es", "ar", "el"] {
@@ -9159,6 +9190,44 @@ final class LanguagesViewModelTests: XCTestCase {
         XCTAssertEqual(via("ell", ui: "ru"), "rus", "a Russian UI learns Greek via Russian, the limited pair")
         XCTAssertEqual(via("ell", ui: "ar"), "eng", "no Greek via Arabic: English")
         XCTAssertNil(via("und", ui: "en"), "no pair")
+    }
+
+    /// #245: the alert names only what the pack holds: dictionaries for
+    /// Spanish, Russian and Arabic, word forms for Greek, word lists only
+    /// when the catalog has them; the English lists pack names its lists.
+    /// Each sentence in every UI language.
+    func testRemoveMessageNamesWhatThePackHolds() throws {
+        let bundled = try PackFixtures.catalog()
+        let withLists = try catalogWithLists()
+        var noLists = bundled
+        noLists.lists = []
+        func message(_ id: PackID, _ catalog: PackCatalog, _ code: String = "en") -> String? {
+            LanguagesViewModel.removal(of: id, catalog: catalog, learned: [], via: [:], uiLanguage: code,
+                                       locale: Locale(identifier: code))?.message
+        }
+        for id in [PackID.spa, .rus, .arb] {
+            XCTAssertEqual(message(id, bundled), dictionariesOnly, "\(id): no lists of its own")
+            XCTAssertEqual(message(id, withLists), dictionariesOnly, "\(id): lists of other packs are not its own")
+        }
+        XCTAssertTrue(bundled.lists.contains { $0.packID == .ell }, "precondition: the Greek pack has lists (#152)")
+        XCTAssertEqual(message(.ell, bundled), base)
+        XCTAssertEqual(message(.ell, withLists), base)
+        XCTAssertEqual(message(.ell, noLists), dictionariesAndForms, "no Greek lists in the catalog: none named")
+        XCTAssertEqual(message(.engLists, bundled), listsOnly)
+        XCTAssertEqual(message(.engLists, withLists), listsOnly)
+
+        let keys = ["languages.remove.message", "languages.remove.message.forms",
+                    "languages.remove.message.dictionaries", "languages.remove.message.lists"]
+        for code in ["en", "ru", "es", "ar", "el"] {
+            let locale = Locale(identifier: code)
+            let sentences = keys.map { SettingsViewModel.localizedString($0, locale: locale) }
+            XCTAssertEqual(Set(sentences).count, keys.count, "\(code): four different sentences")
+            XCTAssertFalse(sentences.contains(where: keys.contains), "\(code): no raw key")
+            XCTAssertEqual(message(.spa, bundled, code), sentences[2], code)
+            XCTAssertEqual(message(.ell, noLists, code), sentences[1], code)
+            XCTAssertEqual(message(.ell, bundled, code), sentences[0], code)
+            XCTAssertEqual(message(.engLists, bundled, code), sentences[3], code)
+        }
     }
 
     /// English first ("Included", WordNet), its lists, then every pack by
@@ -9982,8 +10051,9 @@ final class UserDatabaseTests: XCTestCase {
         try await db.addToMyWords(EntryKey(source: "freedict-eng-spa", word: "wolf"))
         let list = WordListViewModel(list: .myWordsForTests, settings: settings, languages: languages)
         await list.load()
-        XCTAssertEqual(Self.keys(list.myWords.map(\.entry)), [EntryKey(freeDictDog)],
+        XCTAssertEqual(Self.keys(list.myWords.compactMap(\.entry)), [EntryKey(freeDictDog)],
                        "a key that does not resolve is skipped")
+        XCTAssertEqual(list.myWords.count, 1, "and is not listed as waiting for a pack (#245)")
         XCTAssertNil(list.errorMessage)
         let wolfStored = try await db.isInMyWords(EntryKey(source: "freedict-eng-spa", word: "wolf"))
         XCTAssertTrue(wolfStored, "and stays stored")
@@ -11516,6 +11586,48 @@ extension LegacyMigrationTests {
         let dom = try await db.entry(for: EntryKey(source: "openrussian", word: "дом"))
         XCTAssertNil(dom, "Russian is not installed: dropped by its count")
         XCTAssertEqual(state.myWords.count, Self.v140.bookmarks.count, "every bookmark is kept")
+    }
+
+    /// QA #245 (0237, "Update from 1.x"): the count rule decides what a
+    /// moved word opens until its pack arrives. An exact copy is dropped, so
+    /// σπίτι, дом and كِتاب open the "not downloaded" view of their pack and
+    /// wait in My words; the Spanish dictionary held an import, so its rows
+    /// moved and `house` opens the moved row. The next launch offers the
+    /// upgrade sheet with every language checked.
+    func testMovedWordsOfAMissingPackWaitForIt() async throws {
+        try install(Self.v140.name)
+        try await openEnglishOnlyBundle()
+        try await move()
+        let catalog = try PackFixtures.catalog()
+
+        let waiting: [(EntryKey, PackID)] = [(EntryKey(source: "freedict-ell-eng", word: "σπίτι"), .ell),
+                                             (EntryKey(source: "openrussian", word: "дом"), .rus),
+                                             (EntryKey(source: "wordnet-arb-eng", word: "كِتاب"), .arb)]
+        for (key, id) in waiting {
+            let lookup = await EntryDestination.lookup(key, catalog: catalog)
+            XCTAssertEqual(lookup, .notDownloaded(try XCTUnwrap(catalog.pack(id))), "\(key)")
+        }
+        let house = await EntryDestination.lookup(EntryKey(source: "freedict-eng-spa", word: "house"), catalog: catalog)
+        guard case .entry(let moved) = house else { return XCTFail("a dictionary holding an import moves: \(house)") }
+        XCTAssertNotNil(moved.createdAt, "the moved row")
+
+        let rows = try await db.fetchMyWordRows()
+        XCTAssertEqual(rows.map(\.key), Self.v140.bookmarks.reversed(), "every bookmark is listed, newest first")
+        XCTAssertEqual(Set(rows.filter { $0.entry == nil }.map(\.key)), Set(waiting.map(\.0)),
+                       "the dropped ones wait for their pack")
+
+        let shared = PackCatalog.shared
+        defer { PackCatalog.shared = shared }
+        let settings = SettingsService(store: InMemoryKeyValueStore())
+        settings.selectedUILanguageCode = "en"
+        let localization = LocalizationManager(settingsService: settings, bundle: .main)
+        let packs = PackService(folder: tempDir.appendingPathComponent("Packs", isDirectory: true),
+                                downloads: tempDir.appendingPathComponent("Downloads", isDirectory: true),
+                                database: db, settings: settings, status: PackStatusModel(), localization: localization)
+        try await packs.prepare()
+        let sheet = try await PackOffer.atLaunch(legacyDatabaseFound: false, settings: settings, database: db,
+                                                 packs: packs, localization: localization)
+        XCTAssertEqual(sheet, PackOffer.Sheet(kind: .upgrade, checked: [.spa, .rus, .arb, .ell]))
     }
 }
 
@@ -23620,14 +23732,14 @@ final class WordListViewModelTests: WordListsTestCase {
         let vm = WordListViewModel(list: .myWordsForTests, settings: settings, languages: languages)
         await vm.load()
         XCTAssertNil(vm.errorMessage)
-        XCTAssertEqual(vm.myWords.map(\.entry.word), ["σπίτι", "γράφω"], "one row per word, newest first")
-        XCTAssertEqual(vm.myWords.last?.entry.source, "freedict-ell-eng", "the row added first stands for γράφω")
+        XCTAssertEqual(vm.myWords.map(\.entry?.word), ["σπίτι", "γράφω"], "one row per word, newest first")
+        XCTAssertEqual(vm.myWords.last?.entry?.source, "freedict-ell-eng", "the row added first stands for γράφω")
         XCTAssertEqual(vm.count, 2)
 
         let grafoRow = try XCTUnwrap(vm.myWords.last)
         await vm.stopLearning(grafoRow)
         XCTAssertNil(vm.errorMessage)
-        XCTAssertEqual(vm.myWords.map(\.entry.word), ["σπίτι"])
+        XCTAssertEqual(vm.myWords.map(\.entry?.word), ["σπίτι"])
         let inMyWords = try await db.isInMyWords(grafo)
         XCTAssertFalse(inMyWords, "both γράφω rows go")
         let paused = try await cards(grafo)
@@ -28728,5 +28840,422 @@ extension LearnViewModelTests {
                        "Ημερήσιος στόχος: 12 από 20 ασκήσεις")
         let ar = LearnViewModel.streakLabel(StreakState(current: 5, best: 7, freezes: 2), locale: Locale(identifier: "ar"))
         XCTAssertEqual(ar.unicodeScalars.first, "\u{200F}", ar)
+    }
+}
+
+// MARK: - Issue #245: the first-launch sheet, "not downloaded", the Search hint
+
+/// `WelcomeViewModel` (0237, "First launch"): the languages the sheet
+/// offers, what is checked, the Download total, the answer recorded once,
+/// and Download queuing the checked packs in the rows' order.
+@MainActor
+final class WelcomeViewModelTests: XCTestCase {
+    private var tempDir: URL!
+    private var catalog: PackCatalog!
+    private var sharedCatalog: PackCatalog!
+    private var settings: SettingsService!
+    private var status: PackStatusModel!
+    private var localization: LocalizationManager!
+
+    override func setUp() async throws {
+        try await super.setUp()
+        await DictAppTests.waitForHostAppLaunch()
+        tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        catalog = try PackFixtures.catalog()
+        sharedCatalog = PackCatalog.shared
+        settings = SettingsService(store: InMemoryKeyValueStore())
+        settings.selectedUILanguageCode = "en"
+        status = PackStatusModel()
+        localization = LocalizationManager(settingsService: settings, bundle: .main)
+    }
+
+    override func tearDown() async throws {
+        PackCatalog.shared = sharedCatalog
+        try? FileManager.default.removeItem(at: tempDir)
+        try await super.tearDown()
+    }
+
+    /// A sheet of `kind` checking `checked`, on the bundled catalog.
+    private func model(_ kind: PackOffer.Kind, checked: [PackID], packs: PackService = .shared) -> WelcomeViewModel {
+        WelcomeViewModel(sheet: PackOffer.Sheet(kind: kind, checked: checked), packs: packs, status: status,
+                         localization: localization, settings: settings, catalog: catalog)
+    }
+
+    private func row(_ id: String, of model: WelcomeViewModel) throws -> LanguageRow {
+        try XCTUnwrap(model.rows.first { $0.id == id }, id)
+    }
+
+    /// The download size of `ids` together, from their catalog rows, as
+    /// `PackTexts.size` writes it in English: "6.9 MB".
+    private func size(_ ids: PackID...) throws -> String {
+        PackTexts.size(try ids.reduce(0) { $0 + (try XCTUnwrap(catalog.pack($1), $1.rawValue)).size },
+                       locale: Locale(identifier: "en"))
+    }
+
+    /// `s` without U+200F (RLM) and Foundation's U+2068/U+2069 isolates.
+    private static func visible(_ s: String) -> String {
+        let marks: Set<Unicode.Scalar> = ["\u{200F}", "\u{2068}", "\u{2069}"]
+        return String(s.unicodeScalars.filter { !marks.contains($0) })
+    }
+
+    /// One row per downloadable language, by name in the UI language, with
+    /// what it holds and its download size; English is in the app, and its
+    /// lists come with learning. Greek names its word lists (#152), Spanish
+    /// has none. A missing sheet also lists the English lists it checks. The
+    /// text under the title follows the kind.
+    func testRowsOfferEveryLanguage() throws {
+        let fresh = model(.fresh, checked: [.spa])
+        XCTAssertEqual(fresh.rows.map(\.id), ["arb", "ell", "rus", "spa"])
+        XCTAssertEqual(fresh.checked, [.spa])
+        XCTAssertEqual(Self.visible(PackTexts.caption(try row("spa", of: fresh), locale: fresh.locale)),
+                       "2 dictionaries · \(try size(.spa))")
+        XCTAssertEqual(Self.visible(PackTexts.caption(try row("ell", of: fresh), locale: fresh.locale)),
+                       "4 dictionaries · word forms · word lists · \(try size(.ell))")
+        XCTAssertEqual(fresh.message, "English is included and works offline. "
+                       + "Add other languages: each downloads once, then works offline too.")
+        XCTAssertEqual(model(.upgrade, checked: []).message,
+                       "LibreDict 2.0 downloads languages other than English once. Your History and My words are here.")
+
+        let missing = model(.missing, checked: [.ell, .engLists])
+        XCTAssertEqual(missing.rows.map(\.id), ["eng-lists", "arb", "ell", "rus", "spa"])
+        XCTAssertEqual(missing.checked, [.ell, .engLists])
+        XCTAssertEqual(missing.message, "Your languages need to be downloaded again.")
+
+        localization.setLanguage(try XCTUnwrap(localization.supportedLanguages.first { $0.code == "ar" }))
+        let arabic = model(.fresh, checked: [.arb])
+        let caption = PackTexts.caption(try row("arb", of: arabic), locale: arabic.locale)
+        XCTAssertEqual(caption.unicodeScalars.first, "\u{200F}", "a right-to-left caption (#119): \(caption)")
+        XCTAssertEqual(arabic.message, "الإنجليزية مضمّنة وتعمل دون اتصال. أضف لغات أخرى: تُنزَّل كل لغة مرة واحدة، ثم تعمل دون اتصال أيضًا.")
+    }
+
+    /// "Download 18.1 MB" is the checked total; nothing checked is Continue.
+    func testDownloadTitleIsTheCheckedTotal() throws {
+        let model = model(.fresh, checked: [])
+        XCTAssertEqual(model.primaryTitle, "Continue")
+        model.toggle(try row("spa", of: model))
+        XCTAssertEqual(Self.visible(model.primaryTitle), "Download \(try size(.spa))")
+        model.toggle(try row("ell", of: model))
+        XCTAssertEqual(Self.visible(model.primaryTitle), "Download \(try size(.spa, .ell))")
+        model.toggle(try row("spa", of: model))
+        XCTAssertEqual(Self.visible(model.primaryTitle), "Download \(try size(.ell))")
+        XCTAssertEqual(model.checked, [.ell])
+
+        let upgrade = self.model(.upgrade, checked: [.spa, .rus, .arb, .ell])
+        XCTAssertEqual(Self.visible(upgrade.primaryTitle), "Download \(try size(.spa, .rus, .arb, .ell))",
+                       "every language the user had")
+        XCTAssertEqual(upgrade.chosen, [.arb, .ell, .rus, .spa], "in the rows' order")
+    }
+
+    /// A pack that is installed or busy is not offered: it is not checked,
+    /// cannot be, and Download leaves it alone. A failed one can be.
+    func testAnInstalledOrBusyPackIsNotOffered() throws {
+        status.set(.installed, for: .spa)
+        status.set(.downloading(received: 1, total: 2), for: .rus)
+        let model = model(.upgrade, checked: [.spa, .rus, .arb, .ell])
+        XCTAssertEqual(model.checked, [.arb, .ell])
+        XCTAssertFalse(model.canCheck(try row("spa", of: model)))
+        XCTAssertFalse(model.canCheck(try row("rus", of: model)))
+        model.toggle(try row("spa", of: model))
+        XCTAssertEqual(model.checked, [.arb, .ell], "an installed pack does not toggle")
+        XCTAssertEqual(model.chosen, [.arb, .ell])
+        status.set(.failed(.offline), for: .rus)
+        XCTAssertTrue(model.canCheck(try row("rus", of: model)), "a failed download can be tried again")
+    }
+
+    /// Not now, Continue and a swipe record the answer once and download
+    /// nothing; a missing sheet's answer also drops the packs it offered.
+    func testNotNowContinueAndSwipeRecordTheAnswerOnce() throws {
+        let swiped = model(.fresh, checked: [.spa])
+        swiped.closed()
+        XCTAssertTrue(settings.packsOffered, "swiping the sheet down is Not now")
+        XCTAssertTrue(swiped.isAnswered)
+        XCTAssertEqual(status.state(of: .spa), .notInstalled, "nothing downloads")
+
+        settings.packsOffered = false
+        let continued = model(.fresh, checked: [])
+        XCTAssertTrue(continued.download(), "Continue closes the sheet")
+        XCTAssertNil(continued.downloading)
+        XCTAssertTrue(settings.packsOffered)
+
+        settings.packsInstalled = [.ell, .rus]
+        let missing = model(.missing, checked: [.ell])
+        missing.notNow()
+        XCTAssertEqual(settings.packsInstalled, [.rus], "the missing sheet shows once")
+        settings.packsInstalled = [.ell, .rus]
+        missing.closed()
+        XCTAssertEqual(settings.packsInstalled, [.ell, .rus], "recorded once: closing after the answer writes nothing")
+    }
+
+    /// Download records the answer, then queues the checked packs in the
+    /// rows' order, one at a time, through the install path; the sheet shows
+    /// only them. No request before the tap.
+    func testDownloadInstallsTheCheckedInRowOrder() async throws {
+        try await DatabaseService.shared.setup(userPath: tempDir.appendingPathComponent("user.sqlite").path,
+                                               dictionaryURL: try TestDictionary.bundledURL())
+        let service = PackService(folder: tempDir.appendingPathComponent("Packs", isDirectory: true),
+                                  downloads: tempDir.appendingPathComponent("Downloads", isDirectory: true),
+                                  database: .shared, settings: settings, status: status, localization: localization)
+        await service.useFixtureDownloads(.ok)
+        try await service.prepare()
+
+        let model = model(.upgrade, checked: [.spa, .rus, .arb, .ell], packs: service)
+        model.toggle(try row("arb", of: model))
+        XCTAssertEqual(PackFixtureURLProtocol.requests, [], "choosing makes no request")
+        XCTAssertFalse(model.download(), "the sheet stays, with the progress")
+        XCTAssertEqual(model.downloading, [.ell, .rus, .spa])
+        XCTAssertEqual(model.shownRows.map(\.id), ["ell", "rus", "spa"])
+        XCTAssertTrue(settings.packsOffered)
+
+        let deadline = Date().addingTimeInterval(60)
+        while ![PackID.ell, .rus, .spa].allSatisfy({ status.state(of: $0) == .installed }) {
+            guard Date() < deadline else { return XCTFail("the three packs did not install") }
+            try await Task.sleep(nanoseconds: 50_000_000)
+        }
+        let assets = try [PackID.ell, .rus, .spa].map { try XCTUnwrap(catalog.pack($0)).assetName }
+        XCTAssertEqual(PackFixtureURLProtocol.requests.map(\.lastPathComponent), assets, "one at a time, in order")
+        XCTAssertEqual(status.state(of: .arb), .notInstalled, "unchecked: not downloaded")
+        XCTAssertEqual(settings.packsInstalled, [.ell, .rus, .spa])
+        let casa = try await DatabaseService.shared.search(query: "casa")
+        XCTAssertTrue(casa.contains { $0.source == "wordnet-spa-eng" }, "Spanish is searchable")
+    }
+
+    /// QA #245 (0237, "Offline and errors"): the sheet goes online only for
+    /// Download. Showing it, checking a language, Not now, a swipe and
+    /// Continue queue nothing and make no request; Download then makes one,
+    /// to the chosen pack's catalog URL (the probe works).
+    func testOnlyDownloadGoesOnline() async throws {
+        try await DatabaseService.shared.setup(userPath: tempDir.appendingPathComponent("user.sqlite").path,
+                                               dictionaryURL: try TestDictionary.bundledURL())
+        let service = PackService(folder: tempDir.appendingPathComponent("Packs", isDirectory: true),
+                                  downloads: tempDir.appendingPathComponent("Downloads", isDirectory: true),
+                                  database: .shared, settings: settings, status: status, localization: localization)
+        await service.useFixtureDownloads(.ok)
+        try await service.prepare()
+        let languages: [PackID] = [.spa, .rus, .arb, .ell]
+
+        let notNow = model(.fresh, checked: [.spa], packs: service)
+        notNow.toggle(try row("ell", of: notNow))
+        notNow.notNow()
+        model(.upgrade, checked: languages, packs: service).closed()
+        let continued = model(.fresh, checked: [.rus], packs: service)
+        continued.toggle(try row("rus", of: continued))
+        XCTAssertTrue(continued.download(), "nothing checked: Continue")
+        try await Task.sleep(nanoseconds: 500_000_000)
+        XCTAssertEqual(PackFixtureURLProtocol.requests, [], "no request without Download")
+        XCTAssertEqual(languages.map(status.state(of:)), Array(repeating: .notInstalled, count: languages.count),
+                       "nothing queued")
+
+        XCTAssertFalse(model(.fresh, checked: [.arb], packs: service).download())
+        let deadline = Date().addingTimeInterval(30)
+        while status.state(of: .arb) != .installed {
+            guard Date() < deadline else { return XCTFail("Arabic did not install") }
+            try await Task.sleep(nanoseconds: 50_000_000)
+        }
+        XCTAssertEqual(PackFixtureURLProtocol.requests, [try XCTUnwrap(catalog.pack(.arb)?.url)])
+    }
+
+    /// QA #245: a chosen language's progress line (0237, "First launch"):
+    /// "Waiting" on an empty bar, "3.1 of 6.9 MB" at its fraction,
+    /// "Installing…" on a full bar; none when nothing runs.
+    func testProgressLineFollowsTheState() throws {
+        let en = Locale(identifier: "en")
+        let waiting = try XCTUnwrap(PackTexts.progressLine(.waiting, locale: en))
+        XCTAssertEqual(waiting.fraction, 0)
+        XCTAssertEqual(waiting.text, "Waiting")
+        let downloading = try XCTUnwrap(PackTexts.progressLine(.downloading(received: 3_100_000, total: 6_889_888),
+                                                               locale: en))
+        XCTAssertEqual(downloading.fraction, 3_100_000.0 / 6_889_888.0, accuracy: 1e-9)
+        XCTAssertEqual(Self.visible(downloading.text), "3.1 of 6.9 MB")
+        XCTAssertEqual(PackTexts.progressLine(.downloading(received: 10, total: 0), locale: en)?.fraction, 0,
+                       "no total: an empty bar, not a division by zero")
+        let installing = try XCTUnwrap(PackTexts.progressLine(.installing, locale: en))
+        XCTAssertEqual(installing.fraction, 1)
+        XCTAssertEqual(installing.text, "Installing…")
+        for state in [PackState.notInstalled, .installed, .updateAvailable, .updateRequired, .failed(.offline)] {
+            XCTAssertNil(PackTexts.progressLine(state, locale: en), "\(state)")
+        }
+        let ru = try XCTUnwrap(PackTexts.progressLine(.waiting, locale: Locale(identifier: "ru")))
+        XCTAssertNotEqual(ru.text, "Waiting", "in the UI language")
+        XCTAssertNotEqual(ru.text, "languages.waiting")
+    }
+}
+
+/// The "not downloaded" view and the Search hint (0237, "Update from 1.x"
+/// and "Offline and errors"): which pack a word or a query waits for, and
+/// their texts in the UI languages.
+final class NotDownloadedTests: XCTestCase {
+    private var catalog: PackCatalog!
+
+    override func setUpWithError() throws {
+        try super.setUpWithError()
+        catalog = try PackFixtures.catalog()
+    }
+
+    private static func visible(_ s: String) -> String {
+        let marks: Set<Unicode.Scalar> = ["\u{200F}", "\u{2068}", "\u{2069}"]
+        return String(s.unicodeScalars.filter { !marks.contains($0) })
+    }
+
+    /// Greek, Cyrillic and Arabic letters name their language's pack; a
+    /// Latin query names none (Spanish or English?), nor do digits alone.
+    func testQueryScriptNamesItsPack() {
+        func pack(_ query: String) -> PackID? { NotDownloaded.pack(forQuery: query, catalog: catalog)?.id }
+        XCTAssertEqual(pack("γραφω"), .ell)
+        XCTAssertEqual(pack("Έγραψα"), .ell)
+        XCTAssertEqual(pack("дом"), .rus)
+        XCTAssertEqual(pack("كتاب"), .arb)
+        XCTAssertEqual(pack("12 дом"), .rus, "the first letter decides")
+        XCTAssertNil(pack("casa"))
+        XCTAssertNil(pack("dog"))
+        XCTAssertNil(pack("123"))
+        XCTAssertNil(pack(""))
+    }
+
+    /// A pack source names its pack; the bundle's and an import's none.
+    func testSourceNamesItsPack() {
+        func pack(_ source: String) -> PackID? { NotDownloaded.pack(ofSource: source, catalog: catalog)?.id }
+        XCTAssertEqual(pack("freedict-ell-eng"), .ell)
+        XCTAssertEqual(pack("wordnet-eng-ell"), .ell)
+        XCTAssertEqual(pack("freedict-eng-spa"), .spa)
+        XCTAssertEqual(pack("openrussian"), .rus)
+        XCTAssertNil(pack("wordnet"))
+        XCTAssertNil(pack("my_glossary"))
+        XCTAssertNil(pack(""))
+        XCTAssertFalse(NotDownloaded.isAvailable(.notInstalled))
+        XCTAssertFalse(NotDownloaded.isAvailable(.updateRequired), "another format is not attached")
+        XCTAssertTrue(NotDownloaded.isAvailable(.installed))
+        XCTAssertTrue(NotDownloaded.isAvailable(.updateAvailable), "an older version is still attached")
+    }
+
+    /// The texts in English, Russian, Spanish, Greek and Arabic (#119:
+    /// Arabic composed strings start with U+200F).
+    func testTexts() throws {
+        let greek = try XCTUnwrap(catalog.pack(.ell))
+        let en = Locale(identifier: "en")
+        XCTAssertEqual(Self.visible(PackTexts.notDownloadedMessage(greek, locale: en)),
+                       "This word is in the Greek dictionaries.")
+        XCTAssertEqual(Self.visible(PackTexts.notDownloadedSearch(greek, locale: en)), "Greek is not downloaded.")
+        XCTAssertEqual(Self.visible(PackTexts.notDownloadedDownload(greek, locale: en)),
+                       "Download Greek · \(PackTexts.size(greek.size, locale: en))")
+        XCTAssertEqual(Self.visible(PackTexts.welcomeDownload(18_100_000, locale: en)), "Download 18.1 MB")
+
+        let ru = Locale(identifier: "ru")
+        XCTAssertEqual(Self.visible(PackTexts.notDownloadedSearch(greek, locale: ru)), "Словари (греческий) не скачаны.")
+        XCTAssertEqual(Self.visible(PackTexts.notDownloadedDownload(greek, locale: ru)),
+                       "Скачать греческий · \(PackTexts.size(greek.size, locale: ru))")
+        XCTAssertEqual(PackTexts.size(10_707_004, locale: ru), "10,7 МБ", "Russian digits and units")
+        let es = Locale(identifier: "es")
+        XCTAssertEqual(Self.visible(PackTexts.notDownloadedSearch(greek, locale: es)), "El griego no está descargado.")
+        let el = Locale(identifier: "el")
+        XCTAssertEqual(Self.visible(PackTexts.notDownloadedMessage(greek, locale: el)),
+                       "Αυτή η λέξη βρίσκεται στα λεξικά για τα ελληνικά.")
+
+        let ar = Locale(identifier: "ar")
+        for text in [PackTexts.notDownloadedMessage(greek, locale: ar), PackTexts.notDownloadedSearch(greek, locale: ar),
+                     PackTexts.notDownloadedDownload(greek, locale: ar), PackTexts.welcomeDownload(18_100_000, locale: ar)] {
+            XCTAssertEqual(text.unicodeScalars.first, "\u{200F}", text)
+        }
+        XCTAssertTrue(Self.visible(PackTexts.notDownloadedSearch(greek, locale: ar)).hasPrefix("اليونانية"))
+    }
+}
+
+/// History, Recent words and My words open a word of a pack that is not
+/// installed as "not downloaded", then as its entry once the pack is (0237,
+/// "Update from 1.x"); `fetchSourceStats` keeps the file order on equal
+/// counts (CodeRabbit, PR #252).
+@MainActor
+final class NotDownloadedLookupTests: XCTestCase {
+    private var tempDir: URL!
+    private var db: DatabaseService { .shared }
+    private var userPath: String { tempDir.appendingPathComponent("user.sqlite").path }
+
+    override func setUp() async throws {
+        try await super.setUp()
+        await DictAppTests.waitForHostAppLaunch()
+        tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+    }
+
+    override func tearDown() async throws {
+        try? FileManager.default.removeItem(at: tempDir)
+        try await super.tearDown()
+    }
+
+    /// A Greek word before and after the Greek pack: "not downloaded" with
+    /// the Greek pack, then its entry. A WordNet word opens; a word no file
+    /// has, a row with no source and an import that is gone are not found.
+    func testAWordOfAMissingPackOpensOnceItIsInstalled() async throws {
+        let catalog = try PackFixtures.catalog()
+        let greekPack = try XCTUnwrap(catalog.pack(.ell))
+        let greek = EntryKey(source: "freedict-ell-eng", word: "γράφω")
+        let dog = EntryKey(source: "wordnet", word: "dog")
+        let gone = EntryKey(source: "wordnet", word: "zzqxv")
+        try await db.setup(userPath: userPath, dictionaryURL: try TestDictionary.bundledURL())
+
+        let before = await EntryDestination.lookup(greek, catalog: catalog)
+        XCTAssertEqual(before, .notDownloaded(greekPack))
+        let needs = await db.needsPack(source: "freedict-ell-eng")
+        XCTAssertTrue(needs)
+        guard case .entry(let entry) = await EntryDestination.lookup(dog, catalog: catalog) else {
+            return XCTFail("WordNet's dog opens")
+        }
+        XCTAssertEqual(EntryKey(entry), dog)
+        for key in [gone, EntryKey(source: "", word: "dog"), EntryKey(source: "my_glossary", word: "zorblat")] {
+            let lookup = await EntryDestination.lookup(key, catalog: catalog)
+            XCTAssertEqual(lookup, .notFound, "\(key)")
+        }
+
+        // My words: the Greek word waits for its pack; a word gone is skipped.
+        for key in [gone, greek, dog] {
+            try await db.addToMyWords(key)
+        }
+        let rows = try await db.fetchMyWordRows()
+        XCTAssertEqual(Set(rows.map(\.key)), [greek, dog])
+        XCTAssertNil(rows.first { $0.key == greek }?.entry, "no entry until Greek is installed")
+        let resolved = try await db.fetchMyWords()
+        XCTAssertEqual(resolved.map { EntryKey($0) }, [dog])
+        // My words' list screen (#154) lists the same rows.
+        let listed = try await db.myWordsEntries()
+        XCTAssertEqual(Set(listed.map(\.key)), [greek, dog])
+        XCTAssertNil(listed.first { $0.key == greek }?.entry, "the list's Greek row waits for its pack")
+
+        try await db.setup(userPath: userPath, dictionaryURL: try TestDictionary.bundledURL(),
+                           packFiles: [.ell: try PackFixtures.file(.ell)])
+        guard case .entry(let written) = await EntryDestination.lookup(greek, catalog: catalog) else {
+            return XCTFail("γράφω opens once Greek is installed")
+        }
+        XCTAssertEqual(written.word, "γράφω")
+        let stillNeeds = await db.needsPack(source: "freedict-ell-eng")
+        XCTAssertFalse(stillNeeds)
+        let after = try await db.fetchMyWordRows()
+        XCTAssertEqual(after.compactMap(\.entry).count, 2, "both My words resolve")
+        let listedAfter = try await db.myWordsEntries()
+        XCTAssertEqual(listedAfter.compactMap(\.entry).count, 2, "both rows of the list resolve")
+    }
+
+    /// Equal counts keep the file order, then each file's own; imported-only
+    /// sources come after the files' by ID. So Dictionary Order's default,
+    /// built from this list, does not change between launches.
+    func testSourceStatsBreakTiesByFileOrder() async throws {
+        let bundle = try TestDictionary.make(
+            rows: TestDictionary.rows(source: "zeta", count: 3) + TestDictionary.rows(source: "alpha", count: 3)
+                + TestDictionary.rows(source: "big", count: 5),
+            at: tempDir.appendingPathComponent("bundle.sqlite"))
+        let pack = try TestDictionary.make(rows: TestDictionary.rows(source: "mid", count: 3),
+                                           at: tempDir.appendingPathComponent("pack.sqlite"))
+        try await db.setup(userPath: userPath, dictionaryURL: bundle, packFiles: [.spa: pack])
+        try await db.writeForTesting { conn in
+            for source in ["yy-import", "bb-import"] {
+                for i in 0..<3 {
+                    try conn.execute(sql: """
+                        INSERT INTO imported_entries(word, word_normalized, definition, source) VALUES (?, ?, 'def', ?)
+                        """, arguments: ["\(source)-\(i)", "\(source)-\(i)", source])
+                }
+            }
+        }
+        let stats = try await db.fetchSourceStats()
+        XCTAssertEqual(stats.map(\.source), ["big", "zeta", "alpha", "mid", "bb-import", "yy-import"])
+        XCTAssertEqual(stats.map(\.count), [5, 3, 3, 3, 3, 3])
     }
 }

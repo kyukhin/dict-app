@@ -64,3 +64,5 @@ DictApp/DictApp/BuildInfo.xcconfig
 *.dSYM
 *.hmap
 *.xcarchive
+*.sqlite-shm
+*.sqlite-wal

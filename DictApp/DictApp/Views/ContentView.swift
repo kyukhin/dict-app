@@ -8,6 +8,10 @@ import SwiftUI
 struct ContentView: View {
     @State private var selection: AppRouter.Tab = .search
 
+    /// The first-launch sheet launch decided on (#245, `PackOffer`): the
+    /// first window that appears takes it, so on iPad it shows in one.
+    @State private var welcome: WelcomeViewModel?
+
     var body: some View {
         TabView(selection: $selection) {
             SearchView()
@@ -41,6 +45,14 @@ struct ContentView: View {
         .onReceive(AppRouter.shared.$request.compactMap { $0 }) { tab in
             selection = tab
             AppRouter.shared.taken()
+        }
+        .sheet(item: $welcome) { model in
+            WelcomeSheet(model: model)
+        }
+        .onAppear {
+            guard welcome == nil, let sheet = PackOffer.launchSheet else { return }
+            PackOffer.launchSheet = nil
+            welcome = WelcomeViewModel(sheet: sheet)
         }
     }
 }

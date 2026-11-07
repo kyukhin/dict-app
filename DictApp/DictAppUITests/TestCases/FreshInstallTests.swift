@@ -8,10 +8,12 @@ import XCTest
 /// packs and `-resetData` the preferences, which is a fresh install without
 /// uninstalling (the simulator keeps its language and keyboard settings).
 ///
-/// `testEnglishWorksWithoutPacks`: the bundle alone answers English, and no
-/// other language. The first-launch sheet, the "not downloaded" hint and the
-/// Languages screen of 0237's `testEnglishWorksOffline` come with #243 and
-/// #245; until then the test passes `-skipWelcome`.
+/// `testEnglishWorksOffline`: with no network (`-packDownloads offline`) the
+/// first-launch sheet shows; after Not now the bundle alone answers English
+/// and no other language; a Cyrillic query names Russian with its Download,
+/// which fails with "No internet connection."; Settings → Languages offers
+/// the four languages. (0237 names `casa` for the hint, but WordNet finds
+/// `casaba` for it, and a Latin query names no language: `дом` it is.)
 ///
 /// `testInstalledPacksSearchEveryPairAtOnce`: with every pack installed at
 /// launch (`-installPacks all`, from the committed assets), five queries
@@ -44,8 +46,9 @@ final class FreshInstallTests: XCTestCase {
     override func setUpWithError() throws {
         continueAfterFailure = true
         app = XCUIApplication()
-        app.launchArguments += ["-disableReviewPrompt", "-resetDatabase", "-resetPacks", "-resetData",
-                                UITestHelpers.skipWelcome]
+        // No `-skipWelcome` here: `testEnglishWorksOffline` sees the sheet;
+        // `packArguments()` adds it for the other test.
+        app.launchArguments += ["-disableReviewPrompt", "-resetDatabase", "-resetPacks", "-resetData"]
 
         // iOS 26 "Enable Dictation?" springboard alert on the first search.
         addUIInterruptionMonitor(withDescription: "Enable Dictation alert") { alert in
@@ -66,14 +69,23 @@ final class FreshInstallTests: XCTestCase {
         app = nil
     }
 
-    /// #237: English works on a fresh install with no pack; nothing else.
-    func testEnglishWorksWithoutPacks() throws {
+    /// #237, #245: a fresh install with no network: the sheet explains what
+    /// needs a download; after Not now English works, and nothing else.
+    func testEnglishWorksOffline() throws {
+        typealias IDs = AccessibilityIdentifiers.Welcome
+        app.launchArguments += UITestHelpers.downloadArguments("offline")
         app.launch()
         let launched = Date()
+        let welcome = WelcomePage(app: app)
+        XCTAssertTrue(welcome.waitForSheet(timeout: TestData.Timeouts.short), "the sheet is up within 2 s of launch")
+        record("Welcome sheet", since: launched)
+        XCTAssertTrue(app.staticTexts["English is included and works offline. Add other languages: "
+                                      + "each downloads once, then works offline too."].exists,
+                      "the sheet explains what needs a download")
+        welcome.tapNotNow()
+        XCTAssertTrue(welcome.waitForSheetGone(), "Not now closes the sheet")
         let searchScreen = app.descendants(matching: .any)[AccessibilityIdentifiers.TabBar.searchTab].firstMatch
-        XCTAssertTrue(searchScreen.waitForExistence(timeout: TestData.Timeouts.short),
-                      "the Search screen is up within 2 s of launch")
-        record("Search screen", since: launched)
+        XCTAssertTrue(searchScreen.waitForExistence(timeout: TestData.Timeouts.short), "the Search screen is up")
         XCTAssertEqual(app.progressIndicators.count, 0, "no loading progress on a fresh install's Search screen")
 
         let search = SearchPage(app: app)
@@ -95,6 +107,31 @@ final class FreshInstallTests: XCTestCase {
 
         search.searchFor("дом")
         XCTAssertTrue(search.waitForNoResults(timeout: TestData.Timeouts.medium), "Russian is not installed: no results")
+        let hint = app.staticTexts[IDs.searchHint]
+        XCTAssertTrue(hint.waitForExistence(timeout: TestData.Timeouts.short), "the no-results view names Russian")
+        XCTAssertEqual(UITestHelpers.visible(hint.label), "Russian is not downloaded.")
+        let download = app.buttons[IDs.notDownloadedDownload]
+        XCTAssertEqual(UITestHelpers.visible(download.label), "Download Russian · 2.3 MB")
+        search.dismissKeyboard()
+
+        // Settings → Languages offers the four languages.
+        let tabs = TabBarPage(app: app)
+        _ = tabs.tapSettingsTab()
+        let languages = LanguagesPage(app: app)
+        XCTAssertTrue(languages.open(), "Settings → Languages must open")
+        for id in ["arb", "ell", "rus", "spa"] {
+            XCTAssertTrue(app.scrollToElement(languages.button(AccessibilityIdentifiers.Languages.download(id))),
+                          "\(id) offers Download")
+        }
+
+        // Back on Search, the hint's Download finds no connection.
+        _ = tabs.tapSearchTab()
+        XCTAssertTrue(download.waitForExistence(timeout: TestData.Timeouts.medium), "the hint is still there")
+        download.tap()
+        let error = app.staticTexts[AccessibilityIdentifiers.Languages.error("rus")]
+        XCTAssertTrue(error.waitForExistence(timeout: TestData.Timeouts.medium), "offline fails at once")
+        XCTAssertEqual(error.label, "No internet connection.")
+        XCTAssertEqual(app.buttons[IDs.notDownloadedDownload].label, "Try again")
     }
 
     /// #129, #140, #237: with every pack installed through the install path,
