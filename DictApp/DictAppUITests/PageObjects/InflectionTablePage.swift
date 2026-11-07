@@ -9,14 +9,15 @@ final class InflectionTablePage: BasePage {
 
     private typealias IDs = AccessibilityIdentifiers.Inflection
 
-    /// Searches `word` and opens its row from `source` (a Greek headword
-    /// source), then waits for the table, or with `expectsTable` false for
-    /// the definition only.
-    static func open(_ word: String, source: String, from search: SearchPage, app: XCUIApplication,
-                     expectsTable: Bool = true,
+    /// Searches `query` (default: `word`) and opens the row of `word` from
+    /// `source` (a Greek headword source), then waits for the table, or with
+    /// `expectsTable` false for the definition only.
+    static func open(_ word: String, query: String? = nil, source: String, from search: SearchPage,
+                     app: XCUIApplication, expectsTable: Bool = true,
                      file: StaticString = #filePath, line: UInt = #line) -> InflectionTablePage {
-        search.searchFor(word)
-        XCTAssertTrue(search.waitForResults(), "'\(word)' must return results", file: file, line: line)
+        let query = query ?? word
+        search.searchFor(query)
+        XCTAssertTrue(search.waitForResults(), "'\(query)' must return results", file: file, line: line)
         let row = app.collectionViews.firstMatch.cells
             .containing(.any, identifier: AccessibilityIdentifiers.Search.sourceBadge(source: source))
             .containing(NSPredicate(format: "label == %@", word))

@@ -19,51 +19,37 @@ import SwiftUI
 /// The list reloads each time the screen appears (Issue #105), so a dictionary
 /// imported on Manage Dictionaries shows up without a relaunch. The view only
 /// triggers the reload; `SettingsViewModel.loadDictionaries()` owns the logic.
+///
+/// Only installed dictionaries are listed (Issue #237); the footer's "More
+/// languages" pushes the Languages screen (#243).
 struct DictionaryOrderView: View {
     @ObservedObject var vm: SettingsViewModel
     @State private var infoItem: DictionaryItem?
+    @State private var showsLanguages = false
     @Environment(\.locale) private var locale
 
     var body: some View {
         List {
-            ForEach(vm.orderedDictionaries) { item in
-                HStack {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(item.displayName)
-                            .font(.body)
-                            // Row identifier lives on the leading label, NOT the
-                            // HStack: a container-level identifier propagates onto
-                            // the row's switch and shadows the Toggle's own
-                            // `dictionary_toggle_*` id (Issue #6). The label is a
-                            // stable drag handle and frame anchor for the order list.
-                            .accessibilityIdentifier("dictionary_order_row_\(item.id)")
-                        Text("dictionary.entries.count \(item.count)")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                    Spacer()
-                    // Borderless: a default-style Button in a List row makes the
-                    // whole row its hit target; borderless confines it to the
-                    // icon so title, toggle and drag grip keep their behaviour.
-                    Button { infoItem = item } label: {
-                        Image(systemName: "info.circle")
-                            .frame(width: 32, height: 44)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.borderless)
-                    .accessibilityLabel(SettingsViewModel.infoButtonLabel(for: item.displayName, locale: locale))
-                    .accessibilityIdentifier("dictionary_info_\(item.id)")
-                    Toggle(isOn: vm.binding(for: item.id)) { EmptyView() }
-                        .labelsHidden()
-                        .accessibilityIdentifier("dictionary_toggle_\(item.id)")
+            Section {
+                rows
+            } footer: {
+                // Issue #243: only installed dictionaries are listed; the
+                // others are downloaded on Languages.
+                Button {
+                    showsLanguages = true
+                } label: {
+                    Text("languages.more")
                 }
+                .accessibilityIdentifier("dictionary_order_more_languages")
             }
-            .onMove { from, to in vm.movePair(from: from, to: to) }
         }
         // On the List, never inside the lazy ForEach.
         .navigationDestination(item: $infoItem) { item in
             DictionaryDetailView(pair: item.pair, title: item.displayName)
                 .environment(\.editMode, .constant(.inactive))   // don't inherit the order list's forced edit mode
+        }
+        .navigationDestination(isPresented: $showsLanguages) {
+            LanguagesView()   // sets its own edit mode
         }
         // #105: pick up imports / removals made elsewhere. Cancelled on disappear.
         .task { await vm.loadDictionaries() }
@@ -71,6 +57,42 @@ struct DictionaryOrderView: View {
         .accessibilityIdentifier("dictionary_order_view")   // screen-level handle so page-object can waitForExistence before interacting (#6 review)
         .navigationTitle("settings.dictionaryOrder.title")
         .modifier(PadOS26InlineTitle())
+    }
+
+    private var rows: some View {
+        ForEach(vm.orderedDictionaries) { item in
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(item.displayName)
+                        .font(.body)
+                        // Row identifier lives on the leading label, NOT the
+                        // HStack: a container-level identifier propagates onto
+                        // the row's switch and shadows the Toggle's own
+                        // `dictionary_toggle_*` id (Issue #6). The label is a
+                        // stable drag handle and frame anchor for the order list.
+                        .accessibilityIdentifier("dictionary_order_row_\(item.id)")
+                    Text("dictionary.entries.count \(item.count)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                // Borderless: a default-style Button in a List row makes the
+                // whole row its hit target; borderless confines it to the
+                // icon so title, toggle and drag grip keep their behaviour.
+                Button { infoItem = item } label: {
+                    Image(systemName: "info.circle")
+                        .frame(width: 32, height: 44)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.borderless)
+                .accessibilityLabel(SettingsViewModel.infoButtonLabel(for: item.displayName, locale: locale))
+                .accessibilityIdentifier("dictionary_info_\(item.id)")
+                Toggle(isOn: vm.binding(for: item.id)) { EmptyView() }
+                    .labelsHidden()
+                    .accessibilityIdentifier("dictionary_toggle_\(item.id)")
+            }
+        }
+        .onMove { from, to in vm.movePair(from: from, to: to) }
     }
 }
 
