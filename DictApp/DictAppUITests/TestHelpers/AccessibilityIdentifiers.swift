@@ -336,6 +336,34 @@ struct AccessibilityIdentifiers {
         static func stop(_ lang: String) -> String { "learning_language_stop_\(lang)" }
     }
 
+    // MARK: - Languages (Issue #243)
+    //
+    // Settings → Dictionaries → Languages (0237, "UI"). Per-row ids take the
+    // pack id (`ell`, `eng-lists`), or `eng` for the bundled English row.
+    struct Languages {
+        /// The Settings row.
+        static let link = "dictionary_languages_link"
+        static let screen = "languages_screen"
+        /// "More languages" in Dictionary Order's footer.
+        static let moreLanguages = "dictionary_order_more_languages"
+        /// The toolbar's Edit / Done, in the in-app language.
+        static let edit = "languages_edit"
+        /// The row's name.
+        static func row(_ id: String) -> String { "pack_row_\(id)" }
+        static func download(_ id: String) -> String { "pack_download_\(id)" }
+        /// The bar while waiting, downloading or installing; its value is
+        /// the text under it ("3.1 of 6.9 MB", "Waiting").
+        static func progress(_ id: String) -> String { "pack_progress_\(id)" }
+        static func cancel(_ id: String) -> String { "pack_cancel_\(id)" }
+        /// The swipe action.
+        static func remove(_ id: String) -> String { "pack_remove_\(id)" }
+        static func update(_ id: String) -> String { "pack_update_\(id)" }
+        static func retry(_ id: String) -> String { "pack_retry_\(id)" }
+        static func error(_ id: String) -> String { "pack_error_\(id)" }
+        /// "Installed · 56.3 MB".
+        static func installed(_ id: String) -> String { "pack_installed_\(id)" }
+    }
+
     // MARK: - Dictionary Info detail (Issue #91)
     //
     // Per-source ids are keyed by source ID (`TestData.Sources`), not pair key.
