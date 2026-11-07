@@ -31,6 +31,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - [#154] The Learn tab gets word lists: a Lists screen with the lists of the languages you learn, their word counts and progress, a list's screen with each word's meaning in the language of the learning pair and "Learn this list", and "New words from", on the Learn home and in Settings, where you check the lists new words come from. My words is now one of the lists.
 - [#169] The conjugation drill gets spaced repetition: one card per verb, tense and voice on the learning ladder, started by its first answer and kept apart from word learning, and 15-question runs with due cards first, weaker tenses more often and a wrong answer asked once more. No screen uses it yet.
 - [#164] Learn → Statistics shows today's numbers, the streak with a 5-week calendar, a 30-day chart, list progress with a forecast, accuracy, the hardest words and the conjugation block, per learned language except the shared goal, streak and chart. The Learn home gets a daily goal ring and a streak flame that open it. Charts read as one VoiceOver summary and mirror in Arabic.
+- [#165] A word in learning shows its status under the part of speech on the Definition screen: new, learning or learned with the next review, each card's stage and the mistakes so far.
 
 ### Changed
 - [#138] Every dictionary is searchable right after install, with no "Preparing dictionaries" bar: the app reads the bundled dictionaries in place and keeps your history, saved words and imports in a small database of their own.

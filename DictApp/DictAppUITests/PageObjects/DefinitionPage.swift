@@ -20,6 +20,11 @@ class DefinitionPage: BasePage {
         waitForButton(AccessibilityIdentifiers.Definition.learnButton)
     }
 
+    /// 0166, #165: the learning status under the part of speech.
+    var learningStatus: XCUIElement {
+        app.descendants(matching: .any)[AccessibilityIdentifiers.Definition.learningStatus].firstMatch
+    }
+
     private var definitionContent: XCUIElement {
         // Try multiple approaches to find the definition content
         if app.staticTexts[AccessibilityIdentifiers.Definition.definitionContent].exists {
@@ -65,6 +70,23 @@ class DefinitionPage: BasePage {
     func waitForLearnButtonLabel(_ label: String, timeout: TimeInterval = TestData.Timeouts.medium) -> Bool {
         let expectation = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label == %@", label),
                                                     object: app.buttons[AccessibilityIdentifiers.Definition.learnButton])
+        return XCTWaiter.wait(for: [expectation], timeout: timeout) == .completed
+    }
+
+    /// Waits for the learning status to show with every one of `texts` in
+    /// its label (its lines, as VoiceOver reads them).
+    func waitForLearningStatus(containing texts: [String], timeout: TimeInterval = TestData.Timeouts.medium) -> Bool {
+        let predicates = [NSPredicate(format: "exists == true")]
+            + texts.map { NSPredicate(format: "label CONTAINS %@", $0) }
+        let expectation = XCTNSPredicateExpectation(predicate: NSCompoundPredicate(andPredicateWithSubpredicates: predicates),
+                                                    object: learningStatus)
+        return XCTWaiter.wait(for: [expectation], timeout: timeout) == .completed
+    }
+
+    /// Waits for the screen to show no learning status.
+    func waitForNoLearningStatus(timeout: TimeInterval = TestData.Timeouts.medium) -> Bool {
+        let expectation = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"),
+                                                    object: learningStatus)
         return XCTWaiter.wait(for: [expectation], timeout: timeout) == .completed
     }
 

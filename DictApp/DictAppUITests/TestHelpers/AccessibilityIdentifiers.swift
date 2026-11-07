@@ -70,6 +70,10 @@ struct AccessibilityIdentifiers {
         /// label is "Learn", "Stop learning" or "Remove from My words".
         static let learnButton = "learn_button"
         static let definitionContent = "definition_content"
+        /// 0166, #165: the word's learning status under the part of speech,
+        /// one element whose label is its lines; absent when the word is not
+        /// in learning or is paused.
+        static let learningStatus = "learning_status"
     }
 
     // MARK: - Inflection table (Issue #144)

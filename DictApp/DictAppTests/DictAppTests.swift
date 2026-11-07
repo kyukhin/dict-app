@@ -19984,6 +19984,153 @@ final class LearningStatsStoreTests: XCTestCase {
     }
 }
 
+// MARK: - 0166, #165: a word's status on the Definition screen
+
+/// `WordStatusText` on fixed days (today 2026-11-04), no clock and no
+/// database: the three states, the next review as today, tomorrow or a
+/// short date, the cards' stages and the mistakes, in the five UI languages.
+final class WordStatusTextTests: XCTestCase {
+    private let today = LearningFixture.today
+    private let en = Locale(identifier: "en")
+
+    private func card(_ kind: CardKind, step: Int, due: LearnDay, answered: Bool = true,
+                      suspended: Bool = false) -> CardState {
+        LearningFixture.card(kind, step: step, due: due, last: answered ? today.adding(days: -1) : nil,
+                             suspended: suspended)
+    }
+
+    private func lines(_ cards: [CardState], errors: Int = 0, locale: Locale? = nil) -> [String] {
+        WordStatusText.lines(state: LearningFixture.state(cards), errors: errors, today: today, locale: locale ?? en)
+    }
+
+    /// 0166's example: the stage with the earlier due day of the two
+    /// cards, each card's stage, recognition first, and the mistakes.
+    func testLearningWord() {
+        let status = lines([card(.production, step: 0, due: today.adding(days: 1)),
+                            card(.recognition, step: 3, due: today.adding(days: 5))], errors: 3)
+        XCTAssertEqual(status, ["Learning · next review tomorrow",
+                                "Recognition: every 7 days · Production: learning",
+                                "3 mistakes"])
+    }
+
+    /// Both cards at 30 days or more: Learned, with a short date in the UI
+    /// language; the year only when it is not this year's.
+    func testLearnedWordShowsAShortDate() {
+        let learned = [card(.recognition, step: 5, due: LearnDay(year: 2026, month: 12, day: 12)),
+                       card(.production, step: 6, due: LearnDay(year: 2027, month: 1, day: 30))]
+        XCTAssertEqual(lines(learned), ["Learned · next review Dec 12", "Recognition: learned · Production: learned"])
+
+        let nextYear = [card(.recognition, step: 6, due: LearnDay(year: 2027, month: 2, day: 1)),
+                        card(.production, step: 6, due: LearnDay(year: 2027, month: 1, day: 30))]
+        XCTAssertEqual(lines(nextYear).first, "Learned · next review Jan 30, 2027")
+
+        let ru = lines(learned, locale: Locale(identifier: "ru")).first ?? ""
+        XCTAssertTrue(ru.hasPrefix("Выучено · следующее повторение 12 дек"), ru)
+    }
+
+    /// Enrolled, never answered: one line, whatever else is passed.
+    func testNewWordIsOneLine() {
+        let new = [card(.recognition, step: 0, due: today, answered: false),
+                   card(.production, step: 0, due: today, answered: false)]
+        XCTAssertEqual(lines(new), ["New · not started yet"])
+        XCTAssertEqual(lines(new, errors: 4), ["New · not started yet"], "no cards or mistakes lines")
+    }
+
+    /// Across New Year: 31 Dec → 1 Jan is "tomorrow", 2 Jan a date with
+    /// its year; a learned word keeps its mistakes line.
+    func testYearBoundaryAndLearnedMistakes() {
+        let newYearsEve = LearnDay(year: 2026, month: 12, day: 31)
+        func first(_ due: LearnDay) -> String? {
+            WordStatusText.lines(state: LearningFixture.state([card(.recognition, step: 2, due: due),
+                                                               card(.production, step: 2, due: due)]),
+                                 errors: 0, today: newYearsEve, locale: en).first
+        }
+        XCTAssertEqual(first(LearnDay(year: 2027, month: 1, day: 1)), "Learning · next review tomorrow")
+        XCTAssertEqual(first(LearnDay(year: 2027, month: 1, day: 2)), "Learning · next review Jan 2, 2027")
+
+        let learned = [card(.recognition, step: 6, due: today.adding(days: 40)),
+                       card(.production, step: 5, due: today.adding(days: 20))]
+        XCTAssertEqual(lines(learned, errors: 2), ["Learned · next review Nov 24",
+                                                   "Recognition: learned · Production: learned", "2 mistakes"])
+    }
+
+    /// A card due today or overdue reads "today"; a later card does not
+    /// hide it. A card not answered yet in a started word is "new".
+    func testDueOrOverdueIsToday() {
+        let overdue = [card(.recognition, step: 2, due: today.adding(days: -3)),
+                       card(.production, step: 0, due: today, answered: false)]
+        XCTAssertEqual(lines(overdue), ["Learning · next review today",
+                                        "Recognition: every 3 days · Production: new"])
+        let dueToday = [card(.recognition, step: 1, due: today), card(.production, step: 4, due: today.adding(days: 9))]
+        XCTAssertEqual(lines(dueToday).first, "Learning · next review today")
+    }
+
+    /// Two days ahead is a date, not "tomorrow".
+    func testTheDayAfterTomorrowIsADate() {
+        let cards = [card(.recognition, step: 1, due: today.adding(days: 2)),
+                     card(.production, step: 1, due: today.adding(days: 2))]
+        XCTAssertEqual(lines(cards).first, "Learning · next review Nov 6")
+    }
+
+    /// Paused (Stop learning), or a word with only drill cards: nothing.
+    func testPausedOrWithoutWordCardsShowsNothing() {
+        let paused = [card(.recognition, step: 3, due: today, suspended: true),
+                      card(.production, step: 2, due: today, suspended: true)]
+        XCTAssertEqual(lines(paused, errors: 2), [])
+        let drillOnly = CardState(key: CardKey(word: LearningFixture.grafo, kind: .conjugation, facet: "aorist.active"),
+                                  step: 1, dueDay: today, lastDay: today)
+        XCTAssertEqual(lines([drillOnly], errors: 1), [])
+    }
+
+    /// The mistakes line shows from 1, with the catalog's plural.
+    func testMistakesLine() {
+        let cards = [card(.recognition, step: 1, due: today), card(.production, step: 1, due: today)]
+        XCTAssertEqual(lines(cards, errors: 0).count, 2, "no line for no mistakes")
+        XCTAssertEqual(lines(cards, errors: 1).last, "1 mistake")
+        XCTAssertEqual(lines(cards, errors: 12).last, "12 mistakes")
+    }
+
+    /// Every rung below learned, with its plural.
+    func testEveryRung() {
+        let stages = (1...4).map { step in
+            lines([card(.recognition, step: step, due: today), card(.production, step: 0, due: today)])[1]
+        }
+        XCTAssertEqual(stages, ["Recognition: every 1 day · Production: learning",
+                                "Recognition: every 3 days · Production: learning",
+                                "Recognition: every 7 days · Production: learning",
+                                "Recognition: every 14 days · Production: learning"])
+    }
+
+    /// The lines in Russian, Greek, Spanish and Arabic: translated, with
+    /// their plurals; in Arabic each starts with U+200F (#119).
+    func testFiveLanguages() {
+        let cards = [card(.recognition, step: 3, due: today.adding(days: 1)), card(.production, step: 0, due: today.adding(days: 1))]
+        XCTAssertEqual(lines(cards, errors: 5, locale: Locale(identifier: "ru")),
+                       ["Учится · следующее повторение завтра", "Узнавание: раз в 7 дней · Воспроизведение: учится", "5 ошибок"])
+        XCTAssertEqual(lines(cards, errors: 3, locale: Locale(identifier: "ru")).last, "3 ошибки")
+        XCTAssertEqual(lines(cards, errors: 1, locale: Locale(identifier: "el")),
+                       ["Σε εκμάθηση · επόμενη επανάληψη αύριο", "Αναγνώριση: κάθε 7 ημέρες · Παραγωγή: σε εκμάθηση", "1 λάθος"])
+        XCTAssertEqual(lines(cards, errors: 2, locale: Locale(identifier: "es")),
+                       ["En aprendizaje · próximo repaso mañana", "Reconocimiento: cada 7 días · Producción: en aprendizaje",
+                        "2 errores"])
+
+        // Foundation may isolate an argument in a right-to-left format
+        // (U+2068…U+2069): invisible, so left out of the comparison.
+        let arabic = lines(cards, errors: 3, locale: Locale(identifier: "ar"))
+            .map { $0.filter { $0 != "\u{2068}" && $0 != "\u{2069}" } }
+        XCTAssertEqual(arabic.count, 3)
+        for line in arabic { XCTAssertTrue(line.hasPrefix("\u{200F}"), "RLM first: \(line)") }
+        XCTAssertEqual(arabic.first, "\u{200F}قيد التعلّم · المراجعة التالية غدًا")
+        XCTAssertTrue(arabic[1].contains("التعرّف: كل"), arabic[1])
+        XCTAssertEqual(lines(cards.map { var c = $0; c.lastDay = nil; return c }, locale: Locale(identifier: "ar")),
+                       ["\u{200F}جديدة · لم تبدأ بعد"])
+        for code in ["en", "ru", "el", "es"] {
+            XCTAssertFalse(lines(cards, locale: Locale(identifier: code)).contains { $0.hasPrefix("\u{200F}") },
+                           "\(code): no RLM")
+        }
+    }
+}
+
 // MARK: - Issue #171: grammar topics, the format and the build (0133-grammar.md)
 
 /// The grammar rows `Scripts/build_grammar.py` writes and `Scripts/cut_packs.py`
@@ -22489,6 +22636,76 @@ final class DefinitionViewModelLearnTests: LearnTabTestCase {
         XCTAssertFalse(inMyWords)
         let noCards = try await cards(grafo)
         XCTAssertEqual(noCards, [])
+    }
+
+    // MARK: 0166, #165: the word's status
+
+    func answerWrong(_ key: WordKey, kind: CardKind = .recognition) async throws {
+        try await db.recordAnswer(AnswerRecord(card: CardKey(word: key, kind: kind), exercise: .recognition,
+                                               mode: .trainer, runID: UUID(), outcome: .wrong), today: today, goal: 20)
+    }
+
+    /// Nothing before Learn; "New" after it; the stage and the mistakes
+    /// after a wrong answer, from either dictionary; nothing while paused;
+    /// back with its mistakes on resume.
+    func testStatusFollowsTheWord() async throws {
+        settings.learningLanguages = ["ell"]
+        let en = Locale(identifier: "en")
+        let vm = try await definition(grafoFD)
+        XCTAssertEqual(vm.statusLines(locale: en), [], "not in learning")
+        XCTAssertEqual(vm.errorCount, 0)
+
+        await vm.toggleLearn()
+        XCTAssertEqual(vm.statusLines(locale: en), ["New · not started yet"])
+
+        try await answerWrong(grafo)
+        let started = try await definition(grafoWN)
+        XCTAssertEqual(started.errorCount, 1)
+        XCTAssertEqual(started.statusLines(locale: en), ["Learning · next review today",
+                                                         "Recognition: learning · Production: new",
+                                                         "1 mistake"], "the same word from El–En · WN")
+
+        await vm.toggleLearn()
+        XCTAssertEqual(vm.learnAction, .learn)
+        XCTAssertEqual(vm.statusLines(locale: en), [], "paused: nothing")
+        XCTAssertEqual(vm.errorCount, 0)
+
+        await vm.toggleLearn()
+        XCTAssertEqual(vm.statusLines(locale: en).last, "1 mistake", "resumed with its mistakes")
+    }
+
+    /// A word of a stopped language shows nothing: its numbers are hidden
+    /// until the language is chosen again (0166, Decisions, 2026-11-03).
+    func testStoppedLanguageShowsNoStatus() async throws {
+        settings.learningLanguages = ["ell"]
+        let vm = try await definition(grafoFD)
+        await vm.toggleLearn()
+        try await answerRight(grafo)
+        languages.stop("ell")
+
+        let stopped = try await definition(grafoFD)
+        XCTAssertNotNil(stopped.learning)
+        XCTAssertEqual(stopped.statusLines(locale: Locale(identifier: "en")), [])
+
+        try await languages.learn(greekViaEnglish).value
+        let resumed = try await definition(grafoFD)
+        XCTAssertEqual(resumed.statusLines(locale: Locale(identifier: "en")),
+                       ["Learning · next review today", "Recognition: every 1 day · Production: new"],
+                       "chosen again: the status is back, with its progress")
+    }
+
+    /// A word with cards whose language was never learned shows nothing
+    /// until the language is learned (per language, 0166).
+    func testWordOfALanguageNotLearnedShowsNoStatus() async throws {
+        settings.learningLanguages = ["ell"]
+        try await db.learnWord(house, today: today)
+        let notLearned = try await definition(house)
+        XCTAssertNotNil(notLearned.learning, "the word has cards")
+        XCTAssertEqual(notLearned.statusLines(locale: Locale(identifier: "en")), [])
+
+        settings.learningLanguages = ["ell", "eng"]
+        let learned = try await definition(house)
+        XCTAssertEqual(learned.statusLines(locale: Locale(identifier: "en")), ["New · not started yet"])
     }
 }
 

@@ -29,6 +29,9 @@ final class DefinitionViewModel: ObservableObject {
     /// The word in learning with its cards, paused ones included; nil when
     /// it was never enrolled.
     @Published private(set) var learning: WordLearningState?
+    /// 0166, #165: every wrong answer on the word's two cards, ever; 0 when
+    /// it is not in learning or paused.
+    @Published private(set) var errorCount = 0
     /// My words holds the word, from this dictionary or another.
     @Published private(set) var isInMyWords = false
     @Published private(set) var isLanguageLearned = false
@@ -127,9 +130,24 @@ final class DefinitionViewModel: ObservableObject {
     private func refreshLearning() async throws {
         let key = try await db.wordKey(for: EntryKey(entry))
         wordKey = key
-        learning = try await db.learningState(of: key)
+        let state = try await db.learningState(of: key)
+        var errors = 0
+        if let state, !state.isPaused {
+            errors = try await db.errorCount(lang: key.lang, word: key.word)
+        }
+        learning = state
+        errorCount = errors
         isInMyWords = try await db.isInMyWords(key)
         isLanguageLearned = languages.isLearned(key.lang)
+    }
+
+    /// 0166, #165: the word's learning status under the part of speech, in
+    /// the in-app language (`locale`); empty when the word is not in
+    /// learning, is paused, or its language is not learned (a stopped
+    /// language's numbers are hidden, 0166 Decisions, 2026-11-03).
+    func statusLines(locale: Locale) -> [String] {
+        guard let learning, isLanguageLearned else { return [] }
+        return WordStatusText.lines(state: learning, errors: errorCount, today: clock.today, locale: locale)
     }
 
     func speak() {
