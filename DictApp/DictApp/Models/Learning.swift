@@ -1108,6 +1108,31 @@ struct DrillVerb: Equatable, Sendable {
         // Levels add up, so B2 has every question a lower level has.
         return ConjugationQuestionBuilder.hasQuestion(verb: verb, level: .b2) ? verb : nil
     }
+
+    /// The pool with each passive drilled once (#169): an active verb drops
+    /// its passive when a verb of the pool drills that same passive as its
+    /// own, the list word linked to it (ντύνω and ντύνομαι). So ντύνομαι's
+    /// questions, with the "passive" note, are the only ones on those forms,
+    /// and no two cards ask them. The order is kept; a verb left with no
+    /// question goes.
+    static func droppingSharedPassives(_ verbs: [DrillVerb]) -> [DrillVerb] {
+        // The passives drilled as a main voice, by their present εγώ.
+        var own: [String: [ParadigmLayout.VoiceForms]] = [:]
+        for verb in verbs where verb.mainVoice == .passive {
+            guard let passive = verb.voices[.passive] else { continue }
+            own[passive.forms(.present, .firstSingular).first ?? "", default: []].append(passive)
+        }
+        guard !own.isEmpty else { return verbs }
+        return verbs.compactMap { verb in
+            guard verb.hasPassive, let passive = verb.voices[.passive],
+                  own[passive.forms(.present, .firstSingular).first ?? ""]?.contains(passive) == true
+            else { return verb }
+            let active = DrillVerb(word: verb.word, citation: verb.citation, translation: verb.translation,
+                                   listLevel: verb.listLevel, rank: verb.rank, seq: verb.seq, mainVoice: verb.mainVoice,
+                                   voices: verb.voices.filter { $0.key == .active }, isImpersonal: verb.isImpersonal)
+            return ConjugationQuestionBuilder.hasQuestion(verb: active, level: .b2) ? active : nil
+        }
+    }
 }
 
 // MARK: - Conjugation drill: questions and options (0132, #167)
@@ -1246,6 +1271,8 @@ enum ConjugationQuestionBuilder {
             if facet == cited && person == citedPerson { return false }
             guard let cell = verb.cell(facet, person) else { return false }
             let candidates = keys(facet.voice)
+            // The right keys take out at most as many candidates as they are.
+            if candidates.count >= cell.keys.count + distractorCount { return true }
             return candidates.count - Set(cell.keys).filter(candidates.contains).count >= distractorCount
         }
 
@@ -1312,8 +1339,8 @@ enum ConjugationQuestionBuilder {
     }
 
     /// A random index below `count`. Its own, with `shuffle`, so an order
-    /// never changes with the standard library's.
-    private static func randomIndex<G: RandomNumberGenerator>(_ count: Int, using rng: inout G) -> Int {
+    /// never changes with the standard library's. The planner uses it too.
+    static func randomIndex<G: RandomNumberGenerator>(_ count: Int, using rng: inout G) -> Int {
         Int(rng.next() % UInt64(count))
     }
 
@@ -1930,5 +1957,244 @@ struct MatchRound: Hashable, Sendable {
             parts.formUnion(candidateParts)
         }
         return taken.count == count ? taken : nil
+    }
+}
+
+// MARK: - Conjugation drill: spaced repetition (0132, #169)
+
+/// One planned question of a drill run: a verb's facet in one person, at
+/// the run's tense level. Its card is Greek's (the verb's word, the facet).
+struct DrillItem: Equatable, Sendable {
+    typealias Person = ParadigmLayout.Person
+
+    /// Why the item is in the run.
+    enum Origin: Sendable {
+        /// An answered card due by today.
+        case due
+        /// A verb's facet never answered: its card starts on the answer.
+        case new
+        /// An answered card not due: a right answer leaves it as it is.
+        case practice
+        /// A wrong answer asked once more (`ConjugationPlanner.afterWrong`).
+        case retry
+    }
+
+    let verb: DrillVerb
+    let facet: ConjugationFacet
+    let person: Person
+    /// The run's tense level, which the options come from.
+    let level: DrillLevel
+    let origin: Origin
+
+    var card: CardKey { ConjugationPlanner.card(word: verb.word, facet: facet) }
+
+    /// The question, built just before it shows with the run's generator
+    /// (0131), so its options follow `-learningSeed`.
+    func question<G: RandomNumberGenerator>(rng: inout G) -> ConjugationQuestion? {
+        ConjugationQuestionBuilder.build(verb: verb, facet: facet, person: person, level: level, rng: &rng)
+    }
+
+    /// The answer `DatabaseService.recordAnswer` logs (0132, "Answers and
+    /// cards"): exercise `conjugation`, mode `drill`, the person as
+    /// `detail`, the time capped at 60 s (`ReviewSummary.durationCapMs`).
+    func answer(_ outcome: Outcome, runID: UUID, durationMs: Int) -> AnswerRecord {
+        AnswerRecord(card: card, exercise: .conjugation, mode: .drill, runID: runID, outcome: outcome,
+                     durationMs: min(max(durationMs, 0), ReviewSummary.durationCapMs), detail: person.rawValue)
+    }
+}
+
+/// Plans a drill run (0132, "Planner"). Pure: the caller reads Greek's
+/// conjugation cards (`DatabaseService.cards(lang:kinds:)`) and the tense
+/// accuracy of the last 30 days (E10's `tenseAccuracy` since
+/// `DailySeries.start(today:)`), and passes today and the run's generator.
+enum ConjugationPlanner {
+    typealias Person = ParadigmLayout.Person
+    typealias Origin = DrillItem.Origin
+
+    /// The drill's cards are Greek's, whatever the via (0131).
+    static let lang = "ell"
+    /// Questions in a run.
+    static let length = 15
+
+    /// The card of a verb's facet.
+    static func card(word: String, facet: ConjugationFacet) -> CardKey {
+        CardKey(word: WordKey(lang: lang, word: word), kind: .conjugation, facet: facet.rawValue)
+    }
+
+    /// `1 + 4 × (1 − (right + 1) / (answers + 2))`: 3 for a tense never
+    /// answered, 1.36 for 19 of 20 right, 3.36 for 8 of 20.
+    static func weight(_ tally: Tally?) -> Double {
+        let tally = tally ?? Tally()
+        return 1 + 4 * (1 - Double(tally.right + 1) / Double(tally.answers + 2))
+    }
+
+    /// The level Practise drills `verb` at: `level`, or the first level
+    /// above it with a question (έρχομαι at A1 → A2); nil when none has one.
+    static func practiceLevel(of verb: DrillVerb, from level: DrillLevel) -> DrillLevel? {
+        DrillLevel.allCases.first { $0 >= level && ConjugationQuestionBuilder.hasQuestion(verb: verb, level: $0) }
+    }
+
+    /// A drill of `pool` (the checked lists' verbs, in pool order) at tense
+    /// level `level`: up to `length` items, each card at most once. For each
+    /// place:
+    /// 1. the group: due cards while any is left, then new pairs, then
+    ///    practice;
+    /// 2. one of the group's tenses, at random by `weight`;
+    /// 3. the group's first item in that tense: due cards by due day, step
+    ///    and pool order; new pairs by pool order (list, then frequency);
+    ///    practice by step, last day and pool order;
+    /// 4. a random person of the facet.
+    ///
+    /// The previous item's verb is skipped while another one can be asked:
+    /// a group with only that verb left waits one place when a later group
+    /// has another. Paused cards, and cards outside the pool or the level,
+    /// are not asked and stay as they are.
+    static func session<G: RandomNumberGenerator>(pool: [DrillVerb], level: DrillLevel, cards: [CardState],
+                                                  accuracy: [ConjugationTense: Tally], today: LearnDay,
+                                                  length: Int = length, rng: inout G) -> [DrillItem] {
+        let states = cardsByWord(cards)
+        var groups: [(origin: Origin, items: [Candidate])] = [(.due, []), (.new, []), (.practice, [])]
+        var words = Set<String>()
+        var order = 0
+        for verb in pool where words.insert(verb.word).inserted {
+            let verbStates = states[WordKey(lang: lang, word: verb.word).word]
+            for question in ConjugationQuestionBuilder.questions(verb: verb, level: level) {
+                let state = verbStates.flatMap { $0[question.facet.rawValue] }
+                guard let origin = Self.origin(of: state, today: today),
+                      let group = groups.firstIndex(where: { $0.origin == origin }) else { continue }
+                order += 1
+                groups[group].items.append(Candidate(verb: verb, verbIndex: words.count, facet: question.facet,
+                                                     persons: question.persons, state: state, order: order))
+            }
+        }
+        func dueOrder(_ c: Candidate) -> (LearnDay, Int, Int) { (c.state?.dueDay ?? today, c.state?.step ?? 0, c.order) }
+        func practiceOrder(_ c: Candidate) -> (Int, LearnDay, Int) { (c.state?.step ?? 0, c.state?.lastDay ?? today, c.order) }
+        groups[0].items.sort { dueOrder($0) < dueOrder($1) }
+        groups[2].items.sort { practiceOrder($0) < practiceOrder($1) }
+
+        var plan: [DrillItem] = []
+        var previous = 0
+        while plan.count < length {
+            let other = groups.firstIndex { $0.items.contains { $0.verbIndex != previous } }
+            guard let group = other ?? groups.firstIndex(where: { !$0.items.isEmpty }) else { break }
+            let eligible = groups[group].items.indices.filter {
+                other == nil || groups[group].items[$0].verbIndex != previous
+            }
+            let present = Set(eligible.map { groups[group].items[$0].facet.tense })
+            let tenses = ConjugationTense.allCases.filter(present.contains)
+            let tense = tenses[weightedIndex(tenses.map { weight(accuracy[$0]) }, rng: &rng)]
+            guard let index = eligible.first(where: { groups[group].items[$0].facet.tense == tense }) else { break }
+            let candidate = groups[group].items.remove(at: index)
+            previous = candidate.verbIndex
+            let person = candidate.persons[ConjugationQuestionBuilder.randomIndex(candidate.persons.count, using: &rng)]
+            plan.append(DrillItem(verb: candidate.verb, facet: candidate.facet, person: person, level: level,
+                                  origin: groups[group].origin))
+        }
+        return plan
+    }
+
+    /// Practise on one verb (0132, "A single verb"): its questions at
+    /// `practiceLevel(of:from:)`, at most `length`, each (facet, person)
+    /// once. The run goes round the verb's facets, each round in a weighted
+    /// shuffle (weaker tenses first more often), with one new person per
+    /// facet. A facet's first item has its card's origin; its later ones
+    /// are practice, as the card was answered in this run.
+    static func verbRun<G: RandomNumberGenerator>(verb: DrillVerb, level: DrillLevel, cards: [CardState],
+                                                  accuracy: [ConjugationTense: Tally], today: LearnDay,
+                                                  length: Int = length, rng: inout G) -> [DrillItem] {
+        guard let level = practiceLevel(of: verb, from: level) else { return [] }
+        let states = cardsByWord(cards)[WordKey(lang: lang, word: verb.word).word] ?? [:]
+        var open = ConjugationQuestionBuilder.questions(verb: verb, level: level)
+        var planned = Set<ConjugationFacet>()
+        var plan: [DrillItem] = []
+        while plan.count < length && !open.isEmpty {
+            var round = Array(open.indices)
+            var order: [Int] = []
+            while !round.isEmpty {
+                let picked = weightedIndex(round.map { weight(accuracy[open[$0].facet.tense]) }, rng: &rng)
+                order.append(round.remove(at: picked))
+            }
+            for index in order where plan.count < length {
+                let facet = open[index].facet
+                let person = open[index].persons.remove(
+                    at: ConjugationQuestionBuilder.randomIndex(open[index].persons.count, using: &rng))
+                let origin = planned.insert(facet).inserted
+                    ? (Self.origin(of: states[facet.rawValue], today: today) ?? .practice)
+                    : .practice
+                plan.append(DrillItem(verb: verb, facet: facet, person: person, level: level, origin: origin))
+            }
+            open.removeAll { $0.persons.isEmpty }
+        }
+        return plan
+    }
+
+    /// After a wrong answer on `plan[index]`: the item comes back once, at
+    /// the end, with another person when its facet has one (one the run
+    /// does not ask, if any). It is one of the run's `length`: in a full
+    /// run it takes the place of the last item not asked yet that is a new
+    /// pair or practice, and with none left it is not repeated (its card is
+    /// due today, so the next drill starts with it). A repeat is never
+    /// repeated again. This is the only way a card is asked twice in a drill.
+    static func afterWrong<G: RandomNumberGenerator>(_ plan: [DrillItem], at index: Int, length: Int = length,
+                                                     rng: inout G) -> [DrillItem] {
+        guard plan.indices.contains(index), plan[index].origin != .retry else { return plan }
+        let wrong = plan[index]
+        var result = plan
+        if result.count >= length {
+            guard let replaced = result.indices.last(where: {
+                $0 > index && (result[$0].origin == .new || result[$0].origin == .practice)
+            }) else { return plan }
+            result.remove(at: replaced)
+        }
+        let persons = ConjugationQuestionBuilder.questions(verb: wrong.verb, level: wrong.level)
+            .first { $0.facet == wrong.facet }?.persons ?? []
+        let asked = Set(result.filter { $0.verb.word == wrong.verb.word && $0.facet == wrong.facet }.map(\.person))
+        let others = persons.filter { $0 != wrong.person }
+        let fresh = others.filter { !asked.contains($0) }
+        let choices = !fresh.isEmpty ? fresh : !others.isEmpty ? others : [wrong.person]
+        let person = choices[ConjugationQuestionBuilder.randomIndex(choices.count, using: &rng)]
+        result.append(DrillItem(verb: wrong.verb, facet: wrong.facet, person: person, level: wrong.level,
+                                origin: .retry))
+        return result
+    }
+
+    /// A verb's facet the session can ask.
+    private struct Candidate {
+        let verb: DrillVerb
+        /// The verb's place in the pool, from 1.
+        let verbIndex: Int
+        let facet: ConjugationFacet
+        let persons: [Person]
+        let state: CardState?
+        /// Pool order: the verb's place, then the facet's.
+        let order: Int
+    }
+
+    /// Greek's conjugation cards by word, then facet.
+    private static func cardsByWord(_ cards: [CardState]) -> [String: [String: CardState]] {
+        var result: [String: [String: CardState]] = [:]
+        for card in cards where card.key.kind == .conjugation && card.key.word.lang == lang {
+            result[card.key.word.word, default: [:]][card.key.facet] = card
+        }
+        return result
+    }
+
+    /// The group of a card: new when it has no answer, due when answered and
+    /// due by today, else practice; nil when paused.
+    private static func origin(of card: CardState?, today: LearnDay) -> Origin? {
+        guard let card else { return .new }
+        if card.isSuspended { return nil }
+        if card.isNew { return .new }
+        return card.dueDay <= today ? .due : .practice
+    }
+
+    /// An index of `weights` at random, each as likely as its weight.
+    private static func weightedIndex<G: RandomNumberGenerator>(_ weights: [Double], rng: inout G) -> Int {
+        var remaining = Double(rng.next() >> 11) * 0x1p-53 * weights.reduce(0, +)
+        for (index, weight) in weights.enumerated() {
+            if remaining < weight { return index }
+            remaining -= weight
+        }
+        return weights.count - 1
     }
 }
