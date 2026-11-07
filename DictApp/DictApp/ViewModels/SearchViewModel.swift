@@ -23,6 +23,13 @@ final class SearchViewModel: ObservableObject {
         !query.trimmingCharacters(in: .whitespaces).isEmpty && selection.noneEnabled
     }
 
+    /// The pack of the language the query's script names (Greek, Cyrillic,
+    /// Arabic; #245). The no-results view shows its hint while the pack is
+    /// not installed.
+    var scriptPack: CatalogPack? {
+        NotDownloaded.pack(forQuery: query, catalog: .shared)
+    }
+
     private var searchTask: Task<Void, Never>?
     private let debounceInterval: Duration = .milliseconds(150)
 

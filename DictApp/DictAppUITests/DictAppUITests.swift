@@ -11,6 +11,8 @@ final class DictAppUITests: XCTestCase {
         // and landscape no-ops swipeUp against SwiftUI Form/List scroll views.
         // See project memory project_xcuitest_orientation_landscape_swipe.
         XCUIDevice.shared.orientation = .portrait
+        // Issue #237: no first-launch sheet over the tab bar.
+        app.launchArguments += [UITestHelpers.skipWelcome]
         app.launch()
     }
 

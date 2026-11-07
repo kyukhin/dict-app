@@ -1623,10 +1623,14 @@ struct WordListItem: Identifiable, Hashable, Sendable {
 }
 
 /// A row of My words' list screen (#154): the word and the entry that
-/// stands for it, whose snippet the row shows and whose Definition it opens.
+/// stands for it, whose snippet the row shows and whose Definition it opens;
+/// no entry while its dictionary's pack is not installed (#245), when the
+/// row opens the "not downloaded" view.
 struct MyWordsEntry: Identifiable, Hashable {
     let item: WordListItem
-    let entry: DictionaryEntry
+    /// The `my_words` row that stands for the word.
+    let key: EntryKey
+    let entry: DictionaryEntry?
 
     var id: WordKey { item.key }
 }

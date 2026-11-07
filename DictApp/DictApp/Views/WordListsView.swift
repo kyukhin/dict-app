@@ -341,23 +341,49 @@ struct WordListView: View {
     /// My words: the word and a one-line snippet of its entry, as the
     /// Bookmarks tab had.
     private func myWordsRow(_ row: MyWordsEntry) -> some View {
-        NavigationLink(value: row.entry) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(row.entry.word)
-                    .font(.headline)
-                Text(Self.snippet(row.entry.definition))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
+        myWordsLink(row)
+            .accessibilityIdentifier("word_list_item")
+            .swipeActions {
+                Button("definition.a11y.stopLearning", role: .destructive) {
+                    Task { await vm.stopLearning(row) }
+                }
             }
-        }
-        .accessibilityLabel(Text(row.entry.word))
-        .accessibilityValue(Text(Self.snippet(row.entry.definition)))
-        .accessibilityIdentifier("word_list_item")
-        .swipeActions {
-            Button("definition.a11y.stopLearning", role: .destructive) {
-                Task { await vm.stopLearning(row) }
+    }
+
+    /// A row with an entry opens its Definition; one whose pack is not
+    /// installed (#245) says so and opens the "not downloaded" view.
+    @ViewBuilder
+    private func myWordsLink(_ row: MyWordsEntry) -> some View {
+        if let entry = row.entry {
+            NavigationLink(value: entry) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(entry.word)
+                        .font(.headline)
+                    Text(Self.snippet(entry.definition))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
             }
+            .accessibilityLabel(Text(entry.word))
+            .accessibilityValue(Text(Self.snippet(entry.definition)))
+        } else {
+            let caption = NotDownloaded.pack(ofSource: row.key.source, catalog: .shared)
+                .map { PackTexts.notDownloadedSearch($0, locale: locale) } ?? ""
+            NavigationLink {
+                EntryDestination(key: row.key)
+            } label: {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(row.key.word)
+                        .font(.headline)
+                    Text(verbatim: caption)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+            }
+            .accessibilityLabel(Text(row.key.word))
+            .accessibilityValue(Text(verbatim: caption))
         }
     }
 

@@ -279,6 +279,7 @@ final class WordListViewModel: ObservableObject {
     /// language (nil for Other); read on load.
     private var meaningsLang: String?
     private var sourceOrder: [String]?
+    private var cancellables: Set<AnyCancellable> = []
 
     init(list: WordList, db: DatabaseService = .shared, settings: SettingsService = .shared,
          languages: LearningLanguageService? = nil) {
@@ -286,6 +287,16 @@ final class WordListViewModel: ObservableObject {
         self.db = db
         self.settings = settings
         self.languages = languages ?? .shared
+        guard list.kind == .myWords else { return }
+        // #245: a pack installed or removed resolves its My words rows, or
+        // puts them back to waiting.
+        NotificationCenter.default.publisher(for: PackService.didChange, object: PackService.shared)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                guard let self else { return }
+                Task { await self.load() }
+            }
+            .store(in: &cancellables)
     }
 
     /// The words shown; the list's own count until they load.
@@ -358,7 +369,7 @@ final class WordListViewModel: ObservableObject {
     /// word leaves, whatever its dictionary, and its cards are paused.
     func stopLearning(_ row: MyWordsEntry) async {
         do {
-            try await db.stopLearning(EntryKey(row.entry))
+            try await db.stopLearning(row.entry.map { EntryKey($0) } ?? row.key)
             myWords = try await db.myWordsEntries()
             errorMessage = nil
         } catch {

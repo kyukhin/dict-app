@@ -32,6 +32,11 @@ struct SearchView: View {
                 } else if vm.results.isEmpty && !vm.isSearching {
                     ContentUnavailableView.search(text: vm.query)
                         .accessibilityIdentifier("search_no_results")
+                    // #245: a Greek, Cyrillic or Arabic query whose language
+                    // is not downloaded names it, with its Download.
+                    if let pack = vm.scriptPack {
+                        NotDownloadedHint(pack: pack)
+                    }
                 } else {
                     ForEach(vm.results) { result in
                         // Issue #142: a lemma row opens and records the lemma's entry.
