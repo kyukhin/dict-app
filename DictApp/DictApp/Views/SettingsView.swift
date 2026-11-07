@@ -79,8 +79,8 @@ struct SettingsView: View {
         }
     }
 
-    /// Two links (Issue #6): the new combined order+enable list, and the
-    /// unchanged Manage Dictionaries (import + per-dict detail).
+    /// Dictionary Order (Issue #6), Languages (#243: download and remove
+    /// language packs) and Manage Dictionaries (import + per-dict detail).
     private var dictionaryManagementSection: some View {
         Section("settings.dictionaries.section") {
             NavigationLink {
@@ -89,6 +89,13 @@ struct SettingsView: View {
                 Label("settings.dictionaryOrder.title", systemImage: "arrow.up.arrow.down")
             }
             .accessibilityIdentifier("dictionary_order_link")
+
+            NavigationLink {
+                LanguagesView()
+            } label: {
+                Label("languages.title", systemImage: "globe")
+            }
+            .accessibilityIdentifier("dictionary_languages_link")
 
             NavigationLink {
                 ManageDictionariesView()

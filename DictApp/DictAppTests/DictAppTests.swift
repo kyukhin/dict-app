@@ -8960,6 +8960,271 @@ final class PackStatusModelTests: XCTestCase {
     }
 }
 
+/// The Languages screen (Issue #243, 0237 "Settings → Dictionaries"): its
+/// rows, the texts of each `PackState` and the remove alert, on the host
+/// app's catalog read as the app reads it. Nothing is downloaded.
+@MainActor
+final class LanguagesViewModelTests: XCTestCase {
+    private let en = Locale(identifier: "en")
+    private let base = "Its dictionaries, word forms and word lists are deleted. "
+        + "Your History, My words and learning progress stay."
+    private let greekLearned = "You can go on learning the words you have. "
+        + "Greek lists come back when you download Greek again."
+    private let englishViaGreek = "English via Greek shows no meanings until you download Greek again."
+
+    /// "You can go on learning the words you have." alone: a learned
+    /// language with no built-in lists (PM, #243).
+    private let learnedWithoutLists = "You can go on learning the words you have."
+
+    /// The bundled catalog with one built-in list in each lists pack (`ell`,
+    /// `eng-lists`), as E3's data gives it, so `hasBuiltInLists` holds for
+    /// Greek and English only. The bundled catalog has no `catalog_list`
+    /// rows until E3 fills them.
+    private func catalogWithLists() throws -> PackCatalog {
+        var catalog = try PackFixtures.catalog()
+        catalog.lists = [CatalogList(packID: .ell, id: "ell-a1", lang: "ell", level: "A1", wordCount: 1),
+                         CatalogList(packID: .engLists, id: "eng-a1", lang: "eng", level: "A1", wordCount: 1)]
+        XCTAssertEqual(catalog.languages.filter(\.hasBuiltInLists).map(\.lang).sorted(), ["ell", "eng"],
+                       "precondition: Greek and English have built-in lists")
+        return catalog
+    }
+
+    /// A model in the `code` UI language over the bundled catalog (with
+    /// Greek and English lists), with `learned` as E4's
+    /// `learning_languages` and `learning_via`.
+    private func model(_ code: String = "en", status: PackStatusModel? = nil,
+                       learned: @escaping @MainActor () -> (languages: [String], via: [String: String])
+                           = { ([], [:]) }) throws -> LanguagesViewModel {
+        let catalog = try catalogWithLists()
+        let settings = SettingsService(store: InMemoryKeyValueStore())
+        settings.selectedUILanguageCode = code
+        let localization = LocalizationManager(settingsService: settings, bundle: .main)
+        XCTAssertEqual(localization.currentLanguage.code, code, "precondition: the in-app language")
+        return LanguagesViewModel(status: status ?? PackStatusModel(), localization: localization,
+                                  settings: settings, catalog: { catalog }, learning: learned)
+    }
+
+    /// `s` without U+200F (RLM) and Foundation's U+2068/U+2069 isolates.
+    private static func visible(_ s: String?) -> String? {
+        let marks: Set<Unicode.Scalar> = ["\u{200F}", "\u{2068}", "\u{2069}"]
+        return s.map { String($0.unicodeScalars.filter { !marks.contains($0) }) }
+    }
+
+    /// 0237 Test plan: Greek's alert with English via Greek learned has the
+    /// pair sentence; with Greek via English only, the learning sentence
+    /// alone. A pair names a pack only when its meanings come from it: the
+    /// limited Greek via Russian needs Greek, never Russian.
+    func testRemoveAlertNamesTheLearnedPair() throws {
+        var learned: (languages: [String], via: [String: String]) = (["ell", "eng"], ["ell": "eng", "eng": "ell"])
+        let model = try model(learned: { learned })
+
+        model.requestRemove(.ell)
+        XCTAssertEqual(model.removal?.pack, .ell)
+        XCTAssertEqual(model.removal?.title, "Remove Greek?")
+        XCTAssertEqual(model.removal?.message, [base, greekLearned, englishViaGreek].joined(separator: " "))
+
+        learned = (["ell"], ["ell": "eng"])
+        model.requestRemove(.ell)
+        XCTAssertEqual(model.removal?.message, [base, greekLearned].joined(separator: " "),
+                       "Greek via English only: the learning sentence alone")
+
+        learned = (["eng"], ["eng": "ell"])
+        model.requestRemove(.ell)
+        XCTAssertEqual(model.removal?.message, [base, englishViaGreek].joined(separator: " "),
+                       "Greek not learned: the pair sentence alone")
+        model.requestRemove(.spa)
+        XCTAssertEqual(model.removal?.message, base, "English via Greek needs nothing from Spanish")
+        model.requestRemove(.engLists)
+        XCTAssertEqual(model.removal?.title, "Remove English word lists?")
+        XCTAssertEqual(model.removal?.message, base + " You can go on learning the words you have. "
+                       + "English lists come back when you download English again.",
+                       "English's own pair is the learning sentence, never the pair sentence")
+
+        learned = (["eng", "ell"], ["eng": "spa", "ell": "rus"])
+        model.requestRemove(.spa)
+        XCTAssertEqual(model.removal?.message,
+                       base + " English via Spanish shows no meanings until you download Spanish again.")
+        model.requestRemove(.rus)
+        XCTAssertEqual(model.removal?.message, base, "Greek via Russian takes its meanings from the Greek pack")
+        model.requestRemove(.ell)
+        XCTAssertEqual(model.removal?.message, [base, greekLearned].joined(separator: " "))
+
+        learned = ([], [:])
+        model.requestRemove(.ell)
+        XCTAssertEqual(model.removal?.message, base, "nothing learned: what goes and what stays")
+    }
+
+    /// PM, #243: a learned language without built-in lists (Spanish,
+    /// Russian, Arabic) gets "You can go on learning the words you have."
+    /// alone, never a promise of lists that do not exist. The catalog
+    /// decides: with no `catalog_list` rows, Greek and English promise none
+    /// either.
+    func testRemoveAlertPromisesListsOnlyForALanguageWithBuiltInLists() throws {
+        let catalog = try catalogWithLists()
+        func message(_ id: PackID, learned: [String], via: [String: String] = [:], in catalog: PackCatalog,
+                     locale: Locale? = nil) -> String? {
+            LanguagesViewModel.removal(of: id, catalog: catalog, learned: learned, via: via, uiLanguage: "en",
+                                       locale: locale ?? en)?.message
+        }
+        for (id, lang) in [(PackID.spa, "spa"), (.rus, "rus"), (.arb, "arb")] {
+            XCTAssertEqual(message(id, learned: [lang], in: catalog), [base, learnedWithoutLists].joined(separator: " "),
+                           "\(lang) has no built-in lists")
+        }
+        XCTAssertEqual(message(.ell, learned: ["ell"], in: catalog), [base, greekLearned].joined(separator: " "))
+        XCTAssertEqual(message(.spa, learned: ["spa", "eng"], via: ["eng": "spa"], in: catalog),
+                       [base, learnedWithoutLists,
+                        "English via Spanish shows no meanings until you download Spanish again."]
+                        .joined(separator: " "),
+                       "Spanish learned and needed by English via Spanish: both sentences")
+
+        var noLists = catalog
+        noLists.lists = []
+        XCTAssertEqual(message(.ell, learned: ["ell"], in: noLists), [base, learnedWithoutLists].joined(separator: " "),
+                       "no Greek lists in the catalog: none come back")
+        XCTAssertEqual(message(.engLists, learned: ["eng"], in: noLists),
+                       [base, learnedWithoutLists].joined(separator: " "))
+
+        // Its own sentence in every UI language: no raw key, no English, no list.
+        for code in ["ru", "es", "ar", "el"] {
+            let locale = Locale(identifier: code)
+            let sentence = SettingsViewModel.localizedString("languages.remove.learning.noLists", locale: locale)
+            XCTAssertNotEqual(sentence, "languages.remove.learning.noLists", code)
+            XCTAssertNotEqual(sentence, learnedWithoutLists, code)
+            let spanish = try XCTUnwrap(message(.spa, learned: ["spa"], in: catalog, locale: locale))
+            XCTAssertTrue(spanish.hasSuffix(" " + sentence), "\(code): \(spanish)")
+            let greek = try XCTUnwrap(message(.ell, learned: ["ell"], in: catalog, locale: locale))
+            XCTAssertFalse(greek.hasSuffix(" " + sentence), "\(code): Greek's lists come back: \(greek)")
+        }
+    }
+
+    /// A learned language with no stored via, or one no longer offered,
+    /// takes its default (0131): the UI language's pair, else English.
+    func testLearnedLanguageWithoutAViaTakesItsDefault() throws {
+        let catalog = try PackFixtures.catalog()
+        func message(ui: String) -> String? {
+            LanguagesViewModel.removal(of: .ell, catalog: catalog, learned: ["eng"], via: [:], uiLanguage: ui,
+                                       locale: en)?.message
+        }
+        XCTAssertEqual(message(ui: "el"), [base, englishViaGreek].joined(separator: " "),
+                       "a Greek UI learns English via Greek")
+        XCTAssertEqual(message(ui: "en"), base, "an English UI learns English via English")
+
+        func via(_ lang: String, stored: [String: String] = [:], ui: String) -> String? {
+            LanguagesViewModel.via(of: lang, stored: stored, pairs: catalog.pairs, uiLanguage: ui)
+        }
+        XCTAssertEqual(via("eng", stored: ["eng": "spa"], ui: "el"), "spa", "the stored via while offered")
+        XCTAssertEqual(via("eng", stored: ["eng": "rus"], ui: "es"), "spa", "no English via Russian: the default")
+        XCTAssertEqual(via("ell", ui: "ru"), "rus", "a Russian UI learns Greek via Russian, the limited pair")
+        XCTAssertEqual(via("ell", ui: "ar"), "eng", "no Greek via Arabic: English")
+        XCTAssertNil(via("und", ui: "en"), "no pair")
+    }
+
+    /// English first ("Included", WordNet), its lists, then every pack by
+    /// its name in the UI language, with what it holds and its sizes.
+    func testRowsListEnglishFirstThenByName() throws {
+        let catalog = try PackFixtures.catalog()
+        let rows = LanguagesViewModel.rows(catalog: catalog, locale: en)
+        XCTAssertEqual(rows.map(\.id), ["eng", "eng-lists", "arb", "ell", "rus", "spa"])
+        XCTAssertEqual(rows.map(\.name), ["English", "English word lists", "Arabic", "Greek", "Russian", "Spanish"])
+        XCTAssertNil(rows[0].pack, "English is in the bundle")
+        XCTAssertEqual(rows[0].contents, "WordNet")
+        XCTAssertEqual(rows.dropFirst().map(\.pack), [.engLists, .arb, .ell, .rus, .spa])
+
+        let row = Dictionary(uniqueKeysWithValues: rows.map { ($0.id, $0) })
+        let greekLists = catalog.lists.contains { $0.packID == .ell }
+        XCTAssertEqual(row["ell"]?.contents, "4 dictionaries · word forms" + (greekLists ? " · word lists" : ""))
+        XCTAssertEqual(row["spa"]?.contents, "2 dictionaries")
+        XCTAssertEqual(row["rus"]?.contents, "1 dictionary")
+        XCTAssertEqual(row["arb"]?.contents, "1 dictionary")
+        XCTAssertEqual(row["eng-lists"]?.contents,
+                       catalog.lists.contains { $0.packID == .engLists } ? "word lists" : nil,
+                       "the English lists pack holds lists only, none until E3 fills it")
+        for id in PackID.all {
+            let pack = try XCTUnwrap(catalog.pack(id))
+            XCTAssertEqual(row[id.rawValue]?.downloadSize, pack.size, "\(id)")
+            XCTAssertEqual(row[id.rawValue]?.installedSize, pack.fileSize, "\(id)")
+        }
+
+        let ru = LanguagesViewModel.rows(catalog: catalog, locale: Locale(identifier: "ru"))
+        XCTAssertEqual(ru.map(\.id), ["eng", "eng-lists", "arb", "ell", "spa", "rus"], "by the Russian names")
+        XCTAssertEqual(ru.map(\.name), ["Английский", "Списки слов (английский)", "Арабский", "Греческий",
+                                        "Испанский", "Русский"])
+        XCTAssertEqual(ru.first { $0.id == "spa" }?.contents.map(Self.visible), "2 словаря")
+        let el = LanguagesViewModel.rows(catalog: catalog, locale: Locale(identifier: "el"))
+        XCTAssertEqual(el.map(\.id), ["eng", "eng-lists", "arb", "ell", "spa", "rus"], "by the Greek names")
+        XCTAssertEqual(el.first { $0.id == "ell" }.flatMap(\.contents).map(Self.visible),
+                       "4 λεξικά · μορφές λέξεων" + (greekLists ? " · λίστες λέξεων" : ""))
+    }
+
+    /// Each state's text (0237, "Settings → Dictionaries" and "Offline and
+    /// errors"), with sizes in the file style of the in-app locale.
+    func testStateTexts() throws {
+        XCTAssertEqual(Self.visible(PackTexts.download(6_889_888, locale: en)), "Download · 6.9 MB")
+        XCTAssertEqual(Self.visible(PackTexts.installed(26_177_536, locale: en)), "Installed · 26.2 MB")
+        XCTAssertEqual(Self.visible(PackTexts.update(6_889_888, locale: en)), "Update · 6.9 MB")
+        XCTAssertEqual(Self.visible(PackTexts.updateRequired(6_889_888, locale: en)), "Update required · 6.9 MB")
+        XCTAssertEqual(Self.visible(PackTexts.progress(received: 3_100_000, total: 6_889_888, locale: en)),
+                       "3.1 of 6.9 MB", "the received bytes in the total's unit")
+        XCTAssertEqual(Self.visible(PackTexts.progress(received: 0, total: 10_707_004, locale: en)), "0.0 of 10.7 MB")
+        XCTAssertEqual(Self.visible(PackTexts.progress(received: 9_000_000, total: 6_889_888, locale: en)),
+                       "6.9 of 6.9 MB", "never past the total")
+        XCTAssertEqual(Self.visible(PackTexts.progress(received: 1_000, total: 3_484, locale: en)), "1 of 3 kB")
+
+        let space: Int64 = 10_707_004 + 56_336_384
+        XCTAssertEqual(PackTexts.error(.offline, name: "Greek", space: space, locale: en), "No internet connection.")
+        XCTAssertEqual(PackTexts.error(.stopped, name: "Greek", space: space, locale: en),
+                       "The download stopped. Check your connection and try again.")
+        XCTAssertEqual(PackTexts.error(.unavailable, name: "Greek", space: space, locale: en),
+                       "This download is not available right now. Try again later.")
+        XCTAssertEqual(PackTexts.error(.damaged, name: "Greek", space: space, locale: en),
+                       "The download was damaged. Try again.")
+        XCTAssertEqual(Self.visible(PackTexts.error(.noSpace, name: "Greek", space: space, locale: en)),
+                       "Not enough storage. Greek needs 67 MB free.")
+        XCTAssertNil(PackTexts.error(.cancelled, name: "Greek", space: space, locale: en), "a cancel shows no error")
+
+        let ru = Locale(identifier: "ru")
+        XCTAssertEqual(Self.visible(PackTexts.progress(received: 3_100_000, total: 6_889_888, locale: ru)),
+                       "3,1 из 6,9 МБ")
+        XCTAssertEqual(Self.visible(PackTexts.download(6_889_888, locale: ru)), "Скачать · 6,9 МБ")
+
+        // Arabic (#119): composed strings start with U+200F; the size is one
+        // number run, in Western or Arabic-Indic digits.
+        let ar = Locale(identifier: "ar")
+        for text in [PackTexts.download(6_889_888, locale: ar), PackTexts.installed(26_177_536, locale: ar),
+                     PackTexts.progress(received: 3_100_000, total: 6_889_888, locale: ar),
+                     PackTexts.name(of: try XCTUnwrap(PackFixtures.catalog().pack(.engLists)), locale: ar)] {
+            XCTAssertEqual(text.unicodeScalars.first, "\u{200F}", text)
+        }
+        let arabicDownload = PackTexts.download(6_889_888, locale: ar)
+        XCTAssertTrue(arabicDownload.contains("6.9") || arabicDownload.contains("٦٫٩"), arabicDownload)
+        XCTAssertTrue(Self.visible(arabicDownload)?.hasPrefix("تنزيل · ") == true, arabicDownload)
+    }
+
+    /// Swipe or Edit removes an installed pack only, not one in progress
+    /// and never the bundled English. The rows read `PackStatusModel`.
+    func testOnlyAnInstalledPackCanBeRemoved() throws {
+        let status = PackStatusModel()
+        let model = try model(status: status)
+        let english = try XCTUnwrap(model.rows.first { $0.id == "eng" })
+        let greek = try XCTUnwrap(model.rows.first { $0.id == "ell" })
+        XCTAssertNil(model.state(of: english))
+        XCTAssertFalse(model.canRemove(english))
+        XCTAssertFalse(model.hasRemovable)
+
+        let cases: [(PackState, Bool)] = [
+            (.notInstalled, false), (.waiting, false), (.downloading(received: 1, total: 2), false),
+            (.installing, false), (.installed, true), (.updateAvailable, true), (.updateRequired, true),
+            (.failed(.offline), false),
+        ]
+        for (state, removable) in cases {
+            status.set(state, for: .ell)
+            XCTAssertEqual(model.state(of: greek), state)
+            XCTAssertEqual(model.canRemove(greek), removable, "\(state)")
+            XCTAssertEqual(model.hasRemovable, removable, "\(state)")
+        }
+    }
+}
+
 extension PackFileTests {
     /// 0237, step 4: an asset that matches the catalog but decompresses to
     /// another file is damaged; nothing is renamed into the folder and no

@@ -439,6 +439,35 @@ final class ArabicLocalizationTests: XCTestCase {
         attachScreenshot("γράφω (ar), all forms")
     }
 
+    /// Issue #243: the Languages screen mirrors. Each row's name is right of
+    /// its status, and the composed status starts with U+200F.
+    func testLanguagesScreenIsRightToLeft() throws {
+        typealias IDs = AccessibilityIdentifiers.Languages
+        tapTab(ArabicTab.settings)
+        let languages = LanguagesPage(app: app)
+        XCTAssertTrue(languages.open(), "Settings → Languages must open")
+        XCTAssertTrue(app.navigationBars["اللغات"].waitForExistence(timeout: TestData.Timeouts.medium),
+                      "the title reads 'اللغات'")
+
+        let english = app.staticTexts[IDs.row("eng")]
+        XCTAssertEqual(english.label, "الإنجليزية")
+        let included = app.cells.containing(.staticText, identifier: IDs.row("eng")).staticTexts["مضمّنة"]
+        XCTAssertTrue(included.exists, "English is 'مضمّنة'")
+        XCTAssertGreaterThan(english.frame.minX, included.frame.maxX, "the name is right of its status")
+
+        let greek = app.staticTexts[IDs.row("ell")]
+        XCTAssertTrue(app.scrollToElement(greek), "the Greek row must be reachable")
+        XCTAssertEqual(greek.label, "اليونانية")
+        let installed = app.staticTexts[IDs.installed("ell")]
+        XCTAssertTrue(installed.exists, "Greek is installed (`-installPacks all`)")
+        XCTAssertEqual(installed.label.unicodeScalars.first, "\u{200F}", installed.label)
+        XCTAssertTrue(Self.visible(installed.label).hasPrefix("مثبّت · "), installed.label)
+        XCTAssertTrue(installed.label.contains("56.3") || installed.label.contains("٥٦٫٣"),
+                      "the installed size, one number: \(installed.label)")
+        XCTAssertGreaterThan(greek.frame.minX, installed.frame.maxX, "the name is right of its status")
+        attachScreenshot("Languages (ar)")
+    }
+
     /// The pushed detail's navigation bar (its `identifier` is the title)
     /// starts with U+200F and reads "<name> – الإنجليزية" in logical order.
     private func assertDetailTitle(leadingWith name: String, english: String,
