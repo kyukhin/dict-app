@@ -1510,10 +1510,30 @@ final class PackFixtureURLProtocol: URLProtocol {
 
     private func complete() {
         if failsAtEnd {
-            client?.urlProtocol(self, didFailWithError: URLError(.networkConnectionLost))
+            dropOnceReceived(Int64(end))
         } else {
             client?.urlProtocolDidFinishLoading(self)
         }
+    }
+
+    /// Drops the connection once the session has taken the `bytes` sent
+    /// (QA #245). Reported while they are still in flight, the drop leaves
+    /// resume data that counts fewer of them, down to none, and Try again
+    /// starts early. Polls on this thread's run loop, where the client
+    /// expects its calls; gives up waiting after 5 s.
+    private func dropOnceReceived(_ bytes: Int64) {
+        let deadline = Date().addingTimeInterval(5)
+        let timer = Timer(timeInterval: 0.005, repeats: true) { [weak self] timer in
+            guard let self else {
+                timer.invalidate()
+                return
+            }
+            guard (task?.countOfBytesReceived ?? bytes) >= bytes || Date() >= deadline else { return }
+            timer.invalidate()
+            client?.urlProtocol(self, didFailWithError: URLError(.networkConnectionLost))
+        }
+        RunLoop.current.add(timer, forMode: .common)
+        self.timer = timer
     }
 }
 #endif

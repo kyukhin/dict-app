@@ -460,3 +460,4 @@ QA records in History: the sizes of each asset and file, App Size and the downlo
 - 2026-11-06: #244: `-legacyFixture` also deletes the user database and clears `packs_offered` and `packs_installed`, so the launch is a clean 1.x update.
 - 2026-11-06: #244: `-skipWelcome` suppresses every kind of sheet, the missing one too.
 - 2026-11-06: #244, rebased on #242: the offer is decided after the launch scan, which now runs after `setup()` and finishes an interrupted install or removal first, so `packs_installed` and the usable packs it reads are settled.
+- 2026-11-07: #242 test fix: the fake servers (`PackFixtureURLProtocol`, `ScriptedAssetProtocol`) drop a connection only after the task has received the bytes, so a resume never starts from 0.
