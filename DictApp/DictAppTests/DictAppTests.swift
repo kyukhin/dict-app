@@ -8753,15 +8753,41 @@ final class ScriptedAssetProtocol: URLProtocol {
         headers["Content-Length"] = String(asset.count)
         respond(url, status: status, headers: headers)
         if dropNow {
-            client?.urlProtocol(self, didLoad: asset.prefix(asset.count / 2))
-            client?.urlProtocol(self, didFailWithError: URLError(.networkConnectionLost))
+            let half = asset.prefix(asset.count / 2)
+            client?.urlProtocol(self, didLoad: half)
+            dropOnceReceived(Int64(half.count))
         } else {
             client?.urlProtocol(self, didLoad: asset)
             client?.urlProtocolDidFinishLoading(self)
         }
     }
 
-    override func stopLoading() {}
+    private var timer: Timer?
+
+    /// Drops the connection once the session has taken the `bytes` sent
+    /// (QA #245): reported while they are still in flight, the drop leaves
+    /// resume data that counts fewer of them, down to none ("bytes=0-").
+    /// Polls on this thread's run loop, where the client expects its calls;
+    /// gives up waiting after 5 s.
+    private func dropOnceReceived(_ bytes: Int64) {
+        let deadline = Date().addingTimeInterval(5)
+        let timer = Timer(timeInterval: 0.005, repeats: true) { [weak self] timer in
+            guard let self else {
+                timer.invalidate()
+                return
+            }
+            guard (task?.countOfBytesReceived ?? bytes) >= bytes || Date() >= deadline else { return }
+            timer.invalidate()
+            client?.urlProtocol(self, didFailWithError: URLError(.networkConnectionLost))
+        }
+        RunLoop.current.add(timer, forMode: .common)
+        self.timer = timer
+    }
+
+    override func stopLoading() {
+        timer?.invalidate()
+        timer = nil
+    }
 
     private func respond(_ url: URL, status: Int, headers: [String: String]) {
         guard let response = HTTPURLResponse(url: url, statusCode: status, httpVersion: "HTTP/1.1",
