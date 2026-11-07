@@ -19174,7 +19174,8 @@ final class DrillPoolEdgeTests: XCTestCase {
 
     /// A standalone item (headword NULL) joins on its term; a list word and
     /// the passive it links to are two verbs (0132: ντύνομαι is drilled
-    /// under its own word, ντύνω in both voices).
+    /// under its own word). ντύνω then drills the active only, so the
+    /// passive has one card (#169).
     @MainActor
     func testStandaloneTermAndPassiveLink() async throws {
         let verbs = try await db.drillVerbs(lists: ["ky-ell-a1"], meaningsLang: "eng")
@@ -19185,7 +19186,8 @@ final class DrillPoolEdgeTests: XCTestCase {
         XCTAssertTrue(grafo.hasPassive)
         let dress = try XCTUnwrap(verbs.first { $0.word == "ντύνω" })
         XCTAssertEqual(dress.mainVoice, .active)
-        XCTAssertEqual(Set(dress.voices.keys), [.active, .passive])
+        XCTAssertEqual(Array(dress.voices.keys), [.active], "ντύνομαι drills the passive")
+        XCTAssertFalse(dress.hasPassive)
         let dressed = try XCTUnwrap(verbs.first { $0.word == "ντύνομαι" })
         XCTAssertEqual(dressed.mainVoice, .passive)
         XCTAssertEqual(Array(dressed.voices.keys), [.passive])
@@ -19551,5 +19553,850 @@ final class ConjugationDrillEdgeTests: XCTestCase {
         print("#167 QA: \(built) questions of \(words.count) common verbs at 4 levels × 3 seeds")
         XCTAssertGreaterThan(built, 10_000)
         XCTAssertEqual(failures.count, 0, failures.prefix(20).joined(separator: "\n"))
+    }
+}
+
+// MARK: - Issue #169: conjugation drill, spaced repetition and statistics (0132-conjugation-drill.md)
+
+/// Drill verbs from the Greek pack's tables, read from the file (no
+/// service), and the planner's calls with fixed days and seeds.
+private enum PlannerFixture {
+    typealias Person = ParadigmLayout.Person
+    typealias Tally = ConjugationPlanner.TenseTally
+
+    static let today = LearningFixture.today
+
+    /// Twelve active verbs of the pack with every A1 tense.
+    static let activeWords = ["γράφω", "διαβάζω", "παίζω", "δουλεύω", "ακούω", "κάνω", "λέω", "θέλω", "παίρνω",
+                              "βλέπω", "αγοράζω", "πληρώνω"]
+
+    private static var cache: [String: DrillVerb] = [:]
+
+    /// The drill verb of `word`: its own table, or `table`'s, linked.
+    static func verb(_ word: String, table: String? = nil) throws -> DrillVerb {
+        let id = "\(word)|\(table ?? "")"
+        if let cached = cache[id] { return cached }
+        let lemma = table ?? word
+        let paradigm = LemmaParadigm(word: lemma, pos: "verb", cells: try DrillFixture.cells(of: lemma),
+                                     isLinked: table != nil)
+        let verb = try XCTUnwrap(DrillVerb.make(word: word, paradigm: paradigm, translation: ""),
+                                 "\(word) is a drill verb")
+        cache[id] = verb
+        return verb
+    }
+
+    static func pool(_ words: [String] = activeWords) throws -> [DrillVerb] {
+        try words.map { try verb($0) }
+    }
+
+    /// An answered drill card.
+    static func card(_ word: String, _ facet: String, step: Int, due: LearnDay,
+                     last: LearnDay? = today.adding(days: -1), suspended: Bool = false) -> CardState {
+        CardState(key: CardKey(word: WordKey(lang: "ell", word: word), kind: .conjugation, facet: facet), step: step,
+                  dueDay: due, lastDay: last, isSuspended: suspended)
+    }
+
+    static func rng(_ seed: UInt64) -> LearningOrder.SplitMix64 {
+        LearningOrder.SplitMix64(seed: seed)
+    }
+
+    static func session(_ pool: [DrillVerb], level: DrillLevel = .a1, cards: [CardState] = [],
+                        accuracy: [ConjugationTense: Tally] = [:], length: Int = ConjugationPlanner.length,
+                        seed: UInt64 = 1) -> [DrillItem] {
+        var generator = rng(seed)
+        return ConjugationPlanner.session(pool: pool, level: level, cards: cards, accuracy: accuracy, today: today,
+                                          length: length, rng: &generator)
+    }
+
+    static func verbRun(_ verb: DrillVerb, level: DrillLevel = .a1, cards: [CardState] = [],
+                        accuracy: [ConjugationTense: Tally] = [:], seed: UInt64 = 1) -> [DrillItem] {
+        var generator = rng(seed)
+        return ConjugationPlanner.verbRun(verb: verb, level: level, cards: cards, accuracy: accuracy, today: today,
+                                          rng: &generator)
+    }
+
+    static func afterWrong(_ plan: [DrillItem], at index: Int, seed: UInt64 = 7) -> [DrillItem] {
+        var generator = rng(seed)
+        return ConjugationPlanner.afterWrong(plan, at: index, rng: &generator)
+    }
+
+    /// The persons a facet of `verb` asks at `level`.
+    static func persons(_ verb: DrillVerb, _ facet: ConjugationFacet, level: DrillLevel) -> [Person] {
+        ConjugationQuestionBuilder.questions(verb: verb, level: level).first { $0.facet == facet }?.persons ?? []
+    }
+}
+
+/// The planner (0132, "Planner"): the 15-question session, tense weights,
+/// verb order, the retry and the single-verb run. Pure, on the pack's verbs.
+final class ConjugationPlannerTests: XCTestCase {
+    private typealias Fixture = PlannerFixture
+    private typealias Tally = ConjugationPlanner.TenseTally
+    private let today = PlannerFixture.today
+
+    func testWeights() {
+        XCTAssertEqual(ConjugationPlanner.weight(nil), 3, accuracy: 1e-9, "a tense never answered")
+        XCTAssertEqual(ConjugationPlanner.weight(Tally()), 3, accuracy: 1e-9)
+        XCTAssertEqual(ConjugationPlanner.weight(Tally(answers: 20, right: 19)), 1.36, accuracy: 0.005)
+        XCTAssertEqual(ConjugationPlanner.weight(Tally(answers: 20, right: 8)), 3.36, accuracy: 0.005)
+        XCTAssertEqual(ConjugationPlanner.weight(Tally(answers: 10, right: 4))
+                           / ConjugationPlanner.weight(Tally(answers: 10, right: 9)), 2, accuracy: 1e-9)
+        XCTAssertEqual(ConjugationPlanner.accuracySince(today: today), LearnDay(year: 2026, month: 10, day: 6),
+                       "today and the 29 days before")
+    }
+
+    func testFifteenItems() throws {
+        let plan = Fixture.session(try Fixture.pool())
+        XCTAssertEqual(plan.count, 15)
+        XCTAssertEqual(Set(plan.map(\.card)).count, 15, "each card at most once")
+        XCTAssertTrue(plan.allSatisfy { $0.origin == .new && $0.level == .a1 })
+        for item in plan {
+            XCTAssertTrue(Fixture.persons(item.verb, item.facet, level: .a1).contains(item.person),
+                          "\(item.verb.word) \(item.facet.rawValue) \(item.person)")
+            XCTAssertEqual(item.card, CardKey(word: WordKey(lang: "ell", word: item.verb.word), kind: .conjugation,
+                                              facet: item.facet.rawValue))
+        }
+        XCTAssertEqual(Fixture.session(try Fixture.pool(), length: 3).count, 3, "-drillLength")
+
+        // A pool with fewer questions gives a shorter run: πρέπει at A1 has 2.
+        let short = Fixture.session([try Fixture.verb("πρέπει")])
+        XCTAssertEqual(short.map(\.facet.rawValue).sorted(), ["future.active", "subjunctiveSimple.active"])
+        XCTAssertEqual(Set(short.map(\.person)), [.thirdSingular], "an impersonal verb is asked in αυτός")
+        XCTAssertEqual(Fixture.session([]), [])
+    }
+
+    /// An A1 drill asks only A1 tenses of the pool's verbs; verbs with
+    /// passive forms only wait for A2.
+    func testSessionUsesOnlyTheLevelsFacets() throws {
+        let pool = try Fixture.pool() + [try Fixture.verb("έρχομαι"), try Fixture.verb("ντύνομαι", table: "ντύνω")]
+        let a1 = Set(DrillLevel.a1.facets(mainVoice: .active, hasPassive: true))
+        let words = Set(pool.map(\.word))
+        for seed in UInt64(1)...100 {
+            let plan = Fixture.session(pool, seed: seed)
+            XCTAssertEqual(plan.count, 15)
+            XCTAssertTrue(plan.allSatisfy { a1.contains($0.facet) && words.contains($0.verb.word) }, "seed \(seed)")
+            XCTAssertFalse(plan.contains { $0.verb.mainVoice == .passive }, "seed \(seed)")
+        }
+        let a2 = Fixture.session(pool, level: .a2, length: 200)
+        XCTAssertTrue(a2.contains { $0.verb.word == "έρχομαι" && $0.facet == ConjugationFacet(.aorist, .passive) })
+        XCTAssertTrue(a2.contains { $0.verb.word == "γράφω" && $0.facet == ConjugationFacet(.present, .passive) })
+        // From A2 every question of a verb with passive forms only has the note.
+        var rng = Fixture.rng(5)
+        for item in a2 {
+            let question = try XCTUnwrap(item.question(rng: &rng), "\(item.verb.word) \(item.facet.rawValue)")
+            XCTAssertEqual(question.showsPassiveNote, item.verb.mainVoice == .passive,
+                           "\(item.verb.word) \(item.facet.rawValue)")
+        }
+        XCTAssertEqual(Set(a2.filter { $0.verb.mainVoice == .passive }.map(\.verb.word)), ["έρχομαι", "ντύνομαι"])
+    }
+
+    /// Raising "Tenses up to" keeps the verbs and adds the perfect tenses
+    /// and the passive past.
+    func testRaisingTensesKeepsTheVerbs() throws {
+        let pool = try Fixture.pool()
+        var verbs = Set<String>(), facets = Set<String>()
+        for seed in UInt64(1)...200 {
+            for item in Fixture.session(pool, level: .b2, seed: seed) {
+                verbs.insert(item.verb.word)
+                facets.insert(item.facet.rawValue)
+            }
+        }
+        XCTAssertTrue(verbs.isSubset(of: Set(pool.map(\.word))))
+        XCTAssertTrue(facets.isSuperset(of: ["perfect.active", "pluperfect.active", "futurePerfect.active",
+                                             "aorist.passive", "imperfect.passive", "perfect.passive"]), "\(facets)")
+    }
+
+    /// 20 due cards: the 15 items are due ones, the most overdue first in
+    /// each tense, and the weaker tense comes first about 2 times in 3.
+    func testDueCardsFirst() throws {
+        let pool = try Fixture.pool()
+        var cards: [CardState] = []
+        for (index, verb) in pool.prefix(10).enumerated() {
+            cards.append(Fixture.card(verb.word, "aorist.active", step: 2, due: today.adding(days: -index)))
+            cards.append(Fixture.card(verb.word, "present.active", step: 3, due: today.adding(days: -index)))
+        }
+        let accuracy: [ConjugationTense: Tally] = [.aorist: Tally(answers: 10, right: 4),
+                                                   .present: Tally(answers: 10, right: 9)]
+        var aoristFirst = 0
+        for seed in UInt64(1)...200 {
+            let plan = Fixture.session(pool, cards: cards, accuracy: accuracy, seed: seed)
+            XCTAssertEqual(plan.count, 15)
+            XCTAssertTrue(plan.allSatisfy { $0.origin == .due }, "seed \(seed)")
+            XCTAssertEqual(plan.first?.verb.word, pool[9].word, "the most overdue first, seed \(seed)")
+            if plan.first?.facet.tense == .aorist { aoristFirst += 1 }
+        }
+        XCTAssertGreaterThan(aoristFirst, 110, "aorist 4 of 10 weighs twice present 9 of 10")
+        XCTAssertLessThan(aoristFirst, 170)
+    }
+
+    /// Due cards, then new pairs, then practice (answered, not due).
+    func testDueThenNewThenPractice() throws {
+        let cards = [Fixture.card("γράφω", "aorist.active", step: 1, due: today),
+                     Fixture.card("γράφω", "future.active", step: 4, due: today.adding(days: 5))]
+        let plan = Fixture.session([try Fixture.verb("γράφω")], cards: cards)
+        XCTAssertEqual(plan.map(\.origin), [.due, .new, .new, .new, .practice])
+        XCTAssertEqual(plan.first?.facet.rawValue, "aorist.active")
+        XCTAssertEqual(plan.last?.facet.rawValue, "future.active")
+
+        // Practice: the lowest step, then the oldest last answer (γράφω's
+        // older answer does not win over a lower step).
+        let pool = try Fixture.pool(["γράφω", "διαβάζω", "παίζω"])
+        var practice: [CardState] = []
+        for verb in pool {
+            for facet in DrillLevel.a1.facets(mainVoice: .active, hasPassive: false) where facet.tense != .aorist {
+                practice.append(Fixture.card(verb.word, facet.rawValue, step: 5, due: today.adding(days: 10)))
+            }
+        }
+        practice += [Fixture.card("γράφω", "aorist.active", step: 3, due: today.adding(days: 3),
+                                  last: today.adding(days: -10)),
+                     Fixture.card("διαβάζω", "aorist.active", step: 1, due: today.adding(days: 1),
+                                  last: today.adding(days: -2)),
+                     Fixture.card("παίζω", "aorist.active", step: 1, due: today.adding(days: 1),
+                                  last: today.adding(days: -5))]
+        var checked = 0
+        for seed in UInt64(1)...50 {
+            let plan = Fixture.session(pool, cards: practice, seed: seed)
+            XCTAssertTrue(plan.allSatisfy { $0.origin == .practice })
+            guard let index = plan.firstIndex(where: { $0.facet.tense == .aorist }),
+                  index == 0 || plan[index - 1].verb.word != "παίζω" else { continue }
+            XCTAssertEqual(plan[index].verb.word, "παίζω", "step 1 and the oldest answer, seed \(seed)")
+            checked += 1
+        }
+        XCTAssertGreaterThan(checked, 20)
+    }
+
+    /// Due cards (QA, #169): the earliest due day first, then the lowest
+    /// step, then pool order. One tense, so the weights pick nothing.
+    func testDueCardsByDayStepAndPool() throws {
+        let pool = try Fixture.pool(["γράφω", "διαβάζω", "παίζω", "δουλεύω"])
+        let cards = [Fixture.card("γράφω", "aorist.active", step: 3, due: today),
+                     Fixture.card("διαβάζω", "aorist.active", step: 1, due: today),
+                     Fixture.card("παίζω", "aorist.active", step: 2, due: today.adding(days: -1)),
+                     Fixture.card("δουλεύω", "aorist.active", step: 1, due: today)]
+        for seed in UInt64(1)...10 {
+            let plan = Fixture.session(pool, cards: cards, seed: seed)
+            XCTAssertEqual(plan.prefix(4).map(\.verb.word), ["παίζω", "διαβάζω", "δουλεύω", "γράφω"], "seed \(seed)")
+            XCTAssertEqual(plan.prefix(5).map(\.origin), [.due, .due, .due, .due, .new])
+        }
+    }
+
+    /// New pairs come in pool order, by list, then frequency (QA, #169):
+    /// the run starts with the pool's first verb, and the k-th item of a
+    /// tense comes from the pool's first k + 1 verbs (one verb may wait a
+    /// place, so the same verb is not asked twice in a row).
+    func testNewPairsComeInPoolOrder() throws {
+        let pool = try Fixture.pool()
+        let place = Dictionary(uniqueKeysWithValues: pool.enumerated().map { ($1.word, $0) })
+        for seed in UInt64(1)...100 {
+            let plan = Fixture.session(pool, seed: seed)
+            XCTAssertEqual(plan.first?.verb.word, pool[0].word, "seed \(seed)")
+            var asked: [ConjugationTense: Int] = [:]
+            for item in plan {
+                asked[item.facet.tense, default: 0] += 1
+                XCTAssertLessThanOrEqual(try XCTUnwrap(place[item.verb.word]), asked[item.facet.tense] ?? 0,
+                                         "seed \(seed): \(item.verb.word) \(item.facet.rawValue)")
+            }
+        }
+    }
+
+    /// `-learningSeed` (0131; QA, #169): the same seed plans the same run,
+    /// the same repeat and the same options; other seeds plan other runs.
+    func testSameSeedSamePlan() throws {
+        let pool = try Fixture.pool()
+        let cards = [Fixture.card("γράφω", "aorist.active", step: 2, due: today),
+                     Fixture.card("παίζω", "future.active", step: 3, due: today.adding(days: 4))]
+        let accuracy: [ConjugationTense: Tally] = [.aorist: Tally(answers: 10, right: 4)]
+        func plan(_ seed: UInt64) -> [DrillItem] {
+            Fixture.session(pool, level: .b1, cards: cards, accuracy: accuracy, seed: seed)
+        }
+        func options(_ items: [DrillItem], seed: UInt64) -> [[String]] {
+            var rng = Fixture.rng(seed)
+            return items.compactMap { $0.question(rng: &rng)?.options }
+        }
+        XCTAssertEqual(plan(42), plan(42))
+        XCTAssertEqual(options(plan(42), seed: 42), options(plan(42), seed: 42))
+        XCTAssertEqual(options(plan(42), seed: 42).count, 15)
+        XCTAssertEqual(Fixture.afterWrong(plan(42), at: 1, seed: 9), Fixture.afterWrong(plan(42), at: 1, seed: 9))
+        XCTAssertEqual(Fixture.verbRun(pool[0], level: .b2, seed: 42), Fixture.verbRun(pool[0], level: .b2, seed: 42))
+
+        func describe(_ items: [DrillItem]) -> String {
+            items.map { "\($0.verb.word) \($0.facet.rawValue) \($0.person.rawValue)" }.joined(separator: ", ")
+        }
+        XCTAssertGreaterThan(Set((UInt64(1)...20).map { describe(plan($0)) }).count, 10, "tenses and persons vary")
+        XCTAssertGreaterThan(Set((UInt64(1)...20).map { describe(Fixture.verbRun(pool[0], level: .b2, seed: $0)) })
+            .count, 10)
+    }
+
+    /// Aorist 4 of 10 right, present 9 of 10: over 500 sessions of new
+    /// pairs the aorist is asked about twice as often.
+    func testWeakerTensesComeMoreOften() throws {
+        let pool = try Fixture.pool()
+        let accuracy: [ConjugationTense: Tally] = [.aorist: Tally(answers: 10, right: 4),
+                                                   .present: Tally(answers: 10, right: 9)]
+        var aorist = 0, present = 0
+        for seed in UInt64(1)...500 {
+            for item in Fixture.session(pool, accuracy: accuracy, seed: seed) {
+                if item.facet.tense == .aorist { aorist += 1 }
+                if item.facet.tense == .present { present += 1 }
+            }
+        }
+        XCTAssertGreaterThan(Double(aorist), 1.5 * Double(present), "aorist \(aorist), present \(present)")
+    }
+
+    func testSameVerbNotTwiceInARow() throws {
+        let pool = try Fixture.pool()
+        for seed in UInt64(1)...200 {
+            let plan = Fixture.session(pool, level: .b2, seed: seed)
+            for (a, b) in zip(plan, plan.dropFirst()) {
+                XCTAssertNotEqual(a.verb.word, b.verb.word, "seed \(seed)")
+            }
+        }
+        // Due cards of one verb only: each waits a place for another verb.
+        let cards = ["aorist.active", "future.active", "present.active"].map {
+            Fixture.card("γράφω", $0, step: 1, due: today)
+        }
+        let plan = Fixture.session(pool, cards: cards)
+        XCTAssertEqual(plan.prefix(6).map(\.origin), [.due, .new, .due, .new, .due, .new])
+        XCTAssertEqual(plan.prefix(5).map { $0.verb.word == "γράφω" }, [true, false, true, false, true])
+        // One verb alone is asked again.
+        XCTAssertEqual(Set(Fixture.session([try Fixture.verb("γράφω")]).map(\.verb.word)), ["γράφω"])
+    }
+
+    /// A wrong answer comes back once, at the end, with another person, as
+    /// one of the 15: it takes the last new item's place.
+    func testWrongComesBackOnceWithinFifteen() throws {
+        let plan = Fixture.session(try Fixture.pool())
+        let wrong = plan[2]
+        let after = Fixture.afterWrong(plan, at: 2)
+        XCTAssertEqual(after.count, 15, "not a 16th")
+        XCTAssertEqual(Array(after.prefix(14)), Array(plan.prefix(14)))
+        let retry = try XCTUnwrap(after.last)
+        XCTAssertEqual(retry.origin, .retry)
+        XCTAssertEqual(retry.card, wrong.card)
+        XCTAssertNotEqual(retry.person, wrong.person)
+        XCTAssertTrue(Fixture.persons(wrong.verb, wrong.facet, level: .a1).contains(retry.person))
+        XCTAssertEqual(Fixture.afterWrong(after, at: 14), after, "a repeat is not repeated")
+
+        // A second mistake: its repeat follows the first.
+        let twice = Fixture.afterWrong(after, at: 5)
+        XCTAssertEqual(twice.count, 15)
+        XCTAssertEqual(twice[13], retry)
+        XCTAssertEqual(twice[14].card, plan[5].card)
+        XCTAssertEqual(Array(twice.prefix(13)), Array(plan.prefix(13)))
+
+        // Only due items left: no place to take, so no repeat (the card is due today).
+        var due: [CardState] = []
+        for verb in try Fixture.pool() {
+            due.append(Fixture.card(verb.word, "aorist.active", step: 2, due: today))
+            due.append(Fixture.card(verb.word, "future.active", step: 2, due: today))
+        }
+        let duePlan = Fixture.session(try Fixture.pool(), cards: due)
+        XCTAssertTrue(duePlan.allSatisfy { $0.origin == .due })
+        XCTAssertEqual(Fixture.afterWrong(duePlan, at: 3), duePlan)
+
+        // Practise: the repeat asks a person the run does not ask, if any.
+        let grafo = try Fixture.verb("γράφω")
+        for seed in UInt64(1)...20 {
+            let run = Fixture.verbRun(grafo, seed: seed)
+            let after = Fixture.afterWrong(run, at: 0, seed: seed)
+            XCTAssertEqual(after.count, 15)
+            let repeated = try XCTUnwrap(after.last)
+            XCTAssertEqual(repeated.origin, .retry)
+            XCTAssertEqual(repeated.facet, run[0].facet)
+            let unasked = Set(Fixture.persons(grafo, run[0].facet, level: .a1))
+                .subtracting(after.dropLast().filter { $0.facet == run[0].facet }.map(\.person))
+            XCTAssertTrue(unasked.isEmpty ? repeated.person != run[0].person : unasked.contains(repeated.person),
+                          "seed \(seed): \(repeated.person)")
+        }
+
+        // A shorter run has room: the repeat is added at the end.
+        let short = Fixture.session([try Fixture.verb("πρέπει")])
+        let longer = Fixture.afterWrong(short, at: 0)
+        XCTAssertEqual(longer.count, 3)
+        XCTAssertEqual(longer.last?.card, short[0].card)
+        XCTAssertEqual(longer.last?.person, .thirdSingular, "αυτός only: the same person")
+    }
+
+    func testShortVerbRun() throws {
+        let run = Fixture.verbRun(try Fixture.verb("πρέπει"))
+        XCTAssertEqual(run.count, 2)
+        XCTAssertEqual(Set(run.map(\.facet.rawValue)), ["future.active", "subjunctiveSimple.active"])
+        XCTAssertEqual(Set(run.map(\.person)), [.thirdSingular])
+    }
+
+    /// Practise: only that verb, each (facet, person) once, round by round
+    /// over its facets; never the cited present εγώ.
+    func testVerbRunAsksOnlyThatVerb() throws {
+        let grafo = try Fixture.verb("γράφω")
+        for seed in UInt64(1)...20 {
+            let run = Fixture.verbRun(grafo, seed: seed)
+            XCTAssertEqual(run.count, 15)
+            XCTAssertTrue(run.allSatisfy { $0.verb.word == "γράφω" && $0.level == .a1 })
+            XCTAssertEqual(Set(run.map { "\($0.facet.rawValue) \($0.person.rawValue)" }).count, 15, "seed \(seed)")
+            XCTAssertFalse(run.contains { $0.facet.tense == .present && $0.person == .firstSingular })
+            XCTAssertEqual(Set(run.prefix(5).map(\.facet)).count, 5, "the first round asks each facet")
+            XCTAssertEqual(Set(run.dropFirst(5).prefix(5).map(\.facet)).count, 5, "so does the second")
+            XCTAssertEqual(run.prefix(5).map(\.origin), Array(repeating: .new, count: 5))
+            XCTAssertTrue(run.dropFirst(5).allSatisfy { $0.origin == .practice }, "the card was just answered")
+        }
+        let due = Fixture.verbRun(grafo, cards: [Fixture.card("γράφω", "aorist.active", step: 2, due: today)])
+        XCTAssertEqual(due.first { $0.facet.tense == .aorist }?.origin, .due)
+
+        // Weaker tenses come first in a round more often.
+        let accuracy: [ConjugationTense: Tally] = [.aorist: Tally(answers: 20, right: 2),
+                                                   .present: Tally(answers: 20, right: 20)]
+        var aoristFirst = 0, presentFirst = 0
+        for seed in UInt64(1)...300 {
+            let tense = Fixture.verbRun(grafo, accuracy: accuracy, seed: seed).first?.facet.tense
+            if tense == .aorist { aoristFirst += 1 }
+            if tense == .present { presentFirst += 1 }
+        }
+        XCTAssertGreaterThan(aoristFirst, 2 * presentFirst, "aorist \(aoristFirst), present \(presentFirst)")
+    }
+
+    /// έρχομαι has no question at A1: Practise starts it at A2.
+    func testVerbRunRaisesTheLevel() throws {
+        let erchomai = try Fixture.verb("έρχομαι")
+        let grafo = try Fixture.verb("γράφω")
+        XCTAssertEqual(ConjugationPlanner.practiceLevel(of: erchomai, from: .a1), .a2)
+        XCTAssertEqual(ConjugationPlanner.practiceLevel(of: erchomai, from: .b1), .b1)
+        XCTAssertEqual(ConjugationPlanner.practiceLevel(of: grafo, from: .a1), .a1)
+        let run = Fixture.verbRun(erchomai)
+        XCTAssertFalse(run.isEmpty)
+        XCTAssertTrue(run.allSatisfy { $0.level == .a2 && $0.facet.voice == .passive })
+        XCTAssertTrue(run.contains { $0.facet.tense == .aorist })
+    }
+
+    /// Paused cards and cards outside the pool or the level are not asked,
+    /// and nothing changes them.
+    func testCardsOutsideTheChoiceAreKept() throws {
+        let pool = try Fixture.pool(["γράφω", "διαβάζω"])
+        let cards = [Fixture.card("γράφω", "aorist.active", step: 2, due: today, suspended: true),
+                     Fixture.card("κάνω", "aorist.active", step: 2, due: today),
+                     Fixture.card("γράφω", "perfect.active", step: 2, due: today)]
+        for seed in UInt64(1)...20 {
+            let plan = Fixture.session(pool, cards: cards, seed: seed)
+            XCTAssertEqual(plan.count, 9, "10 A1 questions without the paused one")
+            XCTAssertTrue(plan.allSatisfy { $0.origin == .new })
+            XCTAssertFalse(plan.contains { $0.verb.word == "γράφω" && $0.facet.tense == .aorist })
+        }
+    }
+
+    /// Every item of the planner builds a question: sessions at each level,
+    /// single-verb runs at B2 and their repeats, over 300 verbs of the file.
+    func testEveryPlannedItemBuilds() throws {
+        var verbs: [DrillVerb] = []
+        for paradigm in try DrillFixture.everyVerbOfTheFile() where verbs.count < 300 {
+            if let verb = DrillVerb.make(word: paradigm.word, paradigm: paradigm, translation: "") { verbs.append(verb) }
+        }
+        XCTAssertEqual(verbs.count, 300)
+        var failures: [String] = []
+        var built = 0
+        func check(_ plan: [DrillItem], seed: UInt64) {
+            var rng = Fixture.rng(seed)
+            for item in plan {
+                if item.question(rng: &rng) == nil {
+                    failures.append("\(item.verb.word) \(item.facet.rawValue) \(item.person.rawValue) \(item.level)")
+                } else {
+                    built += 1
+                }
+            }
+        }
+        for level in DrillLevel.allCases {
+            for seed in UInt64(1)...10 {
+                let plan = Fixture.session(verbs, level: level, seed: seed)
+                XCTAssertEqual(plan.count, 15)
+                check(Fixture.afterWrong(plan, at: 0, seed: seed), seed: seed)
+            }
+        }
+        for (index, verb) in verbs.enumerated() {
+            let run = Fixture.verbRun(verb, level: .b2, seed: UInt64(index))
+            check(run.isEmpty ? run : Fixture.afterWrong(run, at: 0), seed: UInt64(index))
+        }
+        XCTAssertGreaterThan(built, 4_000)
+        XCTAssertEqual(failures, [])
+    }
+
+    /// A session over a pool of the three lists' size (527 verbs), at A1
+    /// and at B2, the largest, with 300 answered cards: planned on Start
+    /// within the Conjugation screen's budget of 300 ms (0132, "Pool"),
+    /// in a Debug build. Median of 3; about 40 and 110 ms on an M-series Mac.
+    func testSessionOfTheListsSize() throws {
+        var verbs: [DrillVerb] = []
+        for paradigm in try DrillFixture.everyVerbOfTheFile() where verbs.count < 527 {
+            if let verb = DrillVerb.make(word: paradigm.word, paradigm: paradigm, translation: "") { verbs.append(verb) }
+        }
+        let cards = verbs.prefix(150).flatMap { verb in
+            [Fixture.card(verb.word, "aorist.active", step: 2, due: today.adding(days: 2)),
+             Fixture.card(verb.word, "present.active", step: 1, due: today.adding(days: -1))]
+        }
+        for level in [DrillLevel.a1, .b2] {
+            var times: [Double] = []
+            for seed in UInt64(1)...3 {
+                let start = ContinuousClock.now
+                let plan = Fixture.session(verbs, level: level, cards: cards, seed: seed)
+                let elapsed = ContinuousClock.now - start
+                times.append(Double(elapsed.components.seconds) * 1_000 + Double(elapsed.components.attoseconds) / 1e15)
+                XCTAssertEqual(plan.count, 15)
+            }
+            let median = times.sorted()[1]
+            print("#169 planner: \(verbs.count) verbs at \(level.rawValue), \(cards.count) cards: \(median) ms")
+            XCTAssertLessThan(median, 300)
+        }
+    }
+
+    /// The answer an item logs (0132, "Answers and cards").
+    func testItemAnswer() throws {
+        let item = DrillItem(verb: try Fixture.verb("γράφω"), facet: ConjugationFacet(.present, .passive),
+                             person: .thirdPlural, level: .a2, origin: .new)
+        let run = UUID()
+        let answer = item.answer(.wrong, runID: run, durationMs: 75_000)
+        XCTAssertEqual(answer.card, CardKey(word: WordKey(lang: "ell", word: "γράφω"), kind: .conjugation,
+                                            facet: "present.passive"))
+        XCTAssertEqual(answer.exercise, .conjugation)
+        XCTAssertEqual(answer.mode, .drill)
+        XCTAssertEqual(answer.runID, run)
+        XCTAssertEqual(answer.outcome, .wrong)
+        XCTAssertEqual(answer.detail, "3pl")
+        XCTAssertEqual(answer.durationMs, 60_000, "capped at 60 s")
+        XCTAssertEqual(item.answer(.right, runID: run, durationMs: -5).durationMs, 0)
+        var rng = Fixture.rng(3)
+        let question = try XCTUnwrap(item.question(rng: &rng))
+        XCTAssertEqual(question.rightForms, ["γράφονται"])
+    }
+}
+
+/// #169: ντύνω and ντύνομαι in one pool give one card per passive tense:
+/// ντύνομαι's, with the "passive" note.
+final class DrillSharedPassiveTests: XCTestCase {
+    private typealias Fixture = PlannerFixture
+
+    func testSharedPassiveIsDrilledOnce() throws {
+        let ntyno = try Fixture.verb("ντύνω")
+        let ntynomai = try Fixture.verb("ντύνομαι", table: "ντύνω")
+        let grafo = try Fixture.verb("γράφω")
+        XCTAssertTrue(ntyno.hasPassive)
+        XCTAssertEqual(ntynomai.mainVoice, .passive)
+
+        let pool = DrillVerb.droppingSharedPassives([ntyno, grafo, ntynomai])
+        XCTAssertEqual(pool.map(\.word), ["ντύνω", "γράφω", "ντύνομαι"])
+        XCTAssertEqual(Array(pool[0].voices.keys), [.active])
+        XCTAssertFalse(pool[0].hasPassive)
+        XCTAssertEqual(pool[0].cells.keys.filter { $0.voice == .passive }, [])
+        XCTAssertEqual(pool[0].forms(ConjugationFacet(.aorist, .active), .firstSingular),
+                       ntyno.forms(ConjugationFacet(.aorist, .active), .firstSingular))
+        XCTAssertEqual(pool[1], grafo, "another verb keeps its passive")
+        XCTAssertEqual(pool[2], ntynomai)
+        XCTAssertTrue(ntynomai.forms(ConjugationFacet(.future, .passive), .firstSingular).contains("θα ντυθώ"))
+
+        XCTAssertEqual(DrillVerb.droppingSharedPassives([ntyno, grafo]), [ntyno, grafo],
+                       "without ντύνομαι, ντύνω drills both voices")
+        let erchomai = try Fixture.verb("έρχομαι")
+        XCTAssertEqual(DrillVerb.droppingSharedPassives([grafo, erchomai]), [grafo, erchomai],
+                       "έρχομαι's passive is its own table's")
+
+        // No two cards ask the same forms: every passive question is ντύνομαι's.
+        func forms(_ verb: DrillVerb) -> Set<String> { Set(verb.cells.values.flatMap { $0.values.flatMap(\.forms) }) }
+        XCTAssertEqual(forms(pool[0]).intersection(forms(ntynomai)), [])
+        for seed in UInt64(1)...50 {
+            let plan = Fixture.session(pool, level: .b2, length: 60, seed: seed)
+            XCTAssertFalse(plan.contains { $0.verb.word == "ντύνω" && $0.facet.voice == .passive }, "seed \(seed)")
+            XCTAssertTrue(plan.contains { $0.verb.word == "ντύνομαι" }, "seed \(seed)")
+        }
+    }
+}
+
+/// Drill answers on E4's cards and log (0132, "Answers and cards"; 0131,
+/// "For E5"), with requests 1 and 2: a drill card starts on its first
+/// answer, and drill answers never touch words.
+@MainActor
+final class ConjugationStoreTests: XCTestCase {
+    private typealias Person = ParadigmLayout.Person
+    private var tempDir: URL!
+    private var db: DatabaseService { .shared }
+    private let today = LearningFixture.today
+    private let grafo = LearningFixture.grafo
+    private let grafoFD = EntryKey(source: "freedict-ell-eng", word: "γράφω")
+    private let aorist = ConjugationFacet(.aorist, .active)
+
+    override func setUp() async throws {
+        try await super.setUp()
+        await DictAppTests.waitForHostAppLaunch()
+        tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        let url = try TestDictionary.make(rows: LearningStoreTests.rows, metadata: LearningStoreTests.metadata,
+                                          at: tempDir.appendingPathComponent("dictionary.sqlite"))
+        try await db.setup(userPath: tempDir.appendingPathComponent("user.sqlite").path, dictionaryURL: url)
+    }
+
+    override func tearDown() async throws {
+        try? FileManager.default.removeItem(at: tempDir)
+        try await super.tearDown()
+    }
+
+    @discardableResult
+    private func answer(_ facet: ConjugationFacet, _ outcome: Outcome, on day: LearnDay? = nil,
+                        word: String = "γράφω", person: Person = .secondSingular,
+                        run: UUID = UUID()) async throws -> CardState {
+        try await db.recordAnswer(AnswerRecord(card: ConjugationPlanner.card(word: word, facet: facet),
+                                               exercise: .conjugation, mode: .drill, runID: run, outcome: outcome,
+                                               durationMs: 1_500, detail: person.rawValue),
+                                  today: day ?? today, goal: 20)
+    }
+
+    private func drillCards() async throws -> [CardState] {
+        try await db.cards(lang: "ell", kinds: [.conjugation])
+    }
+
+    /// The rows of `sql`, each as `a|b|c`, NULL as `∅`.
+    private func rows(_ sql: String) async throws -> [String] {
+        try await db.writeForTesting { conn in
+            try Row.fetchAll(conn, sql: sql).map { row in
+                row.databaseValues.map { value -> String in
+                    switch value.storage {
+                    case .null: return "∅"
+                    case .int64(let int): return String(int)
+                    case .double(let double): return String(double)
+                    case .string(let string): return string
+                    case .blob(let data): return data.base64EncodedString()
+                    }
+                }.joined(separator: "|")
+            }
+        }
+    }
+
+    private func execute(_ sql: String, _ arguments: StatementArguments = []) async throws {
+        try await db.writeForTesting { try $0.execute(sql: sql, arguments: arguments) }
+    }
+
+    func testFirstAnswerCreatesTheCard() async throws {
+        var cards = try await drillCards()
+        XCTAssertEqual(cards, [], "nothing is created ahead")
+        let first = try await answer(aorist, .right)
+        XCTAssertEqual(first, CardState(key: ConjugationPlanner.card(word: "γράφω", facet: aorist), step: 1,
+                                        dueDay: today.adding(days: 1), lastDay: today))
+        let wrongFirst = try await answer(ConjugationFacet(.future, .active), .wrong)
+        XCTAssertEqual(wrongFirst.step, 0)
+        XCTAssertEqual(wrongFirst.dueDay, today, "back to learning, due today")
+        cards = try await drillCards()
+        XCTAssertEqual(cards, [first, wrongFirst])
+        let log = try await rows("SELECT facet, outcome, step_before, step_after, introduced FROM learn_review ORDER BY id")
+        XCTAssertEqual(log, ["aorist.active|right|0|1|0", "future.active|wrong|0|0|0"])
+
+        // A word card still has to exist.
+        do {
+            try await db.recordAnswer(AnswerRecord(card: CardKey(word: grafo, kind: .recognition), exercise: .recognition,
+                                                   mode: .trainer, runID: UUID(), outcome: .right),
+                                      today: today, goal: 20)
+            XCTFail("no word card, no answer")
+        } catch DatabaseService.DBError.cardMissing {}
+        let words = try await rows("SELECT word FROM learn_word")
+        XCTAssertEqual(words, [], "a drill answer creates no word")
+    }
+
+    /// Right answers on days 1, 2, 5, 12 and 26 climb rungs 1 to 5; a wrong
+    /// one sends the card back to learning, due today.
+    func testCardClimbsTheLadder() async throws {
+        var steps: [Int] = []
+        for offset in [0, 1, 4, 11, 25] {
+            steps.append(try await answer(aorist, .right, on: today.adding(days: offset)).step)
+        }
+        XCTAssertEqual(steps, [1, 2, 3, 4, 5])
+        var cards = try await drillCards()
+        XCTAssertEqual(cards.first?.dueDay, today.adding(days: 25 + 30))
+        XCTAssertTrue(FixedLadder().isLearned(try XCTUnwrap(cards.first)))
+
+        let day = today.adding(days: 40)
+        let wrong = try await answer(aorist, .wrong, on: day)
+        XCTAssertEqual(wrong.step, 0)
+        XCTAssertEqual(wrong.dueDay, day)
+        let due = try await db.dueCards(lang: "ell", today: day, kinds: [.conjugation])
+        XCTAssertEqual(due, [wrong], "the next drill starts with it")
+        cards = try await drillCards()
+        XCTAssertEqual(cards, [wrong])
+    }
+
+    func testVoicesAreSeparateCards() async throws {
+        try await answer(aorist, .right)
+        try await answer(ConjugationFacet(.present, .passive), .wrong)
+        let cards = try await drillCards()
+        XCTAssertEqual(cards.map(\.key.facet), ["aorist.active", "present.passive"])
+        XCTAssertEqual(cards.map(\.step), [1, 0])
+        XCTAssertEqual(Set(cards.map(\.key.word)), [grafo])
+    }
+
+    /// A right answer on a card that is not due (Practise, a repeat in a
+    /// single-verb run) is logged and changes nothing.
+    func testRightOnACardNotDueChangesNothing() async throws {
+        let first = try await answer(aorist, .right)
+        let again = try await answer(aorist, .right, person: .thirdPlural)
+        XCTAssertEqual(again, first)
+        let log = try await rows("SELECT step_before, step_after, detail FROM learn_review ORDER BY id")
+        XCTAssertEqual(log, ["0|1|2sg", "1|1|3pl"])
+        let wrong = try await answer(aorist, .wrong)
+        XCTAssertEqual(wrong.step, 0, "a wrong answer, due or not, sends it back")
+    }
+
+    func testLogRow() async throws {
+        let item = DrillItem(verb: try PlannerFixture.verb("γράφω"), facet: aorist, person: .thirdPlural, level: .a1,
+                             origin: .new)
+        let run = UUID()
+        try await db.recordAnswer(item.answer(.wrong, runID: run, durationMs: 75_000), today: today, goal: 20)
+        let log = try await rows("""
+            SELECT day, lang, word, kind, facet, exercise, mode, run_id, outcome, step_before, step_after, introduced,
+                   duration_ms, detail FROM learn_review
+            """)
+        XCTAssertEqual(log, ["2026-11-04|ell|γράφω|conjugation|aorist.active|conjugation|drill|\(run.uuidString)"
+                             + "|wrong|0|0|0|60000|3pl"])
+    }
+
+    /// `cards(lang:kinds:)`: one language's cards of the kinds, paused ones
+    /// included, by word, kind and facet, on the primary key.
+    func testCardsReadsOneLanguagesKinds() async throws {
+        try await db.learnWord(grafoFD, today: today)
+        try await answer(ConjugationFacet(.present, .active), .right, word: "έχω")
+        try await answer(aorist, .right)
+        try await answer(ConjugationFacet(.future, .active), .wrong)
+        try await execute("""
+            INSERT INTO learn_card(lang, word, kind, facet, due_day, suspended)
+            VALUES ('ell', 'βλέπω', 'conjugation', 'aorist.active', ?, 1), ('eng', 'write', 'conjugation', 'x.active', ?, 0)
+            """, [today.rawValue, today.rawValue])
+
+        let drill = try await drillCards()
+        // Words in code point order: έ (U+03AD) before β and γ.
+        XCTAssertEqual(drill.map { "\($0.key.word.word) \($0.key.facet)" },
+                       ["έχω present.active", "βλέπω aorist.active", "γράφω aorist.active", "γράφω future.active"])
+        XCTAssertEqual(drill.map(\.isSuspended), [false, true, false, false])
+        let words = try await db.cards(lang: "ell", kinds: CardKind.wordKinds)
+        XCTAssertEqual(words.map(\.key.kind), [.production, .recognition])
+        let none = try await db.cards(lang: "ell", kinds: [])
+        XCTAssertEqual(none, [])
+
+        for kinds in [[CardKind.conjugation], CardKind.allCases] {
+            let sql = DatabaseService.cardsSQL(kindCount: kinds.count)
+            let plan = try await db.writeForTesting { conn in
+                try Row.fetchAll(conn, sql: "EXPLAIN QUERY PLAN " + sql,
+                                 arguments: ["ell"] + StatementArguments(kinds.map(\.rawValue)))
+                    .map { $0["detail"] as String }
+            }
+            XCTAssertEqual(plan, ["SEARCH learn_card USING PRIMARY KEY (lang=?)"], "no scan, no sort")
+        }
+    }
+
+    /// Requests 1 and 2: a drill answer on γράφω, a word in My words not
+    /// started, leaves the word new; word features ignore drill cards.
+    func testDrillLeavesWordsAlone() async throws {
+        try await db.learnWord(grafoFD, today: today)
+        try await answer(aorist, .right)
+        try await answer(ConjugationFacet(.future, .active), .wrong)
+
+        let state = try await db.learningState(of: grafo)
+        XCTAssertNil(state?.word.introducedDay, "a drill answer starts no word")
+        XCTAssertEqual(state?.cards.map(\.key.kind), [.recognition, .production])
+        XCTAssertEqual(state.map { WordStatus($0).stage }, WordStatus.Stage.new)
+        let started = try await db.startedCount(on: today, lang: "ell")
+        XCTAssertEqual(started, 0)
+        let pool = try await db.newPool(lang: "ell", limit: 10)
+        XCTAssertEqual(pool.map(\.key), [grafo], "still in the new pool")
+        let mistakes = try await db.mistakeCards(since: today, lang: "ell")
+        XCTAssertEqual(mistakes, [], "mistakes practice asks word cards only")
+        let sessionDue = try await db.dueCards(lang: "ell", today: today.adding(days: 3))
+        XCTAssertFalse(sessionDue.contains { $0.key.kind == .conjugation }, "E4's planners never get a drill card")
+        let drillDue = try await db.dueCards(lang: "ell", today: today, kinds: [.conjugation])
+        XCTAssertEqual(drillDue.map(\.key.facet), ["future.active"])
+
+        try await db.stopLearning(grafoFD)
+        let drill = try await drillCards()
+        XCTAssertEqual(drill.map(\.isSuspended), [false, false], "Stop learning leaves drill cards alone")
+    }
+
+    /// 0166: every drill question counts toward the day's goal and streak,
+    /// and the day keeps its goal (`learn_day`).
+    func testDrillAnswersCountTowardTheDay() async throws {
+        let run = UUID()
+        try await answer(aorist, .right, run: run)
+        try await answer(aorist, .wrong, run: run)
+        try await answer(ConjugationFacet(.present, .active), .right, word: "έχω", run: run)
+        let count = try await db.answeredCount(on: today)
+        XCTAssertEqual(count, 3)
+        let runRows = try await rows("SELECT COUNT(*) FROM learn_review WHERE run_id = '\(run.uuidString)'")
+        XCTAssertEqual(runRows, ["3"])
+        let goals = try await db.learnDayGoals()
+        XCTAssertEqual(goals, [today: 20], "the drill's day records the goal in force")
+    }
+
+    /// #163's tense accuracy over drill answers whose cards `recordAnswer`
+    /// created: the aorist's two voices are one group; an answer before the
+    /// 30-day window does not count.
+    func testTenseAccuracyFromDrillAnswers() async throws {
+        let since = DailySeries.start(today: today)
+        try await answer(ConjugationFacet(.present, .active), .right, on: since.adding(days: -1), word: "έχω")
+        try await answer(aorist, .right)
+        try await answer(aorist, .wrong)
+        try await answer(ConjugationFacet(.aorist, .passive), .right)
+        try await answer(ConjugationFacet(.present, .active), .wrong, word: "έχω")
+        let accuracy = try await db.tenseAccuracy(since: since, lang: "ell")
+        XCTAssertEqual(accuracy, ["aorist": Tally(answers: 3, right: 2), "present": Tally(answers: 1, right: 0)])
+    }
+
+    /// #163's hardest verbs over drill answers: by verb across its tenses
+    /// and voices, a verb without a mistake left out, and the key shown,
+    /// since a drill verb has no `learn_word` row.
+    func testHardestVerbsFromDrillAnswers() async throws {
+        try await answer(aorist, .wrong)
+        try await answer(ConjugationFacet(.present, .passive), .wrong)
+        try await answer(ConjugationFacet(.present, .active), .right)
+        try await answer(ConjugationFacet(.present, .active), .wrong, word: "έχω")
+        try await answer(ConjugationFacet(.present, .active), .right, word: "είμαι")
+        let verbs = try await db.hardestVerbs(since: DailySeries.start(today: today), lang: "ell")
+        XCTAssertEqual(verbs.map(\.key.word), ["γράφω", "έχω"])
+        XCTAssertEqual(verbs.map(\.tally), [Tally(answers: 3, right: 1), Tally(answers: 1, right: 0)])
+        XCTAssertEqual(verbs.first?.term, "γράφω")
+        XCTAssertNil(verbs.first?.entry)
+    }
+
+    /// The `conjugation` fixture (0132, Test seams), then a drill on it.
+    func testConjugationFixture() async throws {
+        let languages = try await db.writeConjugationFixture(today: today, goal: 20)
+        XCTAssertEqual(languages, ["ell"])
+        let cards = Dictionary(uniqueKeysWithValues: try await drillCards().map { ("\($0.key.word.word) \($0.key.facet)", $0) })
+        XCTAssertEqual(cards.count, 3)
+        let grafoAorist = try XCTUnwrap(cards["γράφω aorist.active"])
+        XCTAssertEqual(grafoAorist.step, 2)
+        XCTAssertEqual(grafoAorist.dueDay, today, "due on rung 2")
+        XCTAssertEqual(grafoAorist.lastDay, today.adding(days: -3))
+        let echoPresent = try XCTUnwrap(cards["έχω present.active"])
+        XCTAssertEqual(echoPresent.step, 0, "in learning")
+        XCTAssertLessThanOrEqual(echoPresent.dueDay, today)
+        let prepei = try XCTUnwrap(cards["πρέπει future.active"])
+        XCTAssertTrue(FixedLadder().isLearned(prepei))
+        XCTAssertGreaterThan(prepei.dueDay, today)
+
+        let since = ConjugationPlanner.accuracySince(today: today).rawValue
+        let tallies = try await rows("""
+            SELECT substr(facet, 1, instr(facet, '.') - 1), COUNT(*), SUM(outcome <> 'wrong') FROM learn_review
+            WHERE day >= '\(since)' GROUP BY 1 ORDER BY 1
+            """)
+        XCTAssertEqual(tallies, ["aorist|10|4", "present|10|9"])
+        let kinds = try await rows("SELECT DISTINCT kind, exercise, mode, introduced FROM learn_review")
+        XCTAssertEqual(kinds, ["conjugation|conjugation|drill|0"])
+        let words = try await rows("SELECT COUNT(*) FROM learn_word")
+        XCTAssertEqual(words, ["0"])
+
+        // A drill on it: the two due cards first, the learned one as practice last.
+        let pool = try PlannerFixture.pool(["γράφω", "έχω", "πρέπει"])
+        let accuracy: [ConjugationTense: ConjugationPlanner.TenseTally] = [
+            .aorist: .init(answers: 10, right: 4), .present: .init(answers: 10, right: 9),
+        ]
+        var rng = PlannerFixture.rng(1)
+        let plan = ConjugationPlanner.session(pool: pool, level: .a1, cards: try await drillCards(),
+                                              accuracy: accuracy, today: today, rng: &rng)
+        XCTAssertEqual(plan.count, pool.map { ConjugationQuestionBuilder.questions(verb: $0, level: .a1).count }
+            .reduce(0, +), "every A1 question of the three verbs")
+        XCTAssertEqual(Set(plan.prefix(2).map { "\($0.verb.word) \($0.facet.rawValue)" }),
+                       ["γράφω aorist.active", "έχω present.active"])
+        XCTAssertEqual(plan.prefix(2).map(\.origin), [.due, .due])
+        let learned = try XCTUnwrap(plan.firstIndex { $0.verb.word == "πρέπει" && $0.facet.tense == .future })
+        XCTAssertEqual(plan[learned].origin, .practice)
+        XCTAssertTrue(plan[..<learned].allSatisfy { $0.origin != .practice })
     }
 }

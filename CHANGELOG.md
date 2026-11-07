@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - [#152] The Greek pack carries Kirill Yukhin's Greek word lists A1, A2 and B1 (4,648 words, 88% linked to a dictionary entry) with frequency ranks from FrequencyWords, so new words come most frequent first. A QA report checks every build, and Credits names both sources.
 - [#163] Learning statistics data: each day keeps the daily goal in force when it ended, and the app computes on the device the streak with up to 3 freezes, today's numbers, the 30-day series, accuracy by direction and tense, the hardest words and verbs, and each list's progress with a forecast.
 - [#167] The Greek conjugation drill gets its question logic: tenses by ΚΕΓ level, the verbs of the checked Greek lists with their meanings in the language of Greek's learning pair, and four real forms of the verb per question with exactly one right. No screen uses it yet.
+- [#169] The conjugation drill gets spaced repetition: one card per verb, tense and voice on the learning ladder, started by its first answer and kept apart from word learning, and 15-question runs with due cards first, weaker tenses more often and a wrong answer asked once more. No screen uses it yet.
 
 ### Changed
 - [#138] Every dictionary is searchable right after install, with no "Preparing dictionaries" bar: the app reads the bundled dictionaries in place and keeps your history, saved words and imports in a small database of their own.
