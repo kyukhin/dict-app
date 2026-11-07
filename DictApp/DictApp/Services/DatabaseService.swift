@@ -1430,7 +1430,9 @@ actor DatabaseService {
     /// (`linkedLemmasSQL`, `chooseLink`, `linkFits`), as `inflection(for:)`
     /// does, also for a word with no verb lemma; then `DrillVerb.make`. Two
     /// words with one verb are one: the lowest level, then the best rank,
-    /// wins. No list: no verb, and nothing is read.
+    /// wins. An active verb whose passive is a list word of its own drops
+    /// that passive (`DrillVerb.droppingSharedPassives`, #169). No list: no
+    /// verb, and nothing is read.
     ///
     /// `meaningsLang` is the meanings language of Greek's pair
     /// (`LearningPair.meaningsLang`, 0131: English for Greek via English and
@@ -1529,7 +1531,7 @@ actor DatabaseService {
                   words.insert(verb.word).inserted else { continue }
             verbs.append(verb)
         }
-        return verbs
+        return DrillVerb.droppingSharedPassives(verbs)
     }
 
     // MARK: - History
@@ -2188,6 +2190,8 @@ actor DatabaseService {
     /// updated, the word's `introduced_day` set on the first answer to one
     /// of its word cards, the log row inserted, and today's `learn_day` row
     /// with `goal`, the current daily goal, unless the day has one (0166).
+    /// A conjugation card (E5, 0132) starts on its first answer: it is
+    /// inserted new, due today, when missing. A word card must exist.
     @discardableResult
     func recordAnswer(_ answer: AnswerRecord, today: LearnDay, goal: Int,
                       scheduler: any Scheduler = FixedLadder()) async throws -> CardState {
@@ -2195,6 +2199,11 @@ actor DatabaseService {
         return try await pool.write { db in
             let key = answer.card
             let keyArguments: StatementArguments = [key.word.lang, key.word.word, key.kind.rawValue, key.facet]
+            if key.kind == .conjugation {
+                try db.execute(sql: """
+                    INSERT OR IGNORE INTO learn_card(lang, word, kind, facet, due_day) VALUES (?, ?, ?, ?, ?)
+                    """, arguments: keyArguments + [today.rawValue])
+            }
             guard let row = try Row.fetchOne(db, sql: """
                 SELECT * FROM learn_card WHERE lang = ? AND word = ? AND kind = ? AND facet = ?
                 """, arguments: keyArguments) else { throw DBError.cardMissing }
@@ -2249,6 +2258,25 @@ actor DatabaseService {
                 """, arguments: [lang, today.rawValue] + StatementArguments(kinds.map(\.rawValue)) + [limit.map { max($0, 0) } ?? -1])
                 .map(Self.cardState)
         }
+    }
+
+    /// Every card of `lang` and `kinds`, paused ones included, by word, kind
+    /// and facet: the drill's planner reads Greek's conjugation cards
+    /// (0132, #169). One query on the `learn_card` primary key.
+    func cards(lang: String, kinds: [CardKind]) async throws -> [CardState] {
+        guard !kinds.isEmpty else { return [] }
+        let pool = try await userPool()
+        return try await read(pool) { db in
+            try Row.fetchAll(db, sql: Self.cardsSQL(kindCount: kinds.count),
+                             arguments: [lang] + StatementArguments(kinds.map(\.rawValue))).map(Self.cardState)
+        }
+    }
+
+    /// `cards(lang:kinds:)`'s query: the language, then `kindCount` kinds.
+    /// `+kind` keeps the kinds a filter, so the rows come in key order with
+    /// no sort, one kind or several.
+    static func cardsSQL(kindCount: Int) -> String {
+        "SELECT * FROM learn_card WHERE lang = ? AND +kind IN (\(placeholders(kindCount))) ORDER BY word, kind, facet"
     }
 
     /// The new pool's first part: words of `lang` in learning, never
@@ -2727,6 +2755,44 @@ actor DatabaseService {
         default:
             return nil
         }
+    }
+    #endif
+
+    #if DEBUG
+    /// The `conjugation` learning fixture (0132, Test seams), relative to
+    /// `today`, through `recordAnswer`: 30 days of drill answers, the aorist
+    /// 4 of 10 right (γράφω) and the present 9 of 10 (έχω), which leave
+    /// γράφω's `aorist.active` due today on rung 2 and έχω's
+    /// `present.active` in learning; and πρέπει's `future.active` learned.
+    /// Each answer's day gets a `learn_day` row with `goal` (0166). Returns
+    /// its languages. The caller also checks `ky-ell-a1` (0131's
+    /// `-learningFixture`, #158).
+    func writeConjugationFixture(today: LearnDay, goal: Int) async throws -> [String] {
+        let wrong = Outcome.wrong, right = Outcome.right
+        let series: [(word: String, facet: String, answers: [(daysAgo: Int, outcome: Outcome)])] = [
+            ("γράφω", "aorist.active", Array(zip([29, 26, 23, 20, 17, 14, 11, 8, 5, 3],
+                                                 [wrong, wrong, right, wrong, wrong, right, wrong, wrong, right, right]))),
+            ("έχω", "present.active", Array(zip([28, 25, 22, 19, 16, 13, 10, 7, 4, 1],
+                                                Array(repeating: right, count: 9) + [wrong]))),
+        ]
+        let persons = ParadigmLayout.Person.allCases.filter { $0 != .firstSingular }
+        for (word, facet, answers) in series {
+            for (index, answer) in answers.enumerated() {
+                let card = CardKey(word: WordKey(lang: "ell", word: word), kind: .conjugation, facet: facet)
+                try await recordAnswer(AnswerRecord(card: card, exercise: .conjugation, mode: .drill, runID: UUID(),
+                                                    outcome: answer.outcome, durationMs: 4_000,
+                                                    detail: persons[index % persons.count].rawValue),
+                                       today: today.adding(days: -answer.daysAgo), goal: goal)
+            }
+        }
+        let pool = try await userPool()
+        try await pool.write { db in
+            try db.execute(sql: """
+                INSERT OR REPLACE INTO learn_card(lang, word, kind, facet, step, due_day, last_day)
+                VALUES ('ell', 'πρέπει', 'conjugation', 'future.active', 5, ?, ?)
+                """, arguments: [today.adding(days: 20).rawValue, today.adding(days: -10).rawValue])
+        }
+        return ["ell"]
     }
     #endif
 
