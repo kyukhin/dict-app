@@ -1,7 +1,7 @@
 // LearnViewModel.swift
 // The Learn tab (0131-learning.md, #158): the pair picker, the Learn home
 // and the interim My words list. The runs: the trainers (#159), the session
-// and mistakes practice (#161).
+// and mistakes practice (#161); match the pairs (#160).
 
 import Foundation
 import SwiftUI
@@ -36,6 +36,8 @@ final class LearnViewModel: ObservableObject {
     @Published private(set) var mistakeCount = 0
     /// My words that resolve, in every language.
     @Published private(set) var myWordsCount = 0
+    /// Match the pairs has its 5 words (#160); else "Learn 5 words first".
+    @Published private(set) var canMatch = false
     /// False until the first load ends, so the picker never flashes before the home.
     @Published private(set) var isLoaded = false
     @Published var errorMessage: String?
@@ -74,6 +76,7 @@ final class LearnViewModel: ObservableObject {
             if learned.isEmpty {
                 today = nil
                 pair = nil
+                canMatch = false
                 pickerRows = LearningPairs.pickerRows(offered: try await db.learningPairs().keys,
                                                       withLists: languagesWithLists, learned: learned,
                                                       uiLanguage: languages.uiLanguage(),
@@ -132,6 +135,7 @@ final class LearnViewModel: ObservableObject {
         guard hasWork else {
             today = languagesWithLists.contains(language) ? .chooseLists : .addWords
             mistakeCount = 0
+            canMatch = false
             return
         }
         let meaningsLang = pair?.meaningsLang
@@ -142,10 +146,13 @@ final class LearnViewModel: ObservableObject {
         let asked = try await db.wordsWithMeaning(dueWords.union(mistakeWords), lang: language,
                                                   meaningsLang: meaningsLang, sourceOrder: sourceOrder)
         let due = dueWords.intersection(asked).count
-        let newLeft = try await NewWordPicker(db: db, settings: settings)
-            .pick(lang: language, meaningsLang: meaningsLang, sourceOrder: sourceOrder, today: day).count
+        let newWords = try await NewWordPicker(db: db, settings: settings)
+            .pick(lang: language, meaningsLang: meaningsLang, sourceOrder: sourceOrder, today: day)
+        let newLeft = newWords.count
         today = due == 0 && newLeft == 0 ? .allDone : .counts(due: due, newLeft: newLeft)
         mistakeCount = mistakeWords.intersection(asked).count
+        canMatch = try await MatchWordPicker(db: db).pick(lang: language, meaningsLang: meaningsLang,
+                                                          sourceOrder: sourceOrder, newWords: newWords) != nil
     }
 
     /// A list of `lang` is checked (`learning_lists`): new words come from it.
@@ -522,6 +529,251 @@ final class ExerciseRunViewModel: ObservableObject {
                 total = plan.count
             }
             errorMessage = nil
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+}
+
+// MARK: - Match the pairs (#160)
+
+/// The words of a round of match the pairs in one language (0131, "Match
+/// the pairs"): the words on the Learning stage, then new words within the
+/// daily limit (`NewWordPicker`'s pick), then the lowest rungs; each with a
+/// meaning in the pair, no two alike (`MatchRound.pick`). Paused words
+/// never. It only reads: a round introduces the list words it takes. The
+/// Learn home asks it whether the trainer is enabled.
+@MainActor
+struct MatchWordPicker {
+    struct Pick: Equatable {
+        /// The round's words.
+        let words: [WordChoice]
+        /// The checked lists' words among them, not in learning yet.
+        let lists: [WordListItem]
+    }
+
+    let db: DatabaseService
+
+    /// nil with fewer than 5 such words.
+    func pick(lang: String, meaningsLang: String?, sourceOrder: [String],
+              newWords: NewWordPicker.Pick) async throws -> Pick? {
+        let enrolled = try await db.wordChoices(lang: lang, meaningsLang: meaningsLang, sourceOrder: sourceOrder)
+        let byKey = Dictionary(enrolled.map { ($0.key, $0) }, uniquingKeysWith: { a, _ in a })
+        // The started words' recognition cards, not paused, the lowest rung
+        // first: rung 0 is the Learning stage.
+        let started = try await db.practiceCards(lang: lang, kind: .recognition, limit: .max)
+        let learning = started.filter { $0.step == 0 }.compactMap { byKey[$0.key.word] }
+        let rungs = started.filter { $0.step > 0 }.compactMap { byKey[$0.key.word] }
+        let pool = newWords.pool.compactMap { byKey[$0.key] }
+        let lists = newWords.lists.compactMap { item in
+            newWords.listMeanings[item.key].map {
+                WordChoice(key: item.key, term: item.term, endings: item.endings, meaning: $0,
+                           partOfSpeech: item.partOfSpeech, listID: item.listID.rawValue, isEnrolled: false)
+            }
+        }
+        guard let words = MatchRound.pick(learning + pool + lists + rungs) else { return nil }
+        let keys = Set(words.map(\.key))
+        return Pick(words: words, lists: newWords.lists.filter { keys.contains($0.key) })
+    }
+}
+
+/// A graded pair: the haptic, the sound and the VoiceOver announcement.
+/// `id` tells two pairs with the same outcome apart.
+struct PairFeedback: Equatable {
+    let id: Int
+    /// `right` for a matched pair, `wrong` for a wrong one.
+    let outcome: Outcome
+}
+
+/// Match the pairs (0131, #160): rounds of five words of the chosen
+/// language and their meanings, with a timer. Each word is one recognition
+/// answer, written the moment its pair is matched, through the trainers'
+/// path (`recordAnswer` with the daily goal, then the reminder's
+/// `answerRecorded`): right if matched at the first try, wrong if it was in
+/// a wrong pair before. A round is 5 items toward the daily goal.
+@MainActor
+final class MatchPairsViewModel: ObservableObject {
+    enum Phase: Equatable {
+        case loading
+        case playing
+        /// All pairs matched: the round's time and mistakes.
+        case finished
+        /// Fewer than 5 words: "Learn 5 words first".
+        case unavailable
+    }
+
+    /// How long a wrong pair flashes red.
+    static let flashDuration: Duration = .milliseconds(600)
+
+    @Published private(set) var phase: Phase = .loading
+    @Published private(set) var round: MatchRound?
+    /// The tiles of the wrong pair flashing red.
+    @Published private(set) var flashing: Set<MatchRound.Tile> = []
+    @Published private(set) var feedback: PairFeedback?
+    /// When the round showed.
+    @Published private(set) var startedAt = Date()
+    /// When its last pair was matched; nil while it runs.
+    @Published private(set) var finishedAt: Date?
+    @Published var errorMessage: String?
+
+    /// The chosen language: a round never mixes languages.
+    let lang: String
+    /// Its pair's meanings language; nil without a pair (Other).
+    let meaningsLang: String?
+    /// `-learningAnswerHints`.
+    let answerHints: Bool
+    /// One per round: its log rows.
+    private(set) var runID = UUID()
+
+    private let db: DatabaseService
+    private let settings: SettingsService
+    private let languages: LearningLanguageService
+    private let clock: LearningClock
+    private let player: FeedbackPlayer
+    /// The answer that reaches today's goal cancels today's reminder (#162).
+    private let reminder: LearningReminder?
+    private var rng: SplitMix64
+    /// The pair's dictionaries first (`LearningLanguageService.sourceOrder`).
+    private var sourceOrder: [String] = []
+    /// The round's start, then the last match: an answer's time runs from it.
+    private var lastMatchAt = Date()
+    /// The answers' writes, one after another.
+    private var writes: Task<Void, Never>?
+    private var feedbackCount = 0
+    private var isStarted = false
+
+    init(lang: String, meaningsLang: String?, db: DatabaseService = .shared, settings: SettingsService = .shared,
+         languages: LearningLanguageService? = nil, clock: LearningClock = LearningClock(),
+         player: FeedbackPlayer? = nil, reminder: LearningReminder? = nil,
+         seed: UInt64? = LearningLaunchOptions.seed, answerHints: Bool = LearningLaunchOptions.answerHints) {
+        self.lang = lang
+        self.meaningsLang = meaningsLang
+        self.db = db
+        self.settings = settings
+        self.languages = languages ?? .shared
+        self.clock = clock
+        self.player = player ?? .shared
+        // As in `ExerciseRunViewModel`: the app's reminder on the app's settings.
+        self.reminder = reminder ?? (settings === SettingsService.shared ? .shared : nil)
+        self.rng = SplitMix64(seed: seed ?? UInt64.random(in: .min ... .max))
+        self.answerHints = answerHints
+    }
+
+    /// The round's time, m:ss on screen: from its start to its last match,
+    /// or to `now` while it runs.
+    func elapsed(at now: Date) -> Duration {
+        .seconds(max(0, Int((finishedAt ?? now).timeIntervalSince(startedAt))))
+    }
+
+    /// The first round.
+    func start() async {
+        guard !isStarted else { return }
+        isStarted = true
+        do {
+            sourceOrder = try await languages.sourceOrder(lang: lang, meaningsLang: meaningsLang)
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+        await newRound()
+    }
+
+    /// Next round: five words picked again, once the answers are written.
+    func nextRound() async {
+        guard phase == .finished else { return }
+        await newRound()
+    }
+
+    /// The haptic of a pair; nil when Haptics is off.
+    func haptic(for outcome: Outcome) -> SensoryFeedback? {
+        player.haptic(for: outcome)
+    }
+
+    /// A tap on a tile. A right pair is matched, with the success haptic and
+    /// sound, and its word's answer written at once; a wrong pair flashes
+    /// red, with the error haptic and sound, and is charged to its word.
+    func tap(_ tile: MatchRound.Tile) async {
+        guard phase == .playing, var round else { return }
+        let result = round.tap(tile)
+        self.round = round
+        switch result {
+        case .ignored:
+            return
+        case .selected:
+            flashing = []
+        case let .mismatched(word, meaning):
+            flashing = Set([round.tiles(of: word)?.word, round.tiles(of: meaning)?.meaning].compactMap { $0 })
+            give(.wrong)
+            let id = feedbackCount
+            Task {
+                try? await Task.sleep(for: Self.flashDuration)
+                if self.feedbackCount == id { self.flashing = [] }
+            }
+        case let .matched(word):
+            flashing = []
+            give(.right)
+            let now = clock.now()
+            let durationMs = min(max(Int(now.timeIntervalSince(lastMatchAt) * 1000), 0), ReviewSummary.durationCapMs)
+            lastMatchAt = now
+            let record = AnswerRecord(card: CardKey(word: round.words[word].key, kind: .recognition), exercise: .match,
+                                      mode: .trainer, runID: runID, outcome: round.outcome(of: word),
+                                      durationMs: durationMs)
+            let today = clock.today
+            let previous = writes
+            let write = Task { await previous?.value; await self.write(record, today: today) }
+            writes = write
+            if round.isComplete {
+                finishedAt = now
+                phase = .finished
+            }
+            await write.value
+        }
+    }
+
+    /// Picks the round's words and introduces the list words among them,
+    /// after the answers so far are written (they count toward the daily
+    /// limit and move the cards).
+    private func newRound() async {
+        await writes?.value
+        phase = .loading
+        round = nil
+        flashing = []
+        finishedAt = nil
+        do {
+            let today = clock.today
+            let newWords = try await NewWordPicker(db: db, settings: settings)
+                .pick(lang: lang, meaningsLang: meaningsLang, sourceOrder: sourceOrder, today: today)
+            guard let pick = try await MatchWordPicker(db: db).pick(lang: lang, meaningsLang: meaningsLang,
+                                                                    sourceOrder: sourceOrder, newWords: newWords) else {
+                phase = .unavailable
+                return
+            }
+            if !pick.lists.isEmpty {
+                try await db.introduce(pick.lists, sourceOrder: sourceOrder, today: today)
+            }
+            round = MatchRound(words: pick.words, rng: &rng)
+            runID = UUID()
+            startedAt = clock.now()
+            lastMatchAt = startedAt
+            errorMessage = nil
+            phase = .playing
+        } catch {
+            errorMessage = error.localizedDescription
+            phase = .unavailable
+        }
+    }
+
+    private func give(_ outcome: Outcome) {
+        feedbackCount += 1
+        feedback = PairFeedback(id: feedbackCount, outcome: outcome)
+        player.play(outcome)
+    }
+
+    /// Writes the answer with the daily goal in force (E10's `learn_day`),
+    /// then lets the reminder cancel today's when the goal is reached.
+    private func write(_ record: AnswerRecord, today: LearnDay) async {
+        do {
+            try await db.recordAnswer(record, today: today, goal: settings.learningDailyGoal)
+            await reminder?.answerRecorded(today: today)
         } catch {
             errorMessage = error.localizedDescription
         }

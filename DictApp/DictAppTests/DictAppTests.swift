@@ -25933,3 +25933,459 @@ final class LearningReminderRunTests: ExerciseTestCase {
         XCTAssertEqual(center.authorizationRequests, 0, "a run never asks for the permission")
     }
 }
+
+// MARK: - Match the pairs (0131, #160)
+
+/// A word for `MatchRound`'s pure tests, Greek unless said.
+private func choice(_ word: String, _ meaning: String, lang: String = "ell") -> WordChoice {
+    WordChoice(key: WordKey(lang: lang, word: word), term: word, meaning: meaning)
+}
+
+extension ExerciseTestCase {
+    /// Match the pairs in `lang` (Greek via English by default) on this
+    /// case's services, with answer hints and a fixed seed.
+    func matchPairs(lang: String = "ell", meaningsLang: String? = "eng", clock: TestClock = TestClock("2026-11-04T12:00:00Z"),
+                    sink: RecordingFeedbackSink? = nil, reminder: LearningReminder? = nil) -> MatchPairsViewModel {
+        MatchPairsViewModel(lang: lang, meaningsLang: meaningsLang, db: db, settings: settings, languages: languages,
+                            clock: clock.clock, player: FeedbackPlayer(settings: settings, sink: sink ?? RecordingFeedbackSink()),
+                            reminder: reminder,
+                            seed: 160, answerHints: true)
+    }
+
+    /// Taps the word tile of `words[word]`, then the meaning tile of
+    /// `words[meaning]`: a right pair when the two are equal.
+    func tapPair(_ vm: MatchPairsViewModel, word: Int, meaning: Int,
+                 file: StaticString = #filePath, line: UInt = #line) async throws {
+        let round = try XCTUnwrap(vm.round, "a round", file: file, line: line)
+        let wordTile = try XCTUnwrap(round.tiles(of: word), file: file, line: line).word
+        let meaningTile = try XCTUnwrap(round.tiles(of: meaning), file: file, line: line).meaning
+        await vm.tap(wordTile)
+        await vm.tap(meaningTile)
+    }
+
+    /// The `words` index of `word` in the running round.
+    func index(of word: String, in vm: MatchPairsViewModel, file: StaticString = #filePath, line: UInt = #line) throws -> Int {
+        try XCTUnwrap(vm.round?.words.firstIndex { $0.key.word == word }, "\(word) in the round", file: file, line: line)
+    }
+}
+
+/// `MatchRound` (pure): the pick, the columns and the taps; and the words a
+/// round takes from the store (`MatchWordPicker`).
+final class MatchRoundTests: ExerciseTestCase {
+    private let five = [choice("γράφω", "write"), choice("σπίτι", "house, home, habitation"), choice("νερό", "water"),
+                        choice("καλός", "good"), choice("είμαι", "be, exist")]
+
+    private func makeRound(seed: UInt64 = 160) -> MatchRound {
+        var rng = SplitMix64(seed: seed)
+        return MatchRound(words: five, rng: &rng)
+    }
+
+    /// Five words of the chosen language only: Greek in learning next to
+    /// English words; English with its two words has no round.
+    func testRoundPicksFiveWordsOfOneLanguage() async throws {
+        for word in ["γράφω", "σπίτι", "νερό", "καλός", "είμαι", "βιβλίο"] {
+            try await db.learnWord(greek(word), today: today)
+        }
+        for word in ["house", "water"] {
+            try await db.learnWord(EntryKey(source: wordnet, word: word), today: today)
+        }
+        let vm = matchPairs()
+        await vm.start()
+        XCTAssertNil(vm.errorMessage)
+        XCTAssertEqual(vm.phase, .playing)
+        let words = try XCTUnwrap(vm.round?.words)
+        XCTAssertEqual(words.count, MatchRound.size)
+        XCTAssertTrue(words.allSatisfy { $0.key.lang == "ell" }, "\(words.map(\.term))")
+        let english = ExerciseFixture.meanings(in: fd)
+        for word in words {
+            XCTAssertEqual(word.meaning, english[word.term], "\(word.term)'s meaning, in English")
+        }
+
+        let englishRound = matchPairs(lang: "eng", meaningsLang: "eng")
+        await englishRound.start()
+        XCTAssertEqual(englishRound.phase, .unavailable, "house and water only")
+        XCTAssertNil(englishRound.round)
+    }
+
+    /// The order of the words: the Learning stage first, then new words
+    /// within the daily limit (My words, then the checked lists), then the
+    /// lowest rungs. Only the list words taken get their rows.
+    func testWordsComeLearningThenNewThenLowestRungs() async throws {
+        for word in ["γράφω", "σπίτι", "νερό", "καλός", "είμαι", "βιβλίο"] {
+            try await db.learnWord(greek(word), today: today)
+        }
+        let yesterday = today.adding(days: -1), before = today.adding(days: -2)
+        for (word, step, last) in [("γράφω", 0, yesterday), ("σπίτι", 0, yesterday), ("νερό", 2, yesterday),
+                                   ("καλός", 1, yesterday), ("είμαι", 3, yesterday), ("βιβλίο", 1, before)] {
+            try await setCard(WordKey(lang: "ell", word: word), .recognition, step: step,
+                              due: step == 0 ? yesterday : today.adding(days: 3), last: last)
+        }
+        try await db.learnWord(greek("ουσία0"), today: today)
+        let terms = ["θάλασσα", "ήλιος", "ψωμί", "φίλος", "δέντρο", "πόλη"]
+        try await WordListFixture.saveUserList("user-1", title: "Greek", lang: "ell", createdAt: "2026-11-01 10:00:00",
+                                               items: terms.enumerated().map { .init(term: $1, translation: "t\($0)", seq: $0) })
+        settings.learningListIDs = ["user-1"]
+        settings.learningNewPerDay = 2
+        let next = try await db.nextNewWords(in: "ell", from: ["user-1"], count: 1, excluding: try await db.enrolledKeys(),
+                                             order: .frequency)
+        let firstListWord = try XCTUnwrap(next.first)
+
+        let vm = matchPairs()
+        await vm.start()
+        XCTAssertNil(vm.errorMessage)
+        XCTAssertEqual(vm.round?.words.map(\.key.word),
+                       ["γράφω", "σπίτι", "ουσία0", firstListWord.key.word, "βιβλίο"],
+                       "Learning, then 2 new words (the limit), then the lowest rung, the oldest answer first")
+        let listRows = try await rows("SELECT word, list_id FROM learn_word WHERE list_id IS NOT NULL")
+        XCTAssertEqual(listRows, ["\(firstListWord.key.word)|user-1"], "only the list word taken is introduced")
+        let cards = try await count("SELECT COUNT(*) FROM learn_card WHERE word = '\(firstListWord.key.word)'")
+        XCTAssertEqual(cards, 2)
+    }
+
+    /// A wrong pair is charged to the word whose tile is in the word
+    /// column, whichever was tapped first; matched later, that word is a
+    /// wrong answer and the others right.
+    func testWrongPairIsChargedToTheWord() throws {
+        var round = makeRound()
+        let (spitiWord, spitiMeaning) = try XCTUnwrap(round.tiles(of: 1))
+        let (_, neroMeaning) = try XCTUnwrap(round.tiles(of: 2))
+        let (grafoWord, _) = try XCTUnwrap(round.tiles(of: 0))
+
+        XCTAssertEqual(round.tap(neroMeaning), .selected, "the meaning first")
+        XCTAssertEqual(round.tap(spitiWord), .mismatched(word: 1, meaning: 2))
+        XCTAssertEqual(round.mistaken, [1], "σπίτι's tile is in the word column")
+        XCTAssertNil(round.selection)
+
+        XCTAssertEqual(round.tap(grafoWord), .selected, "the word first")
+        XCTAssertEqual(round.tap(spitiMeaning), .mismatched(word: 0, meaning: 1))
+        XCTAssertEqual(round.mistaken, [0, 1], "now γράφω, whose tile is in the word column")
+        XCTAssertEqual(round.mistakes, 2)
+
+        XCTAssertEqual(round.tap(spitiMeaning), .selected)
+        XCTAssertEqual(round.tap(spitiWord), .matched(word: 1))
+        XCTAssertEqual(round.outcome(of: 1), .wrong, "it was in a wrong pair before")
+        XCTAssertEqual(round.tap(spitiWord), .ignored, "a matched tile")
+        for index in 2..<5 {
+            let tiles = try XCTUnwrap(round.tiles(of: index))
+            XCTAssertEqual(round.tap(tiles.word), .selected)
+            XCTAssertEqual(round.tap(tiles.meaning), .matched(word: index))
+            XCTAssertEqual(round.outcome(of: index), .right, "matched at the first try")
+        }
+        XCTAssertFalse(round.isComplete)
+        let grafo = try XCTUnwrap(round.tiles(of: 0))
+        XCTAssertEqual(round.tap(grafo.meaning), .selected)
+        XCTAssertEqual(round.tap(grafo.word), .matched(word: 0))
+        XCTAssertEqual(round.outcome(of: 0), .wrong)
+        XCTAssertTrue(round.isComplete)
+        XCTAssertEqual(round.mistakes, 2)
+    }
+
+    /// Tapping the selected tile again deselects it; a tile of the same
+    /// column replaces it; a position out of range does nothing.
+    func testSelectionInEitherColumn() throws {
+        var round = makeRound()
+        let first = try XCTUnwrap(round.tiles(of: 0)), second = try XCTUnwrap(round.tiles(of: 1))
+        XCTAssertEqual(round.tap(first.word), .selected)
+        XCTAssertEqual(round.selection, first.word)
+        XCTAssertEqual(round.tap(first.word), .selected)
+        XCTAssertNil(round.selection, "a second tap deselects")
+        XCTAssertEqual(round.tap(first.meaning), .selected)
+        XCTAssertEqual(round.tap(second.meaning), .selected)
+        XCTAssertEqual(round.selection, second.meaning, "the same column: the new tile")
+        XCTAssertEqual(round.tap(.word(5)), .ignored)
+        XCTAssertEqual(round.tap(.meaning(-1)), .ignored)
+        XCTAssertEqual(round.tap(second.word), .matched(word: 1))
+        XCTAssertEqual(round.mistakes, 0)
+    }
+
+    /// Each column is a shuffle of the five words, by the seed; the
+    /// meanings never stand row by row next to their words.
+    func testColumnsAreShuffled() {
+        var orders = Set<[Int]>()
+        for seed in UInt64(0)..<40 {
+            let round = makeRound(seed: seed)
+            XCTAssertEqual(round.wordColumn.sorted(), [0, 1, 2, 3, 4])
+            XCTAssertEqual(round.meaningColumn.sorted(), [0, 1, 2, 3, 4])
+            XCTAssertNotEqual(round.wordColumn, round.meaningColumn, "seed \(seed)")
+            orders.insert(round.wordColumn)
+        }
+        XCTAssertGreaterThan(orders.count, 10, "shuffled")
+        XCTAssertEqual(makeRound(seed: 7), makeRound(seed: 7), "the same seed, the same round")
+    }
+
+    /// No two meanings alike: a shared comma-separated part, folded, or a
+    /// term folding like another's, is left out for the next candidate; a
+    /// word without a meaning too.
+    func testMeaningsAreDistinct() throws {
+        let candidates = [choice("σπίτι", "house, home, habitation"), choice("οικία", "Home, residence"),
+                          choice("γράφω", "write"), choice("γραφω", "to write down"), choice("κενό", ""),
+                          choice("νερό", "water"), choice("νερό", "water, again"), choice("καλός", "good"),
+                          choice("είμαι", "be, exist"), choice("βιβλίο", "book")]
+        let picked = try XCTUnwrap(MatchRound.pick(candidates))
+        XCTAssertEqual(picked.map(\.term), ["σπίτι", "γράφω", "νερό", "καλός", "είμαι"])
+        XCTAssertNil(MatchRound.pick(Array(candidates.prefix(8))), "four that differ: no round")
+    }
+
+    /// In the store: two words that share a meaning are one too few.
+    func testWordsSharingAMeaningAreNotARound() async throws {
+        for word in ["γράφω", "σπίτι", "νερό", "καλός"] {
+            try await db.learnWord(greek(word), today: today)
+        }
+        try await insertListWord("οικία", translation: "home", translationLang: "eng")
+        let vm = matchPairs()
+        await vm.start()
+        XCTAssertEqual(vm.phase, .unavailable, "οικία's home is σπίτι's")
+        try await insertListWord("ψωμί", translation: "bread", translationLang: "eng")
+        let again = matchPairs()
+        await again.start()
+        XCTAssertEqual(again.phase, .playing)
+        let terms = Set(again.round?.words.map(\.term) ?? [])
+        XCTAssertEqual(terms.count, MatchRound.size)
+        XCTAssertFalse(terms.contains("οικία") && terms.contains("σπίτι"), "never both: \(terms)")
+    }
+
+    /// Fewer than 5 words: no round, and the Learn home disables the
+    /// trainer; paused words do not count; the fifth word enables it.
+    func testNeedsFiveWords() async throws {
+        XCTAssertNil(MatchRound.pick(Array(five.prefix(4))))
+        XCTAssertEqual(MatchRound.pick(five), five)
+
+        settings.learningLanguages = ["ell"]
+        for word in ["γράφω", "σπίτι", "νερό", "καλός", "είμαι"] {
+            try await db.learnWord(greek(word), today: today)
+        }
+        try await db.stopLearning(greek("είμαι"))
+        let home = LearnViewModel(settings: settings, languages: languages)
+        await home.load(locale: Locale(identifier: "en"))
+        XCTAssertNil(home.errorMessage)
+        XCTAssertTrue(home.canTrain)
+        XCTAssertFalse(home.canMatch, "4 words: είμαι is paused")
+        let vm = matchPairs()
+        await vm.start()
+        XCTAssertEqual(vm.phase, .unavailable)
+
+        try await db.learnWord(greek("βιβλίο"), today: today)
+        await home.load(locale: Locale(identifier: "en"))
+        XCTAssertTrue(home.canMatch)
+        let ready = matchPairs()
+        await ready.start()
+        XCTAssertEqual(ready.phase, .playing)
+    }
+}
+
+/// `MatchPairsViewModel`: each matched word is one recognition answer,
+/// written at once through the trainers' path.
+final class MatchPairsViewModelTests: ExerciseTestCase {
+    /// `-learningFixture due`: one wrong pair, then all five right. Five log
+    /// rows, exercise `match`, one `wrong`; the recognition cards move as
+    /// the ladder says, the production cards stay. Each answer's time runs
+    /// from the previous match, or the round's start, capped at 60 s. The
+    /// sounds follow the pairs; Next round asks the wrong word first.
+    func testEachWordLogsOneRecognitionAnswer() async throws {
+        _ = try await db.writeLearningFixture("due", today: today)
+        let production = try await rows("SELECT * FROM learn_card WHERE kind = 'production' ORDER BY word")
+        let clock = TestClock("2026-11-04T12:00:00Z")
+        let sink = RecordingFeedbackSink()
+        let vm = matchPairs(clock: clock, sink: sink)
+        await vm.start()
+        XCTAssertEqual(vm.phase, .playing)
+        XCTAssertEqual(vm.round?.words.map(\.key.word), ["γράφω", "καλός", "είμαι", "σπίτι", "νερό"],
+                       "the lowest rungs first, the oldest answer first; βιβλίο, learned, not needed")
+        let grafo = try index(of: "γράφω", in: vm), kalos = try index(of: "καλός", in: vm)
+
+        clock.advance(2)
+        try await tapPair(vm, word: grafo, meaning: kalos)
+        XCTAssertEqual(vm.feedback?.outcome, .wrong)
+        XCTAssertEqual(vm.flashing.count, 2, "the wrong pair flashes")
+        XCTAssertEqual(vm.round?.mistaken, [grafo])
+        let none = try await count("SELECT COUNT(*) FROM learn_review")
+        XCTAssertEqual(none, 0, "a wrong pair writes nothing")
+
+        clock.advance(3)
+        try await tapPair(vm, word: kalos, meaning: kalos)
+        XCTAssertEqual(vm.feedback?.outcome, .right)
+        XCTAssertEqual(vm.flashing, [])
+        let first = try await rows("SELECT word, duration_ms FROM learn_review")
+        XCTAssertEqual(first, ["καλός|5000"], "written at once, timed from the round's start")
+        for (word, seconds) in [("γράφω", 70.0), ("είμαι", 1.5), ("σπίτι", 1), ("νερό", 1)] {
+            clock.advance(seconds)
+            let index = try index(of: word, in: vm)
+            try await tapPair(vm, word: index, meaning: index)
+        }
+        XCTAssertEqual(vm.phase, .finished)
+        XCTAssertEqual(vm.round?.mistakes, 1)
+        XCTAssertEqual(vm.elapsed(at: clock.date.addingTimeInterval(100)), .seconds(78), "the time stops at the last match")
+
+        let log = try await rows("""
+            SELECT word, kind, exercise, mode, run_id, outcome, step_before, step_after, duration_ms FROM learn_review ORDER BY id
+            """)
+        let run = vm.runID.uuidString
+        XCTAssertEqual(log, ["καλός|recognition|match|trainer|\(run)|right|1|2|5000",
+                             "γράφω|recognition|match|trainer|\(run)|wrong|1|0|60000",
+                             "είμαι|recognition|match|trainer|\(run)|right|2|3|1500",
+                             "σπίτι|recognition|match|trainer|\(run)|right|2|3|1000",
+                             "νερό|recognition|match|trainer|\(run)|right|3|4|1000"])
+        let cards = try await rows("SELECT word, step, due_day, last_day FROM learn_card WHERE kind = 'recognition' ORDER BY word")
+        XCTAssertEqual(cards, ["βιβλίο|5|2026-11-24|2026-10-25", "γράφω|0|2026-11-04|2026-11-04",
+                               "είμαι|3|2026-11-11|2026-11-04", "καλός|2|2026-11-07|2026-11-04",
+                               "νερό|4|2026-11-18|2026-11-04", "σπίτι|3|2026-11-11|2026-11-04"])
+        let productionAfter = try await rows("SELECT * FROM learn_card WHERE kind = 'production' ORDER BY word")
+        XCTAssertEqual(productionAfter, production, "the production cards are untouched")
+        let goal = try await rows("SELECT day, goal FROM learn_day")
+        XCTAssertEqual(goal, ["2026-11-04|20"], "the answers write the day's goal")
+        let answered = try await db.answeredCount(on: today)
+        XCTAssertEqual(answered, 5, "a round is 5 items toward the goal")
+        XCTAssertEqual(sink.played, [.wrong, .right, .right, .right, .right, .right])
+
+        let firstRun = vm.runID
+        await vm.nextRound()
+        XCTAssertEqual(vm.phase, .playing)
+        XCTAssertNotEqual(vm.runID, firstRun, "one run per round")
+        XCTAssertEqual(vm.round?.words.first?.key.word, "γράφω", "back to learning: first")
+        XCTAssertEqual(vm.round?.mistakes, 0)
+        XCTAssertNil(vm.finishedAt)
+    }
+
+    /// A list word a round takes is new: its answer starts it and counts
+    /// toward the daily limit.
+    func testNewWordIsStartedByItsMatch() async throws {
+        for word in ["γράφω", "σπίτι", "νερό", "καλός"] {
+            try await db.learnWord(greek(word), today: today)
+        }
+        try await WordListFixture.saveUserList("user-1", title: "Greek", lang: "ell", createdAt: "2026-11-01 10:00:00",
+                                               items: [.init(term: "ψωμί", translation: "bread", seq: 0)])
+        settings.learningListIDs = ["user-1"]
+        let vm = matchPairs()
+        await vm.start()
+        let words = try XCTUnwrap(vm.round?.words)
+        XCTAssertEqual(words.last?.term, "ψωμί")
+        XCTAssertEqual(words.last?.meaning, "bread")
+        for index in words.indices {
+            try await tapPair(vm, word: index, meaning: index)
+        }
+        XCTAssertEqual(vm.phase, .finished)
+        let introduced = try await rows("SELECT word FROM learn_review WHERE introduced = 1 ORDER BY word")
+        XCTAssertEqual(introduced, ["γράφω", "καλός", "νερό", "σπίτι", "ψωμί"].sorted())
+        let started = try await db.startedCount(on: today, lang: "ell")
+        XCTAssertEqual(started, 5)
+    }
+
+    /// Haptics follow the setting; nothing happens before the round or on a
+    /// finished one.
+    func testHapticsAndTapsOutsideARound() async throws {
+        _ = try await db.writeLearningFixture("due", today: today)
+        let vm = matchPairs()
+        await vm.tap(.word(0))
+        XCTAssertNil(vm.round)
+        XCTAssertEqual(vm.haptic(for: .right), .success)
+        XCTAssertEqual(vm.haptic(for: .wrong), .error)
+        settings.learningHaptics = false
+        XCTAssertNil(vm.haptic(for: .right))
+        await vm.start()
+        for index in 0..<MatchRound.size {
+            try await tapPair(vm, word: index, meaning: index)
+        }
+        XCTAssertEqual(vm.phase, .finished)
+        await vm.tap(.word(0))
+        let rowsAfter = try await count("SELECT COUNT(*) FROM learn_review")
+        XCTAssertEqual(rowsAfter, 5)
+    }
+
+    /// QA #160: a round introduces only the list words it shows; the other
+    /// new words the daily limit allows get no row.
+    func testRoundIntroducesOnlyTheListWordsItTakes() async throws {
+        for word in ["γράφω", "σπίτι", "νερό"] {
+            try await db.learnWord(greek(word), today: today)
+        }
+        let terms = ["θάλασσα", "ήλιος", "ψωμί", "φίλος", "δέντρο", "πόλη"]
+        try await WordListFixture.saveUserList("user-1", title: "Greek", lang: "ell", createdAt: "2026-11-01 10:00:00",
+                                               items: terms.enumerated().map { .init(term: $1, translation: "t\($0)", seq: $0) })
+        settings.learningListIDs = ["user-1"]
+        let vm = matchPairs()
+        await vm.start()
+        XCTAssertEqual(vm.phase, .playing)
+        let taken = try XCTUnwrap(vm.round?.words).filter { $0.listID == "user-1" }.map(\.key.word)
+        XCTAssertEqual(taken.count, 2, "3 My words, then 2 list words of the 6 the limit of 10 allows")
+        let listRows = try await rows("SELECT word FROM learn_word WHERE list_id IS NOT NULL")
+        XCTAssertEqual(Set(listRows), Set(taken))
+        XCTAssertEqual(listRows.count, 2)
+    }
+
+    /// QA #160: a wrong pair flashes the two tiles tapped, the word's and
+    /// the other word's meaning, for a moment; both stay on the board.
+    func testWrongPairFlashesItsTwoTilesForAMoment() async throws {
+        _ = try await db.writeLearningFixture("due", today: today)
+        let vm = matchPairs()
+        await vm.start()
+        let round = try XCTUnwrap(vm.round)
+        let grafo = try index(of: "γράφω", in: vm), kalos = try index(of: "καλός", in: vm)
+        try await tapPair(vm, word: grafo, meaning: kalos)
+        let tapped: Set<MatchRound.Tile> = [try XCTUnwrap(round.tiles(of: grafo)).word,
+                                            try XCTUnwrap(round.tiles(of: kalos)).meaning]
+        XCTAssertEqual(vm.flashing, tapped, "the word tapped and the meaning tapped")
+        let deadline = Date().addingTimeInterval(3)
+        while !vm.flashing.isEmpty && Date() < deadline {
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        XCTAssertEqual(vm.flashing, [], "the flash ends")
+        XCTAssertEqual(vm.round?.matched, [], "a wrong pair stays on the board")
+        XCTAssertEqual(vm.phase, .playing)
+    }
+
+    /// QA #160: each match reads the learning day at its answer, as the
+    /// trainers do (0131, Runs): a match after 4 AM counts for the new day,
+    /// its log row and the word's `introduced_day`.
+    func testMatchAcrossFourAMUsesEachAnswersDay() async throws {
+        for word in ["γράφω", "σπίτι", "νερό", "καλός", "είμαι"] {
+            try await db.learnWord(greek(word), today: today)
+        }
+        let clock = TestClock("2026-11-05T03:58:00Z")
+        let vm = matchPairs(clock: clock)
+        await vm.start()
+        XCTAssertEqual(vm.phase, .playing)
+        let words = try XCTUnwrap(vm.round?.words).map(\.key.word)
+        clock.set("2026-11-05T03:59:00Z")
+        try await tapPair(vm, word: 0, meaning: 0)
+        clock.set("2026-11-05T04:01:00Z")
+        for index in 1..<words.count {
+            try await tapPair(vm, word: index, meaning: index)
+        }
+        XCTAssertEqual(vm.phase, .finished)
+        let log = try await rows("SELECT word, day FROM learn_review ORDER BY id")
+        XCTAssertEqual(log, ["\(words[0])|2026-11-04"] + words.dropFirst().map { "\($0)|2026-11-05" })
+        let introduced = try await rows("SELECT introduced_day, COUNT(*) FROM learn_word GROUP BY introduced_day ORDER BY 1")
+        XCTAssertEqual(introduced, ["2026-11-04|1", "2026-11-05|4"])
+    }
+}
+
+extension LearningReminderRunTests {
+    /// Match the pairs answers through the trainers' path: the pair that
+    /// reaches the goal cancels today's reminder.
+    func testMatchReachingTheGoalCancelsToday() async throws {
+        for word in ["γράφω", "σπίτι", "νερό", "καλός", "είμαι"] {
+            try await db.learnWord(greek(word), today: today)
+        }
+        settings.learningDailyGoal = 5
+        settings.learningReminder = 19 * 60
+        let center = FakeNotificationCenter()
+        let clock = TestClock("2026-11-04T12:00:00Z")
+        let reminder = LearningReminder(center: center, settings: settings, db: db, clock: clock.clock,
+                                        locale: { Locale(identifier: "en") })
+        await reminder.reschedule()
+        let todays = LearningReminder.identifierPrefix + today.rawValue
+        XCTAssertTrue(center.requests.contains { $0.identifier == todays })
+
+        let vm = matchPairs(clock: clock, reminder: reminder)
+        await vm.start()
+        for index in 0..<4 {
+            try await tapPair(vm, word: index, meaning: index)
+        }
+        XCTAssertTrue(center.requests.contains { $0.identifier == todays }, "4 of 5: today's reminder stays")
+        try await tapPair(vm, word: 4, meaning: 4)
+        XCTAssertFalse(center.requests.contains { $0.identifier == todays }, "the 5th pair cancels today's")
+        XCTAssertEqual(center.reminders.count, 6, "the next 6 days stay")
+        XCTAssertEqual(center.authorizationRequests, 0)
+        let goal = try await rows("SELECT day, goal FROM learn_day")
+        XCTAssertEqual(goal, ["2026-11-04|5"], "the answers write the goal in force, not the default")
+    }
+}

@@ -3,8 +3,8 @@
 // the run screen with its close button and progress bar, the three
 // questions, the feedback bar and the summary. The views render the
 // questions and states `ExerciseRunViewModel` gives them; the summary of a
-// trainer, the session and mistakes practice (#161). #160 adds
-// `MatchPairsView`.
+// trainer, the session and mistakes practice (#161). Match the pairs
+// (`MatchPairsView`, #160).
 
 import SwiftUI
 
@@ -572,5 +572,304 @@ struct RunSummaryView: View {
         } label: {
             Text(title)
         }
+    }
+}
+
+// MARK: - Match the pairs (#160)
+
+/// Match the pairs, in a `fullScreenCover`: the close button and the timer,
+/// then the words and their meanings in two columns, the words on the
+/// leading side (the right in Arabic). A tap selects a tile, a tap in the
+/// other column grades the pair: a right pair disappears, a wrong one
+/// flashes red with a cross. At the end, the round's time and mistakes,
+/// with Next round and Done. The content is at most 600 pt wide, centred.
+struct MatchPairsView: View {
+    @StateObject private var vm: MatchPairsViewModel
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.locale) private var locale
+
+    init(lang: String, meaningsLang: String?) {
+        _vm = StateObject(wrappedValue: MatchPairsViewModel(lang: lang, meaningsLang: meaningsLang))
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            header
+            content
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .background(Color(.systemBackground))
+        .sensoryFeedback(trigger: vm.feedback) { _, feedback in
+            feedback.flatMap { vm.haptic(for: $0.outcome) }
+        }
+        .onChange(of: vm.feedback) { _, feedback in
+            guard let feedback else { return }
+            let key = feedback.outcome.isRight ? "match.a11y.matched" : "match.a11y.notAPair"
+            let bundle = SettingsViewModel.localizedBundle(for: locale)
+            AccessibilityNotification.Announcement(bundle.localizedString(forKey: key, value: key, table: nil)).post()
+        }
+        .task {
+            await vm.start()
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("match_view")
+    }
+
+    private var header: some View {
+        HStack(spacing: 16) {
+            Button {
+                dismiss()
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.title3.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .frame(minWidth: 44, minHeight: 44)
+            }
+            .accessibilityLabel(Text("exercise.close"))
+            .accessibilityIdentifier("exercise_close")
+            Spacer()
+            if vm.phase == .playing || vm.phase == .finished {
+                TimelineView(.periodic(from: vm.startedAt, by: 1)) { context in
+                    let elapsed = vm.elapsed(at: context.date)
+                    Label {
+                        Text(elapsed, format: .time(pattern: .minuteSecond))
+                    } icon: {
+                        Image(systemName: "timer")
+                    }
+                    .font(.headline.monospacedDigit())
+                    .foregroundStyle(.secondary)
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel(Text("match.time"))
+                    .accessibilityValue(Text(elapsed, format: .time(pattern: .minuteSecond)))
+                    .accessibilityAddTraits(.updatesFrequently)
+                    .accessibilityIdentifier("match_timer")
+                }
+            }
+        }
+        .padding(.horizontal)
+        .padding(.top, 8)
+        .frame(maxWidth: ExerciseRunView.maxWidth)
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        switch vm.phase {
+        case .loading:
+            ProgressView()
+        case .unavailable:
+            ContentUnavailableView {
+                Label("learn.trainer.match.disabled \(MatchRound.size)", systemImage: "square.grid.2x2")
+            } description: {
+                if let error = vm.errorMessage {
+                    Text(error)
+                }
+            }
+        case .playing:
+            if let round = vm.round {
+                board(round)
+            }
+        case .finished:
+            MatchResultView(time: vm.elapsed(at: Date()), mistakes: vm.round?.mistakes ?? 0) {
+                Task { await vm.nextRound() }
+            } onDone: {
+                dismiss()
+            }
+            .frame(maxWidth: ExerciseRunView.maxWidth)
+        }
+    }
+
+    /// The two columns, each tile as tall as the others of its column.
+    private func board(_ round: MatchRound) -> some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 20) {
+                Text("match.prompt")
+                    .font(.title2.bold())
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityAddTraits(.isHeader)
+                HStack(alignment: .top, spacing: 12) {
+                    column(round, words: true)
+                    column(round, words: false)
+                }
+                .fixedSize(horizontal: false, vertical: true)
+                .animation(.easeOut(duration: 0.2), value: round)
+                .animation(.easeOut(duration: 0.2), value: vm.flashing)
+                if let error = vm.errorMessage {
+                    Text(error)
+                        .font(.footnote)
+                        .foregroundStyle(.red)
+                }
+            }
+            .padding()
+            .frame(maxWidth: ExerciseRunView.maxWidth, alignment: .leading)
+            .frame(maxWidth: .infinity)
+        }
+    }
+
+    /// The words (`match_word_0…4`) or the meanings (`match_meaning_0…4`),
+    /// top to bottom. A matched tile keeps its place, hidden.
+    private func column(_ round: MatchRound, words: Bool) -> some View {
+        let order = words ? round.wordColumn : round.meaningColumn
+        return VStack(spacing: 12) {
+            ForEach(Array(order.enumerated()), id: \.offset) { position, index in
+                let tile: MatchRound.Tile = words ? .word(position) : .meaning(position)
+                let word = round.words[index]
+                MatchTile(text: words ? word.term : word.meaning, endings: words ? word.endings : "",
+                          lang: words ? word.key.lang : vm.meaningsLang, mark: mark(of: tile, index, in: round),
+                          value: hint(for: tile, index, in: round),
+                          identifier: words ? "match_word_\(position)" : "match_meaning_\(position)") {
+                    Task { await vm.tap(tile) }
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(Text(words ? "match.words" : "match.meanings"))
+    }
+
+    private func mark(of tile: MatchRound.Tile, _ index: Int, in round: MatchRound) -> MatchTile.Mark {
+        if round.matched.contains(index) { return .matched }
+        if vm.flashing.contains(tile) { return .wrong }
+        return round.selection == tile ? .selected : .open
+    }
+
+    /// `-learningAnswerHints`: while a tile is selected, its pair in the
+    /// other column has the value `answer`.
+    private func hint(for tile: MatchRound.Tile, _ index: Int, in round: MatchRound) -> Text {
+        guard vm.answerHints, let selected = round.selection, selected.isWord != tile.isWord,
+              round.word(at: selected) == index else { return Text(verbatim: "") }
+        return Text(verbatim: "answer")
+    }
+}
+
+/// A tile: a word with its endings, or a meaning. Selected, it has a
+/// thicker accent border and VoiceOver's "Selected"; a wrong pair's tiles
+/// turn red with a cross; a matched tile fades out, keeping its place, and
+/// leaves VoiceOver.
+private struct MatchTile: View {
+    enum Mark {
+        case open, selected, wrong, matched
+    }
+
+    let text: String
+    let endings: String
+    /// The text's language, for VoiceOver's voice; nil: the UI language's.
+    let lang: String?
+    let mark: Mark
+    /// The accessibility value: `answer` under `-learningAnswerHints`.
+    let value: Text
+    let identifier: String
+    let action: () -> Void
+
+    var body: some View {
+        if mark == .matched {
+            // Not a button any more: hidden from sight and from VoiceOver.
+            face
+                .hidden()
+                .accessibilityHidden(true)
+        } else {
+            Button(action: action) {
+                face
+            }
+            .buttonStyle(.plain)
+            .accessibilityValue(value)
+            .accessibilityAddTraits(mark == .selected ? .isSelected : [])
+            .accessibilityIdentifier(identifier)
+        }
+    }
+
+    private var face: some View {
+        HStack(spacing: 6) {
+            LearnWordText(term: text, endings: endings, lang: lang)
+                .font(.body)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+            if mark == .wrong {
+                Image(systemName: "xmark.circle.fill")
+                    .foregroundStyle(.red)
+                    .accessibilityHidden(true)
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 12)
+        .frame(maxWidth: .infinity, minHeight: 52, maxHeight: .infinity)
+        .background(RoundedRectangle(cornerRadius: 12).fill(fill))
+        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(tint, lineWidth: mark == .open ? 1 : 2))
+        .contentShape(RoundedRectangle(cornerRadius: 12))
+    }
+
+    private var tint: Color {
+        switch mark {
+        case .selected: return .accentColor
+        case .wrong: return .red
+        case .open, .matched: return Color(.separator)
+        }
+    }
+
+    private var fill: Color {
+        switch mark {
+        case .selected: return Color.accentColor.opacity(0.15)
+        case .wrong: return .red.opacity(0.15)
+        case .open, .matched: return Color(.secondarySystemBackground)
+        }
+    }
+}
+
+/// The end of a round: its time and mistakes, Next round and Done.
+private struct MatchResultView: View {
+    let time: Duration
+    let mistakes: Int
+    let onNextRound: () -> Void
+    let onDone: () -> Void
+
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 24) {
+                Image(systemName: "checkmark.seal.fill")
+                    .font(.system(size: 56))
+                    .foregroundStyle(.green)
+                    .accessibilityHidden(true)
+                Text("match.result.title")
+                    .font(.title.bold())
+                    .multilineTextAlignment(.center)
+                    .accessibilityAddTraits(.isHeader)
+                VStack(spacing: 12) {
+                    LabeledContent {
+                        Text(time, format: .time(pattern: .minuteSecond))
+                            .monospacedDigit()
+                            .accessibilityIdentifier("match_result_time")
+                    } label: {
+                        Text("match.time")
+                    }
+                    LabeledContent {
+                        Text(mistakes, format: .number)
+                            .monospacedDigit()
+                            .accessibilityIdentifier("match_result_mistakes")
+                    } label: {
+                        Text("match.result.mistakes")
+                    }
+                }
+                .padding()
+                .background(RoundedRectangle(cornerRadius: 12).fill(Color(.secondarySystemBackground)))
+                VStack(spacing: 12) {
+                    Button(action: onNextRound) {
+                        Text("match.nextRound")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.large)
+                    .accessibilityIdentifier("match_next_round")
+                    Button(action: onDone) {
+                        Text("match.done")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.large)
+                    .accessibilityIdentifier("match_done")
+                }
+            }
+            .padding()
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("match_result")
     }
 }

@@ -1802,3 +1802,133 @@ enum SessionPlanner {
         return plan
     }
 }
+
+// MARK: - Match the pairs (#160)
+
+/// A round of match the pairs (0131, "Match the pairs"): five words of one
+/// language and their meanings, in two columns, each shuffled. A tap selects
+/// a tile; a tap in the other column grades the pair. A wrong pair is
+/// charged to the word whose tile is in the word column. Pure.
+struct MatchRound: Hashable, Sendable {
+    /// The pairs of a round.
+    static let size = 5
+
+    /// A tile by its column and its position in it, from the top.
+    enum Tile: Hashable, Sendable {
+        case word(Int)
+        case meaning(Int)
+
+        var isWord: Bool {
+            if case .word = self { return true }
+            return false
+        }
+    }
+
+    /// What a tap did.
+    enum Tap: Hashable, Sendable {
+        /// A tile selected or deselected; nothing graded.
+        case selected
+        /// A right pair: `words[word]`, matched.
+        case matched(word: Int)
+        /// A wrong pair, by the `words` indexes of its word tile and of its
+        /// meaning tile.
+        case mismatched(word: Int, meaning: Int)
+        /// A matched tile, or a position out of range.
+        case ignored
+    }
+
+    /// The round's words, in the order picked.
+    let words: [WordChoice]
+    /// The word column, top to bottom: indexes into `words`.
+    let wordColumn: [Int]
+    /// The meaning column, top to bottom: indexes into `words`.
+    let meaningColumn: [Int]
+    /// The tile waiting for its pair.
+    private(set) var selection: Tile?
+    /// The `words` indexes matched.
+    private(set) var matched: Set<Int> = []
+    /// The `words` indexes charged with a wrong pair.
+    private(set) var mistaken: Set<Int> = []
+    /// Wrong pairs so far: the round's mistakes.
+    private(set) var mistakes = 0
+
+    /// Shuffles each column by `rng`; the meanings never stand row by row
+    /// next to their words.
+    init(words: [WordChoice], rng: inout some RandomNumberGenerator) {
+        self.words = words
+        let indices = Array(words.indices)
+        wordColumn = indices.shuffled(using: &rng)
+        var meanings = indices.shuffled(using: &rng)
+        while words.count > 1 && meanings == wordColumn {
+            meanings.shuffle(using: &rng)
+        }
+        meaningColumn = meanings
+    }
+
+    var isComplete: Bool { !words.isEmpty && matched.count == words.count }
+
+    /// A word matched after a wrong pair is a wrong recognition answer.
+    func outcome(of word: Int) -> Outcome {
+        mistaken.contains(word) ? .wrong : .right
+    }
+
+    /// The `words` index a tile shows; nil out of range.
+    func word(at tile: Tile) -> Int? {
+        switch tile {
+        case let .word(position): return wordColumn.indices.contains(position) ? wordColumn[position] : nil
+        case let .meaning(position): return meaningColumn.indices.contains(position) ? meaningColumn[position] : nil
+        }
+    }
+
+    /// The tile of `words[index]` in each column.
+    func tiles(of index: Int) -> (word: Tile, meaning: Tile)? {
+        guard let word = wordColumn.firstIndex(of: index), let meaning = meaningColumn.firstIndex(of: index) else {
+            return nil
+        }
+        return (.word(word), .meaning(meaning))
+    }
+
+    /// A tap on `tile`, in either column first. In the selection's column,
+    /// or with none: the tile becomes the selection, or a second tap
+    /// deselects it. In the other column: the pair is graded and the
+    /// selection cleared.
+    mutating func tap(_ tile: Tile) -> Tap {
+        guard let index = word(at: tile), !matched.contains(index) else { return .ignored }
+        guard let selected = selection, selected.isWord != tile.isWord, let other = word(at: selected) else {
+            selection = selection == tile ? nil : tile
+            return .selected
+        }
+        selection = nil
+        guard other != index else {
+            matched.insert(index)
+            return .matched(word: index)
+        }
+        let word = tile.isWord ? index : other
+        mistaken.insert(word)
+        mistakes += 1
+        return .mismatched(word: word, meaning: tile.isWord ? other : index)
+    }
+
+    /// The words of a round, in order of preference (0131): the words on
+    /// the Learning stage, then new words within the daily limit, then the
+    /// lowest rungs, as the caller lists them. Each word once and with a
+    /// meaning; no two that read alike: a meaning sharing a comma-separated
+    /// part with one taken (folded, as `DistractorPicker` compares them), or
+    /// a term folding like one taken. nil with fewer than `count`.
+    static func pick(_ candidates: [WordChoice], count: Int = size) -> [WordChoice]? {
+        var taken: [WordChoice] = []
+        var keys = Set<WordKey>()
+        var terms = Set<String>()
+        var parts = Set<String>()
+        for candidate in candidates where taken.count < count && !keys.contains(candidate.key) {
+            let candidateParts = DistractorPicker.meaningParts(candidate.meaning)
+            let term = AnswerChecker.fold(candidate.term, lang: candidate.key.lang)
+            guard !candidateParts.isEmpty, candidateParts.isDisjoint(with: parts), !terms.contains(term) else { continue }
+            taken.append(candidate)
+            keys.insert(candidate.key)
+            terms.insert(term)
+            parts.formUnion(candidateParts)
+        }
+        return taken.count == count ? taken : nil
+    }
+}

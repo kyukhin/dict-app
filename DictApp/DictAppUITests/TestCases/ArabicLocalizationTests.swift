@@ -531,6 +531,38 @@ final class ArabicLocalizationTests: XCTestCase {
         attachScreenshot("run summary (ar)")
     }
 
+    /// 0131, #160: match the pairs in Arabic, mirrored: the row reads
+    /// "طابِق الأزواج", the words stand in the right column and the meanings
+    /// in the left one, the Greek words read as written, and a right pair
+    /// leaves the board.
+    func testMatchPairsRightToLeft() throws {
+        app.terminate()
+        app.launchArguments += ["-learningFixture", "due", "-learningAnswerHints", "-learningSeed", "160"]
+        app.launch()
+        XCTAssertTrue(app.waitForDictionariesReady(), "Search screen after launch")
+        tapTab(ArabicTab.learn)
+        let learnPage = LearnPage(app: app)
+        XCTAssertTrue(learnPage.waitForHome(timeout: TestData.Timeouts.long), "the Learn home")
+        XCTAssertTrue(learnPage.trainerMatch.waitForExistence(timeout: TestData.Timeouts.medium), "the Match the pairs row")
+        XCTAssertEqual(learnPage.trainerMatch.label, "طابِق الأزواج")
+
+        let match = learnPage.openMatch()
+        XCTAssertTrue(match.waitForBoard(), "the board")
+        XCTAssertTrue(staticTextContaining("اضغط على الأزواج المتطابقة"), "the instruction in Arabic")
+        let greek: Set<String> = ["γράφω", "σπίτι", "νερό", "καλός", "είμαι"]
+        XCTAssertEqual(Set(match.words.map(\.label)), greek, "the Greek words as written")
+        for position in 0..<5 {
+            XCTAssertGreaterThan(match.word(position).frame.minX, match.meaning(position).frame.maxX,
+                                 "RTL: word \(position) right of meaning \(position)")
+        }
+        attachScreenshot("match the pairs (ar)")
+
+        let word = match.word(0)
+        XCTAssertNotNil(match.pair(word, right: true), "a right pair")
+        XCTAssertTrue(match.waitForGone(word), "the pair leaves the board")
+        XCTAssertEqual(match.words.count, 4)
+    }
+
     /// The pushed detail's navigation bar (its `identifier` is the title)
     /// starts with U+200F and reads "<name> – الإنجليزية" in logical order.
     private func assertDetailTitle(leadingWith name: String, english: String,

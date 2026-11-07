@@ -211,6 +211,9 @@ struct NewWordPicker {
         var pool: [LearnWord] = []
         /// Not in learning yet, in E3's order.
         var lists: [WordListItem] = []
+        /// The meaning in the pair of each word of `lists`: match the
+        /// pairs shows the words it picks before they are in learning (#160).
+        var listMeanings: [WordKey: String] = [:]
 
         var count: Int { pool.count + lists.count }
     }
@@ -248,20 +251,24 @@ struct NewWordPicker {
             let count = read + max(wanted - pick.count, Self.pageSize)
             let items = try await db.nextNewWords(in: lang, from: lists, count: count, excluding: enrolled, order: order)
             let page = Array(items.dropFirst(read))
-            let meaningful = try await withMeaning(page, lang: lang, meaningsLang: meaningsLang, sourceOrder: sourceOrder)
-            pick.lists += page.filter { meaningful.contains($0.key) }.prefix(wanted - pick.count)
+            let meanings = try await meanings(of: page, lang: lang, meaningsLang: meaningsLang, sourceOrder: sourceOrder)
+            let taken = page.filter { meanings[$0.key] != nil }.prefix(wanted - pick.count)
+            pick.lists += taken
+            for item in taken {
+                pick.listMeanings[item.key] = meanings[item.key]
+            }
             guard items.count == count else { break }
             read = items.count
         }
         return pick
     }
 
-    /// The keys of `items` with a meaning in the pair, as `meanings(of:)`
-    /// finds it once they are in learning: the list's translation, else the
-    /// headword (or term) in the pair's dictionaries; for Other, the
-    /// translation, else the entry the word will open.
-    private func withMeaning(_ items: [WordListItem], lang: String, meaningsLang: String?,
-                             sourceOrder: [String]) async throws -> Set<WordKey> {
+    /// The meanings in the pair of the `items` that have one, as
+    /// `meanings(of:)` finds them once they are in learning: the list's
+    /// translation, else the headword (or term) in the pair's dictionaries;
+    /// for Other, the translation, else the entry the word will open.
+    private func meanings(of items: [WordListItem], lang: String, meaningsLang: String?,
+                          sourceOrder: [String]) async throws -> [WordKey: String] {
         var queries: [MeaningQuery] = []
         for item in items {
             var entry: EntryKey?
@@ -272,7 +279,7 @@ struct NewWordPicker {
             queries.append(MeaningQuery(key: item.key, lookup: item.headword ?? item.term, translation: item.translation,
                                         translationLang: item.translationLang, entry: entry))
         }
-        return Set(try await db.meanings(of: queries, lang: lang, meaningsLang: meaningsLang, sourceOrder: sourceOrder).keys)
+        return try await db.meanings(of: queries, lang: lang, meaningsLang: meaningsLang, sourceOrder: sourceOrder)
     }
 }
 

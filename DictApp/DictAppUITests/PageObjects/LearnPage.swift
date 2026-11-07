@@ -21,6 +21,7 @@ class LearnPage: BasePage {
     var languageSwitch: XCUIElement { app.segmentedControls[IDs.languageSwitch].firstMatch }
     var trainerRecognition: XCUIElement { app.buttons[IDs.trainerRecognition].firstMatch }
     var trainerProduction: XCUIElement { app.buttons[IDs.trainerProduction].firstMatch }
+    var trainerMatch: XCUIElement { app.buttons[IDs.trainerMatch].firstMatch }
     var startButton: XCUIElement { app.buttons[IDs.startButton].firstMatch }
     var mistakesRow: XCUIElement { app.buttons[IDs.mistakesRow].firstMatch }
 
@@ -78,6 +79,17 @@ class LearnPage: BasePage {
         row.tap()
         let page = ExercisePage(app: app)
         XCTAssertTrue(page.view.waitForExistence(timeout: TestData.Timeouts.medium), "the run")
+        return page
+    }
+
+    /// Match the pairs (#160).
+    @discardableResult
+    func openMatch() -> MatchPairsPage {
+        XCTAssertTrue(trainerMatch.waitForExistence(timeout: TestData.Timeouts.medium), "the Match the pairs row")
+        XCTAssertTrue(trainerMatch.isEnabled, "Match the pairs is enabled")
+        trainerMatch.tap()
+        let page = MatchPairsPage(app: app)
+        XCTAssertTrue(page.view.waitForExistence(timeout: TestData.Timeouts.medium), "match the pairs")
         return page
     }
 

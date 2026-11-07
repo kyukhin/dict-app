@@ -9,7 +9,8 @@ struct LearnView: View {
     @StateObject private var vm = LearnViewModel()
     @Environment(\.locale) private var locale
     @Environment(\.layoutDirection) private var layoutDirection
-    /// The run in the full-screen cover: the session, mistakes or a trainer.
+    /// The run in the full-screen cover: the session, mistakes, a trainer
+    /// or match the pairs.
     @State private var running: RunRequest?
 
     /// The screens the home pushes.
@@ -20,8 +21,15 @@ struct LearnView: View {
     /// A run in `lang`, the chosen language, with its pair's meanings
     /// language (nil without a pair).
     struct RunRequest: Identifiable {
+        enum Kind {
+            /// The questions of a trainer, the session or mistakes.
+            case questions(ExerciseRunViewModel.Run)
+            /// Match the pairs (#160).
+            case match
+        }
+
         let id = UUID()
-        let run: ExerciseRunViewModel.Run
+        let kind: Kind
         let lang: String
         let meaningsLang: String?
     }
@@ -55,9 +63,16 @@ struct LearnView: View {
             .fullScreenCover(item: $running, onDismiss: {
                 Task { await vm.load(locale: locale) }
             }) { request in
-                ExerciseRunView(run: request.run, lang: request.lang, meaningsLang: request.meaningsLang)
-                    .environment(\.locale, locale)
-                    .environment(\.layoutDirection, layoutDirection)
+                Group {
+                    switch request.kind {
+                    case let .questions(run):
+                        ExerciseRunView(run: run, lang: request.lang, meaningsLang: request.meaningsLang)
+                    case .match:
+                        MatchPairsView(lang: request.lang, meaningsLang: request.meaningsLang)
+                    }
+                }
+                .environment(\.locale, locale)
+                .environment(\.layoutDirection, layoutDirection)
             }
         }
     }
@@ -102,7 +117,8 @@ struct LearnView: View {
                            id: "learn_trainer_recognition")
                 trainerRow(.production, title: "learn.trainer.production", symbol: "pencil",
                            id: "learn_trainer_production")
-                // #160 adds Match the pairs, E5 Conjugation.
+                matchRow
+                // E5 adds Conjugation.
             } header: {
                 Text("learn.trainers")
             } footer: {
@@ -163,8 +179,36 @@ struct LearnView: View {
 
     /// Opens `run` in the chosen language, with its pair's meanings language.
     private func start(_ run: ExerciseRunViewModel.Run) {
+        open(.questions(run))
+    }
+
+    private func open(_ kind: RunRequest.Kind) {
         guard let language = vm.language else { return }
-        running = RunRequest(run: run, lang: language, meaningsLang: vm.pair?.meaningsLang)
+        running = RunRequest(kind: kind, lang: language, meaningsLang: vm.pair?.meaningsLang)
+    }
+
+    /// Match the pairs (#160): disabled with "Learn 5 words first" while
+    /// the chosen language has fewer than 5 words to match. With nothing to
+    /// learn, the section's footer says it for every trainer.
+    private var matchRow: some View {
+        Button {
+            open(.match)
+        } label: {
+            Label {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("learn.trainer.match")
+                    if vm.canTrain && !vm.canMatch {
+                        Text("learn.trainer.match.disabled \(MatchRound.size)")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            } icon: {
+                Image(systemName: "square.grid.2x2")
+            }
+        }
+        .disabled(!vm.canMatch)
+        .accessibilityIdentifier("learn_trainer_match")
     }
 
     /// A trainer: 10 items of its own direction in the chosen language.
