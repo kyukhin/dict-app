@@ -24,6 +24,10 @@ class LearnPage: BasePage {
     var trainerMatch: XCUIElement { app.buttons[IDs.trainerMatch].firstMatch }
     var startButton: XCUIElement { app.buttons[IDs.startButton].firstMatch }
     var mistakesRow: XCUIElement { app.buttons[IDs.mistakesRow].firstMatch }
+    /// 0166, #164: the ring's value is `12/20`, the streak's `5`.
+    var goalRing: XCUIElement { app.buttons[IDs.goalRing].firstMatch }
+    var streak: XCUIElement { app.buttons[IDs.streak].firstMatch }
+    var statisticsRow: XCUIElement { element(IDs.statisticsRow) }
 
     /// 0130, #154: Today's "Choose lists" and the Lists section's rows.
     var chooseLists: XCUIElement { element(IDs.chooseLists) }
@@ -132,8 +136,10 @@ class LearnPage: BasePage {
     @discardableResult
     func tapAllLists() -> WordListsPage {
         let row = allListsRow
-        XCTAssertTrue(row.waitForExistence(timeout: TestData.Timeouts.medium), "the Lists section's All lists")
+        // Below the goal ring and the trainers (#164): the lazy List builds
+        // it only once scrolled to.
         app.scrollToElement(row)
+        XCTAssertTrue(row.waitForExistence(timeout: TestData.Timeouts.medium), "the Lists section's All lists")
         row.tap()
         let page = WordListsPage(app: app)
         XCTAssertTrue(page.waitForLists(), "All lists opens the Lists screen")
@@ -150,8 +156,26 @@ class LearnPage: BasePage {
         return page
     }
 
+    /// Statistics (#164), from its row at the bottom of the home, or from
+    /// `row` (the ring or the streak).
+    @discardableResult
+    func openStatistics(from row: XCUIElement? = nil) -> StatisticsPage {
+        let target = row ?? statisticsRow
+        if row == nil {
+            // Below the Lists section (#154): the lazy List builds it only
+            // once scrolled to.
+            app.scrollToElement(target)
+        }
+        XCTAssertTrue(target.waitForExistence(timeout: TestData.Timeouts.medium), "the way to Statistics")
+        target.tap()
+        let page = StatisticsPage(app: app)
+        XCTAssertTrue(page.waitForScreen(), "Statistics")
+        return page
+    }
+
     @discardableResult
     func tapMyWords() -> MyWordsPage {
+        app.scrollToElement(myWordsRow)
         XCTAssertTrue(myWordsRow.waitForExistence(timeout: TestData.Timeouts.medium), "the My words row")
         myWordsRow.tap()
         return MyWordsPage(app: app)

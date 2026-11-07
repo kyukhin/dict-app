@@ -485,6 +485,8 @@ final class ArabicLocalizationTests: XCTestCase {
         tapTab(ArabicTab.learn)
         learnPage.popToRoot()
         XCTAssertTrue(learnPage.waitForHome(), "Greek learned: the home")
+        // Below the goal ring (#164) and the Lists section (#154).
+        app.scrollToElement(learnPage.myWordsRow)
         let title = learnPage.myWordsRow.staticTexts["كلماتي"].firstMatch
         XCTAssertTrue(title.waitForExistence(timeout: TestData.Timeouts.medium), "the My words row reads 'كلماتي'")
         let count = learnPage.myWordsRow.staticTexts["1"].firstMatch
@@ -605,6 +607,55 @@ final class ArabicLocalizationTests: XCTestCase {
         learnPage.tapChooseLists()
         XCTAssertTrue(app.navigationBars["كلمات جديدة من"].waitForExistence(timeout: TestData.Timeouts.medium))
         attachScreenshot("new words from (ar)")
+    }
+
+    /// 0166, #164: Statistics in Arabic, mirrored. The title reads
+    /// "الإحصاءات"; under the 30-day chart "اليوم" (today) is on the left and
+    /// the oldest day on the right, so today's bar is at the left edge; the
+    /// chart's summary starts with U+200F; the calendar's Monday is on the right.
+    func testStatisticsRightToLeft() throws {
+        app.terminate()
+        app.launchArguments += ["-learningFixture", "stats"]
+        app.launch()
+        XCTAssertTrue(app.waitForDictionariesReady(), "Search screen after launch")
+        tapTab(ArabicTab.learn)
+        let learnPage = LearnPage(app: app)
+        XCTAssertTrue(learnPage.waitForHome(timeout: TestData.Timeouts.long), "the Learn home")
+        let stats = learnPage.openStatistics()
+        let ids = AccessibilityIdentifiers.Statistics.self
+        XCTAssertTrue(app.navigationBars["الإحصاءات"].waitForExistence(timeout: TestData.Timeouts.medium),
+                      "the title in Arabic")
+        XCTAssertTrue(stats.reveal(ids.chart30d), "the chart")
+        XCTAssertEqual(stats.chart.label.unicodeScalars.first, "\u{200F}", stats.chart.label)
+        XCTAssertTrue(Self.visible(stats.chart.label).hasPrefix("آخر 30 يومًا: "), stats.chart.label)
+        let start = stats.element(ids.chartStart), end = stats.element(ids.chartEnd)
+        XCTAssertEqual(end.label, "اليوم")
+        XCTAssertLessThan(end.frame.maxX, start.frame.minX, "RTL: today on the left, the oldest day on the right")
+        XCTAssertLessThan(end.frame.midX, stats.chart.frame.midX, "'Today' under the chart's left half")
+        let tallest = try XCTUnwrap(stats.tallestBarPosition(), "the chart's bars")
+        XCTAssertLessThan(tallest, 0.3, "RTL: yesterday's bar, the tallest, at the left edge next to today's")
+        attachScreenshot("statistics chart (ar)")
+
+        // Last week's Monday and Tuesday, both in the calendar.
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = .current
+        var date = Date()
+        if calendar.component(.hour, from: date) < 4 { date = calendar.date(byAdding: .day, value: -1, to: date)! }
+        let sinceMonday = (calendar.component(.weekday, from: date) + 5) % 7
+        let monday = calendar.date(byAdding: .day, value: -sinceMonday - 7, to: date)!
+        func id(_ day: Date) -> String {
+            let parts = calendar.dateComponents([.year, .month, .day], from: day)
+            return ids.streakDay(String(format: "%04d-%02d-%02d", parts.year!, parts.month!, parts.day!))
+        }
+        XCTAssertTrue(stats.reveal(id(monday)), "the calendar")
+        let mondayCell = stats.element(id(monday))
+        let tuesdayCell = stats.element(id(calendar.date(byAdding: .day, value: 1, to: monday)!))
+        XCTAssertGreaterThan(mondayCell.frame.minX, tuesdayCell.frame.maxX, "RTL: Monday on the right")
+        let sundayCell = stats.element(id(calendar.date(byAdding: .day, value: 6, to: monday)!))
+        XCTAssertEqual(sundayCell.frame.midY, mondayCell.frame.midY, accuracy: 2, "a week runs Monday to Sunday")
+        XCTAssertLessThan(sundayCell.frame.maxX, tuesdayCell.frame.minX, "RTL: Sunday on the left")
+        XCTAssertEqual(mondayCell.label.unicodeScalars.first, "\u{200F}", mondayCell.label)
+        attachScreenshot("statistics calendar (ar)")
     }
 
     /// The pushed detail's navigation bar (its `identifier` is the title)

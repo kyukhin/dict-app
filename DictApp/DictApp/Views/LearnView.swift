@@ -2,7 +2,8 @@
 // The Learn tab (0131-learning.md, #158): the pair picker while no
 // language is learned, else the Learn home. E3's list screens (#154) open
 // from its Lists section and its My words row. Later tickets add their
-// sections to the home.
+// sections to the home: the daily goal ring, the streak and Statistics
+// (0166, #164).
 
 import SwiftUI
 
@@ -13,6 +14,14 @@ struct LearnView: View {
     /// The run in the full-screen cover: the session, mistakes, a trainer
     /// or match the pairs.
     @State private var running: RunRequest?
+    /// The pushed screens: E3's list screens, Statistics, a Definition.
+    @State private var path = NavigationPath()
+
+    /// The screens the home pushes besides E3's (`WordListRoute`).
+    enum Route: Hashable {
+        /// 0166, #164: from the ring, the streak or the Statistics row.
+        case statistics
+    }
 
     /// A run in `lang`, the chosen language, with its pair's meanings
     /// language (nil without a pair).
@@ -31,7 +40,7 @@ struct LearnView: View {
     }
 
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $path) {
             Group {
                 if !vm.isLoaded {
                     ProgressView()
@@ -46,6 +55,11 @@ struct LearnView: View {
             }
             .navigationTitle("learn.title")
             .wordListDestinations()
+            .navigationDestination(for: Route.self) { route in
+                switch route {
+                case .statistics: StatisticsView()
+                }
+            }
             .navigationDestination(for: DictionaryEntry.self) { entry in
                 DefinitionView(entry: entry)
             }
@@ -56,6 +70,11 @@ struct LearnView: View {
             // them away.
             .onReceive(NotificationCenter.default.publisher(for: PackService.didChange, object: PackService.shared)) { _ in
                 Task { await vm.load(locale: locale) }
+            }
+            // Back on the home: Statistics may have switched the language,
+            // a Definition may have changed what is learned.
+            .onChange(of: path.count) { old, new in
+                if new < old { Task { await vm.load(locale: locale) } }
             }
             .fullScreenCover(item: $running, onDismiss: {
                 Task { await vm.load(locale: locale) }
@@ -85,7 +104,7 @@ struct LearnView: View {
                 }
             }
             Section("learn.today") {
-                // #164 adds the daily goal ring and the streak here.
+                goalAndStreak
                 today
                 if case .counts? = vm.today {
                     Button {
@@ -132,9 +151,44 @@ struct LearnView: View {
                 }
                 .accessibilityIdentifier("learn_my_words_row")
             }
-            // #164 adds Statistics.
+            Section {
+                NavigationLink(value: Route.statistics) {
+                    Label("stats.title", systemImage: "chart.bar.xaxis")
+                }
+                .accessibilityIdentifier("learn_statistics_row")
+            }
         }
         .accessibilityIdentifier("learn_view")
+    }
+
+    /// The daily goal ring and the streak (0166, #164): every language.
+    /// Both open Statistics.
+    @ViewBuilder
+    private var goalAndStreak: some View {
+        if let goal = vm.goal, let streak = vm.streak {
+            HStack(spacing: 16) {
+                Button {
+                    path.append(Route.statistics)
+                } label: {
+                    GoalRingView(progress: goal)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(Text(verbatim: LearnViewModel.goalLabel(goal, locale: locale)))
+                .accessibilityValue(Text(verbatim: "\(goal.answered)/\(goal.goal)"))
+                .accessibilityIdentifier("learn_goal_ring")
+                Spacer()
+                Button {
+                    path.append(Route.statistics)
+                } label: {
+                    StreakBadge(streak: streak, isGoalMet: goal.isMet)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(Text(verbatim: LearnViewModel.streakLabel(streak, locale: locale)))
+                .accessibilityValue(Text(verbatim: "\(streak.current)"))
+                .accessibilityIdentifier("learn_streak")
+            }
+            .padding(.vertical, 4)
+        }
     }
 
     @ViewBuilder
@@ -357,10 +411,11 @@ struct LimitedPairNote: View {
 // MARK: - Language switch
 
 /// The Learn home's switch between the learned languages, shown with two or
-/// more; E10's statistics screen reuses it.
+/// more; E10's statistics screen reuses it with its own identifier.
 struct LearningLanguagePicker: View {
     let languages: [String]
     @Binding var selection: String
+    var identifier = "learn_language_switch"
     @Environment(\.locale) private var locale
 
     var body: some View {
@@ -370,6 +425,64 @@ struct LearningLanguagePicker: View {
             }
         }
         .pickerStyle(.segmented)
-        .accessibilityIdentifier("learn_language_switch")
+        .accessibilityIdentifier(identifier)
+    }
+}
+
+// MARK: - Daily goal and streak (0166, #164)
+
+/// Today's exercises in every language against the daily goal: a ring that
+/// fills, "12/20" inside, and a check mark once the goal is met.
+struct GoalRingView: View {
+    let progress: GoalProgress
+    @Environment(\.locale) private var locale
+
+    var body: some View {
+        let fraction = progress.goal > 0 ? min(Double(progress.answered) / Double(progress.goal), 1) : 1
+        ZStack {
+            Circle()
+                .stroke(Color.secondary.opacity(0.2), lineWidth: 6)
+            Circle()
+                .trim(from: 0, to: fraction)
+                .stroke(Color.accentColor, style: StrokeStyle(lineWidth: 6, lineCap: .round))
+                .rotationEffect(.degrees(-90))
+            if progress.isMet {
+                Image(systemName: "checkmark")
+                    .font(.title3.weight(.bold))
+                    .foregroundStyle(Color.accentColor)
+            } else {
+                Text(verbatim: "\(progress.answered.formatted(.number.locale(locale)))/\(progress.goal.formatted(.number.locale(locale)))")
+                    .font(.caption.weight(.semibold))
+                    .monospacedDigit()
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.5)
+                    .padding(8)
+            }
+        }
+        .frame(width: 56, height: 56)
+    }
+}
+
+/// The streak's flame, grey until today's goal is met, and the freezes in
+/// stock, 0 to 3, next to a snowflake.
+struct StreakBadge: View {
+    let streak: StreakState
+    let isGoalMet: Bool
+
+    var body: some View {
+        HStack(spacing: 14) {
+            HStack(spacing: 4) {
+                Image(systemName: "flame.fill")
+                    .foregroundStyle(isGoalMet ? Color.orange : Color.secondary)
+                Text(streak.current, format: .number)
+            }
+            HStack(spacing: 4) {
+                Image(systemName: "snowflake")
+                    .foregroundStyle(.cyan)
+                Text(streak.freezes, format: .number)
+            }
+        }
+        .font(.title3.weight(.semibold))
+        .monospacedDigit()
     }
 }

@@ -2198,3 +2198,132 @@ enum ConjugationPlanner {
         return weights.count - 1
     }
 }
+
+// MARK: - Statistics screen (0166, #164)
+
+/// The statistics screen's use of the tenses (#164).
+extension ConjugationTense {
+    /// As in running text: "aorist", "subjunctive · simple".
+    func text(locale: Locale) -> String {
+        let (head, aspect) = labels
+        return ([head] + (aspect.map { [$0] } ?? [])).map { $0.text(locale: locale) }.joined(separator: " · ")
+    }
+
+    /// The title of a stored tense; an unknown one as stored.
+    static func title(of tense: String, locale: Locale) -> String {
+        ConjugationTense(rawValue: tense)?.title(locale: locale) ?? tense
+    }
+
+    /// The tenses of `tallies` in the tables' order, unknown ones last.
+    static func ordered(_ tallies: [String: Tally]) -> [(tense: String, tally: Tally)] {
+        let known = allCases.compactMap { tense in tallies[tense.rawValue].map { (tense: tense.rawValue, tally: $0) } }
+        let others = tallies.keys.filter { ConjugationTense(rawValue: $0) == nil }.sorted().map { (tense: $0, tally: tallies[$0]!) }
+        return known + others
+    }
+}
+
+extension LearnDay {
+    /// "3 November" in the in-app language: day and month, Gregorian.
+    func dayAndMonth(locale: Locale) -> String {
+        var style = Date.FormatStyle(date: .omitted, time: .omitted, locale: locale, calendar: Self.calendar,
+                                     timeZone: Self.calendar.timeZone)
+        style = style.day().month(.wide)
+        return utcDate.formatted(style)
+    }
+
+    /// The day of the month, as the calendar shows it.
+    func dayOfMonth(locale: Locale) -> String {
+        let style = Date.FormatStyle(date: .omitted, time: .omitted, locale: locale, calendar: Self.calendar,
+                                     timeZone: Self.calendar.timeZone).day()
+        return utcDate.formatted(style)
+    }
+}
+
+/// The streak calendar: the last 5 weeks, Monday first whatever the
+/// locale, today's week last; days after today are in it, blank.
+enum StreakCalendar {
+    static let weeks = 5
+
+    /// 5 rows of 7 days, oldest first.
+    static func days(today: LearnDay) -> [[LearnDay]] {
+        var monday = today
+        while !monday.isMonday { monday = monday.adding(days: -1) }
+        let first = monday.adding(days: -7 * (weeks - 1))
+        return (0..<weeks).map { week in (0..<7).map { first.adding(days: week * 7 + $0) } }
+    }
+}
+
+/// What VoiceOver reads for the charts and the calendar (0166, "VoiceOver"),
+/// composed with the in-app language's bundle. In a right-to-left language
+/// each text starts with U+200F (#119).
+enum ChartSummary {
+    /// "Last 30 days: 412 exercises on 21 days. Goal met on 18 days. Best
+    /// day: 2 November, 45 exercises." A day's goal comes from `streak`.
+    /// The best day is the latest of the days with the most exercises.
+    static func last30(_ points: [DayPoint], streak: StreakState, locale: Locale) -> String {
+        let bundle = SettingsViewModel.localizedBundle(for: locale)
+        let active = points.filter { $0.exercises > 0 }
+        guard let best = active.max(by: { ($0.exercises, $0.day) < ($1.exercises, $1.day) }) else {
+            return mark(locale) + localized("stats.chart.a11y.empty", bundle)
+        }
+        let total = active.reduce(0) { $0 + $1.exercises }
+        let met = points.filter { streak.mark(on: $0.day) == .met }.count
+        let sentences = [
+            String(localized: "stats.chart.a11y.total \(exercises(total, bundle, locale)) \(days(active.count, bundle, locale))",
+                   bundle: bundle, locale: locale),
+            String(localized: "stats.chart.a11y.goalMet \(days(met, bundle, locale))", bundle: bundle, locale: locale),
+            String(localized: "stats.chart.a11y.bestDay \(best.day.dayAndMonth(locale: locale)) \(exercises(best.exercises, bundle, locale))",
+                   bundle: bundle, locale: locale),
+        ]
+        return mark(locale) + sentences.joined(separator: " ")
+    }
+
+    /// "Conjugation, last 30 days: aorist 82%, present 91%, future 64%."
+    /// in the tables' order.
+    static func tenses(_ tenses: [(tense: String, tally: Tally)], locale: Locale) -> String {
+        let bundle = SettingsViewModel.localizedBundle(for: locale)
+        let items = tenses.map { item in
+            let name = ConjugationTense(rawValue: item.tense)?.text(locale: locale) ?? item.tense
+            return "\(name) \(percent(item.tally.accuracy ?? 0, locale))"
+        }
+        let list = items.formatted(.list(type: .and, width: .narrow).locale(locale))
+        return mark(locale) + String(localized: "stats.conjugation.a11y \(list)", bundle: bundle, locale: locale)
+    }
+
+    /// A calendar day: "3 November, goal met".
+    static func day(_ day: LearnDay, mark dayMark: DayMark, locale: Locale) -> String {
+        let bundle = SettingsViewModel.localizedBundle(for: locale)
+        let date = day.dayAndMonth(locale: locale)
+        let text: String
+        switch dayMark {
+        case .met: text = String(localized: "stats.day.met \(date)", bundle: bundle, locale: locale)
+        case .frozen: text = String(localized: "stats.day.frozen \(date)", bundle: bundle, locale: locale)
+        case .missed: text = String(localized: "stats.day.missed \(date)", bundle: bundle, locale: locale)
+        case .open: text = String(localized: "stats.day.open \(date)", bundle: bundle, locale: locale)
+        case .none: text = String(localized: "stats.day.none \(date)", bundle: bundle, locale: locale)
+        }
+        return mark(locale) + text
+    }
+
+    /// A share as a whole percent: "82%".
+    static func percent(_ value: Double, _ locale: Locale) -> String {
+        value.formatted(.percent.precision(.fractionLength(0)).locale(locale))
+    }
+
+    private static func exercises(_ count: Int, _ bundle: Bundle, _ locale: Locale) -> String {
+        String(localized: "stats.count.exercises \(count)", bundle: bundle, locale: locale)
+    }
+
+    private static func days(_ count: Int, _ bundle: Bundle, _ locale: Locale) -> String {
+        String(localized: "stats.count.days \(count)", bundle: bundle, locale: locale)
+    }
+
+    private static func localized(_ key: String, _ bundle: Bundle) -> String {
+        bundle.localizedString(forKey: key, value: key, table: nil)
+    }
+
+    /// U+200F in a right-to-left language (#119).
+    private static func mark(_ locale: Locale) -> String {
+        locale.language.characterDirection == .rightToLeft ? "\u{200F}" : ""
+    }
+}

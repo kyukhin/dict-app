@@ -61,6 +61,11 @@ final class iPadSpecificTests: XCTestCase {
             app.launchArguments += ["-learningLanguages", "ell"] + UITestHelpers.packArguments("ell")
             app.launchEnvironment["OS_ACTIVITY_MODE"] = "disable"
         }
+        // 0166, #164: the stats fixture, Greek in the Greek pack.
+        if name.contains("testStatisticsOnIPad") {
+            app.launchArguments += ["-learningFixture", "stats"] + UITestHelpers.packArguments("ell")
+            app.launchEnvironment["OS_ACTIVITY_MODE"] = "disable"
+        }
 
         // iOS 26 surfaces an "Enable Dictation?" springboard alert the first
         // time `.searchable()` is activated. XCUI's default handler taps the
@@ -302,6 +307,41 @@ final class iPadSpecificTests: XCTestCase {
             let newWordsFrom = learnPage.tapChooseLists()
             XCTAssertTrue(newWordsFrom.newWordsFromRow("ky-ell-a1").exists)
             learnPage.popToRoot()
+        }
+    }
+
+    /// 0166, #164: Statistics keeps to one centred column at most 700 pt
+    /// wide, in portrait and in landscape; the 30-day chart and the
+    /// calendar fit it.
+    func testStatisticsOnIPad() throws {
+        let tabBarPage = TabBarPage(app: app)
+        let learnPage = tabBarPage.tapLearnTab()
+        XCTAssertTrue(learnPage.waitForHome(timeout: TestData.Timeouts.long), "the Learn home")
+        let stats = learnPage.openStatistics()
+        let ids = AccessibilityIdentifiers.Statistics.self
+        for orientation in [UIDeviceOrientation.portrait, .landscapeLeft] {
+            XCUIDevice.shared.orientation = orientation
+            let app = self.app!
+            let turned = NSPredicate { _, _ in
+                let window = app.windows.firstMatch.frame
+                return (window.width > window.height) == orientation.isLandscape
+            }
+            _ = XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: turned, object: nil)],
+                               timeout: TestData.Timeouts.medium)
+            let window = app.windows.firstMatch.frame
+            XCTAssertTrue(stats.reveal(ids.chart30d), "the chart in \(orientation.rawValue)")
+            let chart = stats.chart.frame
+            XCTAssertLessThanOrEqual(chart.width, 700, "the chart in the column, \(orientation.rawValue)")
+            XCTAssertEqual(chart.midX, window.midX, accuracy: 30, "the column is centred, \(orientation.rawValue)")
+            XCTAssertTrue(stats.label(ids.chart30d).hasPrefix("Last 30 days: 434 exercises on 21 days."))
+            let exercises = stats.element(ids.todayExercises)
+            XCTAssertTrue(stats.reveal(ids.todayExercises))
+            XCTAssertGreaterThan(exercises.frame.minX, window.midX - 350 - 1, "Today's value inside the column")
+            XCTAssertLessThan(exercises.frame.maxX, window.midX + 350 + 1)
+            let attachment = XCTAttachment(screenshot: app.screenshot())
+            attachment.name = "statistics on iPad (\(orientation.rawValue))"
+            attachment.lifetime = .keepAlways
+            add(attachment)
         }
     }
 }

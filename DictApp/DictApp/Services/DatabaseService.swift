@@ -2657,7 +2657,8 @@ actor DatabaseService {
     /// with `-learningLists`) and `mistakes` (`myWords5` on the 7-day rung,
     /// with wrong answers: γράφω's recognition today and σπίτι's production
     /// 6 days ago, in mistakes practice; νερό's recognition 7 days ago, out
-    /// of it; καλός's recognition 3 days ago, right the day after).
+    /// of it; καλός's recognition 3 days ago, right the day after). 0166,
+    /// #164: `stats` (`writeStatsFixture`).
     func writeLearningFixture(_ name: String, today: LearnDay) async throws -> [String]? {
         func greek(_ word: String) -> EntryKey { EntryKey(source: "freedict-ell-eng", word: word) }
         let myWords5 = ["γράφω", "σπίτι", "νερό", "καλός", "είμαι"]
@@ -2752,8 +2753,149 @@ actor DatabaseService {
                 try db.execute(sql: "UPDATE learn_word SET introduced_day = ?", arguments: [yesterday])
             }
             return ["ell", "eng"]
+        case "stats":
+            try await writeStatsFixture(today: today)
+            return ["ell", "eng"]
         default:
             return nil
+        }
+    }
+
+    /// The `stats` fixture's words answered on the streak's days; ψωμί is
+    /// started today and μήλο enrolled, never answered.
+    static let statsFixtureWords = ["γράφω", "σπίτι", "νερό", "καλός", "είμαι", "βιβλίο", "θάλασσα"]
+
+    /// The `stats` fixture's days missed between its 12-day streak and its
+    /// current 9-day one: the first gap, 3 to 9 days, after which two
+    /// missed days are frozen and the next one resets, whatever today's
+    /// weekday (freezes come on Mondays).
+    nonisolated static func statsFixtureGap(today: LearnDay) -> Int {
+        for gap in 3...9 {
+            let days = statsFixtureDays(today: today, gap: gap)
+            let state = Streak.compute(counts: Dictionary(uniqueKeysWithValues: days.map { ($0, 20) }), goals: [:],
+                                       currentGoal: 20, today: today)
+            let marks = Array(state.marks.values)
+            if state.current == 9, state.best == 12, marks.filter({ $0 == .frozen }).count == 2,
+               marks.contains(.missed) {
+                return gap
+            }
+        }
+        return 4
+    }
+
+    /// The days whose goal the `stats` fixture meets, oldest first: 12 days,
+    /// `gap` days missed, then the 9 days through today.
+    nonisolated static func statsFixtureDays(today: LearnDay, gap: Int) -> [LearnDay] {
+        let start = today.adding(days: -(20 + gap))
+        return (0..<12).map { start.adding(days: $0) } + (0..<9).reversed().map { today.adding(days: -$0) }
+    }
+
+    /// `-learningFixture stats` (0166, Test plan), relative to `today`, with
+    /// the default goal of 20 (`learn_day` rows of 20):
+    /// - Greek: the 7 `statsFixtureWords` answered 20 times a day (28
+    ///   yesterday, the best day: 30 with English) on `statsFixtureDays`:
+    ///   the streak is 9, the best 12, with two frozen days and a reset in
+    ///   the gap; 434 exercises on 21 days in the last 30;
+    /// - γράφω, σπίτι and νερό with 5, 3 and 2 mistakes; βιβλίο learned;
+    ///   ψωμί started today (Greek: 1 new word today); μήλο in My words, new;
+    /// - 40 drill rows on the first 8 days: aorist 8 of 12, present 12 of
+    ///   16 (both voices), future 7 of 12; γράφω and είμαι the hardest verbs;
+    /// - English: house and water, started 2 days ago and answered once a
+    ///   day through today, on days the Greek answers already meet;
+    /// - the Greek list `user-fixture-stats` (θάλασσα, ψωμί, ήλιος), not
+    ///   checked.
+    private func writeStatsFixture(today: LearnDay) async throws {
+        func greek(_ word: String) -> EntryKey { EntryKey(source: "freedict-ell-eng", word: word) }
+        for word in Self.statsFixtureWords + ["ψωμί", "μήλο"] {
+            try await learnWord(greek(word), today: today)
+        }
+        for word in ["house", "water"] {
+            try await learnWord(EntryKey(source: "wordnet", word: word), today: today)
+        }
+        let days = Self.statsFixtureDays(today: today, gap: Self.statsFixtureGap(today: today))
+        // Index in `days` → the words answered wrong once that day.
+        let wrong: [Int: Set<String>] = [0: ["γράφω"], 1: ["σπίτι"], 2: ["γράφω"], 3: ["σπίτι"], 4: ["γράφω"],
+                                         5: ["νερό"], 14: ["γράφω"], 15: ["σπίτι"], 16: ["γράφω"], 17: ["νερό"]]
+        // (verb, facet, right answers, answers): 40 drill rows.
+        let drill = [("γράφω", "aorist.active", 8, 12), ("είμαι", "present.active", 9, 10),
+                     ("γράφω", "present.passive", 3, 6), ("γράφω", "future.active", 3, 6),
+                     ("είμαι", "future.active", 4, 6)]
+        let drillRows = drill.flatMap { word, facet, right, count in
+            (0..<count).map { (word: word, facet: facet, right: $0 < right) }
+        }
+        let first = days[0]
+        let pool = try await userPool()
+        try await pool.write { db in
+            func insert(_ day: LearnDay, lang: String, word: String, kind: CardKind, facet: String = "",
+                        right: Bool, introduced: Bool = false) throws {
+                let exercise: ExerciseKind = kind == .conjugation ? .conjugation
+                    : kind == .recognition ? .recognition : .productionChoice
+                try db.execute(sql: """
+                    INSERT INTO learn_review(day, lang, word, kind, facet, exercise, mode, run_id, outcome,
+                                             step_before, step_after, introduced, duration_ms, detail)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, 6000, ?)
+                    """, arguments: [day.rawValue, lang, word, kind.rawValue, facet, exercise.rawValue,
+                                     kind == .conjugation ? "drill" : "session", "fixture-stats-\(day.rawValue)",
+                                     right ? "right" : "wrong", right ? 1 : 0, introduced,
+                                     kind == .conjugation ? "1sg" : nil])
+            }
+            for (index, day) in days.enumerated() {
+                var count = day == today.adding(days: -1) ? 28 : 20
+                if index < 8 {
+                    for row in drillRows[(index * 5)..<(index * 5 + 5)] {
+                        try insert(day, lang: "ell", word: row.word, kind: .conjugation, facet: row.facet, right: row.right)
+                    }
+                    count -= 5
+                }
+                let words = (day == today ? ["ψωμί"] : []) + Self.statsFixtureWords
+                var seen = Set<String>()
+                for row in 0..<count {
+                    let word = words[row % words.count]
+                    let isFirst = seen.insert(word).inserted
+                    try insert(day, lang: "ell", word: word, kind: row % 2 == 0 ? .recognition : .production,
+                               right: !(isFirst && wrong[index]?.contains(word) == true),
+                               introduced: isFirst && (word == "ψωμί" || day == first))
+                }
+                try db.execute(sql: "INSERT OR IGNORE INTO learn_day(day, goal) VALUES (?, 20)", arguments: [day.rawValue])
+            }
+            for ago in [2, 1, 0] {
+                for word in ["house", "water"] {
+                    try insert(today.adding(days: -ago), lang: "eng", word: word, kind: .recognition, right: true,
+                               introduced: ago == 2)
+                }
+            }
+            // The cards after those answers: βιβλίο learned, γράφω back to
+            // learning, the others on their way; μήλο untouched, new.
+            func card(_ lang: String, _ word: String, step: Int, last: LearnDay, due: LearnDay,
+                      started: LearnDay) throws {
+                try db.execute(sql: "UPDATE learn_card SET step = ?, last_day = ?, due_day = ? WHERE lang = ? AND word = ?",
+                               arguments: [step, last.rawValue, due.rawValue, lang, word])
+                try db.execute(sql: "UPDATE learn_word SET introduced_day = ? WHERE lang = ? AND word = ?",
+                               arguments: [started.rawValue, lang, word])
+            }
+            for word in Self.statsFixtureWords {
+                switch word {
+                case "βιβλίο":
+                    try card("ell", word, step: 5, last: today.adding(days: -1), due: today.adding(days: 29), started: first)
+                case "γράφω":
+                    try card("ell", word, step: 0, last: today, due: today, started: first)
+                default:
+                    try card("ell", word, step: 2, last: today, due: today.adding(days: 3), started: first)
+                }
+            }
+            try card("ell", "ψωμί", step: 1, last: today, due: today.adding(days: 1), started: today)
+            for word in ["house", "water"] {
+                try card("eng", word, step: 1, last: today, due: today.adding(days: 1), started: today.adding(days: -2))
+            }
+            try db.execute(sql: """
+                INSERT INTO user_list(id, title, lang, origin) VALUES ('user-fixture-stats', 'Fixture stats', 'ell', 'paste')
+                """)
+            for (seq, (term, translation)) in [("θάλασσα", "sea"), ("ψωμί", "bread"), ("ήλιος", "sun")].enumerated() {
+                try db.execute(sql: """
+                    INSERT INTO user_list_item(list_id, term, headword, translation, seq, sort_key)
+                    VALUES ('user-fixture-stats', ?, ?, ?, ?, ?)
+                    """, arguments: [term, term, translation, seq, WordListItem.sortKey(of: term)])
+            }
         }
     }
     #endif
