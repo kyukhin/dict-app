@@ -1980,3 +1980,767 @@ enum ListLinking {
         WordKey(lang: "", word: a).word == WordKey(lang: "", word: b).word
     }
 }
+
+// MARK: - List import (0130, #155)
+
+/// The text of a word list the user imports (0130, "Import"), pure: a CSV or
+/// TSV file, an Anki "Notes in Plain Text" export, or a Quizlet export
+/// pasted as text. `text(of:)` decodes a file; `parse` reads its records
+/// (RFC 4180: quoted fields hold the delimiter, `""` and line breaks), maps
+/// its columns and merges its rows into words as the build merges a
+/// series: a capitalised term into its lowercase twin, then rows with the
+/// same `NOCASE` term. Rows without a term, with a field over 1,000
+/// characters or with a quote never closed are reported with their line
+/// and skipped; the rest import.
+enum ListText {
+    /// The limits of one import (0130, "Import").
+    static let maxBytes = 10 * 1_024 * 1_024
+    static let maxRows = 20_000
+    static let maxFieldLength = 1_000
+    /// The words the preview lists.
+    static let previewCount = 50
+    /// The data lines the delimiter is detected on.
+    static let detectionLines = 20
+
+    /// Where the text came from: `user_list.origin`.
+    enum Origin: String, Hashable, Sendable {
+        case file, anki, paste
+    }
+
+    /// A field separator: tab, semicolon or comma, detected in that order,
+    /// or what an Anki `#separator` names (space, pipe, colon or any
+    /// character).
+    struct Delimiter: Hashable, Sendable {
+        let scalar: Unicode.Scalar
+
+        static let tab = Delimiter(scalar: "\t")
+        static let semicolon = Delimiter(scalar: ";")
+        static let comma = Delimiter(scalar: ",")
+        static let space = Delimiter(scalar: " ")
+        /// The preview's choices.
+        static let choices: [Delimiter] = [.tab, .semicolon, .comma]
+    }
+
+    /// A column the import keeps, in the order the preview names them.
+    enum Column: String, CaseIterable, Hashable, Sendable {
+        case term, translation, level, endings, partOfSpeech, tags
+    }
+
+    /// Why a row is skipped.
+    enum Problem: String, Hashable, Sendable {
+        /// No term (`listImport.error.noTerm`).
+        case noTerm
+        /// A quote never closed (`listImport.error.openQuote`).
+        case openQuote
+        /// A field over `maxFieldLength` characters (`listImport.error.tooLong`).
+        case tooLong
+    }
+
+    /// A skipped row: the line it starts on (1-based), its first line's
+    /// text and the reason.
+    struct BrokenRow: Hashable, Sendable {
+        let line: Int
+        let text: String
+        let problem: Problem
+    }
+
+    /// One word: its rows merged.
+    struct Word: Hashable, Sendable {
+        /// NFC, trimmed, as the list writes it (the lowercase twin of a
+        /// capitalised row).
+        var term: String
+        var translation = ""
+        var endings = ""
+        var partOfSpeech = ""
+        var tags = ""
+        /// `A1` … `C2`, another level name, or empty.
+        var level = ""
+        /// 1 … 6 = A1 … C2; other level names 7, 8, … in order of first
+        /// appearance; 0 = none.
+        var levelOrder = 0
+        /// The line of its first row.
+        var line: Int
+        /// The order of its first row among the good rows.
+        var seq: Int
+    }
+
+    struct Result: Hashable, Sendable {
+        /// In the order of their first rows.
+        var words: [Word]
+        /// The rows that became words, merged ones included.
+        var rows: Int
+        var broken: [BrokenRow]
+        var delimiter: Delimiter
+        /// The columns found, in `Column` order.
+        var columns: [Column]
+        var origin: Origin
+
+        /// Rows merged into another row's word.
+        var merged: Int { rows - words.count }
+    }
+
+    enum Failure: Error, Hashable, Sendable {
+        /// Not UTF-8 or UTF-16 with a BOM: "Save the file as UTF-8 and try again".
+        case encoding
+        /// Over `maxBytes` or `maxRows`.
+        case tooBig
+    }
+
+    // MARK: Decoding
+
+    /// The text of a file: UTF-8 with or without a BOM, or UTF-16 with a
+    /// BOM. Anything else, or a NUL character (UTF-16 without its BOM),
+    /// fails with `.encoding`; a file over 10 MB with `.tooBig`.
+    static func text(of data: Data) throws -> String {
+        guard data.count <= maxBytes else { throw Failure.tooBig }
+        let head = [UInt8](data.prefix(4))
+        let text: String?
+        if head.starts(with: [0xEF, 0xBB, 0xBF]) {
+            text = String(data: data.dropFirst(3), encoding: .utf8)
+        } else if head.starts(with: [0xFF, 0xFE, 0, 0]) || head.starts(with: [0, 0, 0xFE, 0xFF]) {
+            text = nil  // UTF-32
+        } else if head.starts(with: [0xFF, 0xFE]) {
+            text = String(data: data.dropFirst(2), encoding: .utf16LittleEndian)
+        } else if head.starts(with: [0xFE, 0xFF]) {
+            text = String(data: data.dropFirst(2), encoding: .utf16BigEndian)
+        } else {
+            text = String(data: data, encoding: .utf8)
+        }
+        guard let text, !text.unicodeScalars.contains("\u{0}") else { throw Failure.encoding }
+        return text
+    }
+
+    // MARK: Parsing
+
+    /// Parses `text` (a leading BOM is dropped). The delimiter is `chosen`,
+    /// else an Anki `#separator`, else detected (`detectDelimiter`). A
+    /// header row whose names map to columns (`headerColumns`) names them;
+    /// without one, column 1 is the term and column 2 the translation.
+    /// Anki's `#columns`, `#tags column`, `#guid column`, `#notetype column`
+    /// and `#deck column` place its fields. HTML is stripped with
+    /// `#html:true` or in a field that holds tags. Throws `.tooBig` over
+    /// `maxRows` rows.
+    static func parse(_ text: String, delimiter chosen: Delimiter? = nil, origin: Origin = .file) throws -> Result {
+        var scalars = Array(text.unicodeScalars)
+        if scalars.first == "\u{FEFF}" { scalars.removeFirst() }
+        let lines = physicalLines(scalars)
+        var anki = AnkiHeaders()
+        var first = 0
+        while first < lines.count, anki.read(lineText(lines[first], in: scalars)) {
+            first += 1
+        }
+        let delimiter = chosen ?? anki.separator ?? detectDelimiter(scalars, lines: lines, from: first)
+        let ankiNames = anki.columns.map { split($0, by: delimiter.scalar) }
+        let html = anki.html ?? false
+
+        var columns: [Int: Column]?
+        // The fields a record has: Anki's #columns, the header's, or the
+        // first good row's. A broken multiline field ends at the first line
+        // that parses on its own as a complete record of this many fields.
+        var expected = ankiNames?.count
+        var records: [(line: Int, text: String, fields: [String])] = []
+        var broken: [BrokenRow] = []
+        var count = 0
+        var index = first
+        while index < lines.count {
+            let line = lines[index]
+            if isBlank(line, in: scalars) {
+                index += 1
+                continue
+            }
+            let record = record(at: index, in: scalars, lines: lines, delimiter: delimiter.scalar)
+            if record.openQuote {
+                count += 1
+                broken.append(BrokenRow(line: index + 1, text: shown(line, in: scalars), problem: .openQuote))
+                var next = index + 1
+                while next < lines.count {
+                    let candidate = Self.record(at: next, in: scalars, lines: lines, delimiter: delimiter.scalar,
+                                                singleLine: true)
+                    if !candidate.openQuote, !isBlank(lines[next], in: scalars),
+                       expected.map({ candidate.fields.count == $0 }) ?? (candidate.fields.count >= 2) {
+                        break
+                    }
+                    next += 1
+                }
+                index = next
+                continue
+            }
+            if columns == nil {
+                if !anki.isEmpty {
+                    columns = ankiColumns(count: ankiNames?.count ?? record.fields.count, names: ankiNames, anki: anki)
+                } else if let header = headerColumns(record.fields) {
+                    columns = header
+                    expected = expected ?? record.fields.count
+                    index = record.nextLine
+                    continue
+                } else {
+                    columns = [0: .term, 1: .translation]
+                }
+            }
+            count += 1
+            guard count <= maxRows else { throw Failure.tooBig }
+            expected = expected ?? record.fields.count
+            records.append((index + 1, shown(line, in: scalars), record.fields))
+            index = record.nextLine
+        }
+        let map = columns ?? [0: .term, 1: .translation]
+
+        // Records to rows.
+        var rows: [Word] = []
+        var otherLevels: [String] = []
+        for record in records {
+            var values: [Column: String] = [:]
+            for (position, column) in map where position < record.fields.count {
+                values[column] = cleaned(record.fields[position], html: html)
+            }
+            // A row of empty fields (",,,") is a blank line.
+            if record.fields.allSatisfy({ cleaned($0, html: html).isEmpty }) { continue }
+            if values.values.contains(where: { $0.count > maxFieldLength }) {
+                broken.append(BrokenRow(line: record.line, text: record.text, problem: .tooLong))
+                continue
+            }
+            let term = values[.term] ?? ""
+            guard !term.isEmpty else {
+                broken.append(BrokenRow(line: record.line, text: record.text, problem: .noTerm))
+                continue
+            }
+            let (level, order) = level(values[.level] ?? "", others: &otherLevels)
+            rows.append(Word(term: term, translation: values[.translation] ?? "", endings: values[.endings] ?? "",
+                             partOfSpeech: values[.partOfSpeech] ?? "", tags: values[.tags] ?? "", level: level,
+                             levelOrder: order, line: record.line, seq: rows.count))
+        }
+        broken.sort { $0.line < $1.line }
+        // The columns the records have.
+        let width = records.map(\.fields.count).max() ?? 0
+        let present = Set(map.filter { $0.key < width }.values)
+        let found = Column.allCases.filter(present.contains)
+        return Result(words: merge(rows), rows: rows.count, broken: broken, delimiter: delimiter, columns: found,
+                      origin: anki.isEmpty ? origin : (origin == .paste ? .paste : .anki))
+    }
+
+    /// The delimiter of `text` (0130): tab if any of the first 20 data
+    /// lines has one outside quotes, else semicolon if every one has one
+    /// outside quotes, else comma. A quote opens a quoted part at a line's
+    /// start or after a tab, semicolon or comma.
+    static func detectDelimiter(_ text: String) -> Delimiter {
+        let scalars = Array(text.unicodeScalars)
+        return detectDelimiter(scalars, lines: physicalLines(scalars), from: 0)
+    }
+
+    /// `detectDelimiter` on the lines of `s` from line `first`, after Anki's headers.
+    private static func detectDelimiter(_ s: [Unicode.Scalar], lines: [Line], from first: Int) -> Delimiter {
+        var quoted = false
+        var checked = 0, withSemicolon = 0
+        for line in lines[first...] {
+            if checked == detectionLines { break }
+            if !quoted && isBlank(line, in: s) { continue }
+            var tab = false, semicolon = false
+            var previous: Unicode.Scalar?
+            var i = line.start
+            while i < line.end {
+                let c = s[i]
+                if quoted {
+                    if c == "\"" {
+                        if i + 1 < line.end && s[i + 1] == "\"" {
+                            i += 2
+                            continue
+                        }
+                        quoted = false
+                    }
+                } else if c == "\"" {
+                    if previous == nil || previous == "\t" || previous == ";" || previous == "," { quoted = true }
+                } else if c == "\t" {
+                    tab = true
+                } else if c == ";" {
+                    semicolon = true
+                }
+                if c != " " { previous = c }
+                i += 1
+            }
+            if tab { return .tab }
+            checked += 1
+            if semicolon { withSemicolon += 1 }
+        }
+        return checked > 0 && withSemicolon == checked ? .semicolon : .comma
+    }
+
+    // MARK: Columns
+
+    /// The column a header names, lowercased: English names, and term and
+    /// translation in the UI languages.
+    private static let columnNames: [String: Column] = [
+        "term": .term, "terms": .term, "word": .term, "words": .term, "front": .term, "headword": .term,
+        "lemma": .term, "expression": .term, "vocabulary": .term,
+        "translation": .translation, "translations": .translation, "meaning": .translation,
+        "meanings": .translation, "definition": .translation, "back": .translation, "gloss": .translation,
+        "level": .level, "cefr": .level, "cefr level": .level,
+        "endings": .endings, "ending": .endings, "forms": .endings,
+        "part of speech": .partOfSpeech, "pos": .partOfSpeech, "partofspeech": .partOfSpeech,
+        "word class": .partOfSpeech,
+        "tags": .tags, "tag": .tags,
+        "слово": .term, "перевод": .translation, "уровень": .level,
+        "λέξη": .term, "μετάφραση": .translation, "επίπεδο": .level,
+        "palabra": .term, "término": .term, "traducción": .translation, "nivel": .level,
+        "كلمة": .term, "ترجمة": .translation, "المستوى": .level,
+    ]
+
+    /// Language names a header may give the term and translation columns
+    /// (`level,greek,endings,english`): in English, in the UI languages and
+    /// as ISO 639-3 codes.
+    private static let languageNames: Set<String> = [
+        "greek", "english", "spanish", "russian", "arabic",
+        "ελληνικά", "αγγλικά", "ισπανικά", "ρωσικά", "αραβικά",
+        "греческий", "английский", "испанский", "русский", "арабский",
+        "griego", "inglés", "español", "ruso", "árabe",
+        "اليونانية", "الإنجليزية", "الإسبانية", "الروسية", "العربية",
+        "ell", "eng", "spa", "rus", "arb", "ara",
+    ]
+
+    /// A header name as the maps hold it: trimmed, lowercased, `_` and `-`
+    /// as spaces.
+    private static func headerName(_ field: String) -> String {
+        collapse(field.lowercased().replacingOccurrences(of: "_", with: " ").replacingOccurrences(of: "-", with: " "))
+    }
+
+    /// The columns of a header row, or nil when `fields` is not one: a
+    /// header names at least two different columns (language names name
+    /// the term, then the translation), or is one name (`named`). A first
+    /// card such as `λέξη,word`, whose names both mean the term, is a word.
+    static func headerColumns(_ fields: [String]) -> [Int: Column]? {
+        let names = fields.map { headerName(cleaned($0, html: false)) }
+        let byName = Set(names.compactMap { columnNames[$0] })
+        let languages = names.filter(languageNames.contains).count
+        let roles = [Column.term, .translation].filter { !byName.contains($0) }.prefix(languages).count
+        let distinct = byName.count + roles
+        guard distinct >= 2 || (distinct == 1 && names.count == 1) else { return nil }
+        return named(names, at: Array(names.indices))
+    }
+
+    /// An Anki export's columns: its tags column, and its other fields but
+    /// the guid, note type and deck columns, named by `#columns` (`named`).
+    private static func ankiColumns(count: Int, names: [String]?, anki: AnkiHeaders) -> [Int: Column] {
+        let positions = (0..<max(count, 2)).filter { !anki.ignoredColumns.contains($0) && $0 != anki.tagsColumn }
+        var map = named((names ?? []).map(headerName), at: positions)
+        if let tags = anki.tagsColumn {
+            map = map.filter { $0.value != .tags }
+            map[tags] = .tags
+        }
+        return map
+    }
+
+    /// The columns `names` give `positions`: the named ones first (the
+    /// first of a name wins); then the first language name is the term and
+    /// the next the translation (`level,greek,endings,english`). Without a
+    /// term, the first free position is the term; without a translation,
+    /// the first free one after the term.
+    private static func named(_ names: [String], at positions: [Int]) -> [Int: Column] {
+        var map: [Int: Column] = [:]
+        for position in positions where position < names.count {
+            if let column = columnNames[names[position]], !map.values.contains(column) { map[position] = column }
+        }
+        for position in positions where position < names.count && map[position] == nil {
+            guard languageNames.contains(names[position]) else { continue }
+            if !map.values.contains(.term) {
+                map[position] = .term
+            } else if !map.values.contains(.translation) {
+                map[position] = .translation
+            }
+        }
+        if !map.values.contains(.term), let free = positions.first(where: { map[$0] == nil }) {
+            map[free] = .term
+        }
+        if !map.values.contains(.translation), let term = map.first(where: { $0.value == .term })?.key,
+           let free = positions.first(where: { $0 > term && map[$0] == nil }) {
+            map[free] = .translation
+        }
+        return map
+    }
+
+    /// Anki's file headers ("Notes in Plain Text", Anki 2.1.55 and later),
+    /// the leading lines of the form `#key:value`.
+    private struct AnkiHeaders {
+        var separator: Delimiter?
+        var html: Bool?
+        /// `#columns`, split once the delimiter is known.
+        var columns: String?
+        /// The 0-based guid, note type and deck columns.
+        var ignoredColumns: Set<Int> = []
+        var tagsColumn: Int?
+        var isEmpty = true
+
+        /// Reads one line; false when it is not a header.
+        mutating func read(_ line: String) -> Bool {
+            guard line.hasPrefix("#"), let colon = line.firstIndex(of: ":") else { return false }
+            let key = line[line.index(after: line.startIndex)..<colon].lowercased()
+            let value = String(line[line.index(after: colon)...])
+            switch key {
+            case "separator":
+                separator = Self.separator(value)
+            case "html":
+                html = value.trimmingCharacters(in: .whitespaces).lowercased() == "true"
+            case "columns":
+                columns = value
+            case "guid column", "notetype column", "deck column":
+                if let column = Self.column(value) { ignoredColumns.insert(column) }
+            case "tags column":
+                tagsColumn = Self.column(value)
+            case "tags", "notetype", "deck":
+                break
+            default:
+                return false
+            }
+            isEmpty = false
+            return true
+        }
+
+        /// A `#separator` value: a name, or one character.
+        static func separator(_ value: String) -> Delimiter? {
+            switch value.trimmingCharacters(in: .whitespaces).lowercased() {
+            case "tab": return .tab
+            case "comma": return .comma
+            case "semicolon": return .semicolon
+            case "space": return .space
+            case "pipe": return Delimiter(scalar: "|")
+            case "colon": return Delimiter(scalar: ":")
+            default:
+                let scalars = Array(value.unicodeScalars)
+                return scalars.count == 1 ? Delimiter(scalar: scalars[0]) : nil
+            }
+        }
+
+        /// A 1-based column number as a 0-based position.
+        static func column(_ value: String) -> Int? {
+            Int(value.trimmingCharacters(in: .whitespaces)).flatMap { $0 > 0 ? $0 - 1 : nil }
+        }
+    }
+
+    // MARK: Fields
+
+    /// A field as the list stores it: `[sound:…]` dropped; HTML stripped
+    /// when `html` or when it holds tags (`strippingHTML`); trimmed, NFC.
+    static func cleaned(_ field: String, html: Bool) -> String {
+        var text = field
+        if text.contains("[sound:") {
+            text = text.replacingOccurrences(of: #"\[sound:[^\]]*\]"#, with: "", options: .regularExpression)
+        }
+        if html || holdsTags(text) {
+            text = strippingHTML(text)
+        }
+        return text.trimmingCharacters(in: .whitespacesAndNewlines).precomposedStringWithCanonicalMapping
+    }
+
+    /// Whether `text` holds an HTML tag (`<b>`, `</div>`, `<br/>`, `<img …>`).
+    static func holdsTags(_ text: String) -> Bool {
+        text.contains("<") && text.range(of: #"</?[A-Za-z][A-Za-z0-9]*(\s[^<>]*)?/?>"#, options: .regularExpression) != nil
+    }
+
+    /// `text` without HTML: `<br>`, `<div>` and `<p>` become "; ", other
+    /// tags go, entities are decoded, and the parts are trimmed and joined.
+    static func strippingHTML(_ text: String) -> String {
+        let marker = "\u{1}"
+        var plain = text.replacingOccurrences(of: #"<\s*/?\s*(br|div|p)\b[^>]*>"#, with: marker,
+                                              options: [.regularExpression, .caseInsensitive])
+        plain = plain.replacingOccurrences(of: #"<[^>]*>"#, with: "", options: .regularExpression)
+        plain = decodingEntities(plain)
+        return plain.components(separatedBy: marker)
+            .map { collapse($0) }
+            .filter { !$0.isEmpty }
+            .joined(separator: "; ")
+    }
+
+    private static let namedEntities: [String: String] = [
+        "amp": "&", "lt": "<", "gt": ">", "quot": "\"", "apos": "'", "nbsp": "\u{00A0}",
+    ]
+
+    /// `text` with `&amp;`, `&lt;`, `&gt;`, `&quot;`, `&apos;`, `&nbsp;` and
+    /// numeric entities decoded; anything else stays as written.
+    static func decodingEntities(_ text: String) -> String {
+        guard text.contains("&") else { return text }
+        var result = ""
+        var rest = Substring(text)
+        while let amp = rest.firstIndex(of: "&") {
+            result += rest[..<amp]
+            let tail = rest[amp...]
+            if let semicolon = tail.prefix(12).firstIndex(of: ";") {
+                let name = tail[tail.index(after: amp)..<semicolon]
+                var decoded: String?
+                if name.hasPrefix("#x") || name.hasPrefix("#X") {
+                    decoded = UInt32(name.dropFirst(2), radix: 16).flatMap(Unicode.Scalar.init).map { String($0) }
+                } else if name.hasPrefix("#") {
+                    decoded = UInt32(name.dropFirst()).flatMap(Unicode.Scalar.init).map { String($0) }
+                } else {
+                    decoded = namedEntities[name.lowercased()]
+                }
+                if let decoded {
+                    result += decoded
+                    rest = tail[tail.index(after: semicolon)...]
+                    continue
+                }
+            }
+            result += "&"
+            rest = tail.dropFirst()
+        }
+        return result + rest
+    }
+
+    /// `text` trimmed, each run of whitespace as one space.
+    private static func collapse(_ text: String) -> String {
+        text.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+    }
+
+    /// A CEFR level (`a1`, Greek Α1 … Γ2 too) as `A1` … `C2` with its order
+    /// 1 … 6; another name as written, 7, 8, … in order of first
+    /// appearance (`others`); none as 0.
+    private static func level(_ text: String, others: inout [String]) -> (String, Int) {
+        guard !text.isEmpty else { return ("", 0) }
+        let latin = String(text.uppercased().map { character -> Character in
+            switch character {
+            case "Α": return "A"
+            case "Β": return "B"
+            case "Γ": return "C"
+            default: return character
+            }
+        })
+        if let index = cefrLevels.firstIndex(of: latin) { return (latin, index + 1) }
+        if !others.contains(text) { others.append(text) }
+        return (text, cefrLevels.count + 1 + (others.firstIndex(of: text) ?? 0))
+    }
+
+    static let cefrLevels = ["A1", "A2", "B1", "B2", "C1", "C2"]
+
+    // MARK: Merging
+
+    /// The words of `rows` (0130, "Import"): a capitalised term whose
+    /// lowercase (`lowercased()`) is a term too merges into it, then rows
+    /// with the same `NOCASE` term merge: the lowest level (a level before
+    /// none), translations joined with "; " and endings with " / " in file
+    /// order, a repeated one once, tags joined without repeats, the first
+    /// row's line, `seq` and part of speech. Words in the order of their
+    /// first rows.
+    static func merge(_ rows: [Word]) -> [Word] {
+        let terms = Set(rows.map(\.term))
+        var order: [String] = []
+        var words: [String: (word: Word, translations: [String], endings: [String], tags: [String])] = [:]
+        for row in rows {
+            let lower = row.term.lowercased()
+            let term = row.term != lower && terms.contains(lower) ? lower : row.term
+            let key = WordKey(lang: "", word: term).word
+            if var merged = words[key] {
+                if levelRank(row.levelOrder) < levelRank(merged.word.levelOrder) {
+                    merged.word.level = row.level
+                    merged.word.levelOrder = row.levelOrder
+                }
+                merged.translations.append(row.translation)
+                merged.endings.append(row.endings)
+                merged.tags += tagList(row.tags)
+                words[key] = merged
+            } else {
+                var word = row
+                word.term = term
+                words[key] = (word, [row.translation], [row.endings], tagList(row.tags))
+                order.append(key)
+            }
+        }
+        return order.compactMap { key in
+            guard let merged = words[key] else { return nil }
+            var word = merged.word
+            word.translation = joined(merged.translations, "; ")
+            word.endings = joined(merged.endings, " / ")
+            word.tags = joined(merged.tags, " ")
+            return word
+        }
+    }
+
+    /// A level's place when merging: A1 … C2 and other names in order, none last.
+    private static func levelRank(_ order: Int) -> Int { order == 0 ? Int.max : order }
+
+    /// Tags as Anki writes them, separated by spaces (or commas).
+    private static func tagList(_ tags: String) -> [String] {
+        tags.split(whereSeparator: { $0.isWhitespace || $0 == "," }).map(String.init)
+    }
+
+    /// The non-empty values in order, a repeated one once.
+    private static func joined(_ values: [String], _ separator: String) -> String {
+        var seen = Set<String>()
+        return values.filter { !$0.isEmpty && seen.insert($0).inserted }.joined(separator: separator)
+    }
+
+    // MARK: Language
+
+    /// The language the terms' script suggests (0130): Greek, Cyrillic
+    /// (Russian), Arabic, and Latin as English, by the most letters; `und`
+    /// without letters of these scripts.
+    static func guessLanguage(_ words: [Word]) -> String {
+        var counts: [String: Int] = [:]
+        for word in words {
+            for scalar in word.term.unicodeScalars where scalar.properties.isAlphabetic {
+                guard let lang = scriptLanguage(scalar) else { continue }
+                counts[lang, default: 0] += 1
+            }
+        }
+        // Ties go to the first of Greek, Russian, Arabic, English.
+        var best = "und", most = 0
+        for lang in ["ell", "rus", "arb", "eng"] where counts[lang, default: 0] > most {
+            best = lang
+            most = counts[lang, default: 0]
+        }
+        return best
+    }
+
+    private static func scriptLanguage(_ scalar: Unicode.Scalar) -> String? {
+        switch scalar.value {
+        case 0x0370...0x03FF, 0x1F00...0x1FFF: return "ell"
+        case 0x0400...0x052F: return "rus"
+        case 0x0600...0x06FF, 0x0750...0x077F, 0x08A0...0x08FF, 0xFB50...0xFDFF, 0xFE70...0xFEFF: return "arb"
+        case 0x0041...0x024F, 0x1E00...0x1EFF: return "eng"
+        default: return nil
+        }
+    }
+
+    // MARK: Records
+
+    /// A physical line: its scalars `start..<end`, without its line break.
+    private struct Line {
+        let start: Int
+        let end: Int
+    }
+
+    /// The lines of `s`, ended by LF, CRLF or CR.
+    private static func physicalLines(_ s: [Unicode.Scalar]) -> [Line] {
+        var lines: [Line] = []
+        var start = 0, i = 0
+        while i < s.count {
+            if s[i] == "\n" || s[i] == "\r" {
+                let next = s[i] == "\r" && i + 1 < s.count && s[i + 1] == "\n" ? i + 2 : i + 1
+                lines.append(Line(start: start, end: i))
+                i = next
+                start = i
+            } else {
+                i += 1
+            }
+        }
+        if start < s.count { lines.append(Line(start: start, end: s.count)) }
+        return lines
+    }
+
+    private static func lineText(_ line: Line, in s: [Unicode.Scalar]) -> String {
+        String(String.UnicodeScalarView(s[line.start..<line.end]))
+    }
+
+    private static func isBlank(_ line: Line, in s: [Unicode.Scalar]) -> Bool {
+        s[line.start..<line.end].allSatisfy { $0.properties.isWhitespace }
+    }
+
+    /// A broken row's text as the preview shows it: its first line,
+    /// trimmed, cut at 200 characters.
+    private static func shown(_ line: Line, in s: [Unicode.Scalar]) -> String {
+        let text = lineText(line, in: s).trimmingCharacters(in: .whitespaces)
+        return text.count > 200 ? String(text.prefix(200)) + "…" : text
+    }
+
+    /// The fields of `text` split at `delimiter`, unquoted: one record.
+    private static func split(_ text: String, by delimiter: Unicode.Scalar) -> [String] {
+        let scalars = Array(text.unicodeScalars)
+        let lines = physicalLines(scalars)
+        guard !lines.isEmpty else { return [] }
+        return record(at: 0, in: scalars, lines: lines, delimiter: delimiter, singleLine: true).fields
+    }
+
+    private struct Record {
+        var fields: [String]
+        /// The line after the record.
+        var nextLine: Int
+        /// A quote still open at the end of the input (or of the line,
+        /// `singleLine`).
+        var openQuote: Bool
+    }
+
+    /// The RFC 4180 record that starts on line `index`: fields split at
+    /// `delimiter`; a field that starts with a quote (after spaces) runs to
+    /// the closing quote, with `""` as a quote and line breaks (as LF) kept.
+    /// A closing quote is followed by the delimiter or the line's end
+    /// (spaces aside); a quote followed by anything else does not close the
+    /// field, which is then never closed (`openQuote`), as is one still open
+    /// at the end of the input. `singleLine`: the record must end on its
+    /// line.
+    private static func record(at index: Int, in s: [Unicode.Scalar], lines: [Line], delimiter: Unicode.Scalar,
+                               singleLine: Bool = false) -> Record {
+        var fields: [String] = []
+        var field = String.UnicodeScalarView()
+        var quoted = false
+        var atFieldStart = true
+        var lineIndex = index
+        var i = lines[index].start
+        while true {
+            let line = lines[lineIndex]
+            if i >= line.end {
+                if quoted {
+                    guard !singleLine, lineIndex + 1 < lines.count else {
+                        fields.append(String(field))
+                        return Record(fields: fields, nextLine: lines.count, openQuote: true)
+                    }
+                    field.append("\n")
+                    lineIndex += 1
+                    i = lines[lineIndex].start
+                    continue
+                }
+                fields.append(String(field))
+                return Record(fields: fields, nextLine: lineIndex + 1, openQuote: false)
+            }
+            let c = s[i]
+            if quoted {
+                if c == "\"" {
+                    if i + 1 < line.end && s[i + 1] == "\"" {
+                        field.append("\"")
+                        i += 2
+                        continue
+                    }
+                    var after = i + 1
+                    while after < line.end && s[after] == " " && delimiter != " " { after += 1 }
+                    guard after == line.end || s[after] == delimiter else {
+                        fields.append(String(field))
+                        return Record(fields: fields, nextLine: lineIndex + 1, openQuote: true)
+                    }
+                    quoted = false
+                    i = after
+                    continue
+                } else {
+                    field.append(c)
+                }
+            } else if c == delimiter {
+                fields.append(String(field))
+                field = String.UnicodeScalarView()
+                atFieldStart = true
+            } else if c == "\"" && atFieldStart {
+                field = String.UnicodeScalarView()
+                quoted = true
+                atFieldStart = false
+            } else {
+                field.append(c)
+                if c != " " { atFieldStart = false }
+            }
+            i += 1
+        }
+    }
+}
+
+/// An import ready to save (0130, "Import"): the parsed words of a list in
+/// `lang`, each with its link to the language's dictionaries and its
+/// frequency rank, as `DatabaseService.prepareListImport` reads them in one
+/// read; `saveUserList` writes them as they are.
+struct ListImportPreview: Hashable, Sendable {
+    struct Word: Hashable, Sendable {
+        let word: ListText.Word
+        /// The linked headword; nil for a standalone word.
+        let headword: String?
+        /// Its frequency rank; nil when unranked.
+        let rank: Int?
+    }
+
+    let lang: String
+    let parse: ListText.Result
+    let words: [Word]
+
+    /// Words with a dictionary entry.
+    var linkedCount: Int { words.reduce(0) { $0 + ($1.headword == nil ? 0 : 1) } }
+}

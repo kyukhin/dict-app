@@ -1,0 +1,11 @@
+#separator:tab
+#html:true
+#guid column:1
+#notetype column:2
+#deck column:3
+#tags column:6
+f<Q2a&9kLm	Basic	English::Animals	cat	<b>γάτα</b>	noun animals
+b.Xz1)Pq8w	Basic	English::Animals	dog	σκύλος<br>σκυλί	noun animals
+r7#Lk2;Vn0	Basic	English::Home	house	σπίτι [sound:house.mp3]	noun home
+Hq3~mW8:zT	Basic	English::Home	water	<div>νερό</div><div>&quot;υγρό&quot;</div>	noun home
+Yc5^tN1=eK	Basic (and reversed card)	English::Verbs	to go	πηγαίνω&nbsp;/ πάω	verb

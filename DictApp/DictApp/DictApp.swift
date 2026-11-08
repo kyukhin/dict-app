@@ -186,6 +186,10 @@ struct DictApp: App {
             if let name = Self.argument(after: "-wordListFixture") {
                 _ = try await DatabaseService.shared.writeWordListFixture(name)
             }
+            // 0130, #155: "Import a file" reads this file, not the file picker.
+            if let path = Self.argument(after: "-importListFixture") {
+                ListImportViewModel.fixtureURL = URL(fileURLWithPath: path)
+            }
 
             // UI-test hook: scrub the rows and the `imported_sources` row left
             // over from a previous fixture import. The import end-to-end tests

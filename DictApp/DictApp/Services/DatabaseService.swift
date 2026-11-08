@@ -1805,6 +1805,79 @@ actor DatabaseService {
         }
     }
 
+    /// The preview of an import (0130, "Import", #155), in one read: each
+    /// word of `parse` linked to `lang`'s dictionaries by the rules the
+    /// build links a series with (`ListLinking`), and ranked from `lang`'s
+    /// `word_rank` as the build ranks: its headword's rank, else its term's
+    /// or its first ranked cleaned spelling's. A language whose pack is not
+    /// installed reads the stub's empty `word_rank`: its words stay unranked.
+    func prepareListImport(_ parse: ListText.Result, lang: String) async throws -> ListImportPreview {
+        let pool = try await userPool()
+        let schemas = schemas
+        return try await read(pool) { db in
+            let lookup = try Self.linkLookup(lang: lang, schemas: schemas, in: db)
+            let rank = try Self.rankLookup(lang: lang, in: db)
+            let words = try parse.words.map { word -> ListImportPreview.Word in
+                let link = try ListLinking.link(word.term, lang: lang, lookup: lookup)
+                let spellings = link.map { [$0.headword] } ?? [word.term] + ListLinking.cleanedVariants(of: word.term)
+                var found: Int?
+                for spelling in spellings where found == nil {
+                    found = try rank(spelling)
+                }
+                return ListImportPreview.Word(word: word, headword: link?.headword, rank: found)
+            }
+            return ListImportPreview(lang: lang, parse: parse, words: words)
+        }
+    }
+
+    /// Saves `preview` as an imported list titled `title` (0130, "Import"):
+    /// its `user_list` row and its words with their links and ranks, in one
+    /// write, which is not retried (0129). Returns its id, `user-` and a
+    /// lowercase UUID.
+    @discardableResult
+    func saveUserList(_ preview: ListImportPreview, title: String) async throws -> WordListID {
+        let pool = try await userPool()
+        let id = WordListID(rawValue: "user-" + UUID().uuidString.lowercased())
+        try await pool.write { db in
+            // With milliseconds, so two imports of one second keep their order.
+            try db.execute(sql: """
+                INSERT INTO user_list(id, title, lang, origin, created_at)
+                VALUES (?, ?, ?, ?, strftime('%Y-%m-%d %H:%M:%f', 'now'))
+                """, arguments: [id.rawValue, title, preview.lang, preview.parse.origin.rawValue])
+            let insert = try db.makeStatement(sql: """
+                INSERT INTO user_list_item(list_id, term, headword, translation, endings, pos, tags, level, level_ord,
+                                           rank, seq, sort_key)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """)
+            for item in preview.words {
+                let word = item.word
+                try insert.execute(arguments: [id.rawValue, word.term, item.headword, word.translation, word.endings,
+                                               word.partOfSpeech, word.tags, word.level, word.levelOrder, item.rank,
+                                               word.seq, WordListItem.sortKey(of: word.term)])
+            }
+        }
+        wordListsDidChange()
+        return id
+    }
+
+    /// A word's frequency rank in `lang` (`wordRankSQL`, the primary key),
+    /// keyed as the build keys it: folded Greek, other words lowercased;
+    /// nil when unranked. Reads only the files whose `word_rank` holds the
+    /// language.
+    private static func rankLookup(lang: String, in db: Database) throws -> (String) throws -> Int? {
+        let statements = try DictionarySchemas.all.filter { schema in
+            try Bool.fetchOne(db, sql: "SELECT EXISTS (SELECT 1 FROM \(schema).word_rank WHERE lang = ?)",
+                              arguments: [lang]) ?? false
+        }.map { try db.cachedStatement(sql: wordRankSQL(schema: $0)) }
+        return { word in
+            let key = lang == "ell" ? Search.foldGreek(word) : word.lowercased()
+            for statement in statements {
+                if let rank = try Int.fetchOne(statement, arguments: [lang, key]) { return rank }
+            }
+            return nil
+        }
+    }
+
     /// The headword language of `source` (ISO 639-3), as `sourceLanguages`
     /// reads it; nil when nothing names it.
     func sourceLanguage(of source: String) async throws -> String? {

@@ -16,6 +16,8 @@ struct LearnView: View {
     @State private var running: RunRequest?
     /// The pushed screens: E3's list screens, Statistics, a Definition.
     @State private var path = NavigationPath()
+    /// E3's Import (#155), for a language without lists.
+    @State private var showsImport = false
 
     /// The screens the home pushes besides E3's (`WordListRoute`).
     enum Route: Hashable {
@@ -75,6 +77,13 @@ struct LearnView: View {
             // a Definition may have changed what is learned.
             .onChange(of: path.count) { old, new in
                 if new < old { Task { await vm.load(locale: locale) } }
+            }
+            .sheet(isPresented: $showsImport, onDismiss: {
+                Task { await vm.load(locale: locale) }
+            }) {
+                ListImportView()
+                    .environment(\.locale, locale)
+                    .environment(\.layoutDirection, layoutDirection)
             }
             .fullScreenCover(item: $running, onDismiss: {
                 Task { await vm.load(locale: locale) }
@@ -227,10 +236,10 @@ struct LearnView: View {
             }
             .accessibilityIdentifier("learn_choose_lists")
         case .addWords?:
-            // ponytail: opens E3's Import in #155
-            Button("learn.importList") {}
-                .disabled(true)
-                .accessibilityIdentifier("learn_import_list")
+            Button("learn.importList") {
+                showsImport = true
+            }
+            .accessibilityIdentifier("learn_import_list")
             Text("learn.addWordsHint")
                 .foregroundStyle(.secondary)
                 .accessibilityIdentifier("learn_add_words_hint")

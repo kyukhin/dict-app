@@ -171,3 +171,100 @@ class WordListsPage: BasePage {
         return XCTWaiter.wait(for: [expectation], timeout: timeout) == .completed
     }
 }
+
+/// Import (0130, #155), in a sheet from the Lists screen's "+" or the Learn
+/// home's "Import a list": the source choice, Paste text, the Formats help,
+/// the preview and the result.
+class ListImportPage: BasePage {
+    private typealias IDs = AccessibilityIdentifiers.ListImport
+
+    private func element(_ identifier: String) -> XCUIElement {
+        app.descendants(matching: .any)[identifier].firstMatch
+    }
+
+    var fileButton: XCUIElement { app.buttons[IDs.file].firstMatch }
+    var pasteRow: XCUIElement { element(IDs.paste) }
+    var formatsRow: XCUIElement { element(IDs.formats) }
+    var help: XCUIElement { element(IDs.help) }
+    var textBox: XCUIElement { element(IDs.text) }
+    /// SwiftUI's `PasteButton`, a system control.
+    var pasteButton: XCUIElement { app.buttons[IDs.pasteButton].firstMatch }
+    var nextButton: XCUIElement { app.buttons[IDs.next].firstMatch }
+    var preview: XCUIElement { element(IDs.preview) }
+    var name: XCUIElement { app.textFields[IDs.name].firstMatch }
+    var language: XCUIElement { app.buttons[IDs.language].firstMatch }
+    var delimiter: XCUIElement { app.buttons[IDs.delimiter].firstMatch }
+    var summary: XCUIElement { app.staticTexts[IDs.summary].firstMatch }
+    var errorRows: XCUIElementQuery { app.descendants(matching: .any).matching(identifier: IDs.errorRow) }
+    var confirmButton: XCUIElement { app.buttons[IDs.confirm].firstMatch }
+    var failure: XCUIElement { element(IDs.failure) }
+    var result: XCUIElement { app.staticTexts[IDs.result].firstMatch }
+    var doneButton: XCUIElement { app.buttons[IDs.done].firstMatch }
+
+    /// The sheet's source choice is up.
+    func waitForSources(timeout: TimeInterval = TestData.Timeouts.medium) -> Bool {
+        fileButton.waitForExistence(timeout: timeout)
+    }
+
+    /// "Import a file" (the `-importListFixture` file), then the preview.
+    func importFile(file: StaticString = #filePath, line: UInt = #line) {
+        XCTAssertTrue(waitForSources(), "Import's source choice", file: file, line: line)
+        fileButton.tap()
+        XCTAssertTrue(preview.waitForExistence(timeout: TestData.Timeouts.long), "the preview", file: file, line: line)
+    }
+
+    /// Import, then the result.
+    func confirm(file: StaticString = #filePath, line: UInt = #line) {
+        XCTAssertTrue(confirmButton.waitForExistence(timeout: TestData.Timeouts.medium), "Import", file: file, line: line)
+        XCTAssertTrue(confirmButton.isEnabled, "Import is enabled", file: file, line: line)
+        confirmButton.tap()
+    }
+
+    /// The result's Done closes the sheet.
+    func done(file: StaticString = #filePath, line: UInt = #line) {
+        XCTAssertTrue(doneButton.waitForExistence(timeout: TestData.Timeouts.medium), "the result's Done",
+                      file: file, line: line)
+        doneButton.tap()
+        XCTAssertTrue(doneButton.waitForNonExistence(timeout: TestData.Timeouts.medium), "the sheet closes",
+                      file: file, line: line)
+    }
+
+    /// Chooses `option` ("Spanish") in the menu picker `picker`.
+    func choose(_ option: String, in picker: XCUIElement, file: StaticString = #filePath, line: UInt = #line) {
+        XCTAssertTrue(picker.waitForExistence(timeout: TestData.Timeouts.medium), "the picker", file: file, line: line)
+        picker.tap()
+        let item = app.buttons[option].firstMatch
+        XCTAssertTrue(item.waitForExistence(timeout: TestData.Timeouts.medium), "the menu offers \(option)",
+                      file: file, line: line)
+        item.tap()
+    }
+
+    /// Waits until `element`'s label equals `text`.
+    func wait(for element: XCUIElement, toBe text: String, timeout: TimeInterval = TestData.Timeouts.medium) -> Bool {
+        let expectation = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label == %@", text), object: element)
+        return XCTWaiter.wait(for: [expectation], timeout: timeout) == .completed
+    }
+}
+
+extension WordListsPage {
+    /// The rows of imported lists (`word_list_row_user-…`).
+    var importedRows: XCUIElementQuery {
+        app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH 'word_list_row_user-'"))
+    }
+
+    /// The counts of imported lists, newest first.
+    var importedCounts: XCUIElementQuery {
+        app.staticTexts.matching(NSPredicate(format: "identifier BEGINSWITH 'word_list_count_user-'"))
+    }
+
+    /// "+": Import's sheet.
+    @discardableResult
+    func openImport(file: StaticString = #filePath, line: UInt = #line) -> ListImportPage {
+        XCTAssertTrue(importButton.waitForExistence(timeout: TestData.Timeouts.medium), "the + of Import",
+                      file: file, line: line)
+        importButton.tap()
+        let page = ListImportPage(app: app)
+        XCTAssertTrue(page.waitForSources(), "+ opens Import", file: file, line: line)
+        return page
+    }
+}
