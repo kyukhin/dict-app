@@ -171,10 +171,24 @@ class LearnPage: BasePage {
     @discardableResult
     func tapChooseLists() -> WordListsPage {
         XCTAssertTrue(chooseLists.waitForExistence(timeout: TestData.Timeouts.medium), "Today offers Choose lists")
+        revealBelowNavigationBar(chooseLists)
         chooseLists.tap()
         let page = WordListsPage(app: app)
         XCTAssertTrue(page.waitForNewWordsFrom(), "Choose lists opens New words from")
         return page
+    }
+
+    /// Swipes the home down until `row` is on screen below the navigation
+    /// bar. Back from a pushed screen, the home keeps its scroll, and Today's
+    /// rows can sit under the iOS 26 bar, which floats over the list: the row
+    /// exists and is in the window, but a tap lands on the bar (#281, #181).
+    private func revealBelowNavigationBar(_ row: XCUIElement) {
+        let bar = app.navigationBars.firstMatch
+        for _ in 0..<6 {
+            if row.exists && (!bar.exists || row.frame.minY >= bar.frame.maxY) { return }
+            app.collectionViews.firstMatch.swipeDown()
+        }
+        XCTAssertGreaterThanOrEqual(row.frame.minY, bar.frame.maxY, "\(row) clear of the navigation bar")
     }
 
     /// Statistics (#164), from its row at the bottom of the home, or from

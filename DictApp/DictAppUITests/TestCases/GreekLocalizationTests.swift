@@ -94,6 +94,11 @@ final class GreekLocalizationTests: XCTestCase {
             app.launchArguments += ["-learningLanguages", "ell", "-learningLists", "ky-ell-a1", "-drillLength", "2",
                                     "-learningAnswerHints", "-learningSeed", "168"]
         }
+        // 0131, #181: words due, typed answers.
+        if name.contains("testTypedAnswerInGreek") {
+            app.launchArguments += ["-learningFixture", "due", "-learningAnswerHints", "-learningSeed", "161",
+                                    "-learning_answer_mode", "lenient"]
+        }
 
         // Sim orientation persists across sessions; landscape breaks swipes.
         XCUIDevice.shared.orientation = .portrait
@@ -688,6 +693,28 @@ final class GreekLocalizationTests: XCTestCase {
         XCTAssertTrue(waitForText("Ανά χρόνο"), "the run by tense")
         attachScreenshot("20-conjugation-summary")
         try assertNoEnglishLeak(on: "Conjugation summary")
+    }
+
+    /// 0131, #181: a typed Production question in Greek. The field names the
+    /// language in lower case, as running Greek text does ("στα ελληνικά",
+    /// not "στα Ελληνικά"); Check and Don't know read Έλεγχος and Δεν ξέρω,
+    /// and Don't know shows "Σωστή απάντηση: …".
+    func testTypedAnswerInGreek() throws {
+        openTab(.learn)
+        let learnPage = LearnPage(app: app)
+        XCTAssertTrue(learnPage.waitForHome(timeout: TestData.Timeouts.long), "the Learn home")
+        XCTAssertEqual(learnPage.trainerProduction.label, "Παραγωγή")
+        let run = learnPage.openTrainer(production: true)
+        XCTAssertTrue(run.waitForQuestionOrSummary(), "a question")
+        XCTAssertTrue(run.isTyped, "typed answers: a text field")
+        XCTAssertEqual(run.answerField.placeholderValue, "Γράψτε τη λέξη στα ελληνικά")
+        XCTAssertEqual(run.checkButton.label, "Έλεγχος")
+        XCTAssertEqual(run.dontKnowButton.label, "Δεν ξέρω")
+        attachScreenshot("21-typed-answer")
+        run.dontKnowButton.tap()
+        XCTAssertEqual(run.waitForFeedback(), "wrong", "Don't know counts as wrong")
+        XCTAssertTrue(run.feedbackText.hasPrefix("Σωστή απάντηση: "), run.feedbackText)
+        try assertNoEnglishLeak(on: "Typed answer")
     }
 
     // MARK: - Launch

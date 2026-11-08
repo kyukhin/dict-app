@@ -232,6 +232,38 @@ final class LanguagesFlowTests: XCTestCase {
         XCTAssertFalse(app.images["minus.circle.fill"].exists, "no delete control after Done")
     }
 
+    /// #181: at the largest accessibility text size, in Arabic, a row's
+    /// status sits under its name instead of beside it, so the name keeps
+    /// the row's width: "الإنجليزية" on one line, not broken letter by
+    /// letter, with "مضمّنة" below; Russian's "مثبّت · …" below its name.
+    func testRowsStackAtTheLargestTextSize() throws {
+        app.launchArguments += ["-AppleLanguages", "(ar)", "-AppleLocale", "ar",
+                                "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"]
+        launch(downloads: "ok")
+        let settings = app.tabButton(labeled: "الإعدادات")
+        XCTAssertTrue(settings.waitForExistence(timeout: TestData.Timeouts.launch), "the Settings tab")
+        settings.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        let languages = LanguagesPage(app: app)
+        XCTAssertTrue(languages.open(), "Settings → Languages must open")
+
+        let english = languages.element(IDs.row("eng"))
+        XCTAssertTrue(english.waitForExistence(timeout: TestData.Timeouts.medium), "English is listed")
+        XCTAssertEqual(english.label, "الإنجليزية")
+        let window = app.windows.firstMatch.frame
+        XCTAssertGreaterThan(english.frame.width, window.width / 3,
+                             "the name keeps the row's width: \(english.frame) in \(window)")
+        let included = app.cells.containing(.staticText, identifier: IDs.row("eng")).staticTexts["مضمّنة"]
+        XCTAssertTrue(included.exists, "English is 'مضمّنة'")
+        XCTAssertGreaterThanOrEqual(included.frame.minY, english.frame.maxY - 1, "the status under the name")
+
+        let russianName = languages.element(IDs.row("rus"))
+        XCTAssertTrue(app.scrollToElement(russianName), "the Russian row must be reachable")
+        let installed = languages.element(IDs.installed("rus"))
+        XCTAssertTrue(app.scrollToElement(installed), "Russian's status must be reachable")
+        XCTAssertGreaterThanOrEqual(installed.frame.minY, russianName.frame.maxY - 1, "the status under the name")
+        attachScreenshot("Languages (ar), largest text")
+    }
+
     /// `s` without Foundation's U+2068/U+2069 isolates around arguments.
     private static func visible(_ s: String) -> String {
         String(s.unicodeScalars.filter { $0 != "\u{2068}" && $0 != "\u{2069}" })

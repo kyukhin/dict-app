@@ -98,9 +98,19 @@ struct PackRow: View {
     let locale: Locale
     let install: () -> Void
     let cancel: () -> Void
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
+    /// The status under the name at the accessibility text sizes (#181):
+    /// beside it, the status's fixed width left the name a few points and
+    /// broke it letter by letter.
+    private var layout: AnyLayout {
+        dynamicTypeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8))
+            : AnyLayout(HStackLayout(spacing: 12))
+    }
 
     var body: some View {
-        HStack(spacing: 12) {
+        layout {
             VStack(alignment: .leading, spacing: 4) {
                 Text(verbatim: row.name)
                     .font(.body)
@@ -114,7 +124,9 @@ struct PackRow: View {
                 }
                 statusLine
             }
-            Spacer(minLength: 8)
+            if !dynamicTypeSize.isAccessibilitySize {
+                Spacer(minLength: 8)
+            }
             action
         }
         .padding(.vertical, 2)
