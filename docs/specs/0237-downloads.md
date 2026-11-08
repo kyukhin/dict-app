@@ -1,7 +1,7 @@
 # Dictionaries and word lists downloaded at setup
 
 > Spec written by Claude (AI) for LibreDict.
-> Status: Approved by Kirill on 2026-11-04 · Epic: #237 · Tickets: #240 (T1, done), #241 (T2, done), #242 (T3, done), #243 (T4), #244 (T5, done), #245 (T6), #246 (T7) · Updated: 2026-11-06
+> Status: Approved by Kirill on 2026-11-04 · Epic: #237 · Tickets: #240 (T1, done), #241 (T2, done), #242 (T3, done), #243 (T4), #244 (T5, done), #245 (T6), #246 (T7) · Updated: 2026-11-08
 
 Read [0000-overview.md](0000-overview.md), [0129-dictionary-file.md](0129-dictionary-file.md) and [0136-word-forms.md](0136-word-forms.md) first. This epic changes 0129's single bundled file into an English bundle plus language packs, attached the same way. E3 ([0130](0130-word-lists.md), word lists) and E4 ([0131](0131-learning.md), learning) are drafted in parallel and call this spec's API ("For E3 and E4"). Numbers marked "measured" come from a prototype of the cut, run on 2026-11-03 and 11-04 against the dictionary file of master `fc8c930` (151,674,880 bytes, sha256 `24a1494d…`), Python 3.14.0, SQLite 3.51.2, on a Mac under heavy load (timings are relative).
 
@@ -167,7 +167,7 @@ Downloading in the background after the app is closed (a background `URLSession`
 | `entry(for:)` | `dict.entries`, then imports | The file of the key's source (`DictionarySchemas.schema(ofSource:)`; the bundle for a source no file claims), then imports |
 | Import key check, 1.x move key check | `dict.entries` | The file of the row's source |
 | Word lists (E3) | — | `wordlist`, `wordlist_item`, `word_rank` of the language's pack (`ell`, `eng_lists`), read through `DictionarySchemas` (For E3 and E4) |
-| Credits data sources | `dict.data_source` | `SELECT DISTINCT` over every file |
+| Credits data sources | None: static lines | None: the lines are in the app (`Credits`, Models.swift), and `CreditsTests` checks the `data_source` and `dict_metadata` rows of every file against them (#180) |
 
 Source IDs, badges, stripe colours, pair keys (`DictionaryGrouping.bundledSourceIDs`) and Credits lines stay in the app for every catalog source, installed or not.
 
@@ -467,3 +467,4 @@ QA records in History: the sizes of each asset and file, App Size and the downlo
 - 2026-11-07: Review fix (CodeRabbit, PR #257): a cancel that lands after the download has ended no longer leaves "Installing…": `perform` publishes nothing once cancelled, and `drain` publishes the resting state when a cancelled run ends, unless the pack was queued again. DEBUG seam `onDownloaded`; `PackServiceTests.testCancelAsTheDownloadEndsShowsTheRestingState`.
 - 2026-11-08: #245, rebased on E4: the My words list screen (#154) takes over from the Bookmarks stand-in: `myWordsEntries` keeps a word whose pack is not installed with no entry (`MyWordsEntry.key`), its row reads "Greek is not downloaded." and opens the "not downloaded" view, and the list reloads on `PackService.didChange`. The dropped-connection fix is #242's test fix above. Sizes after the #177 re-cut: Greek 11.9 MB to download, 60.6 MB installed.
 - 2026-11-08: E4 installs a learning pair through `installPair` and shows its own progress row on the Learn home and in Settings → Learning → Languages (0131, History), with its own keys until #243's `PackRow`.
+- 2026-11-08: #180: Credits reads no file; the "Credits data sources" row says how its static lines are kept in step with the files.

@@ -5756,7 +5756,8 @@ extension DictAppTests {
 
     /// Keys whose translation is spelled as in English, per language.
     private static let sameAsEnglishKeys: [String: Set<String>] = [
-        "es": cefrLevelKeys.union(["common.no"]), "ru": cefrLevelKeys, "ar": cefrLevelKeys,
+        // #180: "Software" is the Spanish word too.
+        "es": cefrLevelKeys.union(["common.no", "credits.software.section"]), "ru": cefrLevelKeys, "ar": cefrLevelKeys,
     ]
 
     /// The multiset of `%@` / `%lld` specifiers (with positional index) in a
@@ -33682,5 +33683,181 @@ extension DictionaryReopenTests {
         XCTAssertEqual(recovered, expected, "examples(for:)")
         let after = await db.dictionaryReopenCount
         XCTAssertEqual(after - reopens, 1, "one reopen")
+    }
+}
+
+// MARK: - Credits (#180)
+
+/// #180: Credits names every data source the app ships, in the bundle and in
+/// every committed pack, with its license, and the Licenses section names
+/// each license with its URL. Each file records the source and license of
+/// everything in it (`dict_metadata`, `data_source`).
+final class CreditsTests: XCTestCase {
+    /// One row per dictionary source and data set of a file, with the
+    /// metadata the file records for it.
+    private struct Recorded {
+        let file: String
+        let id: String
+        let displayName: String
+        let version: String
+        let license: String
+        let url: String
+    }
+
+    /// Every `dict_metadata` and `data_source` row of the bundle and of the
+    /// committed packs, and the bundle's catalog of the packs' dictionaries.
+    private func recorded() throws -> [Recorded] {
+        let packs = try PackFixtures.all()
+        var rows: [Recorded] = []
+        for url in [try TestDictionary.bundledURL()] + PackID.all.compactMap({ packs[$0] }) {
+            rows += try BundledDictionary(url: url).read { db in
+                try GRDB.Row.fetchAll(db, sql: """
+                    SELECT 'dict_metadata' AS tbl, source AS id, display_name, version, license, url FROM dict_metadata
+                    UNION ALL
+                    SELECT 'data_source', id, display_name, version, license, url FROM data_source
+                    UNION ALL
+                    SELECT 'catalog_source', source, display_name, version, license, url FROM catalog_source
+                    """).map { row in
+                    Recorded(file: "\(url.lastPathComponent) \(row["tbl"] as String)", id: row["id"],
+                             displayName: row["display_name"] ?? "", version: row["version"] ?? "",
+                             license: row["license"] ?? "", url: row["url"] ?? "")
+                }
+            }
+        }
+        return rows
+    }
+
+    /// The text each license's rows record, in `license` (a full text for a
+    /// dictionary, a name for a data set).
+    private static let recordedLicense = [
+        "cc_by_sa_4_0": "CC BY-SA 4.0",
+        "cc_by_sa_3_0": "CC BY-SA 3.0",
+        "cc_by_3_0": "CC BY 3.0",
+        "cc_by_2_0_fr": "CC BY 2.0 FR",
+        "apache_2_0": "Apache License",
+        "wordnet": "WordNet 3.0 License",
+        "cefrj": "commercial use with a proper acknowledgement of the source",
+    ]
+
+    /// Every data set and dictionary of the bundle and the committed packs
+    /// has its Credits line, by id; no id has two, and every line credits
+    /// something that ships.
+    func testEveryShippedSourceHasACreditsLine() throws {
+        let rows = try recorded()
+        let dataSets = Set(rows.filter { $0.file.hasSuffix(" data_source") }.map(\.id))
+        XCTAssertEqual(dataSets, ["wiktionary-ell-forms", "ky-ell-lists", "frequencywords-2018", "tatoeba",
+                                  "libredict-grammar-ell", "cefrj-1.5", "octanove-c1c2-1.0"],
+                       "the data sets of 2.0; a new one needs a Credits line")
+        for row in rows {
+            XCTAssertNotNil(Credits.line(crediting: row.id), "\(row.file): \(row.id) has a Credits line")
+        }
+        let shipped = Set(rows.map(\.id))
+        for line in Credits.dataSources {
+            XCTAssertFalse(line.sources.isEmpty, line.id)
+            XCTAssertTrue(line.sources.isSubset(of: shipped), "\(line.id) credits only what ships: \(line.sources)")
+        }
+        let credited = Credits.dataSources.flatMap(\.sources)
+        XCTAssertEqual(credited.count, Set(credited).count, "no source has two lines")
+        XCTAssertEqual(Set(Credits.dataSources.map(\.id)).count, Credits.dataSources.count, "line ids are unique")
+    }
+
+    /// AC 2: each file records the name, version, license and URL of every
+    /// dictionary and data set in it, and the license is the one Credits
+    /// names for it.
+    func testEveryFileRecordsSourceAndLicense() throws {
+        for row in try recorded() {
+            let what = "\(row.file): \(row.id)"
+            XCTAssertFalse(row.displayName.isEmpty, "\(what): display_name")
+            XCTAssertFalse(row.version.isEmpty, "\(what): version")
+            XCTAssertFalse(row.license.isEmpty, "\(what): license")
+            XCTAssertTrue(row.url.hasPrefix("https://"), "\(what): url \(row.url)")
+            guard let line = Credits.line(crediting: row.id) else { continue }
+            let license = try XCTUnwrap(Self.recordedLicense[line.license], line.license)
+            XCTAssertTrue(row.license.contains(license), "\(what): the file records \(license), as Credits says")
+        }
+    }
+
+    /// Every package of `Package.resolved` (GRDB.swift only) has its
+    /// Software row, which names it, its author and the MIT License in the
+    /// five UI languages, and opens its LICENSE verbatim: the copyright line
+    /// and the permission notice MIT asks to ship.
+    func testEveryPackageHasASoftwareRowWithItsLicense() throws {
+        let resolved = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("DictApp.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved")
+        let pins = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(contentsOf: resolved))
+            as? [String: Any])["pins"] as? [[String: Any]]
+        let packages = try XCTUnwrap(pins).compactMap { $0["identity"] as? String }
+        XCTAssertEqual(Set(packages), Set(Credits.software.map(\.package)), "a Software row per package")
+        let grdb = try XCTUnwrap(pins?.first { $0["identity"] as? String == "grdb.swift" }?["state"] as? [String: Any])
+        XCTAssertEqual(grdb["version"] as? String, "6.29.3",
+                       "a new GRDB: copy its LICENSE into Credits.software again")
+
+        let software = try XCTUnwrap(Credits.software.first { $0.package == "grdb.swift" })
+        XCTAssertEqual(software.license, "mit")
+        XCTAssertEqual(software.name, "GRDB.swift")
+        let paragraphs = software.licenseText.components(separatedBy: "\n\n")
+        XCTAssertEqual(paragraphs.count, 4, software.licenseText)
+        XCTAssertEqual(paragraphs.first, "Copyright (C) 2015-2024 Gwendal Roué")
+        XCTAssertTrue(paragraphs[1].hasPrefix("Permission is hereby granted, free of charge, to any person obtaining "
+                                              + "a copy of this software and associated documentation files"))
+        XCTAssertEqual(paragraphs[2], "The above copyright notice and this permission notice shall be included in "
+                       + "all copies or substantial portions of the Software.")
+        XCTAssertTrue(paragraphs[3].hasPrefix("THE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND"))
+        XCTAssertTrue(paragraphs[3].hasSuffix("OR THE USE OR OTHER DEALINGS IN THE SOFTWARE."))
+        XCTAssertFalse(software.licenseText.contains("  "), "no doubled space from the line continuations")
+        // Every byte: the sha256 of GRDB.swift's LICENSE at v6.29.3 (2cf6c75),
+        // which ends with a newline the literal leaves out.
+        let digest = SHA256.hash(data: Data((software.licenseText + "\n").utf8))
+            .map { String(format: "%02x", $0) }.joined()
+        XCTAssertEqual(digest, "b9ce5b40c859a62fa6998995a9d284565aba72e92ca7c655f64777948f885139",
+                       "the text is GRDB.swift's LICENSE, verbatim")
+
+        XCTAssertEqual(SettingsViewModel.localizedString(software.key, locale: Locale(identifier: "en")),
+                       "GRDB.swift by Gwendal Roué, MIT License")
+        for code in ["en", "ru", "es", "ar", "el"] {
+            let locale = Locale(identifier: code)
+            let row = SettingsViewModel.localizedString(software.key, locale: locale)
+            for name in ["GRDB.swift", "Gwendal Roué", "MIT License"] {
+                XCTAssertTrue(row.contains(name), "\(code): \(name) untranslated in '\(row)'")
+            }
+            XCTAssertNotEqual(SettingsViewModel.localizedString("credits.software.section", locale: locale),
+                              "credits.software.section", code)
+        }
+    }
+
+    /// Each line names its license in the five UI languages, untranslated;
+    /// the Licenses section lists exactly the licenses the lines and the
+    /// libraries name, each with an https URL.
+    func testEachLineNamesALicenseTheLicensesSectionLinks() throws {
+        let licenses = Dictionary(uniqueKeysWithValues: Credits.licenses.map { ($0.id, $0) })
+        XCTAssertEqual(licenses.count, Credits.licenses.count, "license ids are unique")
+        XCTAssertEqual(Set(Credits.dataSources.map(\.license) + Credits.software.map(\.license)), Set(licenses.keys),
+                       "every license is named by a line or a library")
+        for license in Credits.licenses {
+            let url = try XCTUnwrap(license.url, license.id)
+            XCTAssertEqual(url.scheme, "https", license.id)
+            XCTAssertNotNil(url.host, license.id)
+        }
+        // A Creative Commons license links its deed: "CC BY 2.0 FR" is
+        // creativecommons.org/licenses/by/2.0/fr/.
+        for license in Credits.licenses where license.name.hasPrefix("CC ") {
+            let path = license.name.dropFirst(3).lowercased().split(separator: " ").joined(separator: "/")
+            XCTAssertEqual(license.address, "https://creativecommons.org/licenses/\(path)/", license.id)
+        }
+        let english = SettingsViewModel.localizedString("credits.dataSources.wordnet", locale: Locale(identifier: "en"))
+        XCTAssertEqual(english, "WordNet — Princeton University, WordNet 3.0 License")
+        for line in Credits.dataSources {
+            let license = try XCTUnwrap(licenses[line.license], "\(line.id): \(line.license)")
+            for code in ["en", "ru", "es", "ar", "el"] {
+                let text = SettingsViewModel.localizedString(line.key, locale: Locale(identifier: code))
+                XCTAssertNotEqual(text, line.key, "\(code): \(line.key) is translated")
+                // CEFR-J asks for its citation only, which the line is.
+                if line.license == "cefrj" {
+                    XCTAssertTrue(text.contains("The CEFR-J Wordlist Version 1.5"), "\(code): \(text)")
+                } else {
+                    XCTAssertTrue(text.contains(license.name), "\(code): \(line.id) names \(license.name): \(text)")
+                }
+            }
+        }
     }
 }

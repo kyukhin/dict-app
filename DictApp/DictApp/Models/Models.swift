@@ -2893,3 +2893,140 @@ extension DictionarySchemas {
         }
     }
 }
+
+// MARK: - Credits (Issue #180)
+//
+// The Credits screen: one line per data source the app ships, in the bundle
+// or in a pack, installed or not (0237), and the licenses those lines name.
+// A line lists the dictionaries (`dict_metadata.source`) and the data sets
+// (`data_source.id`) it credits, so a unit test can check that every row of
+// the bundle and of the committed packs has its line.
+
+/// A license on Credits: its name, as the lines cite it, and the URL of its
+/// text. Neither is translated.
+struct CreditLicense: Identifiable, Hashable, Sendable {
+    let id: String
+    let name: String
+    let address: String
+
+    var url: URL? { URL(string: address) }
+    var accessibilityID: String { "credits_license_\(id)" }
+}
+
+/// A library the app links, under Credits › Software. MIT and the like ask
+/// for its copyright and permission notice in every copy, so its row opens
+/// the license file, verbatim.
+struct CreditSoftware: Identifiable, Hashable, Sendable {
+    let id: String
+    /// The library's name, the title of its license screen; not translated.
+    let name: String
+    /// Its identity in `Package.resolved`.
+    let package: String
+    /// The `Localizable.xcstrings` key of the row.
+    let key: String
+    /// The `CreditLicense.id` of its license.
+    let license: String
+    /// The library's LICENSE file at the pinned version: English legal text,
+    /// never translated.
+    let licenseText: String
+
+    var accessibilityID: String { "credits_software_\(id)" }
+}
+
+/// One line of Credits › Data Sources.
+struct CreditLine: Identifiable, Hashable, Sendable {
+    let id: String
+    /// The `Localizable.xcstrings` key of the text.
+    let key: String
+    /// The `CreditLicense.id` the text names.
+    let license: String
+    /// The `dict_metadata.source` and `data_source.id` values it credits.
+    let sources: Set<String>
+
+    var accessibilityID: String { "credits_\(id)" }
+}
+
+enum Credits {
+    static let licenses: [CreditLicense] = [
+        CreditLicense(id: "cc_by_sa_4_0", name: "CC BY-SA 4.0",
+                      address: "https://creativecommons.org/licenses/by-sa/4.0/"),
+        CreditLicense(id: "cc_by_sa_3_0", name: "CC BY-SA 3.0",
+                      address: "https://creativecommons.org/licenses/by-sa/3.0/"),
+        CreditLicense(id: "cc_by_3_0", name: "CC BY 3.0",
+                      address: "https://creativecommons.org/licenses/by/3.0/"),
+        CreditLicense(id: "cc_by_2_0_fr", name: "CC BY 2.0 FR",
+                      address: "https://creativecommons.org/licenses/by/2.0/fr/"),
+        CreditLicense(id: "apache_2_0", name: "Apache 2.0",
+                      address: "https://www.apache.org/licenses/LICENSE-2.0"),
+        CreditLicense(id: "wordnet", name: "WordNet 3.0 License",
+                      address: "https://wordnet.princeton.edu/license-and-commercial-use"),
+        // CEFR-J asks for no license, only the citation its line gives (0130).
+        CreditLicense(id: "cefrj", name: "CEFR-J Wordlist terms of use",
+                      address: "https://cefr-j.org/download.html"),
+        CreditLicense(id: "mit", name: "MIT License", address: "https://opensource.org/license/mit"),
+    ]
+
+    /// Every package of `Package.resolved`.
+    static let software: [CreditSoftware] = [
+        // GRDB.swift 6.29.3 (2cf6c75), its LICENSE verbatim.
+        CreditSoftware(id: "grdb", name: "GRDB.swift", package: "grdb.swift", key: "credits.software.grdb",
+                       license: "mit",
+                       licenseText: """
+            Copyright (C) 2015-2024 Gwendal Roué
+
+            Permission is hereby granted, free of charge, to any person obtaining a copy of this software and \
+            associated documentation files (the "Software"), to deal in the Software without restriction, including \
+            without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell \
+            copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the \
+            following conditions:
+
+            The above copyright notice and this permission notice shall be included in all copies or substantial \
+            portions of the Software.
+
+            THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT \
+            LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO \
+            EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER \
+            IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR \
+            THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+            """),
+    ]
+
+    static let dataSources: [CreditLine] = [
+        CreditLine(id: "wordnet", key: "credits.dataSources.wordnet", license: "wordnet",
+                   sources: ["wordnet"]),
+        CreditLine(id: "openrussian", key: "credits.dataSources.openrussian", license: "cc_by_sa_4_0",
+                   sources: ["openrussian"]),
+        CreditLine(id: "freedict", key: "credits.dataSources.freedict", license: "cc_by_sa_3_0",
+                   sources: ["freedict-eng-spa", "freedict-ell-eng", "freedict-eng-ell"]),
+        CreditLine(id: "spanish_wordnet", key: "credits.dataSources.spanishWordnet", license: "cc_by_3_0",
+                   sources: ["wordnet-spa-eng"]),
+        CreditLine(id: "arabic_wordnet", key: "credits.dataSources.arabicWordnet", license: "cc_by_sa_3_0",
+                   sources: ["wordnet-arb-eng"]),
+        CreditLine(id: "greek_wordnet", key: "credits.dataSources.greekWordnet", license: "apache_2_0",
+                   sources: ["wordnet-ell-eng", "wordnet-eng-ell"]),
+        // #144: the Greek word forms and inflection tables (0136).
+        CreditLine(id: "wiktionary", key: "credits.dataSources.wiktionary", license: "cc_by_sa_4_0",
+                   sources: ["wiktionary-ell-forms"]),
+        // #152, #153: the word lists and the frequencies that order new words (0130).
+        CreditLine(id: "greek_lists", key: "credits.dataSources.greekLists", license: "cc_by_sa_4_0",
+                   sources: ["ky-ell-lists"]),
+        CreditLine(id: "cefrj", key: "credits.dataSources.cefrj", license: "cefrj",
+                   sources: ["cefrj-1.5"]),
+        CreditLine(id: "octanove", key: "credits.dataSources.octanove", license: "cc_by_sa_4_0",
+                   sources: ["octanove-c1c2-1.0"]),
+        CreditLine(id: "frequency_words", key: "credits.dataSources.frequencyWords", license: "cc_by_sa_4_0",
+                   sources: ["frequencywords-2018"]),
+        // #178: the example sentences; each example names its authors (0134).
+        CreditLine(id: "tatoeba", key: "credits.dataSources.tatoeba", license: "cc_by_2_0_fr",
+                   sources: ["tatoeba"]),
+        // #172: the Greek grammar notes, LibreDict's own text (0133).
+        CreditLine(id: "greek_grammar", key: "credits.dataSources.greekGrammar", license: "cc_by_sa_4_0",
+                   sources: ["libredict-grammar-ell"]),
+    ]
+
+    /// The line crediting a dictionary source or a data set; nil when
+    /// Credits does not name it.
+    static func line(crediting source: String) -> CreditLine? {
+        dataSources.first { $0.sources.contains(source) }
+    }
+}

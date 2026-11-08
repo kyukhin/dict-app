@@ -1,13 +1,13 @@
 # LibreDict overview
 
 > Spec written by Claude (AI) for LibreDict.
-> Status: Approved by Kirill on 2026-10-27 · Epic: — · Tickets: — · Updated: 2026-11-06
+> Status: Approved by Kirill on 2026-10-27 · Epic: — · Tickets: — · Updated: 2026-11-08
 
 This spec describes the app as shipped in 1.4.0 (tag `v1.4.0`, master `f0f806e`), plus the v2.0.0 changes merged since (see History). Read it before any design, development, testing or review task, then read the spec of your epic. It describes the code as it is now. The last sections list what v2.0.0 will change. Paths are relative to the repo root. Links work from this folder.
 
 ## Why
 
-LibreDict is a free offline dictionary for iPhone and iPad. It has no account, no ads and no analytics. The app makes no network calls of its own: only the user-initiated mail and App Store links leave the device. #237 ([0237](0237-downloads.md), Approved) adds one kind: a language download the user starts, from GitHub Releases. The code is MIT ([LICENSE](../../LICENSE)), and each dictionary keeps its own license.
+LibreDict is a free offline dictionary for iPhone and iPad. It has no account, no ads and no analytics. The app makes no network calls of its own: only the user-initiated mail, App Store and license links leave the device. #237 ([0237](0237-downloads.md), Approved) adds one kind: a language download the user starts, from GitHub Releases. The code is MIT ([LICENSE](../../LICENSE)), and each dictionary keeps its own license.
 
 | | |
 |---|---|
@@ -31,13 +31,14 @@ LibreDict is a free offline dictionary for iPhone and iPad. It has no account, n
 | Definition | The headword, phonetic, part of speech and the definition as Markdown (inline syntax only, selectable). A speaker button next to the headword reads it aloud (TTS), and is hidden when the device has no voice for the headword's language (#202). A Greek headword shows its conjugation or declension table below, verbs with an "All forms" button (#144, [0136](0136-word-forms.md)). Toolbar: Reading Mode, bookmark (adds the entry to My words or removes it, #138). Opening the screen records History and counts towards the review prompt | [DefinitionView](../../DictApp/DictApp/Views/DefinitionView.swift) · `DefinitionViewModel` |
 | History | Up to 100 words, newest first, each with its source stripe and a local-time caption ("Today, 8:41 PM", #114). A Clear button removes all of them | [HistoryView](../../DictApp/DictApp/Views/HistoryView.swift) · `HistoryViewModel`, `HistoryTimestamp` |
 | Bookmarks | My words (the former bookmarks, until #158 replaces the tab), newest first, with a one-line snippet. Swipe to delete. No stripe | [BookmarksView](../../DictApp/DictApp/Views/BookmarksView.swift) · `BookmarksViewModel` |
-| Settings | Sections in this order: Language, Result sorting, Dictionaries, Learning Mode ("Coming Soon" stub), Support, About (name, tagline, description), Version with a license note | [SettingsView](../../DictApp/DictApp/Views/SettingsView.swift) · `SettingsViewModel` |
+| Settings | Sections in this order: Language, Result sorting, Dictionaries, Learning Mode ("Coming Soon" stub), Support, About (name, tagline, description), Version with the Credits row right under it (#180) and a license note | [SettingsView](../../DictApp/DictApp/Views/SettingsView.swift) · `SettingsViewModel` |
 | Language | A pushed list of the 5 languages with the localised name, the native name and a checkmark. Picking a language rebuilds the whole UI at once | `UILanguagePickerView` in SettingsView.swift · `LocalizationManager` |
 | Result sorting | A picker with two modes: Relevance (the default) and Preferred dictionary first (#6) | SettingsView · `SettingsService` |
 | Dictionary Order | One row per language pair, e.g. "Spanish – English". Each row has a drag grip, the summed entry count, an (i) button and one toggle. Disabled pairs stay in the list, greyed out and still draggable. The list reloads every time the screen appears (#92, #105). It is the list the Search chips show (`DictionarySelection`, #145) | [DictionaryOrderView](../../DictApp/DictApp/Views/DictionaryOrderView.swift) · `SettingsViewModel` |
 | Dictionary info (i) | One section per source of the pair: provider, direction, source ID, version, entry count and the full license (#91) | [DictionaryDetailView](../../DictApp/DictApp/Views/DictionaryDetailView.swift), a pure renderer |
 | Manage Dictionaries | Imports a `.json`, `.sqlite` or `.db` file through the system file picker, then shows a message with the entry count. Also shows a reference of the supported formats | [ManageDictionariesView](../../DictApp/DictApp/Views/ManageDictionariesView.swift) · `ManageDictionariesViewModel` |
-| Support | Report a bug: the mail sheet, then a `mailto:` link, then a "copy address" alert as the last fallback. Write a review: an App Store deep link (#81). Credits: the data sources (with the Wiktionary word forms, #144) and a "Full license information coming soon." placeholder | `SupportViewModel`, `SupportService`, `MailComposeView`, `CreditsView` |
+| Support | Report a bug: the mail sheet, then a `mailto:` link, then a "copy address" alert as the last fallback. Write a review: an App Store deep link (#81) | `SupportViewModel`, `SupportService`, `MailComposeView` |
+| Credits | Opened from the row under the version (#180). App; Data Sources: one line per data source the app ships, in the bundle or a pack, installed or not, each with its license and attribution (WordNet, OpenRussian, FreeDict, the Spanish, Arabic and Greek WordNets, Wiktionary via kaikki.org, Kirill's Greek lists, CEFR-J, Octanove, FrequencyWords, Tatoeba, the Greek grammar notes); Software: GRDB.swift, whose row opens its LICENSE verbatim (MIT asks to ship the notice); Licenses: each license the lines and GRDB name, untranslated, with a link to its text | [CreditsView](../../DictApp/DictApp/Views/CreditsView.swift) · `Credits` in Models.swift |
 | Version | `AppVersion.current.displayString`, i.e. the `git describe` of the build (see Release) | SettingsView · [AppVersion](../../DictApp/DictApp/Models/AppVersion.swift) |
 
 `AboutView.swift` is an empty leftover: About is a section of Settings.
@@ -112,7 +113,7 @@ Layering: views hold no SQL and no business rules. Pure logic lives in caseless 
 | `freedict-eng-ell` | Greek – English | En–El · FD | 20,745 | 0.1.1 | CC BY-SA 3.0 (Freelang origin) |
 | `wordnet-eng-ell` | Greek – English | En–El · WN | 30,675 | OMW 1.4 / WordNet 3.0 | Apache 2.0 |
 
-Pair keys are runtime-only and also serve as accessibility ids: `eng`, `eng-rus`, `eng-spa`, `arb-eng` and `ell-eng`, plus `custom:<id>` for imports. They come from `DictionaryGrouping.pairKey(forSource:)`. A new bundled bilingual source needs an entry in `DictionaryGrouping.bundledSourceIDs`, a badge in `DictionaryEntry.sourceLabel`, a colour set and a Credits line. If it is a UI language's dictionary, it also needs an entry in `DictionaryDefaults.preferredSources`.
+Pair keys are runtime-only and also serve as accessibility ids: `eng`, `eng-rus`, `eng-spa`, `arb-eng` and `ell-eng`, plus `custom:<id>` for imports. They come from `DictionaryGrouping.pairKey(forSource:)`. A new bundled bilingual source needs an entry in `DictionaryGrouping.bundledSourceIDs`, a badge in `DictionaryEntry.sourceLabel`, a colour set and a Credits line (`Credits.dataSources`, which `CreditsTests` checks against every file). If it is a UI language's dictionary, it also needs an entry in `DictionaryDefaults.preferredSources`.
 
 ### Database (#138)
 
@@ -310,3 +311,4 @@ The specs of these epics will replace parts of this overview:
 - 2026-11-04: #237 drafted ([0237](0237-downloads.md)): pointers in Why, the Dictionaries row, Bundled data and Upcoming changes. The rest describes the app as shipped until #237 is implemented.
 - 2026-11-04 (Kirill): v2.0.0 moves to 2026-12-04 for #237; code complete 11-27.
 - 2026-11-06: #240: the English bundle measures 56.2 MB.
+- 2026-11-08: #180: Credits moves under the version, names WordNet's license, credits GRDB.swift with its MIT text and lists the licenses with links (Screens, Why).

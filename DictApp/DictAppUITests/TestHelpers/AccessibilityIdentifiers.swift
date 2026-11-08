@@ -102,7 +102,7 @@ struct AccessibilityIdentifiers {
         static func degreeCell(_ degree: String) -> String {
             return "inflection_cell_\(degree)"
         }
-        /// The Credits row in Settings › Support, and the Wiktionary line on Credits.
+        /// The Credits row in Settings (under the version, #180), and the Wiktionary line on Credits.
         static let creditsLink = "settings_credits_link"
         static let creditsWiktionary = "credits_wiktionary"
     }
@@ -449,6 +449,35 @@ struct AccessibilityIdentifiers {
         static func dictionaryInfoButton(pair: String) -> String {
             return "dictionary_info_\(pair)"
         }
+    }
+
+    // MARK: - Credits (#180)
+    //
+    // Under the version in Settings. One line per data source the app ships,
+    // a row per library that opens its license, and one link per license
+    // (the app's `Credits`, Models.swift).
+    struct Credits {
+        static let link = "settings_credits_link"
+        /// The lines, in display order.
+        static let lines = ["wordnet", "openrussian", "freedict", "spanish_wordnet", "arabic_wordnet",
+                            "greek_wordnet", "wiktionary", "greek_lists", "cefrj", "octanove",
+                            "frequency_words", "tatoeba", "greek_grammar"]
+        /// The licenses, in display order: id, name and URL (untranslated).
+        static let licenses: [(id: String, name: String, url: String)] = [
+            ("cc_by_sa_4_0", "CC BY-SA 4.0", "https://creativecommons.org/licenses/by-sa/4.0/"),
+            ("cc_by_sa_3_0", "CC BY-SA 3.0", "https://creativecommons.org/licenses/by-sa/3.0/"),
+            ("cc_by_3_0", "CC BY 3.0", "https://creativecommons.org/licenses/by/3.0/"),
+            ("cc_by_2_0_fr", "CC BY 2.0 FR", "https://creativecommons.org/licenses/by/2.0/fr/"),
+            ("apache_2_0", "Apache 2.0", "https://www.apache.org/licenses/LICENSE-2.0"),
+            ("wordnet", "WordNet 3.0 License", "https://wordnet.princeton.edu/license-and-commercial-use"),
+            ("cefrj", "CEFR-J Wordlist terms of use", "https://cefr-j.org/download.html"),
+            ("mit", "MIT License", "https://opensource.org/license/mit"),
+        ]
+        /// Software: the GRDB.swift row, and its license screen's text.
+        static let grdb = "credits_software_grdb"
+        static let softwareLicenseText = "credits_software_license_text"
+        static func line(_ id: String) -> String { "credits_\(id)" }
+        static func license(_ id: String) -> String { "credits_license_\(id)" }
     }
 
     // MARK: - Settings → Learning (0131, #162)
