@@ -239,6 +239,21 @@ struct LearningStatusView: View {
     }
 }
 
+// MARK: - 0133: Practise allowed (#172, #174)
+
+private struct AllowsPractiseKey: EnvironmentKey {
+    static let defaultValue = true
+}
+
+extension EnvironmentValues {
+    /// False in the drill's Rule sheet (0133, #174): a grammar topic shows
+    /// no Practise there; the topic itself still shows.
+    var allowsPractise: Bool {
+        get { self[AllowsPractiseKey.self] }
+        set { self[AllowsPractiseKey.self] = newValue }
+    }
+}
+
 // MARK: - Issue #5: Reading Mode toolbar button (shared by SearchView + DefinitionView)
 
 struct ReadingModeToolbarButton: View {
@@ -422,8 +437,9 @@ struct InflectionTableView: View {
 /// two columns, or one block per column (narrow screens, large text). A
 /// cell's variants stay on one line when that fits, else one per line. When
 /// even a block is too wide (accessibility text sizes), each row label goes
-/// above its forms, so the screen never scrolls sideways.
-private struct InflectionSectionView: View {
+/// above its forms, so the screen never scrolls sideways. A grammar topic
+/// draws its tables with it too (0133, #172).
+struct InflectionSectionView: View {
     let section: InflectionTable.Section
 
     var body: some View {

@@ -55,9 +55,15 @@ final class ArabicLocalizationTests: XCTestCase {
         app.launchArguments += ["-AppleLanguages", "(ar)"]
         app.launchArguments += ["-AppleLocale", "ar"]
         app.launchArguments.append("-resetData")
-        // 0130, #154: Greek learned, its lists in the Greek pack.
-        if name.contains("testWordListsAreRightToLeft") {
+        // 0130, #154: Greek learned, its lists in the Greek pack. 0133,
+        // #172: its grammar too.
+        if name.contains("testWordListsAreRightToLeft") || name.contains("testGrammarTopicRightToLeft") {
             app.launchArguments += ["-learningLanguages", "ell"]
+        }
+        // The topics' long texts: silence the app's os_log so XCTest's log
+        // volume cannot crash it on the iOS 17.5 sim (as GrammarFlowTests).
+        if name.contains("testGrammarTopicRightToLeft") {
+            app.launchEnvironment["OS_ACTIVITY_MODE"] = "disable"
         }
         // Force portrait — sim orientation persists across sessions on Intel x86_64,
         // and landscape no-ops swipeUp against SwiftUI Form/List scroll views.
@@ -667,6 +673,77 @@ final class ArabicLocalizationTests: XCTestCase {
         learnPage.tapChooseLists()
         XCTAssertTrue(app.navigationBars["كلمات جديدة من"].waitForExistence(timeout: TestData.Timeouts.medium))
         attachScreenshot("new words from (ar)")
+    }
+
+    /// 0133, #172: a grammar topic in Arabic. Headings, Practise and the
+    /// link rows mirror; the topic's English text (title, rule, table,
+    /// examples) is laid out left to right.
+    func testGrammarTopicRightToLeft() throws {
+        tapTab(ArabicTab.learn)
+        let learnPage = LearnPage(app: app)
+        XCTAssertTrue(learnPage.waitForHome(timeout: TestData.Timeouts.long), "Greek learned: the home")
+        let page = GrammarPage(app: app)
+        XCTAssertTrue(app.scrollToElement(page.learnRow), "the Grammar row")
+        XCTAssertTrue(page.learnRow.label.contains("القواعد"), "the row in Arabic; got '\(page.learnRow.label)'")
+        XCTAssertTrue((page.learnRowValue ?? "").contains("17") || (page.learnRowValue ?? "").contains("١٧"),
+                      "the count; got '\(page.learnRowValue ?? "")'")
+        XCTAssertTrue(page.openGrammar(), "the Grammar screen")
+        XCTAssertTrue(app.navigationBars["القواعد"].waitForExistence(timeout: TestData.Timeouts.medium))
+        let midX = app.windows.firstMatch.frame.midX
+        let row = page.topicRow("ell-aorist-regular")
+        XCTAssertTrue(app.scrollToElement(row))
+        attachScreenshot("grammar (ar)")
+        XCTAssertTrue(page.openTopic("ell-aorist-regular"))
+
+        XCTAssertLessThan(page.title.frame.minX, midX, "LTR: the English title starts on the left")
+        // QA (#172): a text of several lines fills the column in either
+        // direction; a short one shows where its lines start. The level
+        // under the title and the table's caption are on the left.
+        XCTAssertLessThan(page.level.frame.maxX, midX, "LTR: the level under the title, on the left")
+        let rule = page.rule.staticTexts.firstMatch
+        XCTAssertLessThan(rule.frame.minX, midX, "LTR: the rule on the left")
+        let caption = app.staticTexts["Regular verbs"].firstMatch
+        XCTAssertTrue(caption.exists, "the table's caption")
+        XCTAssertLessThan(caption.frame.maxX, midX, "LTR: the caption on the left")
+        let cell = page.cell(1, 0, 0)
+        let cellLeft = page.cell(1, 0, 0).frame.minX, cellRight = page.cell(1, 0, 2).frame.minX
+        XCTAssertTrue(cell.exists)
+        XCTAssertLessThan(cellLeft, cellRight, "LTR: γράφω's column left of αγοράζω's")
+        attachScreenshot("grammar topic (ar)")
+
+        let examplesHeading = app.staticTexts["أمثلة"].firstMatch
+        XCTAssertTrue(examplesHeading.exists, "Examples in Arabic")
+        XCTAssertGreaterThan(examplesHeading.frame.maxX, midX, "RTL: the heading on the right")
+        XCTAssertLessThan(page.example(1).frame.minX, midX, "LTR: an example on the left")
+        // Each example is as wide as its lines: every one starts at the
+        // column's left edge, the rule's, the short ones too.
+        let columnLeft = page.rule.frame.minX
+        XCTAssertLessThan(columnLeft, midX)
+        for n in 1...3 {
+            let example = page.example(n)
+            XCTAssertTrue(app.scrollToElement(example), "example \(n)")
+            XCTAssertEqual(example.frame.minX, columnLeft, accuracy: 2,
+                           "LTR: example \(n) starts on the left; \(example.frame) in a column from \(columnLeft)")
+        }
+        XCTAssertTrue(app.staticTexts["انتبه"].exists, "Watch out in Arabic")
+        let practise = page.practiseButton
+        XCTAssertTrue(app.scrollToElement(practise), "Practise")
+        XCTAssertTrue(UITestHelpers.visible(practise.label).hasPrefix("تدرّب"),
+                      "Practise in Arabic; got '\(practise.label)'")
+        XCTAssertGreaterThan(practise.frame.maxX, midX, "RTL: Practise on the right")
+        let word = page.word("γράφω")
+        XCTAssertTrue(app.scrollToElement(word))
+        let greek = word.staticTexts.matching(NSPredicate(format: "label == %@", "γράφω")).firstMatch
+        XCTAssertGreaterThan((greek.exists ? greek : word).frame.maxX, midX, "RTL: the link row mirrors")
+        attachScreenshot("grammar topic links (ar)")
+
+        // A one-line item of the irregular aorists' rule starts on the left.
+        page.tapOnTopic(page.related("ell-aorist-irregular"), "the irregular aorists")
+        let item = app.staticTexts["λέω, say: είπα"].firstMatch
+        XCTAssertTrue(item.waitForExistence(timeout: TestData.Timeouts.medium), "a one-line rule item")
+        XCTAssertTrue(app.scrollToElement(item))
+        XCTAssertLessThan(item.frame.maxX, midX, "LTR: a short rule item on the left")
+        attachScreenshot("grammar topic rule (ar)")
     }
 
     /// 0166, #164: Statistics in Arabic, mirrored. The title reads

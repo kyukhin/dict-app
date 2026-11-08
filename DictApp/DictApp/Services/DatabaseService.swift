@@ -1836,10 +1836,29 @@ actor DatabaseService {
     private static func entry(for item: WordListItem, sourceOrder: [String], in db: Database,
                               schemas: DictionarySchemas) throws -> DictionaryEntry? {
         guard let headword = item.headword else { return nil }
+        return try entry(headword: headword, lang: item.key.lang, sourceOrder: sourceOrder, in: db, schemas: schemas)
+    }
+
+    /// The entry of `headword`, a word of language `lang`: in the first
+    /// source of `sourceOrder` of that language that has it, then in the
+    /// other sources of that language, as a list word opens (0133, #172:
+    /// a grammar topic's Words). A source of no known language counts as
+    /// `und`.
+    func entry(headword: String, lang: String, sourceOrder: [String]) async throws -> DictionaryEntry? {
+        let pool = try await userPool()
+        let schemas = schemas
+        return try await read(pool) { db in
+            try Self.entry(headword: headword, lang: lang, sourceOrder: sourceOrder, in: db, schemas: schemas)
+        }
+    }
+
+    /// `entry(headword:lang:sourceOrder:)` on `db`, inside a read or a write.
+    private static func entry(headword: String, lang: String, sourceOrder: [String], in db: Database,
+                              schemas: DictionarySchemas) throws -> DictionaryEntry? {
         let languages = try sourceLanguages(db)
         let given = Set(sourceOrder)
         let sources = sourceOrder + languages.keys.filter { !given.contains($0) }.sorted()
-        for source in sources where (languages[source] ?? "und") == item.key.lang {
+        for source in sources where (languages[source] ?? "und") == lang {
             if let entry = try entry(for: EntryKey(source: source, word: headword), in: db, schemas: schemas) { return entry }
         }
         return nil
@@ -3616,6 +3635,99 @@ actor DatabaseService {
             case .learningRowUnreadable: return "A learning row could not be read."
             }
         }
+    }
+}
+
+// MARK: - Grammar (0133, #172)
+//
+// A taught language's topics, from the file of its lists
+// (`DictionarySchemas.listsSchema(for:)`: Greek in the Greek pack). A pack
+// that is not installed reads as the stub, whose tables are empty; a
+// language without lists has no grammar and runs no query.
+
+extension DatabaseService {
+    /// The topics of `lang` by level and order, each titled in
+    /// `explainLang` when it has that text, else in English (never in a
+    /// third language). The view models pass the via of `lang`.
+    func grammarTopics(lang: String, explainLang: String) async throws -> [GrammarTopicSummary] {
+        guard let schema = DictionarySchemas.listsSchema(for: lang) else { return [] }
+        let pool = try await userPool()
+        return try await read(pool) { db in
+            try Self.grammarSummaries(db, schema: schema, explainLang: explainLang,
+                                      condition: "t.lang = ?2", argument: lang)
+        }
+    }
+
+    /// One topic: its summary, its body in the same language as the title,
+    /// its links and its related topics' summaries. Nil for an unknown id
+    /// or a pack that is gone.
+    func grammarTopic(id: String, explainLang: String) async throws -> GrammarTopic? {
+        let lang = String(id.prefix { $0 != "-" })
+        guard let schema = DictionarySchemas.listsSchema(for: lang) else { return nil }
+        let pool = try await userPool()
+        return try await read(pool) { db in
+            guard let row = try Row.fetchOne(db, sql: """
+                SELECT body FROM \(schema).grammar_text
+                WHERE topic_id = ?1 AND explain_lang IN (?2, 'eng')
+                ORDER BY explain_lang = ?2 DESC LIMIT 1
+                """, arguments: [id, explainLang]),
+                  let summary = try Self.grammarSummaries(db, schema: schema, explainLang: explainLang,
+                                                          condition: "t.id = ?2", argument: id).first
+            else { return nil }
+            let links = try Self.grammarLinks(db, schema: schema, condition: "l.topic_id = ?", argument: id)
+            let relatedIDs = links.filter { $0.kind == .topic }.sorted { $0.ord < $1.ord }.map(\.key)
+            let topics = Dictionary(
+                try Self.grammarSummaries(db, schema: schema, explainLang: explainLang, condition: "t.lang = ?2",
+                                          argument: summary.lang).map { ($0.id, $0) },
+                uniquingKeysWith: { first, _ in first })
+            return GrammarTopic(summary: summary, body: row["body"], links: links,
+                                related: relatedIDs.compactMap { topics[$0] })
+        }
+    }
+
+    /// Every link of `lang`'s topics, for the Definition and Rule lookups
+    /// (#174): about 200 rows, read on each use.
+    func grammarLinks(lang: String) async throws -> [GrammarLink] {
+        guard let schema = DictionarySchemas.listsSchema(for: lang) else { return [] }
+        let pool = try await userPool()
+        return try await read(pool) { db in
+            try Self.grammarLinks(db, schema: schema, condition: "t.lang = ?", argument: lang)
+        }
+    }
+
+    /// The topics matching `condition` on `t` (`grammar_topic`, its
+    /// `argument` is `?2`), with the text in `explainLang` or else `eng`,
+    /// by level and order.
+    private static func grammarSummaries(_ db: Database, schema: String, explainLang: String, condition: String,
+                                         argument: String) throws -> [GrammarTopicSummary] {
+        try Row.fetchAll(db, sql: """
+            SELECT t.id, t.lang, t.level, t.ord, x.title, x.explain_lang
+            FROM \(schema).grammar_topic t
+            JOIN \(schema).grammar_text x ON x.topic_id = t.id AND x.explain_lang = (
+                SELECT explain_lang FROM \(schema).grammar_text
+                WHERE topic_id = t.id AND explain_lang IN (?1, 'eng')
+                ORDER BY explain_lang = ?1 DESC LIMIT 1)
+            WHERE \(condition)
+            ORDER BY t.level, t.ord
+            """, arguments: [explainLang, argument]).map { row in
+                GrammarTopicSummary(id: row["id"], lang: row["lang"], level: row["level"], ord: row["ord"],
+                                    title: row["title"], explainLang: row["explain_lang"])
+            }
+    }
+
+    /// The links matching `condition` on `l` (`grammar_link`) and `t` (its
+    /// topic), by topic, kind and order; unknown kinds are skipped.
+    private static func grammarLinks(_ db: Database, schema: String, condition: String,
+                                     argument: String) throws -> [GrammarLink] {
+        try Row.fetchAll(db, sql: """
+            SELECT l.topic_id, l.kind, l.key, l.ord
+            FROM \(schema).grammar_link l JOIN \(schema).grammar_topic t ON t.id = l.topic_id
+            WHERE \(condition)
+            ORDER BY l.topic_id, l.kind, l.ord
+            """, arguments: [argument]).compactMap { row in
+                guard let kind = GrammarLink.Kind(rawValue: row["kind"]) else { return nil }
+                return GrammarLink(topicID: row["topic_id"], kind: kind, key: row["key"], ord: row["ord"])
+            }
     }
 }
 
