@@ -26,6 +26,8 @@ import XCTest
 ///   5) A trainer run (0131, #159): full screen, its content at most
 ///      600 pt wide and centred, in both orientations.
 ///   6) The word lists (0130, #154) in both orientations.
+///   7) The conjugation drill (0132, #168): its question and its tense
+///      table in a centred column of at most 600 pt, in both orientations.
 ///
 /// All tests skip cleanly on non-iPad destinations.
 final class iPadSpecificTests: XCTestCase {
@@ -59,6 +61,12 @@ final class iPadSpecificTests: XCTestCase {
         // 0130, #154: Greek learned, its lists in the Greek pack.
         if name.contains("testWordListsOnIPad") {
             app.launchArguments += ["-learningLanguages", "ell"] + UITestHelpers.packArguments("ell")
+            app.launchEnvironment["OS_ACTIVITY_MODE"] = "disable"
+        }
+        // 0132, #168: a three-question drill on Greek A1's verbs.
+        if name.contains("testConjugationDrillOnIPad") {
+            app.launchArguments += ["-learningLanguages", "ell", "-learningLists", "ky-ell-a1", "-drillLength", "3",
+                                    "-learningAnswerHints", "-learningSeed", "168"] + UITestHelpers.packArguments("ell")
             app.launchEnvironment["OS_ACTIVITY_MODE"] = "disable"
         }
         // 0166, #164: the stats fixture, Greek in the Greek pack.
@@ -371,5 +379,45 @@ final class iPadSpecificTests: XCTestCase {
         welcome.tapNotNow()
         XCTAssertTrue(welcome.waitForSheetGone(), "Not now closes the sheet")
         XCTAssertTrue(app.waitForDictionariesReady(), "Search shows")
+    }
+
+    /// 0132, #168: the drill run covers the screen; its options, its tense
+    /// table and Continue stand in a centred column of at most 600 pt, in
+    /// portrait and landscape.
+    func testConjugationDrillOnIPad() throws {
+        let learnPage = TabBarPage(app: app).tapLearnTab()
+        XCTAssertTrue(learnPage.waitForHome(timeout: TestData.Timeouts.long), "the Learn home")
+        let drill = learnPage.openConjugation()
+        drill.start()
+        let run = drill.run
+        for orientation in [UIDeviceOrientation.portrait, .landscapeLeft] {
+            XCUIDevice.shared.orientation = orientation
+            XCTAssertTrue(drill.waitForQuestion(), "a question in \(orientation.rawValue)")
+            let app = self.app!
+            let settled = NSPredicate { _, _ in
+                let window = app.windows.firstMatch.frame, option = run.option(0).frame
+                return (window.width > window.height) == orientation.isLandscape && abs(option.midX - window.midX) <= 2
+            }
+            _ = XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: settled, object: nil)],
+                               timeout: TestData.Timeouts.medium)
+            let window = app.windows.firstMatch.frame
+            XCTAssertEqual(run.view.frame.width, window.width, accuracy: 1, "the run covers the screen")
+            let options = run.options
+            XCTAssertEqual(options.count, 4, "four forms in \(orientation.rawValue)")
+            for option in options {
+                XCTAssertLessThanOrEqual(option.frame.width, 600, "\(option.identifier) in \(orientation.rawValue)")
+                XCTAssertEqual(option.frame.midX, window.midX, accuracy: 2, "\(option.identifier) is centred")
+            }
+            drill.answer(right: true)
+            XCTAssertTrue(drill.tenseTable.waitForExistence(timeout: TestData.Timeouts.medium), "the whole tense")
+            XCTAssertLessThanOrEqual(drill.tenseTable.frame.width, 600, "the tense in the column")
+            XCTAssertGreaterThan(drill.tenseTable.frame.minX, window.midX - 300 - 1)
+            XCTAssertEqual(run.continueButton.frame.midX, window.midX, accuracy: 2, "Continue is centred")
+            let attachment = XCTAttachment(screenshot: app.screenshot())
+            attachment.name = "conjugation drill on iPad (\(orientation.rawValue))"
+            attachment.lifetime = .keepAlways
+            add(attachment)
+            run.tapContinue()
+        }
     }
 }

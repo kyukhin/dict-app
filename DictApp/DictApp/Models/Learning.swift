@@ -451,6 +451,9 @@ struct ReviewRow: Hashable, Sendable {
     /// The answer that started its word (`introduced = 1`).
     var introduced = false
     var durationMs = 0
+    /// `''` for word cards; E5: `<tense>.<voice>`, for a drill run's
+    /// summary by tense (#168).
+    var facet = ""
 }
 
 /// Answers and right answers (right or accent) of a group.
@@ -644,6 +647,16 @@ enum Accuracy {
         var tenses: [String: Tally] = [:]
         for (facet, tally) in facets { tenses[tense(ofFacet: facet), default: Tally()] += tally }
         return tenses
+    }
+
+    /// The conjugation rows of `rows` tallied by facet: with `byTense`, a
+    /// drill run's summary by tense (0132, #168), from the run's log rows.
+    static func byFacet(_ rows: [ReviewRow]) -> [String: Tally] {
+        var facets: [String: Tally] = [:]
+        for row in rows where row.kind == .conjugation {
+            facets[row.facet, default: Tally()] += Tally(answers: 1, right: row.outcome.isRight ? 1 : 0)
+        }
+        return facets
     }
 }
 
@@ -886,28 +899,29 @@ enum ConjugationTense: String, CaseIterable, Sendable {
 
     typealias Person = ParadigmLayout.Person
 
-    /// "Aorist"; a mood with its aspect: "Subjunctive · simple". Built from
-    /// #144's labels, so no key of its own. The separator is not translated.
+    /// The tense as the drill, the statistics and the grammar topics name
+    /// it (Kirill's terms, 2026-11-07, 0133): "Aorist", "Future perfect"
+    /// from #144's labels; a tense or mood with its form, "Future: simple
+    /// form", "Subjunctive: continuous form", from `drill.tense.*`.
     func title(locale: Locale) -> String {
-        let (head, aspect) = labels
-        guard let aspect else { return head.title(locale: locale) }
-        return head.title(locale: locale) + " · " + aspect.text(locale: locale)
+        guard let label else {
+            return SettingsViewModel.localizedString("drill.tense.\(rawValue)", locale: locale)
+        }
+        return label.title(locale: locale)
     }
 
-    private var labels: (FormLabel, FormLabel?) {
+    /// #144's label of a tense named by one word; nil for the six named
+    /// with their form.
+    private var label: FormLabel? {
         switch self {
-        case .present: return (.present, nil)
-        case .imperfect: return (.imperfect, nil)
-        case .aorist: return (.aorist, nil)
-        case .future: return (.future, nil)
-        case .imperativeContinuous: return (.imperative, .continuous)
-        case .imperativeSimple: return (.imperative, .simple)
-        case .futureContinuous: return (.futureContinuous, nil)
-        case .perfect: return (.perfect, nil)
-        case .pluperfect: return (.pluperfect, nil)
-        case .futurePerfect: return (.futurePerfect, nil)
-        case .subjunctiveContinuous: return (.subjunctive, .continuous)
-        case .subjunctiveSimple: return (.subjunctive, .simple)
+        case .present: return .present
+        case .imperfect: return .imperfect
+        case .aorist: return .aorist
+        case .perfect: return .perfect
+        case .pluperfect: return .pluperfect
+        case .futurePerfect: return .futurePerfect
+        case .future, .futureContinuous, .imperativeContinuous, .imperativeSimple,
+             .subjunctiveContinuous, .subjunctiveSimple: return nil
         }
     }
 
@@ -1008,6 +1022,16 @@ enum DrillLevel: String, CaseIterable, Comparable, Sendable {
                 .map { ConjugationFacet($0, .passive) }
         }
         return result
+    }
+
+    /// The tenses up to this level in any voice, in the tables' order: the
+    /// Conjugation screen's list (#168). A1: the present, aorist, future and
+    /// the simple subjunctive and imperative; B1 adds the imperfect and the
+    /// continuous ones; B2 the perfect tenses.
+    var tenses: [ConjugationTense] {
+        let facets = facets(mainVoice: .active, hasPassive: true) + facets(mainVoice: .passive, hasPassive: false)
+        let present = Set(facets.map(\.tense))
+        return ConjugationTense.allCases.filter(present.contains)
     }
 
     /// The level that adds `tense` in the main voice.
@@ -1133,6 +1157,25 @@ struct DrillVerb: Equatable, Sendable {
             }
         }
         self.cells = cells
+    }
+
+    private init(copying verb: DrillVerb, translation: String) {
+        word = verb.word
+        citation = verb.citation
+        self.translation = translation
+        listLevel = verb.listLevel
+        rank = verb.rank
+        seq = verb.seq
+        mainVoice = verb.mainVoice
+        voices = verb.voices
+        isImpersonal = verb.isImpersonal
+        cells = verb.cells
+    }
+
+    /// The same verb with `translation` (#168: Practise on Definition reads
+    /// the meaning of the drilled word, πηγαίνω for πάω, once it is known).
+    func translated(_ translation: String) -> DrillVerb {
+        DrillVerb(copying: self, translation: translation)
     }
 
     /// A verb whose main voice is active and that also drills its passive.
@@ -2311,14 +2354,105 @@ enum ConjugationPlanner {
     }
 }
 
+// MARK: - Conjugation drill: screens (0132, #168)
+
+/// The drill's composed texts in the in-app language of `locale`. The
+/// pronouns are Greek constants (#144) and the " · " separator is not
+/// translated. In a right-to-left language a composed line starts with
+/// U+200F and its Greek parts are isolated (FSI…PDI, #119); VoiceOver
+/// reads the Greek parts in the Greek voice.
+enum DrillText {
+    typealias Person = ParadigmLayout.Person
+
+    /// "Aorist · εγώ"; "Present · passive · εγώ" for the passive of a verb
+    /// with both voices. A verb with passive forms only shows its note on
+    /// its own (`drill.passiveNote`), not here.
+    static func tenseLine(_ question: ConjugationQuestion, locale: Locale) -> String {
+        let labels = tenseLabels(question, locale: locale)
+        guard isRightToLeft(locale) else { return (labels + [question.person.pronoun]).joined(separator: " · ") }
+        return "\u{200F}" + (labels + [isolated(question.person.pronoun)]).joined(separator: " · ")
+    }
+
+    /// The tense line as VoiceOver reads it: "Aorist, εγώ".
+    static func tenseLabel(_ question: ConjugationQuestion, locale: Locale) -> AttributedString {
+        spoken(tenseLabels(question, locale: locale).map { ($0, false) } + [(question.person.pronoun, true)],
+               locale: locale)
+    }
+
+    /// A row of the tense table as VoiceOver reads it: "εγώ, γράφτηκα / γράφηκα".
+    static func rowLabel(_ person: Person, forms: [String], locale: Locale) -> AttributedString {
+        spoken([(person.pronoun, true), (forms.joined(separator: " / "), true)], locale: locale)
+    }
+
+    /// "Verbs from Greek A1, Greek A2" (`drill.verbsFrom`): the checked
+    /// Greek lists by name (`wordLists.listTitle`).
+    static func verbsFrom(_ lists: [WordListID], locale: Locale) -> String {
+        let titles = lists.compactMap { id -> String? in
+            guard let level = DrillScope.lists.first(where: { $0.id == id })?.level else { return nil }
+            let list = WordList(id: id, kind: .builtIn, lang: ConjugationPlanner.lang, level: level.rawValue,
+                                title: "", count: 0)
+            return WordListsViewModel.title(of: list, locale: locale)
+        }
+        let separator = isRightToLeft(locale) ? "\u{060C} " : ", "
+        return String(format: localized("drill.verbsFrom %@", locale), locale: locale,
+                      titles.joined(separator: separator))
+    }
+
+    /// "Practise conjugating γράφω" (`drill.a11y.practise`): the Practise
+    /// button on the Definition screen, as VoiceOver reads it.
+    static func practiseLabel(_ citation: String, locale: Locale) -> String {
+        let mark = isRightToLeft(locale) ? "\u{200F}" : ""
+        return mark + String(format: localized("drill.a11y.practise %@", locale), locale: locale, isolated(citation))
+    }
+
+    /// A tense level as the UI writes it: Α1 in Greek (E3's `wordLists.level.*`).
+    static func levelName(_ level: DrillLevel, locale: Locale) -> String {
+        WordListsViewModel.levelName(level.rawValue, locale: locale)
+    }
+
+    /// The tense, then "passive" for the passive of a verb with both voices.
+    private static func tenseLabels(_ question: ConjugationQuestion, locale: Locale) -> [String] {
+        var labels = [question.facet.tense.title(locale: locale)]
+        if question.showsVoice { labels.append(FormLabel.passive.text(locale: locale)) }
+        return labels
+    }
+
+    /// The parts joined as VoiceOver reads them: with commas (the Arabic
+    /// comma in Arabic), the Greek ones in the Greek voice.
+    private static func spoken(_ parts: [(text: String, isGreek: Bool)], locale: Locale) -> AttributedString {
+        let separator = isRightToLeft(locale) ? "\u{060C} " : ", "
+        var label = AttributedString()
+        for (index, part) in parts.enumerated() {
+            if index > 0 { label += AttributedString(separator) }
+            var run = AttributedString(part.text)
+            if part.isGreek { run.languageIdentifier = "el" }
+            label += run
+        }
+        return label
+    }
+
+    private static func isolated(_ text: String) -> String { "\u{2068}\(text)\u{2069}" }
+
+    private static func isRightToLeft(_ locale: Locale) -> Bool {
+        locale.language.characterDirection == .rightToLeft
+    }
+
+    private static func localized(_ key: String, _ locale: Locale) -> String {
+        SettingsViewModel.localizedString(key, locale: locale)
+    }
+}
+
 // MARK: - Statistics screen (0166, #164)
 
 /// The statistics screen's use of the tenses (#164).
 extension ConjugationTense {
-    /// As in running text: "aorist", "subjunctive · simple".
+    /// As in running text: "aorist", "subjunctive: simple form" (the title
+    /// with its first letter in lower case).
     func text(locale: Locale) -> String {
-        let (head, aspect) = labels
-        return ([head] + (aspect.map { [$0] } ?? [])).map { $0.text(locale: locale) }.joined(separator: " · ")
+        let title = title(locale: locale)
+        guard let first = title.first else { return title }
+        // No locale: Greek lowercasing in `el` keeps the accent anyway.
+        return String(first).lowercased() + title.dropFirst()
     }
 
     /// The title of a stored tense; an unknown one as stored.

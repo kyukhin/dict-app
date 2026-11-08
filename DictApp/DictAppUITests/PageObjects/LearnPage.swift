@@ -116,6 +116,23 @@ class LearnPage: BasePage {
         return page
     }
 
+    /// 0132, #168: the Conjugation row, while Greek is chosen.
+    var trainerConjugation: XCUIElement {
+        app.descendants(matching: .any)[AccessibilityIdentifiers.Conjugation.trainerRow].firstMatch
+    }
+
+    /// Opens the Conjugation screen from its Trainers row.
+    @discardableResult
+    func openConjugation() -> ConjugationPage {
+        let row = trainerConjugation
+        app.scrollToElement(row)
+        XCTAssertTrue(row.waitForExistence(timeout: TestData.Timeouts.medium), "the Conjugation row")
+        row.tap()
+        let page = ConjugationPage(app: app)
+        XCTAssertTrue(page.waitForScreen(), "the Conjugation screen")
+        return page
+    }
+
     /// Start: the daily session (#161).
     @discardableResult
     func startSession() -> ExercisePage {

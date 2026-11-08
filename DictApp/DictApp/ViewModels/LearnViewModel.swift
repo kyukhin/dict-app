@@ -3,6 +3,7 @@
 // home, with E3's Lists section (#154). The runs: the trainers (#159), the
 // session and mistakes practice (#161); match the pairs (#160). The daily
 // goal and the streak on the home, and the statistics screen (0166, #164).
+// The conjugation drill's screen and run (0132, #168).
 
 import Foundation
 import SwiftUI
@@ -54,6 +55,9 @@ final class LearnViewModel: ObservableObject {
     @Published private(set) var isLoaded = false
     /// Today's exercises in every language and the daily goal (0166, #164).
     @Published private(set) var goal: GoalProgress?
+    /// The Conjugation row's tense level (0132, #168): shown while Greek is
+    /// the chosen language, nil otherwise.
+    @Published private(set) var drillLevel: DrillLevel?
     /// The streak, every language (0166, #164).
     @Published private(set) var streak: StreakState?
     /// A failed choice or load, shown in an alert until dismissed; a reload
@@ -104,6 +108,7 @@ final class LearnViewModel: ObservableObject {
                 today = nil
                 pair = nil
                 canMatch = false
+                drillLevel = nil
                 pickerRows = LearningPairs.pickerRows(offered: try await db.learningPairs().keys,
                                                       withLists: languagesWithLists, learned: learned,
                                                       uiLanguage: languages.uiLanguage(),
@@ -161,6 +166,10 @@ final class LearnViewModel: ObservableObject {
     /// has lists, built-in or imported.
     private func loadHome() async throws {
         guard let language else { return }
+        // E5's row needs no word in learning (0132, #168).
+        drillLevel = language == ConjugationPlanner.lang
+            ? DrillScope.tenseLevel(checked: settings.learningListIDs, stored: settings.learningDrillTenses)
+            : nil
         let day = clock.today
         try await loadGoal(today: day)
         pair = try await languages.pair(for: language)
@@ -585,6 +594,329 @@ final class ExerciseRunViewModel: ObservableObject {
                                                       from: index + 1)
                 total = plan.count
             }
+            errorMessage = nil
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+}
+
+// MARK: - Conjugation drill (0132, #168)
+
+/// The Conjugation screen (0132, "Screens"): the checked Greek lists' verbs,
+/// "Tenses up to", the tenses of that level with their accuracy over the
+/// last 30 days, and Start. Without a usable Greek pack it offers the
+/// download; without a checked Greek list, "Choose lists". The pool is read
+/// once per set of checked lists while the screen is open; "Tenses up to"
+/// recounts the same pool.
+@MainActor
+final class ConjugationDrillViewModel: ObservableObject {
+    enum State: Equatable {
+        case loading
+        /// No usable Greek pack (0237): "Download Greek to practise conjugation."
+        case needsGreek
+        /// No built-in Greek list checked: "Choose lists".
+        case noLists
+        case ready
+    }
+
+    @Published private(set) var state = State.loading
+    /// The checked built-in Greek lists, in level order.
+    @Published private(set) var lists: [WordListID] = []
+    /// The pool's verbs with a question at the tense level.
+    @Published private(set) var verbCount = 0
+    /// "Tenses up to": the stored value, never below the highest checked list.
+    @Published private(set) var level = DrillLevel.a1
+    /// The segments: the highest checked list's level up to B2.
+    @Published private(set) var offeredLevels: [DrillLevel] = []
+    /// The last 30 days, both voices of a tense together.
+    @Published private(set) var accuracy: [ConjugationTense: Tally] = [:]
+    @Published var errorMessage: String?
+
+    /// The checked lists' verbs, in pool order (list, then frequency).
+    private(set) var pool: [DrillVerb] = []
+    /// The meanings language of Greek's pair: the verbs' translations.
+    private(set) var meaningsLang = "eng"
+    /// The lists `pool` was read for.
+    private var poolLists: [WordListID]?
+
+    private let db: DatabaseService
+    private let settings: SettingsService
+    private let languages: LearningLanguageService
+    private let clock: LearningClock
+    private let isGreekUsable: () async -> Bool
+    private let installGreek: () async throws -> Void
+
+    /// `isGreekUsable` and `installGreek`: 0237's `PackService.installedPacks()`
+    /// and `install(.ell)` unless a test passes its own.
+    init(db: DatabaseService = .shared, settings: SettingsService = .shared, languages: LearningLanguageService? = nil,
+         clock: LearningClock = LearningClock(), isGreekUsable: (() async -> Bool)? = nil,
+         installGreek: (() async throws -> Void)? = nil) {
+        self.db = db
+        self.settings = settings
+        self.languages = languages ?? .shared
+        self.clock = clock
+        self.isGreekUsable = isGreekUsable ?? {
+            await PackService.shared.installedPacks().contains { $0.id == .ell && $0.usable }
+        }
+        self.installGreek = installGreek ?? { try await PackService.shared.install(.ell) }
+    }
+
+    /// The tenses of the level, in the tables' order.
+    var tenses: [ConjugationTense] { level.tenses }
+
+    /// Reads the pack, the checked lists (again on every appearance, so a
+    /// list checked on New words from shows at once), the pool when they
+    /// changed, the level and the accuracy.
+    func load() async {
+        do {
+            guard await isGreekUsable() else {
+                state = .needsGreek
+                pool = []
+                poolLists = nil
+                return
+            }
+            let checked = settings.learningListIDs
+            let greek = DrillScope.greekLists(checked: checked)
+            lists = greek
+            guard !greek.isEmpty else {
+                state = .noLists
+                return
+            }
+            if poolLists != greek {
+                meaningsLang = try await languages.pair(for: ConjugationPlanner.lang)?.meaningsLang ?? "eng"
+                pool = try await db.drillVerbs(lists: greek, meaningsLang: meaningsLang)
+                poolLists = greek
+            }
+            offeredLevels = DrillScope.offeredLevels(checked: checked)
+            level = DrillScope.tenseLevel(checked: checked, stored: settings.learningDrillTenses)
+            recount()
+            let since = DailySeries.start(today: clock.today)
+            accuracy = Self.byTense(try await db.tenseAccuracy(since: since, lang: ConjugationPlanner.lang))
+            state = .ready
+            errorMessage = nil
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    /// "Tenses up to": remembered (`learning_drill_tenses`), and the same
+    /// pool recounted.
+    func setLevel(_ level: DrillLevel) {
+        guard offeredLevels.contains(level), level != self.level else { return }
+        settings.learningDrillTenses = level
+        self.level = level
+        recount()
+    }
+
+    /// Download: installs the Greek pack (0237), whose progress
+    /// `PackStatusModel` shows, then reads the screen again.
+    func download() async {
+        do {
+            try await installGreek()
+        } catch {
+            // The pack's row state shows why (`PackState.failed`).
+        }
+        await load()
+    }
+
+    private func recount() {
+        verbCount = pool.filter { ConjugationQuestionBuilder.hasQuestion(verb: $0, level: level) }.count
+    }
+
+    /// E10's tallies by tense raw value, by `ConjugationTense`.
+    nonisolated static func byTense(_ tallies: [String: Tally]) -> [ConjugationTense: Tally] {
+        var result: [ConjugationTense: Tally] = [:]
+        for (tense, tally) in tallies {
+            if let tense = ConjugationTense(rawValue: tense) { result[tense] = tally }
+        }
+        return result
+    }
+}
+
+/// Runs a conjugation drill (0132, "Screens"): the session of the checked
+/// lists' verbs, or Practise on one verb. It plans with `ConjugationPlanner`
+/// over Greek's conjugation cards and E10's tense accuracy, builds each
+/// question just before it shows with the run's generator, writes each
+/// answer at once with `recordAnswer` (so closing keeps what was answered)
+/// and applies the retry with the run's real length. Its summary is E4's
+/// over the run's log rows, with the run by tense.
+@MainActor
+final class ConjugationRunViewModel: ObservableObject {
+    enum Mode {
+        /// The drill: the checked lists' verbs at the tense level.
+        case session(pool: [DrillVerb], level: DrillLevel)
+        /// Practise on one verb, from `level` up to its first level with a question.
+        case verb(DrillVerb, level: DrillLevel)
+    }
+
+    typealias Phase = ExerciseRunViewModel.Phase
+
+    @Published private(set) var phase: Phase = .loading
+    @Published private(set) var question: ConjugationQuestion?
+    /// Set the moment an answer is graded; nil while a question waits.
+    @Published private(set) var feedback: AnswerFeedback?
+    /// The question shown, from 1, and the plan's length.
+    @Published private(set) var position = 0
+    @Published private(set) var total = 0
+    /// Answers so far: the progress bar's value.
+    @Published private(set) var answered = 0
+    /// The summary's numbers, from this run's log rows; nil until the end.
+    @Published private(set) var summary: ReviewSummary?
+    /// This run by tense, in the tables' order: "Aorist · 4 of 5".
+    @Published private(set) var tenseScores: [(tense: String, tally: Tally)] = []
+    /// The daily goal at the end of the run; nil until then.
+    @Published private(set) var goalProgress: GoalProgress?
+    @Published var errorMessage: String?
+
+    let mode: Mode
+    /// The meanings language of Greek's pair: the translation's voice.
+    let meaningsLang: String
+    /// Questions in the run: 15, or `-drillLength`.
+    let length: Int
+    /// `-learningAnswerHints`.
+    let answerHints: Bool
+    /// One per run: its log rows.
+    let runID = UUID()
+
+    private let db: DatabaseService
+    private let settings: SettingsService
+    private let clock: LearningClock
+    private let player: FeedbackPlayer
+    /// The answer that reaches today's goal cancels today's reminder (#162).
+    private let reminder: LearningReminder?
+    private var rng: SplitMix64
+    private(set) var plan: [DrillItem] = []
+    private var index = 0
+    private var shownAt = Date()
+    private var pendingWrite: Task<Void, Never>?
+    private var isStarted = false
+
+    init(mode: Mode, meaningsLang: String = "eng", db: DatabaseService = .shared, settings: SettingsService = .shared,
+         clock: LearningClock = LearningClock(), player: FeedbackPlayer? = nil, reminder: LearningReminder? = nil,
+         seed: UInt64? = LearningLaunchOptions.seed, answerHints: Bool = LearningLaunchOptions.answerHints,
+         length: Int? = LearningLaunchOptions.drillLength) {
+        self.mode = mode
+        self.meaningsLang = meaningsLang
+        self.db = db
+        self.settings = settings
+        self.clock = clock
+        self.player = player ?? .shared
+        // As in `ExerciseRunViewModel`: the app's reminder on the app's settings.
+        self.reminder = reminder ?? (settings === SettingsService.shared ? .shared : nil)
+        self.rng = SplitMix64(seed: seed ?? UInt64.random(in: .min ... .max))
+        self.answerHints = answerHints
+        self.length = max(length ?? ConjugationPlanner.length, 1)
+    }
+
+    /// Plans the run and shows its first question.
+    func start() async {
+        guard !isStarted else { return }
+        isStarted = true
+        do {
+            let today = clock.today
+            let cards = try await db.cards(lang: ConjugationPlanner.lang, kinds: [.conjugation])
+            let accuracy = ConjugationDrillViewModel.byTense(
+                try await db.tenseAccuracy(since: DailySeries.start(today: today), lang: ConjugationPlanner.lang))
+            switch mode {
+            case let .session(pool, level):
+                plan = ConjugationPlanner.session(pool: pool, level: level, cards: cards, accuracy: accuracy,
+                                                  today: today, length: length, rng: &rng)
+            case let .verb(verb, level):
+                plan = ConjugationPlanner.verbRun(verb: verb, level: level, cards: cards, accuracy: accuracy,
+                                                  today: today, length: length, rng: &rng)
+            }
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+        await show()
+    }
+
+    /// Grades the option tapped at once (the feedback bar, the sound; the
+    /// view plays the haptic), then writes the answer on the learning day of
+    /// this moment. A wrong answer comes back once (`afterWrong`, with this
+    /// run's length): in a full run in place of a later new or practice
+    /// item, in a shorter one at the end.
+    func choose(_ option: Int) async {
+        guard feedback == nil, let question, question.options.indices.contains(option),
+              plan.indices.contains(index) else { return }
+        let outcome: Outcome = option == question.rightIndex ? .right : .wrong
+        let today = clock.today
+        feedback = AnswerFeedback(outcome: outcome, chosenIndex: option, mindTheAccent: false,
+                                  rightAnswer: question.options[question.rightIndex])
+        player.play(outcome)
+        answered += 1
+        let seconds = min(max(clock.now().timeIntervalSince(shownAt), 0), 3_600)
+        let record = plan[index].answer(outcome, runID: runID, durationMs: Int(seconds * 1000))
+        if !outcome.isRight {
+            plan = ConjugationPlanner.afterWrong(plan, at: index, length: length, rng: &rng)
+            total = plan.count
+        }
+        let write = Task { await self.write(record, today: today) }
+        pendingWrite = write
+        await write.value
+    }
+
+    /// Continue: the next question, or the summary after the last.
+    func next() async {
+        guard feedback != nil else { return }
+        await pendingWrite?.value
+        index += 1
+        await show()
+    }
+
+    /// The haptic of an answer; nil when Haptics is off.
+    func haptic(for outcome: Outcome) -> SensoryFeedback? {
+        player.haptic(for: outcome)
+    }
+
+    /// Builds and shows the question of `plan[index]`, skipping an item that
+    /// builds none (not expected: the planner only plans questions); after
+    /// the last, the summary.
+    private func show() async {
+        question = nil
+        feedback = nil
+        while index < plan.count {
+            if let built = plan[index].question(rng: &rng) {
+                question = built
+                position = index + 1
+                total = plan.count
+                shownAt = clock.now()
+                phase = .question
+                return
+            }
+            plan.remove(at: index)
+        }
+        total = plan.count
+        guard answered > 0 else {
+            phase = .empty
+            return
+        }
+        await loadSummary()
+        phase = .summary
+    }
+
+    /// E4's summary from this run's log rows, the run by tense
+    /// (`Accuracy.byTense`) and the daily goal.
+    private func loadSummary() async {
+        do {
+            let rows = try await db.reviewRows(run: runID)
+            summary = ReviewSummary.of(rows)
+            tenseScores = ConjugationTense.ordered(Accuracy.byTense(Accuracy.byFacet(rows)))
+            goalProgress = GoalProgress(answered: try await db.answeredCount(on: clock.today),
+                                        goal: settings.learningDailyGoal)
+        } catch {
+            summary = summary ?? ReviewSummary()
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    /// Writes the answer with the daily goal in force (E10's `learn_day`),
+    /// then lets the reminder cancel today's when the goal is reached.
+    private func write(_ record: AnswerRecord, today: LearnDay) async {
+        do {
+            try await db.recordAnswer(record, today: today, goal: settings.learningDailyGoal)
+            await reminder?.answerRecorded(today: today)
             errorMessage = nil
         } catch {
             errorMessage = error.localizedDescription

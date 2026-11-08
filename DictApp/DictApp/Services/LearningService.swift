@@ -441,6 +441,19 @@ enum LearningLaunchOptions {
         return false
         #endif
     }
+
+    /// `-drillLength <n>` (0132, #168): the conjugation drill's length, so
+    /// most UI tests answer a few questions; nil: `ConjugationPlanner.length`.
+    static var drillLength: Int? {
+        #if DEBUG
+        let arguments = CommandLine.arguments
+        guard let index = arguments.firstIndex(of: "-drillLength"), arguments.indices.contains(index + 1),
+              let length = Int(arguments[index + 1]), length > 0 else { return nil }
+        return length
+        #else
+        return nil
+        #endif
+    }
 }
 
 // MARK: - Reminder (#162)

@@ -89,6 +89,11 @@ final class GreekLocalizationTests: XCTestCase {
         if name.contains("testWordListsInGreek") {
             app.launchArguments += ["-learningLanguages", "ell,eng", "-wordListFixture", "lists"]
         }
+        // 0132, #168: Greek A1's verbs, a two-question drill.
+        if name.contains("testConjugationDrillInGreek") {
+            app.launchArguments += ["-learningLanguages", "ell", "-learningLists", "ky-ell-a1", "-drillLength", "2",
+                                    "-learningAnswerHints", "-learningSeed", "168"]
+        }
 
         // Sim orientation persists across sessions; landscape breaks swipes.
         XCUIDevice.shared.orientation = .portrait
@@ -566,6 +571,49 @@ final class GreekLocalizationTests: XCTestCase {
         XCTAssertTrue(stats.reveal(ids.tense("aorist")))
         XCTAssertTrue(waitForText("Αόριστος"), "the tense titled 'Αόριστος'")
         attachScreenshot("16-statistics-conjugation")
+    }
+
+    /// 0132, #168: the drill in Greek. The row and "Tenses up to" write the
+    /// levels in Greek letters (Α1), the tenses carry their Greek titles
+    /// (Kirill's terms), the question's tense line starts with one, and the
+    /// summary reads "Ανά χρόνο"; no English is left on the screens.
+    func testConjugationDrillInGreek() throws {
+        openTab(.learn)
+        let learnPage = LearnPage(app: app)
+        XCTAssertTrue(learnPage.waitForHome(timeout: TestData.Timeouts.long), "the Learn home")
+        XCTAssertTrue(app.scrollToElement(learnPage.trainerConjugation), "the Conjugation row")
+        XCTAssertEqual(learnPage.trainerConjugation.label, "Κλίση ρημάτων")
+        XCTAssertEqual(learnPage.trainerConjugation.value as? String, "Α1", "the level in Greek letters")
+        let drill = learnPage.openConjugation()
+        XCTAssertTrue(app.navigationBars["Κλίση ρημάτων"].waitForExistence(timeout: TestData.Timeouts.medium))
+        XCTAssertTrue(drill.lists.waitForExistence(timeout: TestData.Timeouts.long), "the verbs line")
+        XCTAssertEqual(drill.lists.label, "Ρήματα από Ελληνικά Α1")
+        XCTAssertEqual(drill.segmentLabels, ["Α1", "Α2", "Β1", "Β2"])
+        XCTAssertTrue(drill.segment("Α1").isSelected)
+        XCTAssertEqual(drill.tense("aorist").label, "Αόριστος")
+        XCTAssertEqual(drill.tense("future").label, "Μέλλοντας: στιγμιαία μορφή")
+        XCTAssertEqual(drill.tense("subjunctiveSimple").label, "Υποτακτική: στιγμιαία μορφή")
+        XCTAssertEqual(drill.startButton.label, "Έναρξη")
+        attachScreenshot("17-conjugation")
+        try assertNoEnglishLeak(on: "Conjugation")
+
+        drill.start()
+        XCTAssertTrue(drill.waitForQuestion(), "a question")
+        let titles = ["Ενεστώτας", "Αόριστος", "Μέλλοντας: στιγμιαία μορφή", "Προστακτική: στιγμιαία μορφή",
+                      "Υποτακτική: στιγμιαία μορφή"]
+        XCTAssertTrue(titles.contains { drill.promptTense.label.hasPrefix($0 + ", ") }, drill.promptTense.label)
+        attachScreenshot("18-conjugation-question")
+        drill.answer(right: true)
+        XCTAssertTrue(drill.tenseTable.waitForExistence(timeout: TestData.Timeouts.medium), "the whole tense")
+        attachScreenshot("19-conjugation-tense")
+        drill.run.tapContinue()
+        XCTAssertTrue(drill.waitForQuestion(), "the second question")
+        drill.answer(right: false)
+        drill.run.tapContinue()
+        XCTAssertTrue(drill.run.summary.waitForExistence(timeout: TestData.Timeouts.medium), "the summary")
+        XCTAssertTrue(waitForText("Ανά χρόνο"), "the run by tense")
+        attachScreenshot("20-conjugation-summary")
+        try assertNoEnglishLeak(on: "Conjugation summary")
     }
 
     // MARK: - Launch

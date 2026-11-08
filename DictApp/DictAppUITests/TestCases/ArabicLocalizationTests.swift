@@ -658,6 +658,64 @@ final class ArabicLocalizationTests: XCTestCase {
         attachScreenshot("statistics calendar (ar)")
     }
 
+    /// 0132, #168: the drill in Arabic, mirrored. The row reads "تصريف
+    /// الأفعال"; "Tenses up to" runs from the right (A1 rightmost); the
+    /// verbs line starts with U+200F; the verb stands on the right, written
+    /// left to right; the tense line and the table's rows are read with the
+    /// Arabic comma; the summary's tense titles sit right of their scores.
+    /// The table's pronoun column on the right is read from a row's pixels.
+    func testConjugationDrillRightToLeft() throws {
+        app.terminate()
+        app.launchArguments += ["-learningLanguages", "ell", "-learningLists", "ky-ell-a1", "-drillLength", "2",
+                                "-learningAnswerHints", "-learningSeed", "168"]
+        app.launch()
+        XCTAssertTrue(app.waitForDictionariesReady(), "Search screen after launch")
+        tapTab(ArabicTab.learn)
+        let learnPage = LearnPage(app: app)
+        XCTAssertTrue(learnPage.waitForHome(timeout: TestData.Timeouts.long), "the Learn home")
+        XCTAssertTrue(app.scrollToElement(learnPage.trainerConjugation), "the Conjugation row")
+        XCTAssertEqual(learnPage.trainerConjugation.label, "تصريف الأفعال")
+        let drill = learnPage.openConjugation()
+        XCTAssertTrue(drill.lists.waitForExistence(timeout: TestData.Timeouts.long), "the verbs line")
+        XCTAssertEqual(drill.lists.label.unicodeScalars.first, "\u{200F}", drill.lists.label)
+        XCTAssertTrue(Self.visible(drill.lists.label).hasPrefix("الأفعال من "), drill.lists.label)
+        XCTAssertGreaterThan(drill.segment("A1").frame.minX, drill.segment("B2").frame.maxX, "RTL: A1 on the right")
+        XCTAssertEqual(drill.tense("aorist").label, "الماضي البسيط")
+        attachScreenshot("conjugation screen (ar)")
+
+        drill.start()
+        XCTAssertTrue(drill.waitForQuestion(), "a question")
+        let window = app.windows.firstMatch.frame
+        XCTAssertGreaterThan(drill.promptVerb.frame.midX, window.midX, "RTL: the verb on the right")
+        XCTAssertTrue(drill.promptTense.label.contains("\u{060C} "), "the Arabic comma: \(drill.promptTense.label)")
+        let asked = try XCTUnwrap(drill.askedPerson, drill.promptTense.label)
+        drill.answer(right: true)
+        XCTAssertTrue(drill.tenseTable.waitForExistence(timeout: TestData.Timeouts.medium), "the whole tense")
+        let row = drill.tenseRow(asked)
+        XCTAssertEqual(row.value as? String, "asked")
+        XCTAssertTrue(row.label.contains("\u{060C} "), "a row read with the Arabic comma: \(row.label)")
+        // QA (#168): on another row, the pronoun (secondary ink) is right of the forms.
+        let other = try XCTUnwrap(ConjugationPage.persons.values.sorted().first { $0 != asked && drill.tenseRow($0).exists },
+                                  "another person's row")
+        let columns = try XCTUnwrap(drill.inkColumns(of: drill.tenseRow(other)), "the row's text")
+        XCTAssertGreaterThan(columns.ink.upperBound - columns.strong.upperBound, 10,
+                             "RTL: the pronoun column right of the forms: \(columns)")
+        attachScreenshot("conjugation tense table (ar)")
+        drill.run.tapContinue()
+        XCTAssertTrue(drill.waitForQuestion(), "the second question")
+        drill.answer(right: true)
+        drill.run.tapContinue()
+        XCTAssertTrue(drill.run.summary.waitForExistence(timeout: TestData.Timeouts.medium), "the summary")
+        XCTAssertTrue(app.staticTexts["حسب الزمن"].exists, "the run by tense")
+        let scores = ["present", "aorist", "future", "imperativeSimple", "subjunctiveSimple"].map(drill.summaryTense)
+        let score = try XCTUnwrap(scores.first { $0.exists }, "a tense's score")
+        let title = app.staticTexts.matching(NSPredicate(format: "label IN %@", ["المضارع", "الماضي البسيط",
+            "المستقبل: الصيغة البسيطة", "الأمر: الصيغة البسيطة", "المضارع المنصوب: الصيغة البسيطة"])).firstMatch
+        XCTAssertTrue(title.exists, "a tense title in Arabic")
+        XCTAssertGreaterThan(title.frame.minX, score.frame.maxX, "RTL: the title right of its score")
+        attachScreenshot("conjugation summary (ar)")
+    }
+
     /// Issue #243: the Languages screen mirrors. Each row's name is right of
     /// its status, and the composed status starts with U+200F.
     func testLanguagesScreenIsRightToLeft() throws {
