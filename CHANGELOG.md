@@ -52,6 +52,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - [#138] History and Recent words reopen a word in the dictionary it was read in.
 - [#202] The speaker button reads each word in its own language (Russian, Spanish, Arabic, Greek or English) and is hidden when the device has no voice for that language.
 - [#213] Search, imports and My words keep working when the system invalidates the open dictionary file.
+- [#281] Answer tones no longer freeze the screen while the audio system starts.
+- [#281] The Learn home no longer shows "Learn a few words first" under the Conjugation row, which works without learned words.
+- [#281] The Conjugation screen opens twice as fast with all three Greek lists checked.
+- [#281] A list import shows every row that a quote left open swallows as a broken row instead of dropping it silently, and a preview change that fails keeps the pickers on the preview shown.
+- [#281] In the drill, Rule also opens the topic that lists a verb with passive forms only: έρχομαι's aorist opens Irregular aorists.
 
 ### Tests / CI
 - [#203] Release builds ignore the UI-test launch arguments, and unused version code and stale developer docs are removed.

@@ -359,29 +359,53 @@ final class FeedbackPlayer {
 
 /// Plays two short tones generated in code as WAV data, so there is no
 /// sound file to license. The audio session is `.ambient`, set once: the
-/// silent switch mutes the tones and the user's music keeps playing.
+/// silent switch mutes the tones and the user's music keeps playing. The
+/// players work on `queue`, never the main thread: acquiring the audio
+/// output blocks until it runs, 15 s at a time when a simulator's audio
+/// stalls, and the run must not freeze meanwhile.
 @MainActor
 final class TonePlayer: FeedbackSink {
-    private var players: [FeedbackSound: AVAudioPlayer] = [:]
-    private var isSessionSet = false
+    private let queue: DispatchQueue
+    /// A sound's player, made on `queue`: its `wav`. Tests pass their own,
+    /// which sees the thread it runs on.
+    private let makePlayer: @Sendable (FeedbackSound) -> AVAudioPlayer?
+    /// Used on `queue` only.
+    nonisolated(unsafe) private var players: [FeedbackSound: AVAudioPlayer] = [:]
+    nonisolated(unsafe) private var isSessionSet = false
+
+    init(queue: DispatchQueue = DispatchQueue(label: "com.kyukhin.DictApp.TonePlayer", qos: .userInitiated),
+         makePlayer: @escaping @Sendable (FeedbackSound) -> AVAudioPlayer? = {
+             try? AVAudioPlayer(data: TonePlayer.wav($0))
+         }) {
+        self.queue = queue
+        self.makePlayer = makePlayer
+    }
 
     func play(_ sound: FeedbackSound) {
-        if !isSessionSet {
-            isSessionSet = true
-            try? AVAudioSession.sharedInstance().setCategory(.ambient)
+        queue.async { [self] in
+            if !isSessionSet {
+                isSessionSet = true
+                try? AVAudioSession.sharedInstance().setCategory(.ambient)
+            }
+            if players[sound] == nil {
+                players[sound] = makePlayer(sound)
+                players[sound]?.prepareToPlay()
+            }
+            guard let player = players[sound] else { return }
+            player.currentTime = 0
+            player.play()
         }
-        if players[sound] == nil {
-            players[sound] = try? AVAudioPlayer(data: Self.wav(sound))
-            players[sound]?.prepareToPlay()
-        }
-        guard let player = players[sound] else { return }
-        player.currentTime = 0
-        player.play()
+    }
+
+    /// The sounds with a player, once `queue` has handled the plays asked
+    /// so far (tests).
+    nonisolated var loadedSounds: Set<FeedbackSound> {
+        queue.sync { Set(players.keys) }
     }
 
     /// Right: two rising notes, G5 then C6, 0.1 s each. Wrong: one low
     /// note, A3, 0.2 s.
-    static func wav(_ sound: FeedbackSound) -> Data {
+    nonisolated static func wav(_ sound: FeedbackSound) -> Data {
         switch sound {
         case .right: return wav(notes: [(783.99, 0.1), (1046.5, 0.1)])
         case .wrong: return wav(notes: [(220, 0.2)])
@@ -390,7 +414,7 @@ final class TonePlayer: FeedbackSink {
 
     /// 16-bit mono PCM at 44.1 kHz: sine notes, each with a 5 ms attack
     /// and an exponential decay, so they do not click.
-    static func wav(notes: [(frequency: Double, seconds: Double)], volume: Double = 0.3) -> Data {
+    nonisolated static func wav(notes: [(frequency: Double, seconds: Double)], volume: Double = 0.3) -> Data {
         let rate = 44_100
         var samples: [Int16] = []
         for note in notes {

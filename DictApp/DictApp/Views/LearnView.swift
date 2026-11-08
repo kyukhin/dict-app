@@ -158,7 +158,7 @@ struct LearnView: View {
                 trainerRow(.production, title: "learn.trainer.production", symbol: "pencil",
                            id: "learn_trainer_production")
                 matchRow
-                if let level = vm.drillLevel {
+                if vm.canTrain, let level = vm.drillLevel {
                     conjugationRow(level)
                 }
             } header: {
@@ -166,6 +166,13 @@ struct LearnView: View {
             } footer: {
                 if !vm.canTrain {
                     Text("learn.trainers.disabled")
+                }
+            }
+            // 0132: "Learn a few words first" is not the drill's. While the
+            // other trainers are off, its row follows their footer.
+            if !vm.canTrain, let level = vm.drillLevel {
+                Section {
+                    conjugationRow(level)
                 }
             }
             lists

@@ -410,7 +410,8 @@ final class ConjugationDrillFlowTests: XCTestCase {
 
     /// Tenses up to B1 (Greek B1 checked): Practise on γράφω asks tenses
     /// with no 2.0 topic (the imperfect, the continuous future and
-    /// subjunctive, the passive), which have no Rule; the others have it.
+    /// subjunctive, the passive of γράφω, a verb with both voices), which
+    /// have no Rule; the others have it.
     func testNoRuleWithoutATopic() throws {
         let drill = openDefinition("γράφω")
         drill.practise()

@@ -707,7 +707,7 @@ final class ConjugationDrillViewModel: ObservableObject {
     private(set) var pool: [DrillVerb] = []
     /// The meanings language of Greek's pair: the verbs' translations.
     private(set) var meaningsLang = "eng"
-    /// The lists `pool` was read for.
+    /// The lists `pool` was read for (with `meaningsLang`).
     private var poolLists: [WordListID]?
 
     private let db: DatabaseService
@@ -736,8 +736,8 @@ final class ConjugationDrillViewModel: ObservableObject {
     var tenses: [ConjugationTense] { level.tenses }
 
     /// Reads the pack, the checked lists (again on every appearance, so a
-    /// list checked on New words from shows at once), the pool when they
-    /// changed, the level and the accuracy.
+    /// list checked on New words from shows at once), the pool when they or
+    /// the meanings language changed, the level and the accuracy.
     func load() async {
         do {
             guard await isGreekUsable() else {
@@ -753,9 +753,12 @@ final class ConjugationDrillViewModel: ObservableObject {
                 state = .noLists
                 return
             }
-            if poolLists != greek {
-                meaningsLang = try await languages.pair(for: ConjugationPlanner.lang)?.meaningsLang ?? "eng"
-                pool = try await db.drillVerbs(lists: greek, meaningsLang: meaningsLang)
+            // The verbs' translations are in the meanings language of
+            // Greek's pair, which Settings can change while the screen is open.
+            let lang = try await languages.pair(for: ConjugationPlanner.lang)?.meaningsLang ?? "eng"
+            if poolLists != greek || lang != meaningsLang {
+                meaningsLang = lang
+                pool = try await db.drillVerbs(lists: greek, meaningsLang: lang)
                 poolLists = greek
             }
             offeredLevels = DrillScope.offeredLevels(checked: checked)
@@ -841,8 +844,8 @@ final class ConjugationRunViewModel: ObservableObject {
     /// The daily goal at the end of the run; nil until then.
     @Published private(set) var goalProgress: GoalProgress?
     /// 0133, #174: the grammar topic of the question's tense for its verb,
-    /// which Rule opens after the answer; nil for a tense without a topic
-    /// and for a passive facet.
+    /// which Rule opens after the answer; nil for a tense without a topic.
+    /// A passive facet has one only for a verb with passive forms only.
     @Published private(set) var ruleTopic: GrammarTopicSummary?
     @Published var errorMessage: String?
 

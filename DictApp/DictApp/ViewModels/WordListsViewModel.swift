@@ -518,22 +518,14 @@ final class ListImportViewModel: ObservableObject {
     func setDelimiter(_ delimiter: ListText.Delimiter) async {
         guard delimiter != self.delimiter else { return }
         self.delimiter = delimiter
-        do {
-            try await prepare(try await Self.parsed(text, delimiter: delimiter, origin: origin))
-        } catch {
-            errorMessage = error.localizedDescription
-        }
+        await update()
     }
 
     /// A language chosen in the preview: the words are linked again.
     func setLanguage(_ language: String) async {
-        guard language != self.language, let parse = preview?.parse else { return }
+        guard language != self.language, preview != nil else { return }
         self.language = language
-        do {
-            try await prepare(parse)
-        } catch {
-            errorMessage = error.localizedDescription
-        }
+        await update()
     }
 
     /// Import: saves the list when its language is learned; otherwise asks
@@ -612,6 +604,32 @@ final class ListImportViewModel: ObservableObject {
         let current = generation
         let preview = try await db.prepareListImport(parse, lang: language)
         if current == generation { self.preview = preview }
+    }
+
+    /// The preview of the chosen delimiter and language: the text parsed
+    /// again when the delimiter is not the preview's, then the words linked.
+    /// A later choice drops it, even while it parses. When it fails, the
+    /// pickers go back to what the preview shows (CodeRabbit, PR #276).
+    private func update() async {
+        generation += 1
+        let current = generation
+        let delimiter = delimiter, language = language
+        do {
+            var parse = preview?.parse
+            if parse?.delimiter != delimiter {
+                parse = try await Self.parsed(text, delimiter: delimiter, origin: origin)
+            }
+            guard current == generation, let parse else { return }
+            let preview = try await db.prepareListImport(parse, lang: language)
+            if current == generation { self.preview = preview }
+        } catch {
+            guard current == generation else { return }
+            errorMessage = error.localizedDescription
+            if let preview {
+                self.delimiter = preview.parse.delimiter
+                self.language = preview.lang
+            }
+        }
     }
 
     /// `ListText.parse` off the main actor.

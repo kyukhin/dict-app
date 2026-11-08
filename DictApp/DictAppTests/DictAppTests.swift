@@ -20958,7 +20958,9 @@ final class GrammarContentTests: XCTestCase {
     /// #133, #173 (CodeRabbit, PR #264): every English and Russian text a file
     /// ships is the one Kirill reviewed: the sha256 of its stored
     /// `title + "\n" + body` (UTF-8, as `build_grammar.py` hashes it) has its
-    /// `(topic id, sha256)` line in `reviewed.tsv`.
+    /// `(topic id, sha256)` line in `reviewed.tsv`. No file ships a text in
+    /// another explanation language, so a new one cannot ship unreviewed
+    /// (CodeRabbit, PR #278).
     func testEveryTopicIsReviewed() throws {
         let reviewed = try Self.reviewed()
         let packs = try PackFixtures.all()
@@ -20970,6 +20972,12 @@ final class GrammarContentTests: XCTestCase {
                     WHERE explain_lang IN ('eng', 'rus') ORDER BY topic_id, explain_lang
                     """)
             }
+            let others = try BundledDictionary(url: url).read { db in
+                try String.fetchAll(db, sql: """
+                    SELECT DISTINCT explain_lang FROM grammar_text WHERE explain_lang NOT IN ('eng', 'rus')
+                    """)
+            }
+            XCTAssertEqual(others, [], "\(url.lastPathComponent): grammar texts in a language with no review")
             for row in rows {
                 let topic: String = row["topic_id"], explain: String = row["explain_lang"]
                 let title: String = row["title"], body: String = row["body"]
@@ -22030,8 +22038,11 @@ final class GrammarLinksTests: XCTestCase {
     }
 
     /// The drill's Rule: the topic of the question's tense for the drilled
-    /// verb (the pack's verbs and links); none for a passive facet or a
-    /// tense without a topic.
+    /// verb (the pack's verbs and links); none for a tense without a topic.
+    /// A passive facet has a topic only for a verb with passive forms only,
+    /// from a topic that lists it (Kirill, 2026-11-08): έρχομαι's aorist has
+    /// the irregular aorists, θυμάμαι, which no topic lists, has none, and
+    /// γράφω's passive none.
     func testRuleTopicForDrillFacets() async throws {
         let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: tempDir) }
@@ -22054,10 +22065,20 @@ final class GrammarLinksTests: XCTestCase {
             let found = try await rule(word, tense)
             XCTAssertEqual(found, id, "\(word) \(tense.rawValue)")
         }
-        let passive = try await rule("γράφω", .present, .passive)
-        XCTAssertNil(passive, "a passive facet has no Rule")
         let deponent = try await rule("έρχομαι", .aorist, .passive)
-        XCTAssertNil(deponent, "a verb with passive forms only has no Rule")
+        XCTAssertEqual(deponent, "ell-aorist-irregular", "έρχομαι is listed by the irregular aorists")
+        let deponentFuture = try await rule("έρχομαι", .future, .passive)
+        XCTAssertNil(deponentFuture, "no class topic for a passive facet")
+        let unlisted = try await DrillFixture.verb("θυμάμαι")
+        XCTAssertEqual(unlisted.mainVoice, .passive)
+        for facet in unlisted.cells.keys {
+            XCTAssertNil(GrammarLinks.ruleTopic(verb: unlisted, facet: facet, topics: topics, links: links),
+                         "θυμάμαι \(facet.rawValue): no topic lists it")
+        }
+        for tense in [ConjugationTense.present, .aorist] {
+            let passive = try await rule("γράφω", tense, .passive)
+            XCTAssertNil(passive, "γράφω \(tense.rawValue).passive: its topics teach the active")
+        }
         for tense in [ConjugationTense.imperfect, .futureContinuous, .subjunctiveContinuous, .perfect] {
             let found = try await rule("γράφω", tense)
             XCTAssertNil(found, "\(tense.rawValue): no 2.0 topic")
@@ -22070,7 +22091,8 @@ final class GrammarLinksTests: XCTestCase {
     /// tense (είμαι and έχω take "είμαι and έχω"; ζω, an unaccented -ω,
     /// the second conjugation); each facet the verb has without a 2.0 topic
     /// (the imperfect, the continuous future and subjunctive, the three
-    /// perfects) and every passive facet has none.
+    /// perfects) has none, and a passive facet only the topic that lists a
+    /// verb with passive forms only (Kirill, 2026-11-08).
     func testRuleTopicOnMoreVerbs() async throws {
         let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: tempDir) }
@@ -22094,15 +22116,19 @@ final class GrammarLinksTests: XCTestCase {
         }
         let withoutTopic: Set<ConjugationTense> = [.imperfect, .futureContinuous, .subjunctiveContinuous, .perfect,
                                                    .pluperfect, .futurePerfect]
+        // A passive facet's only Rule: the listing topic of a verb with
+        // passive forms only.
+        let listing: [String: [ConjugationTense: String]] = ["έρχομαι": [.aorist: "ell-aorist-irregular"]]
         for word in ["γράφω", "πηγαίνω", "αγαπάω", "έχω", "έρχομαι"] {
             let verb = try await DrillFixture.verb(word)
             var checked = 0
             for facet in verb.cells.keys where facet.voice == .passive || withoutTopic.contains(facet.tense) {
                 checked += 1
+                let expected = withoutTopic.contains(facet.tense) ? nil : listing[word]?[facet.tense]
                 let found = GrammarLinks.ruleTopic(verb: verb, facet: facet, topics: topics, links: links)
-                XCTAssertNil(found, "\(word) \(facet.rawValue): no Rule")
+                XCTAssertEqual(found?.id, expected, "\(word) \(facet.rawValue)")
             }
-            XCTAssertGreaterThan(checked, 0, "\(word) has facets without a topic")
+            XCTAssertGreaterThan(checked, 0, "\(word) has facets without a class topic")
         }
         // The facets with a topic all have one: the drill never asks one
         // of them without Rule.
@@ -23450,6 +23476,124 @@ final class ConjugationQuestionTests: XCTestCase {
         XCTAssertEqual(ConjugationQuestionBuilder.fold("Café"), "cafe")
     }
 
+    /// QA, PR #281: the byte table's fold is `Search.foldGreek`'s key, byte
+    /// for byte, on every form of the committed Greek pack: each table cell
+    /// of every part of speech, each lemma and each stored lookup key. The
+    /// only forms where they differ carry a combining mark no Greek letter
+    /// precomposes (τεράτσ̌ια): Search keeps it, the drill drops every
+    /// nonspacing mark, as 0131's fold does.
+    func testFoldIsTheSearchFoldOnEveryFormOfThePack() throws {
+        let forms = try Fixture.greekPack().read { db in
+            var forms = Set<String>()
+            for sql in ["SELECT form FROM paradigm", "SELECT word FROM lemma", "SELECT form_norm FROM form_lookup"] {
+                let cursor = try String.fetchCursor(db, sql: sql)
+                while let form = try cursor.next() { forms.insert(form) }
+            }
+            return forms
+        }
+        XCTAssertGreaterThan(forms.count, 250_000)
+        func isMark(_ scalar: Unicode.Scalar) -> Bool { scalar.properties.generalCategory == .nonspacingMark }
+        var differ: [String] = [], withMarks = 0, fromTable = 0, capitalised = 0, extended = 0
+        for form in forms {
+            let fold = ConjugationQuestionBuilder.fold(form), search = Search.foldGreek(form)
+            if form.unicodeScalars.allSatisfy({ Search.isGreek($0) || $0 == " " }) { fromTable += 1 }
+            if form != form.lowercased() { capitalised += 1 }
+            if form.unicodeScalars.contains(where: { (0x1F00...0x1FFF).contains($0.value) }) { extended += 1 }
+            if form.unicodeScalars.contains(where: { !Search.isGreek($0) && isMark($0) }) {
+                withMarks += 1
+                let unmarked = String(String.UnicodeScalarView(search.unicodeScalars.filter { !isMark($0) }))
+                if !fold.utf8.elementsEqual(unmarked.utf8) { differ.append("\(form): \(fold) ≠ \(unmarked)") }
+            } else if !fold.utf8.elementsEqual(search.utf8) {
+                differ.append("\(form): \(fold) ≠ \(search)")
+            }
+        }
+        XCTAssertEqual(differ.count, 0, "\(differ.count) forms, e.g. \(differ.prefix(10))")
+        XCTAssertGreaterThan(fromTable, 250_000, "the table folds nearly every form")
+        XCTAssertGreaterThan(capitalised, 1_000, "capitalised forms (names) are among them")
+        XCTAssertGreaterThan(extended, 10, "polytonic forms are among them")
+        XCTAssertGreaterThan(withMarks, 10, "forms with a stand-alone combining mark are among them")
+    }
+
+    /// QA, PR #281: every code point of Greek and Coptic and of Greek
+    /// Extended, alone and between letters, folds from the table as
+    /// `Search.foldGreek` folds it and as the full fold does (a form with
+    /// a digit takes that path): an index off by one in the table, or a
+    /// cell of the wrong block, shows here.
+    func testFoldTableHasEveryGreekCodePoint() throws {
+        var checked = 0
+        for value in Array(UInt32(0x0370)...0x03FF) + Array(UInt32(0x1F00)...0x1FFF) {
+            let scalar = try XCTUnwrap(Unicode.Scalar(value))
+            let letter = String(scalar), label = "U+" + String(value, radix: 16, uppercase: true)
+            let fold = ConjugationQuestionBuilder.fold(letter)
+            XCTAssertEqual(Array(fold.utf8), Array(Search.foldGreek(letter).utf8), label)
+            XCTAssertEqual(Array(ConjugationQuestionBuilder.fold("Ά" + letter + "ς").utf8),
+                           Array(("α" + fold + "σ").utf8), "\(label) between letters")
+            XCTAssertEqual(Array(ConjugationQuestionBuilder.fold(letter + "1").utf8), Array((fold + "1").utf8),
+                           "\(label): the table is the full fold")
+            checked += 1
+        }
+        XCTAssertEqual(checked, 144 + 256)
+        // The blocks' ends: Ͱ, Ͽ, ἀ and the spacing dasia.
+        XCTAssertEqual(Array(ConjugationQuestionBuilder.fold("\u{0370}\u{03FF}\u{1F00}\u{1FFE}").unicodeScalars),
+                       Array("\u{0371}\u{037D}α\u{1FFE}".unicodeScalars))
+    }
+
+    /// QA, PR #281: the cases a table could get wrong, against both the
+    /// expected key and `Search.foldGreek`.
+    func testFoldEdgeCases() {
+        func check(_ form: String, _ expected: String, sameAsSearch: Bool = true,
+                   file: StaticString = #filePath, line: UInt = #line) {
+            let fold = ConjugationQuestionBuilder.fold(form)
+            XCTAssertEqual(Array(fold.unicodeScalars), Array(expected.unicodeScalars), form, file: file, line: line)
+            if sameAsSearch {
+                XCTAssertEqual(Array(fold.utf8), Array(Search.foldGreek(form).utf8), "\(form): Search", file: file,
+                               line: line)
+            }
+        }
+        check("", "")
+        check(" ", " ")
+        // Capitals and final sigma.
+        check("ΣΟΦΟΣ", "σοφοσ")
+        check("Σ", "σ")
+        check("ς", "σ")
+        check("λόγος", "λογοσ")
+        check("ΆΣΤΡΑ ΚΑΙ ΉΛΙΟΣ", "αστρα και ηλιοσ")
+        // Dialytika, with and without tonos, small and capital.
+        check("ΐ", "ι")
+        check("ΰ", "υ")
+        check("ϊ ϋ Ϊ Ϋ", "ι υ ι υ")
+        check("προϊόν", "προιον")
+        check("\u{1FD3}\u{1FE3}", "ιυ")  // ΐ and ΰ of Greek Extended (oxia)
+        // Polytonic: breathings, accents, iota subscript and adscript.
+        check("ᾄδω", "αδω")
+        check("Ὅμηρος", "ομηροσ")
+        check("Ῥόδος", "ροδοσ")
+        check("ᾼ ῌ ῼ ᾈ", "α η ω α")
+        check("τῷ", "τω")
+        // Decomposed input (NFD): the full fold, the same key.
+        check("ι\u{0308}\u{0301}", "ι")
+        check("Ι\u{0308}", "ι")
+        check("γρα\u{0301}φω", "γραφω")
+        check("ω\u{0313}\u{0342}\u{0345}", "ω")
+        // Greek punctuation and spacing signs are not letters: kept.
+        check(";", ";")
+        check("\u{0387}", "\u{00B7}")
+        check("\u{037E}", ";")
+        // Digits, hyphens and apostrophes in a Greek form.
+        check("2ος", "2οσ")
+        check("σ' αγαπώ", "σ' αγαπω")
+        check("Ξ-12", "ξ-12")
+        check("123", "123")
+        // Latin, Cyrillic and a combining mark no Greek letter precomposes:
+        // the drill's fold (0131's) folds them too, Search only Greek.
+        check("Café 2 ΛΌΓΟΣ", "cafe 2 λογοσ", sameAsSearch: false)
+        XCTAssertEqual(Search.foldGreek("Café 2 ΛΌΓΟΣ"), "Café 2 λογοσ")
+        check("йод λόγος", "иод λογοσ", sameAsSearch: false)
+        check("τεράτσ\u{030C}ια", "τερατσια", sameAsSearch: false)
+        XCTAssertEqual(Array(Search.foldGreek("τεράτσ\u{030C}ια").unicodeScalars),
+                       Array("τερατσ\u{030C}ια".unicodeScalars))
+    }
+
     func testOtherRightFormsAreNeverOffered() async throws {
         let grafo = try await Fixture.verb("γράφω")
         for seed in UInt64(0)..<30 {
@@ -23741,6 +23885,52 @@ final class DrillVerbPoolTests: XCTestCase {
         let viaRussian = try await db.drillVerbs(lists: ["ky-ell-a1"], meaningsLang: full)
         XCTAssertEqual(viaRussian.map(\.word), Self.a1Verbs, "every verb is still drilled")
         XCTAssertEqual(Set(viaRussian.map(\.translation)), [""], "never Kirill's English translation")
+    }
+
+    /// CodeRabbit, PR #277: the Conjugation screen reads its verbs again
+    /// when Greek's via changes the meanings language while it is open,
+    /// the checked lists unchanged.
+    @MainActor
+    func testScreenFollowsAViaChange() async throws {
+        let bundle = tempDir.appendingPathComponent("bundle.sqlite")
+        try FileManager.default.copyItem(at: try TestDictionary.bundledURL(), to: bundle)
+        try await DatabaseQueue(path: bundle.path).write { db in
+            try db.execute(sql: """
+                INSERT INTO catalog_source(pack_id, source, display_name, word_count, from_lang, to_lang)
+                VALUES ('rus', 'test-ell-rus', 'El–Ru · Test', 1, 'ell', 'rus')
+                """)
+        }
+        try await Fixture.open(userPath: tempDir.appendingPathComponent("full-pair.sqlite").path,
+                               greek: try XCTUnwrap(Self.listsURL), bundle: bundle)
+        let settings = SettingsService(store: InMemoryKeyValueStore())
+        settings.learningListIDs = ["ky-ell-a1"]
+        settings.learningVia = ["ell": "eng"]
+        let languages = LearningLanguageService(settings: settings, packs: FakePairPacks(languagesWithLists: ["ell"]),
+                                                uiLanguage: { "en" })
+        let vm = ConjugationDrillViewModel(db: db, settings: settings, languages: languages,
+                                           isGreekUsable: { true }, installGreek: {})
+        await vm.load()
+        XCTAssertEqual(vm.meaningsLang, "eng")
+        XCTAssertEqual(vm.pool.first { $0.word == "γράφω" }?.translation, "to write")
+
+        settings.learningVia = ["ell": "rus"]
+        await vm.load()
+        XCTAssertEqual(vm.meaningsLang, "rus", "Greek via Russian is a full pair here")
+        XCTAssertEqual(vm.pool.map(\.word), Self.a1Verbs, "the same verbs")
+        XCTAssertEqual(Set(vm.pool.map(\.translation)), [""], "read again: no English translation left")
+
+        // QA, PR #281: back to English, the translations come back; a
+        // list checked with it reads the new list's verbs in that language.
+        settings.learningVia = ["ell": "eng"]
+        await vm.load()
+        XCTAssertEqual(vm.meaningsLang, "eng")
+        XCTAssertEqual(vm.pool.first { $0.word == "γράφω" }?.translation, "to write", "read again in English")
+        settings.learningVia = ["ell": "rus"]
+        settings.learningListIDs = ["ky-ell-a1", "ky-ell-a2"]
+        await vm.load()
+        XCTAssertEqual(vm.meaningsLang, "rus")
+        XCTAssertEqual(vm.pool.map(\.word), Self.a1Verbs + ["βρέχω"], "A2's verb too")
+        XCTAssertEqual(Set(vm.pool.map(\.translation)), [""])
     }
 
     /// The reads go through primary keys and the lemma index, never a scan.
@@ -26542,6 +26732,62 @@ final class FeedbackPlayerTests: XCTestCase {
         XCTAssertLessThan(wrong[0] + wrong[1], right[0], "wrong: one note, lower than right's first")
         XCTAssertEqual(Double(wrong[0] + wrong[1]), 2 * 220 * 0.2, accuracy: 6, "wrong is an A3")
     }
+
+    /// The tones load and play on the player's queue: `play` returns at
+    /// once while that queue is held up (a simulator's stalled audio holds
+    /// it 15 s), so an answer never blocks the main thread.
+    func testTonesPlayOffTheMainThread() {
+        let queue = DispatchQueue(label: "FeedbackPlayerTests.tones")
+        let tones = TonePlayer(queue: queue)
+        XCTAssertEqual(tones.loadedSounds, [], "nothing loads before a play")
+
+        queue.suspend()
+        let start = Date()
+        tones.play(.wrong)
+        tones.play(.wrong)
+        XCTAssertLessThan(Date().timeIntervalSince(start), 1, "play does not wait for its queue")
+        queue.resume()
+
+        XCTAssertEqual(tones.loadedSounds, [.wrong], "the queue loaded the sound asked, and only it")
+    }
+
+    /// QA, PR #281: a player is made on the tones' queue, never on the
+    /// main thread or the caller's: nothing is made while the queue is held
+    /// up, then each sound in the order asked; a sound without a player is
+    /// tried again on its next play, and one with a player is never made
+    /// twice.
+    func testPlayersAreMadeOnTheQueueOnly() {
+        final class Made: @unchecked Sendable {
+            private let lock = NSLock()
+            private var calls: [(sound: FeedbackSound, onMain: Bool, onQueue: Bool)] = []
+            func append(_ call: (sound: FeedbackSound, onMain: Bool, onQueue: Bool)) {
+                lock.withLock { calls.append(call) }
+            }
+            var all: [(sound: FeedbackSound, onMain: Bool, onQueue: Bool)] { lock.withLock { calls } }
+        }
+        let queue = DispatchQueue(label: "FeedbackPlayerTests.made")
+        let key = DispatchSpecificKey<Bool>()
+        queue.setSpecific(key: key, value: true)
+        let made = Made()
+        let tones = TonePlayer(queue: queue) { sound in
+            made.append((sound, Thread.isMainThread, DispatchQueue.getSpecific(key: key) == true))
+            // Right has no player, as when its data fails; wrong has one.
+            return sound == .right ? nil : try? AVAudioPlayer(data: TonePlayer.wav(sound))
+        }
+
+        queue.suspend()
+        tones.play(.right)
+        tones.play(.wrong)
+        tones.play(.right)
+        tones.play(.wrong)
+        XCTAssertEqual(made.all.count, 0, "nothing is made on the caller's thread")
+        queue.resume()
+
+        XCTAssertEqual(tones.loadedSounds, [.wrong], "the sounds with a player")
+        XCTAssertEqual(made.all.map(\.sound), [.right, .wrong, .right], "in order; wrong is kept, right tried again")
+        XCTAssertFalse(made.all.contains { $0.onMain }, "never the main thread")
+        XCTAssertTrue(made.all.allSatisfy(\.onQueue), "always the tones' queue")
+    }
 }
 
 // MARK: Exercises on a database
@@ -29019,9 +29265,11 @@ final class MatchPairsViewModelTests: ExerciseTestCase {
         let busy = Task { try await self.db.writeForTesting { _ in Thread.sleep(forTimeInterval: 0.5) } }
         try await Task.sleep(nanoseconds: 50_000_000)
         let lastTap = Task { await vm.tap(last.meaning) }
-        while vm.phase != .finished {
+        let deadline = Date().addingTimeInterval(5)
+        while vm.phase != .finished, Date() < deadline {
             await Task.yield()
         }
+        XCTAssertEqual(vm.phase, .finished, "the last match finishes the round while the write is busy")
         async let first: Void = vm.nextRound()
         async let second: Void = vm.nextRound()
         _ = await (first, second)
@@ -31348,9 +31596,11 @@ final class ListTextTests: XCTestCase {
     }
 
     /// A two-column file whose row 5 opens a quote that never closes,
-    /// followed by two one-field continuation lines, then good rows: one
-    /// broken row at line 5, no word from the continuation lines, the good
-    /// rows after them import.
+    /// followed by two one-field continuation lines, then good rows: broken
+    /// rows at lines 5, 6 and 7, no word from the continuation lines, the
+    /// good rows after them import. Every line the broken record takes is
+    /// listed (CodeRabbit, PR #276), so a ragged file's short rows and a
+    /// one-column list are never lost unseen.
     func testUnclosedMultilineQuote() throws {
         let text = """
             term,translation
@@ -31365,22 +31615,108 @@ final class ListTextTests: XCTestCase {
             """
         let result = try ListText.parse(text)
         XCTAssertEqual(terms(result), ["α", "β", "γ", "ε", "ζ"])
-        XCTAssertEqual(result.broken, [ListText.BrokenRow(line: 5, text: "δ,\"four", problem: .openQuote)])
+        XCTAssertEqual(result.broken, [
+            ListText.BrokenRow(line: 5, text: "δ,\"four", problem: .openQuote),
+            ListText.BrokenRow(line: 6, text: "continued", problem: .openQuote),
+            ListText.BrokenRow(line: 7, text: "still continued", problem: .openQuote),
+        ])
 
         // Without a header, the first good row's two fields are expected.
-        let headerless = try ListText.parse("α,1\nβ,\"2\nx\nγ,3\n")
+        let headerless = try ListText.parse("α,1\nβ,\"2\nx\n\nγ,3\n")
         XCTAssertEqual(terms(headerless), ["α", "γ"])
-        XCTAssertEqual(headerless.broken.map(\.line), [2])
+        XCTAssertEqual(headerless.broken.map(\.line), [2, 3], "a blank line is no row")
 
-        // Nothing parses after it: nothing follows.
+        // Nothing parses after it: nothing follows, and every line shows.
         let tail = try ListText.parse("α,1\nβ,\"2\nx\ny\n")
         XCTAssertEqual(terms(tail), ["α"])
-        XCTAssertEqual(tail.broken.map(\.line), [2])
+        XCTAssertEqual(tail.broken.map(\.line), [2, 3, 4])
+
+        // A ragged file: the two-field row before the next full one shows.
+        let ragged = try ListText.parse("term,translation,level\nα,1,A1\nβ,\"2\nγ,3\nδ,4,A2\n")
+        XCTAssertEqual(terms(ragged), ["α", "δ"])
+        XCTAssertEqual(ragged.broken.map(\.line), [3, 4])
+        XCTAssertEqual(ragged.broken.last?.text, "γ,3")
+
+        // A one-column list whose first row opens a quote: every row shows.
+        let single = try ListText.parse("\"α\nβ\nγ\n")
+        XCTAssertEqual(single.words, [])
+        XCTAssertEqual(single.broken.map(\.line), [1, 2, 3])
 
         // A closed multiline field is a field.
         let closed = try ListText.parse("α,\"one\ntwo\"\nβ,2\n")
         XCTAssertEqual(closed.words.map(\.translation), ["one\ntwo", "2"])
         XCTAssertEqual(closed.broken, [])
+    }
+
+    /// QA, PR #281: the lines an unclosed quote swallows are listed with
+    /// their own numbers, whatever the line ends, around closed multiline
+    /// fields and blank lines, in Anki and Quizlet texts; a quote opened on
+    /// the last line is one broken row.
+    func testUnclosedQuoteListsEveryLineItTakes() throws {
+        // CRLF: numbers and texts as with LF, no CR in a text; a
+        // whitespace-only line is no row; a closed multiline field first.
+        let crlf = try ListText.parse(
+            "term,translation\r\nα,\"one\r\ntwo\"\r\nβ,\"2\r\nx\r\n  \r\ny\r\nγ,3\r\n")
+        XCTAssertEqual(terms(crlf), ["α", "γ"])
+        XCTAssertEqual(crlf.words.first?.translation, "one\ntwo", "a closed field keeps its line break, as LF")
+        XCTAssertEqual(crlf.broken, [
+            ListText.BrokenRow(line: 4, text: "β,\"2", problem: .openQuote),
+            ListText.BrokenRow(line: 5, text: "x", problem: .openQuote),
+            ListText.BrokenRow(line: 7, text: "y", problem: .openQuote),
+        ])
+        XCTAssertEqual(crlf.words.last?.line, 8, "the row after them keeps its line")
+        // Old Mac line ends (CR) count the same lines.
+        let cr = try ListText.parse("term,translation\rα,\"one\rtwo\"\rβ,\"2\rx\r  \ry\rγ,3\r")
+        XCTAssertEqual(cr.broken.map(\.line), [4, 5, 7])
+        XCTAssertEqual(terms(cr), ["α", "γ"])
+
+        // A quote opened on the last line, with and without a line end.
+        for text in ["α,1\nβ,\"2", "α,1\nβ,\"2\n", "α,1\r\nβ,\"2\r\n", "α,1\nβ,\"2\n\n\n"] {
+            let last = try ListText.parse(text)
+            XCTAssertEqual(terms(last), ["α"], text)
+            XCTAssertEqual(last.broken, [ListText.BrokenRow(line: 2, text: "β,\"2", problem: .openQuote)], text)
+        }
+        // The first row opens it and only the header came before.
+        let first = try ListText.parse("term,translation\n\"α,1\nβ,2\n")
+        XCTAssertEqual(terms(first), ["β"])
+        XCTAssertEqual(first.broken.map(\.line), [2])
+
+        // Two unclosed quotes: each with the lines it takes.
+        let two = try ListText.parse("α,1\nβ,\"2\nx\nγ,3\nδ,\"4\ny\nz\nε,5\n")
+        XCTAssertEqual(terms(two), ["α", "γ", "ε"])
+        XCTAssertEqual(two.broken.map(\.line), [2, 3, 5, 6, 7])
+        XCTAssertEqual(two.broken.map(\.text), ["β,\"2", "x", "δ,\"4", "y", "z"])
+        XCTAssertEqual(Set(two.broken.map(\.problem)), [.openQuote])
+
+        // A swallowed line is cut for the preview as a row is.
+        let long = String(repeating: "λ", count: 300)
+        let cut = try ListText.parse("α,1\nβ,\"2\n\(long)\nγ,3\n")
+        XCTAssertEqual(cut.broken.map(\.line), [2, 3])
+        XCTAssertEqual(cut.broken.last?.text, String(repeating: "λ", count: 200) + "…")
+
+        // Anki: #columns gives two fields; its header lines are numbered.
+        let anki = try ListText.parse("""
+            #separator:tab
+            #html:false
+            #columns:Front\tBack
+            σπίτι\thouse
+            γράφω\t"to write
+            no tab here
+            νερό\twater
+            """)
+        XCTAssertEqual(anki.origin, .anki)
+        XCTAssertEqual(terms(anki), ["σπίτι", "νερό"])
+        XCTAssertEqual(anki.broken.map(\.line), [5, 6])
+        XCTAssertEqual(anki.broken.last?.text, "no tab here")
+
+        // Quizlet: a tab per card; a card that opens a quote takes the
+        // lines up to the next card.
+        let quizlet = try ListText.parse("σπίτι\thouse, home\n\"γράφω\tto write\nto draw\nθάλασσα\tsea\n",
+                                         origin: .paste)
+        XCTAssertEqual(quizlet.delimiter, .tab)
+        XCTAssertEqual(terms(quizlet), ["σπίτι", "θάλασσα"])
+        XCTAssertEqual(quizlet.broken.map(\.line), [2, 3])
+        XCTAssertEqual(quizlet.broken.map(\.text), ["\"γράφω\tto write", "to draw"])
     }
 
     /// Tab, then semicolon, then comma; a manual choice overrides; a comma
@@ -31891,6 +32227,89 @@ final class ListImportViewModelTests: WordListsTestCase {
         let anki = await pasted("#separator:Pipe\nσπίτι|house\n")
         XCTAssertEqual(anki.delimiterChoices.last, ListText.Delimiter(scalar: "|"), "an Anki file's own delimiter")
         XCTAssertEqual(anki.preview?.parse.origin, .paste, "pasted, whatever its headers")
+    }
+
+    /// CodeRabbit, PR #276: a delimiter or a language whose preview fails
+    /// puts its picker back to what the preview shows, and of two quick
+    /// choices the later one's preview stays, whichever finishes first.
+    func testPickersStayWithThePreview() async throws {
+        let vm = await pasted("σπίτι;house,home\nγράφω;write,draw\n")
+        XCTAssertEqual(vm.delimiter, .semicolon)
+        XCTAssertEqual(vm.language, "ell")
+        // Linking now fails: the imported dictionaries' table is gone.
+        try await db.writeForTesting { try $0.execute(sql: "ALTER TABLE imported_entries RENAME TO imported_away") }
+        await vm.setDelimiter(.comma)
+        XCTAssertNotNil(vm.errorMessage)
+        XCTAssertEqual(vm.delimiter, .semicolon, "back to the preview's")
+        XCTAssertEqual(vm.preview?.parse.delimiter, .semicolon)
+        vm.errorMessage = nil
+        await vm.setLanguage("eng")
+        XCTAssertNotNil(vm.errorMessage)
+        XCTAssertEqual(vm.language, "ell", "back to the preview's")
+        XCTAssertEqual(vm.preview?.lang, "ell")
+        try await db.writeForTesting { try $0.execute(sql: "ALTER TABLE imported_away RENAME TO imported_entries") }
+
+        async let comma: Void = vm.setDelimiter(.comma)
+        async let tab: Void = vm.setDelimiter(.tab)
+        _ = await (comma, tab)
+        XCTAssertEqual(vm.preview?.parse.delimiter, vm.delimiter, "the picker shows the preview's delimiter")
+        await vm.setLanguage("eng")
+        XCTAssertEqual(vm.preview?.lang, "eng", "works again")
+    }
+
+    /// QA, PR #281: a choice made while an earlier one still works wins,
+    /// although the earlier one finishes last: English links 3,000 words
+    /// against the English sources, Other then links none. A choice made
+    /// while an earlier one parses drops it too. A failed choice after a
+    /// good one leaves the good preview and its pickers; a choice back to
+    /// the shown delimiter and language does nothing.
+    func testLaterPickerChoiceWins() async throws {
+        let text = (0..<3_000).map { "λέξη\($0);word \($0)" }.joined(separator: "\n")
+        let vm = await pasted(text)
+        XCTAssertEqual(vm.delimiter, .semicolon)
+        XCTAssertEqual(vm.language, "ell")
+        XCTAssertEqual(vm.preview?.words.count, 3_000)
+
+        // English is linking (no parse: the delimiter is the preview's).
+        let english = Task { await vm.setLanguage("eng") }
+        while vm.language != "eng" { await Task.yield() }
+        await vm.setLanguage("und")
+        XCTAssertEqual(vm.preview?.lang, "und", "the later choice's preview, at once")
+        await english.value
+        XCTAssertEqual(vm.language, "und", "the later choice")
+        XCTAssertEqual(vm.preview?.lang, "und", "English's links, finished last, are dropped")
+        XCTAssertNil(vm.errorMessage)
+
+        // Comma is parsing when Greek is chosen: one preview, both choices.
+        let comma = Task { await vm.setDelimiter(.comma) }
+        while vm.delimiter != .comma { await Task.yield() }
+        await vm.setLanguage("ell")
+        await comma.value
+        XCTAssertEqual(vm.preview?.parse.delimiter, .comma)
+        XCTAssertEqual(vm.preview?.lang, "ell")
+        XCTAssertEqual(vm.preview?.words.first?.word.term, "λέξη0;word 0")
+
+        await vm.setDelimiter(.semicolon)
+        XCTAssertEqual(vm.preview?.parse.delimiter, .semicolon)
+        XCTAssertEqual(vm.preview?.lang, "ell")
+        XCTAssertEqual(vm.preview?.words.first?.word.translation, "word 0")
+
+        // A failed choice keeps the shown preview, whole.
+        let shown = vm.preview
+        try await db.writeForTesting { try $0.execute(sql: "ALTER TABLE imported_entries RENAME TO imported_away") }
+        await vm.setDelimiter(.tab)
+        XCTAssertNotNil(vm.errorMessage)
+        XCTAssertEqual(vm.delimiter, .semicolon)
+        XCTAssertEqual(vm.language, "ell")
+        XCTAssertEqual(vm.preview, shown, "the preview shown stays")
+        try await db.writeForTesting { try $0.execute(sql: "ALTER TABLE imported_away RENAME TO imported_entries") }
+
+        // Choosing what is shown is no change.
+        vm.errorMessage = nil
+        await vm.setDelimiter(.semicolon)
+        await vm.setLanguage("ell")
+        XCTAssertNil(vm.errorMessage)
+        XCTAssertEqual(vm.preview, shown)
     }
 
     /// The preview's texts in the in-app language: the summary, the
@@ -32552,7 +32971,7 @@ final class DefinitionViewModelDrillTests: XCTestCase {
             XCTAssertEqual(verb.mainVoice, item.voice, item.word)
             XCTAssertNil(verb.listLevel, "not from a list")
         }
-        for (word, pos, source) in [("σπίτι", "noun", "freedict-ell-eng"), ("καλός", "adj", "freedict-ell-eng"),
+        for (word, pos, source) in [("σπίτι", "noun", "freedict-ell-eng"), ("καλός", "adjective", "freedict-ell-eng"),
                                     ("house", "noun", "wordnet")] {
             let vm = await definition(word, pos: pos, source: source)
             XCTAssertNil(vm.drillVerb, "\(word) has no Practise")
