@@ -171,6 +171,10 @@ struct DictApp: App {
                 for lang in languages {
                     SettingsService.shared.learningVia[lang] = try await LearningLanguageService.shared.pair(for: lang)?.via
                 }
+                // 0132, #168: the drill fixture's verbs are Greek A1's.
+                if name == "conjugation" {
+                    SettingsService.shared.learningListIDs.insert(WordListID(rawValue: "ky-ell-a1"))
+                }
             }
             if let argument = Self.argument(after: "-learningLanguages") {
                 SettingsService.shared.setLearningLanguages(argument: argument)

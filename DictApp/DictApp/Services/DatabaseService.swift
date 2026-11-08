@@ -1490,13 +1490,16 @@ actor DatabaseService {
         // 2. Each word's table: its verb lemma's own, else its single link.
         var tables: [String: (lemma: InflectionLookup.Lemma, isLinked: Bool)] = [:]
         var looked = Set<String>()
+        // Every list word without a verb table is looked up (about 4,000 with
+        // the three lists): one prepared statement for all of them.
+        let linkStatement = try db.cachedStatement(sql: linkedLemmasSQL)
         for item in items where looked.insert(item.word).inserted {
             if let lemma = item.lemma, item.hasCells {
                 tables[item.word] = (lemma, false)
                 continue
             }
             let word = item.word
-            let links = try Row.fetchAll(db, sql: linkedLemmasSQL,
+            let links = try Row.fetchAll(linkStatement,
                                          arguments: [word, word, Search.foldGreek(word), item.lemma?.id ?? -1, "verb"])
                 .map { row in
                     InflectionLookup.Link(lemma: InflectionLookup.Lemma(id: row["id"], word: row["word"], pos: row["pos"]),
@@ -2775,7 +2778,8 @@ actor DatabaseService {
     /// with wrong answers: γράφω's recognition today and σπίτι's production
     /// 6 days ago, in mistakes practice; νερό's recognition 7 days ago, out
     /// of it; καλός's recognition 3 days ago, right the day after). 0166,
-    /// #164: `stats` (`writeStatsFixture`).
+    /// #164: `stats` (`writeStatsFixture`). 0132, #168: `conjugation`
+    /// (`writeConjugationFixture`).
     func writeLearningFixture(_ name: String, today: LearnDay) async throws -> [String]? {
         func greek(_ word: String) -> EntryKey { EntryKey(source: "freedict-ell-eng", word: word) }
         let myWords5 = ["γράφω", "σπίτι", "νερό", "καλός", "είμαι"]
@@ -2873,6 +2877,10 @@ actor DatabaseService {
         case "stats":
             try await writeStatsFixture(today: today)
             return ["ell", "eng"]
+        case "conjugation":
+            // 0132, Test seams (#168): with the default daily goal; the
+            // caller checks `ky-ell-a1`.
+            return try await writeConjugationFixture(today: today, goal: 20)
         default:
             return nil
         }
@@ -3133,13 +3141,13 @@ actor DatabaseService {
         let pool = try await userPool()
         return try await read(pool) { db in
             try Row.fetchAll(db, sql: """
-                SELECT lang, word, kind, outcome, introduced, duration_ms FROM learn_review
+                SELECT lang, word, kind, outcome, introduced, duration_ms, facet FROM learn_review
                 WHERE \(condition) ORDER BY id
                 """, arguments: arguments).map { row in
                 guard let kind = CardKind(rawValue: row["kind"]),
                       let outcome = Outcome(rawValue: row["outcome"]) else { throw DBError.learningRowUnreadable }
                 return ReviewRow(word: WordKey(lang: row["lang"], word: row["word"]), kind: kind, outcome: outcome,
-                                 introduced: row["introduced"], durationMs: row["duration_ms"])
+                                 introduced: row["introduced"], durationMs: row["duration_ms"], facet: row["facet"])
             }
         }
     }

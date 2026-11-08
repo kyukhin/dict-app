@@ -21,8 +21,15 @@ final class StatisticsFlowTests: XCTestCase {
 
     private var fixture: String {
         if name.contains("testTodayAfterAnswers") || name.contains("testEmptyBeforeTheFirstAnswer") { return "due" }
-        if name.contains("testNoDrillAnswersNoBlock") { return "mistakes" }
+        if name.contains("testNoDrillAnswersNoBlock") || name.contains("testConjugationBlockAfterADrill") {
+            return "mistakes"
+        }
         return "stats"
+    }
+
+    /// 0132, #168: a short drill on Greek A1's verbs.
+    private var drillArguments: [String] {
+        name.contains("testConjugationBlockAfterADrill") ? ["-learningLists", "ky-ell-a1", "-drillLength", "3"] : []
     }
 
     override func setUpWithError() throws {
@@ -32,7 +39,7 @@ final class StatisticsFlowTests: XCTestCase {
         // meanings and the Definitions, and the others installed from the
         // committed assets.
         app.launchArguments = ["-disableReviewPrompt", "-resetData", "-learningAnswerHints", "-learningSeed", "164",
-                               "-learningFixture", fixture] + UITestHelpers.packArguments()
+                               "-learningFixture", fixture] + drillArguments + UITestHelpers.packArguments()
         app.launchEnvironment["OS_ACTIVITY_MODE"] = "disable"
         // Sim orientation persists across sessions; landscape breaks swipes.
         XCUIDevice.shared.orientation = .portrait
@@ -139,6 +146,39 @@ final class StatisticsFlowTests: XCTestCase {
         XCTAssertTrue(stats.label(IDs.hardestVerb(2)).contains("είμαι"))
     }
 
+    /// 0132, #168: `mistakes` (no drill yet), then a 3-question drill with
+    /// one wrong answer: the Conjugation block shows each asked tense's
+    /// accuracy, as the run's summary counted it.
+    func testConjugationBlockAfterADrill() throws {
+        let drill = learnPage.openConjugation()
+        drill.start()
+        for (index, right) in [true, false, true].enumerated() {
+            XCTAssertTrue(drill.waitForQuestion(), "question \(index + 1)")
+            XCTAssertEqual(drill.answer(right: right), right ? "right" : "wrong")
+            drill.run.tapContinue()
+        }
+        XCTAssertTrue(drill.run.summary.waitForExistence(timeout: TestData.Timeouts.medium), "the summary")
+        let tenses = ["present", "aorist", "future", "imperativeSimple", "subjunctiveSimple"]
+        var scores: [String: (right: Int, answers: Int)] = [:]
+        for tense in tenses where drill.summaryTense(tense).exists {
+            let parts = (drill.summaryTense(tense).value as? String ?? "").split(separator: "/").compactMap { Int($0) }
+            XCTAssertEqual(parts.count, 2, tense)
+            if parts.count == 2 { scores[tense] = (parts[0], parts[1]) }
+        }
+        XCTAssertEqual(scores.values.reduce(0) { $0 + $1.answers }, 3)
+        XCTAssertEqual(scores.values.reduce(0) { $0 + $1.right }, 2)
+        drill.run.tapDone()
+        XCTAssertTrue(drill.waitForScreen(), "Done returns to the Conjugation screen")
+        learnPage.popToRoot()
+        XCTAssertTrue(learnPage.waitForHome(), "back on the Learn home")
+        let stats = learnPage.openStatistics()
+        for (tense, score) in scores {
+            XCTAssertTrue(stats.reveal(IDs.tense(tense)), "\(tense) in the Conjugation block")
+            let percent = Int((Double(score.right) / Double(score.answers) * 100).rounded())
+            XCTAssertEqual(stats.label(IDs.tense(tense)), "\(percent)%", tense)
+        }
+    }
+
     /// `mistakes`: answers but no drill: no Conjugation block.
     func testNoDrillAnswersNoBlock() throws {
         let stats = learnPage.openStatistics()
@@ -210,7 +250,7 @@ final class StatisticsFlowTests: XCTestCase {
         XCTAssertTrue(stats.reveal(IDs.chart30d))
         XCTAssertTrue(stats.chart.label.hasPrefix(Self.summaryStart), stats.chart.label)
         XCTAssertTrue(stats.reveal(IDs.tenseChart), "the tense chart")
-        XCTAssertEqual(stats.tenseChart.label, "Conjugation, last 30 days: present 75%, aorist 67%, future 58%.")
+        XCTAssertEqual(stats.tenseChart.label, "Conjugation, last 30 days: present 75%, aorist 67%, future: simple form 58%.")
     }
 
     /// `stats`: the home's ring and flame, then the Streak block: 9, best

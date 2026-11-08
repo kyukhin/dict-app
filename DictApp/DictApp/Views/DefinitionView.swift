@@ -9,6 +9,7 @@ struct DefinitionView: View {
     @StateObject private var vm: DefinitionViewModel
     /// The in-app language, for the inflection table's labels (Issue #144).
     @Environment(\.locale) private var locale
+    @Environment(\.layoutDirection) private var layoutDirection
 
     init(entry: DictionaryEntry) {
         _vm = StateObject(wrappedValue: DefinitionViewModel(entry: entry))
@@ -75,6 +76,10 @@ struct DefinitionView: View {
                 if let table = vm.inflectionTable {
                     Divider()
                     InflectionTableView(table: table)
+                    // 0132, #168: Practise under a verb's table.
+                    if table.kind == .conjugation, let verb = vm.drillVerb {
+                        practiseButton(verb)
+                    }
                 }
             }
             .padding()
@@ -133,6 +138,41 @@ struct DefinitionView: View {
                     AppStore.requestReview(in: scene)
                 }
             }
+        }
+    }
+
+    /// 0132, #168: a bordered "Practise" that drills this verb at once, or
+    /// asks "Learn Greek via English?" first while Greek is not learned;
+    /// No cancels the drill. The run covers the screen.
+    private func practiseButton(_ verb: DrillVerb) -> some View {
+        Button {
+            Task { await vm.practise() }
+        } label: {
+            Text("drill.practise")
+        }
+        .buttonStyle(.bordered)
+        .accessibilityLabel(Text(verbatim: DrillText.practiseLabel(verb.citation, locale: locale)))
+        .accessibilityIdentifier("drill_practise_button")
+        .alert(Text(vm.practiseQuestion.map { LearnViewModel.learnPairQuestion($0, locale: locale) } ?? ""),
+               isPresented: Binding(get: { vm.practiseQuestion != nil },
+                                    set: { if !$0 { vm.practiseQuestion = nil } }),
+               presenting: vm.practiseQuestion) { _ in
+            Button("common.yes") {
+                Task { await vm.answerPractise(yes: true) }
+            }
+            Button("common.no") {
+                Task { await vm.answerPractise(yes: false) }
+            }
+        } message: { pair in
+            // A limited pair's warning: "Words are practised in English."
+            if let warning = LearnViewModel.limitedWarning(pair, locale: locale) {
+                Text(warning)
+            }
+        }
+        .fullScreenCover(item: $vm.practiseRun) { run in
+            ConjugationRunView(mode: .verb(run.verb, level: run.level), meaningsLang: run.meaningsLang)
+                .environment(\.locale, locale)
+                .environment(\.layoutDirection, layoutDirection)
         }
     }
 

@@ -3,7 +3,7 @@
 // language is learned, else the Learn home. E3's list screens (#154) open
 // from its Lists section and its My words row. Later tickets add their
 // sections to the home: the daily goal ring, the streak and Statistics
-// (0166, #164).
+// (0166, #164); the Conjugation trainer and its screen (0132, #168).
 
 import SwiftUI
 
@@ -23,6 +23,8 @@ struct LearnView: View {
     enum Route: Hashable {
         /// 0166, #164: from the ring, the streak or the Statistics row.
         case statistics
+        /// 0132, #168: the Conjugation screen, from its Trainers row.
+        case conjugation
     }
 
     /// A run in `lang`, the chosen language, with its pair's meanings
@@ -60,6 +62,7 @@ struct LearnView: View {
             .navigationDestination(for: Route.self) { route in
                 switch route {
                 case .statistics: StatisticsView()
+                case .conjugation: ConjugationStartView()
                 }
             }
             .navigationDestination(for: DictionaryEntry.self) { entry in
@@ -151,7 +154,9 @@ struct LearnView: View {
                 trainerRow(.production, title: "learn.trainer.production", symbol: "pencil",
                            id: "learn_trainer_production")
                 matchRow
-                // E5 adds Conjugation.
+                if let level = vm.drillLevel {
+                    conjugationRow(level)
+                }
             } header: {
                 Text("learn.trainers")
             } footer: {
@@ -282,6 +287,22 @@ struct LearnView: View {
         .accessibilityIdentifier("learn_trainer_match")
     }
 
+    /// 0132, #168: "Conjugation · A2", with the drill's tense level; shown
+    /// while Greek is chosen, with or without words in learning. It opens
+    /// the Conjugation screen.
+    private func conjugationRow(_ level: DrillLevel) -> some View {
+        NavigationLink(value: Route.conjugation) {
+            LabeledContent {
+                Text(verbatim: DrillText.levelName(level, locale: locale))
+            } label: {
+                Label("drill.title", systemImage: "tablecells")
+            }
+        }
+        .accessibilityLabel(Text("drill.title"))
+        .accessibilityValue(Text(verbatim: DrillText.levelName(level, locale: locale)))
+        .accessibilityIdentifier("learn_trainer_conjugation")
+    }
+
     /// A trainer: 10 items of its own direction in the chosen language.
     private func trainerRow(_ kind: CardKind, title: LocalizedStringKey, symbol: String, id: String) -> some View {
         Button {
@@ -330,6 +351,213 @@ struct LearnView: View {
     private func newText(_ count: Int) -> some View {
         Text("learn.today.newLeft \(count)")
             .accessibilityIdentifier("learn_new_count")
+    }
+}
+
+// MARK: - Conjugation drill (0132, #168)
+
+/// The Conjugation screen: "Verbs from Greek A1, Greek A2 · 253 verbs",
+/// "Tenses up to" (the highest checked list's level up to B2, remembered),
+/// the tenses of that level with their accuracy over the last 30 days, and
+/// Start, which presents the run. Without the Greek pack, Download first;
+/// without a checked Greek list, "Choose lists" (E3's New words from).
+struct ConjugationStartView: View {
+    @StateObject private var vm = ConjugationDrillViewModel()
+    @ObservedObject private var packStatus = PackStatusModel.shared
+    @Environment(\.locale) private var locale
+    @Environment(\.layoutDirection) private var layoutDirection
+    @State private var running: RunRequest?
+
+    /// A session of `pool` at `level`.
+    struct RunRequest: Identifiable {
+        let id = UUID()
+        let pool: [DrillVerb]
+        let level: DrillLevel
+        let meaningsLang: String
+    }
+
+    var body: some View {
+        List {
+            switch vm.state {
+            case .loading:
+                ProgressView()
+                    .frame(maxWidth: .infinity)
+            case .needsGreek:
+                needsGreek
+            case .noLists:
+                noLists
+            case .ready:
+                ready
+            }
+            if let error = vm.errorMessage {
+                Text(error)
+                    .font(.footnote)
+                    .foregroundStyle(.red)
+            }
+        }
+        .accessibilityIdentifier("drill_start")
+        .navigationTitle("drill.title")
+        // Again on every return: a list checked on New words from shows at once.
+        .onAppear {
+            Task { await vm.load() }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: PackService.didChange, object: PackService.shared)) { _ in
+            Task { await vm.load() }
+        }
+        .fullScreenCover(item: $running, onDismiss: {
+            Task { await vm.load() }
+        }) { request in
+            ConjugationRunView(mode: .session(pool: request.pool, level: request.level),
+                               meaningsLang: request.meaningsLang)
+                .environment(\.locale, locale)
+                .environment(\.layoutDirection, layoutDirection)
+        }
+    }
+
+    @ViewBuilder
+    private var ready: some View {
+        Section {
+            // "Verbs from Greek A1 · 189 verbs", on two lines when narrow.
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 6) {
+                    listsText
+                    Text(verbatim: "·")
+                        .foregroundStyle(.secondary)
+                        .accessibilityHidden(true)
+                    countText
+                }
+                VStack(alignment: .leading, spacing: 4) {
+                    listsText
+                    countText
+                }
+            }
+        }
+        Section {
+            Picker("drill.tensesUpTo", selection: Binding(get: { vm.level }, set: { vm.setLevel($0) })) {
+                ForEach(vm.offeredLevels, id: \.self) { level in
+                    Text(verbatim: DrillText.levelName(level, locale: locale)).tag(level)
+                }
+            }
+            .pickerStyle(.segmented)
+            .accessibilityIdentifier("drill_tenses_picker")
+            ForEach(vm.tenses, id: \.self) { tense in
+                tenseRow(tense)
+            }
+        } header: {
+            Text("drill.tensesUpTo")
+        }
+        Section {
+            Button {
+                running = RunRequest(pool: vm.pool, level: vm.level, meaningsLang: vm.meaningsLang)
+            } label: {
+                Text("learn.start")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+            .disabled(vm.verbCount == 0)
+            .accessibilityIdentifier("drill_start_button")
+        }
+    }
+
+    private var listsText: some View {
+        Text(verbatim: DrillText.verbsFrom(vm.lists, locale: locale))
+            .accessibilityIdentifier("drill_lists")
+    }
+
+    private var countText: some View {
+        Text("drill.verbCount \(vm.verbCount)")
+            .foregroundStyle(.secondary)
+            .accessibilityIdentifier("drill_verb_count")
+    }
+
+    /// "Aorist · 82%": the value is the accuracy, empty before any answer.
+    private func tenseRow(_ tense: ConjugationTense) -> some View {
+        let title = tense.title(locale: locale)
+        let accuracy = vm.accuracy[tense]?.accuracy.map { ChartSummary.percent($0, locale) } ?? ""
+        return LabeledContent {
+            Text(verbatim: accuracy)
+                .monospacedDigit()
+        } label: {
+            Text(verbatim: title)
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text(verbatim: title))
+        .accessibilityValue(Text(verbatim: accuracy))
+        .accessibilityIdentifier("drill_tense_\(tense.rawValue)")
+    }
+
+    /// No Greek list checked: the drill's verbs come from them.
+    private var noLists: some View {
+        Section {
+            Text("drill.noLists")
+                .accessibilityIdentifier("drill_no_lists")
+            NavigationLink(value: WordListRoute.newWordsFrom) {
+                Text("learn.chooseLists")
+            }
+            .accessibilityIdentifier("drill_choose_lists")
+        }
+    }
+
+    /// No usable Greek pack (0237): Download, with its progress, or why it
+    /// failed and Try again. Cards and progress stay.
+    private var needsGreek: some View {
+        Section {
+            Text("drill.needsGreek")
+                .accessibilityIdentifier("drill_needs_greek")
+            switch packStatus.state(of: .ell) {
+            case .waiting:
+                progress(0, text: SettingsViewModel.localizedString("languages.waiting", locale: locale))
+            case let .downloading(received, total):
+                progress(total > 0 ? Double(received) / Double(total) : 0,
+                         text: PackTexts.progress(received: received, total: total, locale: locale))
+            case .installing:
+                progress(1, text: SettingsViewModel.localizedString("languages.installing", locale: locale))
+            case let .failed(error):
+                if let reason = PackTexts.error(error, name: greekName, space: greekSize, locale: locale) {
+                    Text(verbatim: reason)
+                        .font(.footnote)
+                        .foregroundStyle(.red)
+                }
+                downloadButton(Text("languages.retry"))
+            case .notInstalled, .installed, .updateAvailable, .updateRequired:
+                downloadButton(Text(verbatim: PackTexts.download(PackCatalog.shared.pack(.ell)?.size ?? 0,
+                                                                 locale: locale)))
+            }
+        }
+    }
+
+    private var greekName: String { PackTexts.languageName(ConjugationPlanner.lang, locale: locale) }
+
+    /// The asset and the installed file, which a full disk must hold.
+    private var greekSize: Int64 {
+        guard let pack = PackCatalog.shared.pack(.ell) else { return 0 }
+        return pack.size + pack.fileSize
+    }
+
+    private func downloadButton(_ title: Text) -> some View {
+        Button {
+            Task { await vm.download() }
+        } label: {
+            title
+        }
+        .accessibilityIdentifier("drill_download_greek")
+    }
+
+    /// The download's bar, with its text under it; VoiceOver reads the text
+    /// as the bar's value.
+    private func progress(_ fraction: Double, text: String) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            ProgressView(value: min(max(fraction, 0), 1))
+                .accessibilityLabel(Text(verbatim: greekName))
+                .accessibilityValue(Text(verbatim: text))
+                .accessibilityIdentifier("drill_download_progress")
+            Text(verbatim: text)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .monospacedDigit()
+                .accessibilityHidden(true)
+        }
     }
 }
 

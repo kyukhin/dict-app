@@ -16298,6 +16298,714 @@
           }
         }
       }
+    },
+    "drill.title": {
+      "comment": "Conjugation drill (0132): the Learn home's Trainers row and the screen's title.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conjugation"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Спряжение"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conjugación"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تصريف الأفعال"
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Κλίση ρημάτων"
+          }
+        }
+      }
+    },
+    "drill.tensesUpTo": {
+      "comment": "Conjugation screen: the setting of the highest tense level the drill asks (A1 … B2).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tenses up to"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Времена до уровня"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tiempos hasta"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الأزمنة حتى مستوى"
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Χρόνοι έως"
+          }
+        }
+      }
+    },
+    "drill.verbsFrom %@": {
+      "comment": "Conjugation screen: the checked Greek lists whose verbs are drilled, comma-joined (\"Greek A1, Greek A2\").",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verbs from %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Глаголы списков: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verbos de %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "\u200Fالأفعال من %@"
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ρήματα από %@"
+          }
+        }
+      }
+    },
+    "drill.verbCount %lld": {
+      "comment": "Conjugation screen: the verbs drilled at the chosen tense level.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld verb"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld verbs"
+                }
+              }
+            }
+          }
+        },
+        "ru": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld глагол"
+                }
+              },
+              "few": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld глагола"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld глаголов"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld глагола"
+                }
+              }
+            }
+          }
+        },
+        "es": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld verbo"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld verbos"
+                }
+              }
+            }
+          }
+        },
+        "ar": {
+          "variations": {
+            "plural": {
+              "zero": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "\u200F%lld فعل"
+                }
+              },
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "\u200F%lld فعل"
+                }
+              },
+              "two": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "\u200F%lld فعلان"
+                }
+              },
+              "few": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "\u200F%lld أفعال"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "\u200F%lld فعلًا"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "\u200F%lld فعل"
+                }
+              }
+            }
+          }
+        },
+        "el": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld ρήμα"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld ρήματα"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "drill.noLists": {
+      "comment": "Conjugation screen: no Greek list is checked on New words from.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose Greek lists to practise their verbs."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Выберите греческие списки, чтобы тренировать их глаголы."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Elige listas de griego para practicar sus verbos."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اختر قوائم يونانية للتدرّب على أفعالها."
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Επιλέξτε ελληνικές λίστες για να εξασκηθείτε στα ρήματά τους."
+          }
+        }
+      }
+    },
+    "drill.needsGreek": {
+      "comment": "Conjugation screen: the Greek pack is not downloaded.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Download Greek to practise conjugation."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Скачайте греческий, чтобы тренировать спряжение."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Descarga el griego para practicar la conjugación."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "نزّل اليونانية للتدرّب على تصريف الأفعال."
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Κατεβάστε τα ελληνικά για να εξασκηθείτε στην κλίση των ρημάτων."
+          }
+        }
+      }
+    },
+    "drill.passiveNote": {
+      "comment": "Conjugation drill: the small note next to the tense of a verb with passive forms only (έρχομαι). Lowercase.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "passive"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "страдательный залог"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "voz pasiva"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مبني للمجهول"
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "παθητική φωνή"
+          }
+        }
+      }
+    },
+    "drill.practise": {
+      "comment": "Definition: the button under a Greek verb's table that drills its conjugation.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Practise"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Тренировать"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Practicar"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تدرّب"
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Εξάσκηση"
+          }
+        }
+      }
+    },
+    "drill.a11y.practise %@": {
+      "comment": "VoiceOver: the Practise button under a Greek verb's table; the argument is the verb.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Practise conjugating %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Тренировать спряжение глагола %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Practicar la conjugación de %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تدرّب على تصريف %@"
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Εξάσκηση στην κλίση του %@"
+          }
+        }
+      }
+    },
+    "drill.summary.byTense": {
+      "comment": "Conjugation drill summary: the heading of the run's answers by tense.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "By tense"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "По временам"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Por tiempo"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "حسب الزمن"
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ανά χρόνο"
+          }
+        }
+      }
+    },
+    "drill.summary.tenseScore %lld %lld": {
+      "comment": "Conjugation drill summary: right answers of a tense out of its questions.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld of %2$lld"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld из %2$lld"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld de %2$lld"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "\u200F%1$lld من %2$lld"
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld από %2$lld"
+          }
+        }
+      }
+    },
+    "drill.tense.future": {
+      "comment": "Conjugation drill: a tense named with its form, Kirill's term (0133, 2026-11-07); the drill's tense line, the statistics and the grammar topics' Practise.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Future: simple form"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Будущее: простая форма"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Futuro: forma puntual"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "المستقبل: الصيغة البسيطة"
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Μέλλοντας: στιγμιαία μορφή"
+          }
+        }
+      }
+    },
+    "drill.tense.futureContinuous": {
+      "comment": "Conjugation drill: a tense named with its form, Kirill's term (0133, 2026-11-07); the drill's tense line, the statistics and the grammar topics' Practise.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Future: continuous form"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Будущее: длительная форма"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Futuro: forma continua"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "المستقبل: الصيغة المستمرة"
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Μέλλοντας: εξακολουθητική μορφή"
+          }
+        }
+      }
+    },
+    "drill.tense.imperativeSimple": {
+      "comment": "Conjugation drill: a tense named with its form, Kirill's term (0133, 2026-11-07); the drill's tense line, the statistics and the grammar topics' Practise.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Imperative: simple form"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Повелительное наклонение: простая форма"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Imperativo: forma puntual"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الأمر: الصيغة البسيطة"
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Προστακτική: στιγμιαία μορφή"
+          }
+        }
+      }
+    },
+    "drill.tense.imperativeContinuous": {
+      "comment": "Conjugation drill: a tense named with its form, Kirill's term (0133, 2026-11-07); the drill's tense line, the statistics and the grammar topics' Practise.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Imperative: continuous form"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Повелительное наклонение: длительная форма"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Imperativo: forma continua"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الأمر: الصيغة المستمرة"
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Προστακτική: εξακολουθητική μορφή"
+          }
+        }
+      }
+    },
+    "drill.tense.subjunctiveSimple": {
+      "comment": "Conjugation drill: a tense named with its form, Kirill's term (0133, 2026-11-07); the drill's tense line, the statistics and the grammar topics' Practise.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Subjunctive: simple form"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сослагательное наклонение: простая форма"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Subjuntivo: forma puntual"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "المضارع المنصوب: الصيغة البسيطة"
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Υποτακτική: στιγμιαία μορφή"
+          }
+        }
+      }
+    },
+    "drill.tense.subjunctiveContinuous": {
+      "comment": "Conjugation drill: a tense named with its form, Kirill's term (0133, 2026-11-07); the drill's tense line, the statistics and the grammar topics' Practise.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Subjunctive: continuous form"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сослагательное наклонение: длительная форма"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Subjuntivo: forma continua"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "المضارع المنصوب: الصيغة المستمرة"
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Υποτακτική: εξακολουθητική μορφή"
+          }
+        }
+      }
     }
   },
   "version": "1.1"

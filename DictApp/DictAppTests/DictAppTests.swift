@@ -21461,17 +21461,26 @@ final class ConjugationLevelTests: XCTestCase {
         }
     }
 
+    /// Kirill's terms (2026-11-07, 0133): a tense with its form, "Future:
+    /// simple form", as the grammar topics name them (#168).
     func testTenseTitlesInEveryLanguage() {
         XCTAssertEqual(ConjugationTense.allCases.map { $0.title(locale: Locale(identifier: "en")) },
-                       ["Present", "Imperfect", "Aorist", "Future", "Imperative · continuous", "Imperative · simple",
-                        "Future continuous", "Perfect", "Pluperfect", "Future perfect", "Subjunctive · continuous",
-                        "Subjunctive · simple"])
-        XCTAssertEqual(ConjugationTense.subjunctiveSimple.title(locale: Locale(identifier: "el")), "Υποτακτική · στιγμιαία")
+                       ["Present", "Imperfect", "Aorist", "Future: simple form", "Imperative: continuous form",
+                        "Imperative: simple form", "Future: continuous form", "Perfect", "Pluperfect", "Future perfect",
+                        "Subjunctive: continuous form", "Subjunctive: simple form"])
+        XCTAssertEqual(ConjugationTense.allCases.map { $0.title(locale: Locale(identifier: "ru")) },
+                       ["Настоящее", "Имперфект", "Аорист", "Будущее: простая форма",
+                        "Повелительное наклонение: длительная форма", "Повелительное наклонение: простая форма",
+                        "Будущее: длительная форма", "Перфект", "Плюсквамперфект", "Будущее совершенное",
+                        "Сослагательное наклонение: длительная форма", "Сослагательное наклонение: простая форма"],
+                       "the words of the Russian topics (build_grammar.py)")
+        XCTAssertEqual(ConjugationTense.subjunctiveSimple.title(locale: Locale(identifier: "el")),
+                       "Υποτακτική: στιγμιαία μορφή")
         for code in ["en", "ru", "es", "ar", "el"] {
             let titles = ConjugationTense.allCases.map { $0.title(locale: Locale(identifier: code)) }
             XCTAssertEqual(Set(titles).count, 12, "\(code): \(titles)")
             for title in titles {
-                XCTAssertFalse(title.contains("forms."), "\(code): \(title) is a key")
+                XCTAssertFalse(title.contains("forms.") || title.contains("drill."), "\(code): \(title) is a key")
                 XCTAssertFalse(title.isEmpty)
             }
         }
@@ -28740,7 +28749,7 @@ final class ChartSummaryTests: XCTestCase {
                       (tense: "aorist", tally: Tally(answers: 10, right: 8)),
                       (tense: "subjunctiveSimple", tally: Tally(answers: 4, right: 1))]
         XCTAssertEqual(ChartSummary.tenses(tenses, locale: Locale(identifier: "en")),
-                       "Conjugation, last 30 days: present 75%, aorist 80%, subjunctive · simple 25%.")
+                       "Conjugation, last 30 days: present 75%, aorist 80%, subjunctive: simple form 25%.")
         let el = ChartSummary.tenses(tenses, locale: Locale(identifier: "el"))
         XCTAssertTrue(el.hasPrefix("Κλίση ρημάτων, τελευταίες 30 ημέρες: ενεστώτας 75"), el)
         let ar = ChartSummary.tenses(tenses, locale: Locale(identifier: "ar"))
@@ -28771,10 +28780,11 @@ final class ConjugationTenseTests: XCTestCase {
         XCTAssertEqual(ConjugationTense.allCases.map(\.rawValue).first, "present")
         XCTAssertTrue(ConjugationTense.allCases.allSatisfy { !$0.rawValue.contains(".") }, "a facet's tense is before its dot")
         XCTAssertEqual(ConjugationTense.aorist.title(locale: en), "Aorist")
-        XCTAssertEqual(ConjugationTense.futureContinuous.title(locale: en), "Future continuous")
-        XCTAssertEqual(ConjugationTense.subjunctiveSimple.title(locale: en), "Subjunctive · simple")
-        XCTAssertEqual(ConjugationTense.imperativeContinuous.title(locale: en), "Imperative · continuous")
-        XCTAssertEqual(ConjugationTense.imperativeContinuous.text(locale: en), "imperative · continuous")
+        XCTAssertEqual(ConjugationTense.futureContinuous.title(locale: en), "Future: continuous form")
+        XCTAssertEqual(ConjugationTense.subjunctiveSimple.title(locale: en), "Subjunctive: simple form")
+        XCTAssertEqual(ConjugationTense.imperativeContinuous.title(locale: en), "Imperative: continuous form")
+        XCTAssertEqual(ConjugationTense.imperativeContinuous.text(locale: en), "imperative: continuous form")
+        XCTAssertEqual(ConjugationTense.futurePerfect.text(locale: en), "future perfect")
         XCTAssertEqual(ConjugationTense.aorist.title(locale: Locale(identifier: "el")), "Αόριστος")
         XCTAssertEqual(ConjugationTense.title(of: "optative", locale: en), "optative", "an unknown tense as stored")
 
@@ -30326,5 +30336,706 @@ final class ListImportViewModelTests: WordListsTestCase {
             try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM learn_review WHERE word = 'σπίτι'")
         }
         XCTAssertEqual(answers, 1, "the answer log stays")
+    }
+}
+
+// MARK: - Conjugation drill screens (0132, #168)
+//
+// 0132-conjugation-drill.md, Test plan: the unit rows of #168. The pure
+// texts and levels without a database; the run, the Conjugation screen and
+// Practise on Definition on a temp user database over the bundled file and
+// the committed Greek pack (`DrillFixture`).
+
+/// The drill's pure parts on screen: the tenses of a level, the run's
+/// tallies by facet, the levels as the UI writes them.
+final class DrillScreenPureTests: XCTestCase {
+    /// "Tenses up to" lists every tense up to its level, in the tables' order.
+    func testTensesOfALevel() {
+        let a1: [ConjugationTense] = [.present, .aorist, .future, .imperativeSimple, .subjunctiveSimple]
+        XCTAssertEqual(DrillLevel.a1.tenses, a1)
+        XCTAssertEqual(DrillLevel.a2.tenses, a1, "A2 adds the passive present and passive-only verbs, no tense")
+        XCTAssertEqual(DrillLevel.b1.tenses, [.present, .imperfect, .aorist, .future, .imperativeContinuous,
+                                              .imperativeSimple, .futureContinuous, .subjunctiveContinuous,
+                                              .subjunctiveSimple])
+        XCTAssertEqual(DrillLevel.b2.tenses, ConjugationTense.allCases)
+    }
+
+    /// A run's rows by facet: drill rows only, both voices of a tense then
+    /// merged by `Accuracy.byTense`.
+    func testRunTalliesByFacet() {
+        let grafo = WordKey(lang: "ell", word: "γράφω")
+        let rows = [
+            ReviewRow(word: grafo, kind: .conjugation, outcome: .right, facet: "aorist.active"),
+            ReviewRow(word: grafo, kind: .conjugation, outcome: .wrong, facet: "aorist.passive"),
+            ReviewRow(word: grafo, kind: .conjugation, outcome: .right, facet: "present.active"),
+            ReviewRow(word: grafo, kind: .recognition, outcome: .wrong),
+        ]
+        XCTAssertEqual(Accuracy.byFacet(rows), ["aorist.active": Tally(answers: 1, right: 1),
+                                                "aorist.passive": Tally(answers: 1, right: 0),
+                                                "present.active": Tally(answers: 1, right: 1)])
+        let tenses = ConjugationTense.ordered(Accuracy.byTense(Accuracy.byFacet(rows)))
+        XCTAssertEqual(tenses.map(\.tense), ["present", "aorist"])
+        XCTAssertEqual(tenses.map(\.tally), [Tally(answers: 1, right: 1), Tally(answers: 2, right: 1)])
+    }
+
+    /// The segments read as E3 writes levels: Α1 in Greek.
+    func testLevelNames() {
+        XCTAssertEqual(DrillText.levelName(.a1, locale: Locale(identifier: "en")), "A1")
+        XCTAssertEqual(DrillText.levelName(.b2, locale: Locale(identifier: "el")), "Β2")
+        XCTAssertEqual(DrillText.levelName(.a2, locale: Locale(identifier: "ar")), "A2")
+    }
+
+    /// The verbs line names the checked Greek lists, comma-joined.
+    func testVerbsFrom() {
+        XCTAssertEqual(DrillText.verbsFrom(["ky-ell-a1", "ky-ell-a2"], locale: Locale(identifier: "en")),
+                       "Verbs from Greek A1, Greek A2")
+        let el = DrillText.verbsFrom(["ky-ell-b1"], locale: Locale(identifier: "el"))
+        XCTAssertTrue(el.hasPrefix("Ρήματα από ") && el.hasSuffix(" Β1"), el)
+        let ar = DrillText.verbsFrom(["ky-ell-a1", "ky-ell-a2"], locale: Locale(identifier: "ar"))
+        XCTAssertEqual(ar.unicodeScalars.first, "\u{200F}", ar)
+        XCTAssertTrue(ar.contains("\u{060C} "), "the Arabic comma: \(ar)")
+    }
+
+    /// Practise reads "Practise conjugating γράφω", the verb isolated.
+    func testPractiseLabel() {
+        XCTAssertEqual(DrillText.practiseLabel("γράφω", locale: Locale(identifier: "en")),
+                       "Practise conjugating \u{2068}γράφω\u{2069}")
+        let ar = DrillText.practiseLabel("γράφω", locale: Locale(identifier: "ar"))
+        XCTAssertEqual(ar.unicodeScalars.first, "\u{200F}", ar)
+        XCTAssertTrue(ar.contains("\u{2068}γράφω\u{2069}"), ar)
+    }
+}
+
+/// The question's tense line and the tense table's rows, as shown and as
+/// VoiceOver reads them, on real verbs (0132, "A question").
+@MainActor
+final class DrillQuestionTextTests: XCTestCase {
+    private typealias Fixture = DrillFixture
+    private var tempDir: URL!
+    private let en = Locale(identifier: "en")
+
+    override func setUp() async throws {
+        try await super.setUp()
+        tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try await Fixture.open(in: tempDir)
+    }
+
+    override func tearDown() async throws {
+        try? FileManager.default.removeItem(at: tempDir)
+        try await super.tearDown()
+    }
+
+    /// "Aorist · εγώ"; "Present · passive · εσύ" for γράφομαι; VoiceOver
+    /// reads "Aorist, εγώ" with the pronoun in the Greek voice.
+    func testTenseLine() async throws {
+        let grafo = try await Fixture.verb("γράφω")
+        let aorist = try XCTUnwrap(Fixture.build(grafo, .aorist, .firstSingular, level: .a1))
+        XCTAssertEqual(DrillText.tenseLine(aorist, locale: en), "Aorist · εγώ")
+        let label = DrillText.tenseLabel(aorist, locale: en)
+        XCTAssertEqual(String(label.characters), "Aorist, εγώ")
+        XCTAssertEqual(label.runs.compactMap(\.languageIdentifier), ["el"], "only the pronoun is Greek")
+        XCTAssertFalse(aorist.showsPassiveNote)
+
+        let passive = try XCTUnwrap(Fixture.build(grafo, .present, .secondSingular, voice: .passive, level: .a2))
+        XCTAssertEqual(DrillText.tenseLine(passive, locale: en), "Present · passive · εσύ")
+        XCTAssertFalse(passive.showsPassiveNote, "γράφομαι says passive in its tense line instead")
+
+        let future = try XCTUnwrap(Fixture.build(grafo, .future, .firstPlural, level: .a1))
+        XCTAssertEqual(DrillText.tenseLine(future, locale: Locale(identifier: "ru")), "Будущее: простая форма · εμείς",
+                       "Kirill's terms (0133)")
+    }
+
+    /// A verb with passive forms only: the tense line has no "passive", the
+    /// note says it.
+    func testPassiveNoteOnlyForPassiveOnlyVerbs() async throws {
+        let erchomai = try await Fixture.verb("έρχομαι")
+        let question = try XCTUnwrap(Fixture.build(erchomai, .aorist, .firstSingular, voice: .passive, level: .a2))
+        XCTAssertTrue(question.showsPassiveNote)
+        XCTAssertEqual(DrillText.tenseLine(question, locale: en), "Aorist · εγώ")
+    }
+
+    /// Arabic: the line starts with U+200F and isolates the pronoun; the
+    /// spoken parts are joined with the Arabic comma.
+    func testArabicTenseLine() async throws {
+        let grafo = try await Fixture.verb("γράφω")
+        let question = try XCTUnwrap(Fixture.build(grafo, .aorist, .firstSingular, level: .a1))
+        let ar = Locale(identifier: "ar")
+        let line = DrillText.tenseLine(question, locale: ar)
+        XCTAssertEqual(line.unicodeScalars.first, "\u{200F}", line)
+        XCTAssertTrue(line.hasSuffix(" · \u{2068}εγώ\u{2069}"), line)
+        XCTAssertTrue(String(DrillText.tenseLabel(question, locale: ar).characters).hasSuffix("\u{060C} εγώ"))
+    }
+
+    /// A row reads "εγώ, γράφτηκα / γράφηκα", every form of the cell.
+    func testTenseRowLabel() async throws {
+        let grafo = try await Fixture.verb("γράφω")
+        let question = try XCTUnwrap(Fixture.build(grafo, .aorist, .firstSingular, voice: .passive, level: .b2))
+        let row = try XCTUnwrap(question.tenseRows.first)
+        XCTAssertEqual(String(DrillText.rowLabel(row.person, forms: row.forms, locale: en).characters),
+                       "εγώ, γράφτηκα / γράφηκα")
+    }
+}
+
+/// `ConjugationRunViewModel` on the real Greek forms: each answer is
+/// written at once with E4's `recordAnswer` (the goal included), the retry
+/// follows the run's real length, the summary is the run's log rows.
+@MainActor
+final class ConjugationRunViewModelTests: XCTestCase {
+    private typealias Fixture = DrillFixture
+    private var tempDir: URL!
+    private var db: DatabaseService { .shared }
+    private var settings: SettingsService!
+    private let today = LearningFixture.today
+
+    override func setUp() async throws {
+        try await super.setUp()
+        tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try await Fixture.open(in: tempDir)
+        settings = SettingsService(store: InMemoryKeyValueStore())
+    }
+
+    override func tearDown() async throws {
+        try? FileManager.default.removeItem(at: tempDir)
+        try await super.tearDown()
+    }
+
+    private func run(_ mode: ConjugationRunViewModel.Mode, length: Int? = nil,
+                     sink: RecordingFeedbackSink? = nil) -> ConjugationRunViewModel {
+        ConjugationRunViewModel(mode: mode, db: db, settings: settings, clock: TestClock("2026-11-04T12:00:00Z").clock,
+                                player: FeedbackPlayer(settings: settings, sink: sink ?? RecordingFeedbackSink()),
+                                seed: 168, answerHints: true,
+                                length: length)
+    }
+
+    /// Answers until the summary; `wrong(n)` answers the n-th question (from
+    /// 0) wrong. Returns the questions asked.
+    @discardableResult
+    private func answerAll(_ vm: ConjugationRunViewModel,
+                           wrong: (Int) -> Bool = { _ in false }) async -> [ConjugationQuestion] {
+        var asked: [ConjugationQuestion] = []
+        while vm.phase == .question, let question = vm.question {
+            guard asked.count < 40 else { XCTFail("the run does not end"); break }
+            // QA (#168): the run shows four distinct real forms of the asked verb.
+            XCTAssertEqual(question.options.count, 4)
+            XCTAssertEqual(Set(question.options.map(ConjugationQuestionBuilder.fold)).count, 4, "\(question.options)")
+            let forms = Fixture.everyForm(of: question.verb)
+            XCTAssertTrue(question.options.allSatisfy(forms.contains), "\(question.verb.word): \(question.options)")
+            let isWrong = wrong(asked.count)
+            asked.append(question)
+            await vm.choose(isWrong ? (question.rightIndex + 1) % question.options.count : question.rightIndex)
+            XCTAssertEqual(vm.feedback?.outcome, isWrong ? .wrong : .right)
+            XCTAssertEqual(vm.feedback?.rightAnswer, question.options[question.rightIndex])
+            await vm.next()
+        }
+        return asked
+    }
+
+    /// The rows of `sql`, each as `a|b|c`, NULL as `∅`.
+    private func rows(_ sql: String) async throws -> [String] {
+        try await db.writeForTesting { conn in
+            try Row.fetchAll(conn, sql: sql).map { row in
+                row.databaseValues.map { value -> String in
+                    switch value.storage {
+                    case .null: return "∅"
+                    case .int64(let int): return String(int)
+                    case .double(let double): return String(double)
+                    case .string(let string): return string
+                    case .blob(let data): return data.base64EncodedString()
+                    }
+                }.joined(separator: "|")
+            }
+        }
+    }
+
+    /// 0166: every drill question counts toward the goal; today's
+    /// `learn_day` row takes the goal in force.
+    func testEachQuestionCountsTowardTheGoal() async throws {
+        settings.learningDailyGoal = 25
+        let vm = run(.verb(try await Fixture.verb("γράφω"), level: .a1), length: 3)
+        await vm.start()
+        XCTAssertNil(vm.errorMessage)
+        XCTAssertEqual(vm.total, 3)
+        await answerAll(vm)
+        XCTAssertEqual(vm.phase, .summary)
+        let answered = try await db.answeredCount(on: today)
+        XCTAssertEqual(answered, 3)
+        XCTAssertEqual(vm.goalProgress, GoalProgress(answered: 3, goal: 25))
+        let days = try await rows("SELECT day, goal FROM learn_day")
+        XCTAssertEqual(days, ["2026-11-04|25"])
+    }
+
+    /// The summary is the run's log rows: exercises, right answers, no new
+    /// or reviewed words, and the run by tense; each row is a drill row of
+    /// the asked facet and person.
+    func testSummaryEqualsTheRunsLogRows() async throws {
+        let sink = RecordingFeedbackSink()
+        let vm = run(.verb(try await Fixture.verb("γράφω"), level: .a1), length: 5, sink: sink)
+        await vm.start()
+        let asked = await answerAll(vm, wrong: { $0 == 1 })
+        XCTAssertEqual(vm.phase, .summary)
+        let log = try await rows("SELECT word, kind, facet, exercise, mode, detail, outcome, introduced, run_id FROM learn_review ORDER BY id")
+        XCTAssertEqual(log.count, asked.count)
+        for (row, question) in zip(log, asked) {
+            let outcome = row.hasSuffix("|wrong|0|\(vm.runID.uuidString)") ? "wrong" : "right"
+            XCTAssertEqual(row, "γράφω|conjugation|\(question.facet.rawValue)|conjugation|drill|\(question.person.rawValue)|\(outcome)|0|\(vm.runID.uuidString)")
+        }
+        let summary = try XCTUnwrap(vm.summary)
+        XCTAssertEqual(summary.exercises, asked.count)
+        XCTAssertEqual(summary.right, asked.count - 1)
+        XCTAssertEqual(summary.newWords, 0)
+        XCTAssertEqual(summary.reviewedWords, 0)
+        let byTense = Dictionary(grouping: asked, by: { $0.facet.tense.rawValue }).mapValues(\.count)
+        XCTAssertEqual(vm.tenseScores.map(\.tense), ConjugationTense.allCases.map(\.rawValue).filter { byTense[$0] != nil },
+                       "the tables' order")
+        XCTAssertEqual(vm.tenseScores.reduce(0) { $0 + $1.tally.answers }, asked.count)
+        // QA (#168): each tense's score is its questions and right answers in this run.
+        var expected: [String: Tally] = [:]
+        for (index, question) in asked.enumerated() {
+            expected[question.facet.tense.rawValue, default: Tally()] += Tally(answers: 1, right: index == 1 ? 0 : 1)
+        }
+        XCTAssertEqual(Dictionary(uniqueKeysWithValues: vm.tenseScores.map { ($0.tense, $0.tally) }), expected)
+        XCTAssertEqual(sink.played, asked.indices.map { $0 == 1 ? .wrong : .right })
+    }
+
+    /// Closing keeps what was answered: two answers, then the cover goes.
+    func testClosingKeepsAnswers() async throws {
+        var vm: ConjugationRunViewModel? = run(.verb(try await Fixture.verb("γράφω"), level: .a1), length: 5)
+        await vm?.start()
+        for _ in 0..<2 {
+            guard let question = vm?.question else { return XCTFail("a question") }
+            await vm?.choose(question.rightIndex)
+            await vm?.next()
+        }
+        vm = nil
+        let log = try await rows("SELECT COUNT(*) FROM learn_review")
+        XCTAssertEqual(log, ["2"])
+        let cards = try await db.cards(lang: "ell", kinds: [.conjugation])
+        XCTAssertEqual(cards.count, 2, "each answered facet has its card")
+    }
+
+    /// CodeRabbit, PR #247: a run shorter than its length adds the retry at
+    /// the end; πρέπει at A1 has 2 questions, so a wrong first makes 3.
+    func testRetryAtTheEndOfAShortRun() async throws {
+        let vm = run(.verb(try await Fixture.verb("πρέπει"), level: .a1))
+        await vm.start()
+        XCTAssertEqual(vm.total, 2)
+        let first = try XCTUnwrap(vm.question)
+        await vm.choose((first.rightIndex + 1) % 4)
+        XCTAssertEqual(vm.total, 3, "the retry is added")
+        XCTAssertEqual(vm.plan.last?.origin, .retry)
+        XCTAssertEqual(vm.plan.last?.facet, first.facet)
+        await vm.next()
+        let asked = await answerAll(vm)
+        XCTAssertEqual(asked.count, 2)
+        XCTAssertEqual(asked.last?.facet, first.facet, "the wrong card comes back last")
+        let log = try await rows("SELECT COUNT(*) FROM learn_review")
+        XCTAssertEqual(log, ["3"])
+    }
+
+    /// With `-drillLength 3` a run is full at 3: a wrong answer takes the
+    /// place of the last item not asked yet, with another person; a wrong
+    /// last answer is not repeated (its card is due today).
+    func testRetryKeepsAFullRunsLength() async throws {
+        let vm = run(.verb(try await Fixture.verb("γράφω"), level: .a1), length: 3)
+        await vm.start()
+        XCTAssertEqual(vm.length, 3)
+        let first = try XCTUnwrap(vm.question)
+        await vm.choose((first.rightIndex + 1) % 4)
+        XCTAssertEqual(vm.total, 3)
+        let retry = try XCTUnwrap(vm.plan.last)
+        XCTAssertEqual(retry.origin, .retry)
+        XCTAssertEqual(retry.facet, first.facet)
+        XCTAssertNotEqual(retry.person, first.person, "another person")
+        await vm.next()
+        let second = try XCTUnwrap(vm.question)
+        await vm.choose(second.rightIndex)
+        await vm.next()
+        let last = try XCTUnwrap(vm.question)
+        await vm.choose((last.rightIndex + 1) % 4)
+        XCTAssertEqual(vm.total, 3, "the last answer has no place left")
+        await vm.next()
+        XCTAssertEqual(vm.phase, .summary)
+    }
+
+    /// The drill's session: 15 by default, `-drillLength` otherwise, over
+    /// the pool's verbs at the tense level.
+    func testSessionLength() async throws {
+        var pool: [DrillVerb] = []
+        for word in ["γράφω", "διαβάζω", "αγοράζω", "παίζω"] {
+            pool.append(try await Fixture.verb(word))
+        }
+        let full = run(.session(pool: pool, level: .a1))
+        await full.start()
+        XCTAssertEqual(full.total, ConjugationPlanner.length)
+        let short = run(.session(pool: pool, level: .a1), length: 5)
+        await short.start()
+        XCTAssertEqual(short.total, 5)
+        let asked = await answerAll(short)
+        XCTAssertTrue(asked.allSatisfy { DrillLevel.a1.tenses.contains($0.facet.tense) })
+        XCTAssertTrue(Set(asked.map(\.verb.word)).isSubset(of: Set(pool.map(\.word))))
+    }
+
+    /// `-learningFixture conjugation` (0132, Test seams): Greek, γράφω's
+    /// aorist due on rung 2, έχω's present in learning, πρέπει's future
+    /// learned, and 30 days of answers: the aorist 4 of 10, the present 9 of 10.
+    func testConjugationLearningFixture() async throws {
+        let languages = try await db.writeLearningFixture("conjugation", today: today)
+        XCTAssertEqual(languages, ["ell"])
+        let accuracy = try await db.tenseAccuracy(since: DailySeries.start(today: today), lang: "ell")
+        XCTAssertEqual(accuracy, ["aorist": Tally(answers: 10, right: 4), "present": Tally(answers: 10, right: 9)])
+        let cards = try await rows("SELECT word, facet, step, due_day FROM learn_card ORDER BY facet")
+        XCTAssertEqual(cards, ["γράφω|aorist.active|2|2026-11-04", "πρέπει|future.active|5|2026-11-24",
+                               "έχω|present.active|0|2026-11-03"])
+    }
+
+    /// QA (#168): the run grades on E4's ladder. The conjugation fixture's
+    /// due cards come first; a right answer moves γράφω's aorist from rung 2
+    /// to rung 3 (due in 7 days), a wrong one sends έχω's present back to
+    /// learning, due today, and plans its retry.
+    func testRunGradesOnTheLadder() async throws {
+        _ = try await db.writeConjugationFixture(today: today, goal: 20)
+        let pool = [try await Fixture.verb("γράφω"), try await Fixture.verb("έχω")]
+        let vm = run(.session(pool: pool, level: .a1), length: 4)
+        await vm.start()
+        XCTAssertEqual(Set(vm.plan.prefix(2).map { "\($0.verb.word) \($0.facet.rawValue)" }),
+                       ["γράφω aorist.active", "έχω present.active"], "due cards first")
+        for _ in 0..<2 {
+            let question = try XCTUnwrap(vm.question)
+            await vm.choose(question.verb.word == "γράφω" ? question.rightIndex : (question.rightIndex + 1) % 4)
+            await vm.next()
+        }
+        let cards = try await rows("""
+            SELECT word, facet, step, due_day, last_day FROM learn_card
+            WHERE facet IN ('aorist.active', 'present.active') AND word IN ('γράφω', 'έχω')
+            """)
+        XCTAssertEqual(Set(cards), ["γράφω|aorist.active|3|2026-11-11|2026-11-04",
+                                    "έχω|present.active|0|2026-11-04|2026-11-04"])
+        let log = try await rows("SELECT word, step_before, step_after, outcome FROM learn_review WHERE run_id = '\(vm.runID.uuidString)'")
+        XCTAssertEqual(Set(log), ["γράφω|2|3|right", "έχω|0|0|wrong"])
+        XCTAssertEqual(vm.plan.last?.origin, .retry)
+        XCTAssertEqual(vm.plan.last?.verb.word, "έχω")
+        XCTAssertEqual(vm.total, 4, "a full run keeps its length")
+    }
+
+    /// QA (#168): a session shorter than its length (γράφω alone at A1:
+    /// five cards) adds the retry at the end, once, with a person not yet
+    /// asked; a wrong retry does not come back, and its card is due today.
+    func testShortSessionRetriesOnceAtTheEnd() async throws {
+        let vm = run(.session(pool: [try await Fixture.verb("γράφω")], level: .a1))
+        await vm.start()
+        XCTAssertEqual(vm.total, 5, "γράφω's five A1 cards, each once")
+        let first = try XCTUnwrap(vm.question)
+        await vm.choose((first.rightIndex + 1) % 4)
+        XCTAssertEqual(vm.total, 6, "the retry is added at the end")
+        let retry = try XCTUnwrap(vm.plan.last)
+        XCTAssertEqual(retry.origin, .retry)
+        XCTAssertEqual(retry.facet, first.facet)
+        XCTAssertNotEqual(retry.person, first.person, "a person not yet asked")
+        await vm.next()
+        var asked = [first]
+        while vm.phase == .question, let question = vm.question {
+            guard asked.count < 10 else { return XCTFail("the run does not end") }
+            asked.append(question)
+            // The retry, the run's last question, is answered wrong again.
+            await vm.choose(asked.count == 6 ? (question.rightIndex + 1) % 4 : question.rightIndex)
+            await vm.next()
+        }
+        XCTAssertEqual(asked.count, 6, "the retry comes back once")
+        XCTAssertEqual(asked.last?.facet, first.facet)
+        XCTAssertEqual(asked.last?.person, retry.person)
+        XCTAssertEqual(Set(asked.dropLast().map(\.facet)).count, 5, "each card once before the retry")
+        XCTAssertEqual(vm.phase, .summary)
+        let card = try await rows("SELECT step, due_day FROM learn_card WHERE facet = '\(first.facet.rawValue)'")
+        XCTAssertEqual(card, ["0|2026-11-04"])
+        let log = try await rows("SELECT COUNT(*) FROM learn_review")
+        XCTAssertEqual(log, ["6"])
+    }
+
+    /// QA (#168): drill answers reach the reminder through `answerRecorded`.
+    /// Goal 5 (the lowest): today's reminder stays through the 4th answer,
+    /// the 5th cancels it, the 6th does not bring it back; the other days stay.
+    func testAnswerReachingTheGoalCancelsTodaysReminder() async throws {
+        settings.learningDailyGoal = 5
+        settings.learningReminder = 19 * 60
+        let center = FakeNotificationCenter()
+        let clock = TestClock("2026-11-04T12:00:00Z")
+        let reminder = LearningReminder(center: center, settings: settings, db: db, clock: clock.clock,
+                                        locale: { Locale(identifier: "en") })
+        await reminder.reschedule()
+        let todays = LearningReminder.identifierPrefix + today.rawValue
+        XCTAssertEqual(center.reminders.count, 7)
+        let vm = ConjugationRunViewModel(mode: .verb(try await Fixture.verb("γράφω"), level: .a1), db: db,
+                                         settings: settings, clock: clock.clock,
+                                         player: FeedbackPlayer(settings: settings, sink: RecordingFeedbackSink()),
+                                         reminder: reminder, seed: 168, answerHints: true, length: 6)
+        await vm.start()
+        for answer in 1...6 {
+            let question = try XCTUnwrap(vm.question, "question \(answer)")
+            await vm.choose(question.rightIndex)
+            XCTAssertEqual(center.requests.contains { $0.identifier == todays }, answer < 5,
+                           "after answer \(answer) of a goal of 5")
+            await vm.next()
+        }
+        XCTAssertEqual(vm.phase, .summary)
+        XCTAssertEqual(center.reminders.count, 6, "the next 6 days stay")
+        XCTAssertEqual(center.authorizationRequests, 0, "a run never asks for the permission")
+    }
+}
+
+/// The Conjugation screen's view model: the pack first, then a checked
+/// Greek list, then the verbs, "Tenses up to" and the accuracy.
+@MainActor
+final class ConjugationDrillViewModelTests: XCTestCase {
+    private typealias Fixture = DrillFixture
+    private var tempDir: URL!
+    private var db: DatabaseService { .shared }
+    private var settings: SettingsService!
+    private var languages: LearningLanguageService!
+    private let clock = TestClock("2026-11-04T12:00:00Z")
+
+    override func setUp() async throws {
+        try await super.setUp()
+        tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try await Fixture.open(in: tempDir)
+        settings = SettingsService(store: InMemoryKeyValueStore())
+        languages = LearningLanguageService(settings: settings, packs: FakePairPacks(languagesWithLists: ["ell"]),
+                                            uiLanguage: { "en" })
+    }
+
+    override func tearDown() async throws {
+        try? FileManager.default.removeItem(at: tempDir)
+        try await super.tearDown()
+    }
+
+    private func screen(greek: @escaping () -> Bool = { true },
+                        install: @escaping () async throws -> Void = {}) -> ConjugationDrillViewModel {
+        ConjugationDrillViewModel(db: db, settings: settings, languages: languages, clock: clock.clock,
+                                  isGreekUsable: { greek() }, installGreek: install)
+    }
+
+    /// Without the Greek pack: Download, which wins over "Choose lists";
+    /// Download installs, then the screen reads again.
+    func testNeedsTheGreekPack() async throws {
+        var installed = false
+        var installs = 0
+        let vm = screen(greek: { installed }, install: { installs += 1; installed = true })
+        await vm.load()
+        XCTAssertEqual(vm.state, .needsGreek)
+        await vm.download()
+        XCTAssertEqual(installs, 1)
+        XCTAssertEqual(vm.state, .noLists, "installed; no Greek list checked yet")
+    }
+
+    /// No Greek list checked (an imported one does not count): Choose
+    /// lists; Greek A2 checked: the A2 verbs, from A2 up to B2.
+    func testNoCheckedListOffersChooseLists() async throws {
+        settings.learningListIDs = ["user-1"]
+        let vm = screen()
+        await vm.load()
+        XCTAssertEqual(vm.state, .noLists)
+        settings.learningListIDs = ["ky-ell-a2"]
+        await vm.load()
+        XCTAssertEqual(vm.state, .ready)
+        XCTAssertEqual(vm.lists, ["ky-ell-a2"])
+        XCTAssertEqual(vm.level, .a2)
+        XCTAssertEqual(vm.offeredLevels, [.a2, .b1, .b2])
+        XCTAssertGreaterThan(vm.verbCount, 0)
+        XCTAssertTrue(vm.pool.allSatisfy { $0.listLevel == 2 }, "only Greek A2's verbs")
+    }
+
+    /// "Tenses up to" is remembered, adds tenses for the same verbs, and
+    /// never goes below the highest checked list.
+    func testTensesUpToIsRememberedAndOnlyRaises() async throws {
+        settings.learningListIDs = ["ky-ell-a1"]
+        let vm = screen()
+        await vm.load()
+        XCTAssertEqual(vm.level, .a1)
+        XCTAssertEqual(vm.tenses, DrillLevel.a1.tenses)
+        let a1Count = vm.verbCount
+        let words = vm.pool.map(\.word)
+        vm.setLevel(.a2)
+        XCTAssertGreaterThan(vm.verbCount, a1Count, "verbs with passive forms only start at A2")
+        vm.setLevel(.b2)
+        XCTAssertEqual(settings.learningDrillTenses, .b2)
+        XCTAssertTrue(vm.tenses.contains(.perfect))
+        XCTAssertEqual(vm.verbCount, vm.pool.count, "every pool verb has a question by B2")
+        XCTAssertEqual(vm.pool.map(\.word), words, "the same verbs")
+
+        let again = screen()
+        await again.load()
+        XCTAssertEqual(again.level, .b2, "remembered")
+        settings.learningListIDs = ["ky-ell-a1", "ky-ell-b1"]
+        settings.learningDrillTenses = .a2
+        await again.load()
+        XCTAssertEqual(again.level, .b1, "a stored level below the highest checked list is ignored")
+        again.setLevel(.a2)
+        XCTAssertEqual(again.level, .b1, "not offered")
+    }
+
+    /// The tenses' accuracy over the last 30 days.
+    func testAccuracyFromTheLog() async throws {
+        _ = try await db.writeConjugationFixture(today: clock.clock.today, goal: 20)
+        settings.learningListIDs = ["ky-ell-a1"]
+        let vm = screen()
+        await vm.load()
+        XCTAssertEqual(vm.accuracy[.aorist], Tally(answers: 10, right: 4))
+        XCTAssertEqual(vm.accuracy[.present], Tally(answers: 10, right: 9))
+        XCTAssertNil(vm.accuracy[.future])
+    }
+}
+
+/// Practise on the Definition screen (0132, "A single verb"): which tables
+/// give it, the verb's translation in the meanings language, and "Learn
+/// Greek via English?" first when Greek is not learned.
+@MainActor
+final class DefinitionViewModelDrillTests: XCTestCase {
+    private typealias Fixture = DrillFixture
+    private var tempDir: URL!
+    private var db: DatabaseService { .shared }
+    private var settings: SettingsService!
+    private var packs: FakePairPacks!
+    private var languages: LearningLanguageService!
+
+    override func setUp() async throws {
+        try await super.setUp()
+        tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try await Fixture.open(in: tempDir)
+        settings = SettingsService(store: InMemoryKeyValueStore())
+        packs = FakePairPacks(languagesWithLists: ["ell"])
+        languages = LearningLanguageService(settings: settings, packs: packs, uiLanguage: { "en" })
+    }
+
+    override func tearDown() async throws {
+        try? FileManager.default.removeItem(at: tempDir)
+        try await super.tearDown()
+    }
+
+    private func definition(_ word: String, pos: String = "verb", source: String = "freedict-ell-eng",
+                            languages: LearningLanguageService? = nil) async -> DefinitionViewModel {
+        let vm = DefinitionViewModel(entry: InflectionFixture.entry(word, pos: pos, source: source), db: db,
+                                     settings: settings, languages: languages ?? self.languages,
+                                     hasVoice: { _ in false })
+        await vm.loadInflection(locale: Locale(identifier: "en"))
+        return vm
+    }
+
+    private func count(_ table: String) async throws -> Int {
+        try await db.writeForTesting { try Int.fetchOne($0, sql: "SELECT COUNT(*) FROM \(table)") ?? 0 }
+    }
+
+    /// Any Greek verb with a table, in a checked list or not; never a noun,
+    /// an adjective or an English word.
+    func testPractiseFollowsTheTable() async throws {
+        let expected: [(word: String, drilled: String, voice: ParadigmLayout.Voice)] = [
+            ("γράφω", "γράφω", .active), ("έχω", "έχω", .active), ("πάω", "πηγαίνω", .active),
+            ("έρχομαι", "έρχομαι", .passive), ("ντύνομαι", "ντύνομαι", .passive),
+        ]
+        for item in expected {
+            let vm = await definition(item.word)
+            let verb = try XCTUnwrap(vm.drillVerb, "\(item.word) gives Practise")
+            XCTAssertEqual(verb.word, item.drilled, item.word)
+            XCTAssertEqual(verb.citation, item.drilled, item.word)
+            XCTAssertEqual(verb.mainVoice, item.voice, item.word)
+            XCTAssertNil(verb.listLevel, "not from a list")
+        }
+        for (word, pos, source) in [("σπίτι", "noun", "freedict-ell-eng"), ("καλός", "adj", "freedict-ell-eng"),
+                                    ("house", "noun", "wordnet")] {
+            let vm = await definition(word, pos: pos, source: source)
+            XCTAssertNil(vm.drillVerb, "\(word) has no Practise")
+        }
+    }
+
+    /// γράφω opened from El–En · WN reads "write", El–En · FD's first
+    /// sense, first of Greek via English in the default order.
+    func testPractiseTranslationIsInTheVia() async throws {
+        let vm = await definition("γράφω", source: "wordnet-ell-eng")
+        XCTAssertEqual(vm.drillVerb?.translation, "write")
+        let pao = await definition("πάω")
+        XCTAssertFalse(pao.drillVerb?.translation.isEmpty ?? true, "πηγαίνω's meaning")
+    }
+
+    /// Greek learned: Practise starts the run at once, at the drill's tense
+    /// level (A1 without a checked list; "Tenses up to" otherwise).
+    func testPractiseStartsWhenGreekIsLearned() async throws {
+        settings.learningLanguages = ["ell"]
+        let vm = await definition("γράφω")
+        await vm.practise()
+        XCTAssertNil(vm.practiseQuestion)
+        XCTAssertEqual(vm.practiseRun?.verb.word, "γράφω")
+        XCTAssertEqual(vm.practiseRun?.level, .a1)
+        XCTAssertEqual(vm.practiseRun?.meaningsLang, "eng")
+
+        settings.learningListIDs = ["ky-ell-a2"]
+        settings.learningDrillTenses = .b1
+        vm.practiseRun = nil
+        await vm.practise()
+        XCTAssertEqual(vm.practiseRun?.level, .b1)
+    }
+
+    /// Greek not learned: "Learn Greek via English?" and no run yet.
+    func testPractiseAsksToLearnGreek() async throws {
+        let vm = await definition("γράφω")
+        await vm.practise()
+        XCTAssertEqual(vm.practiseQuestion, LearningPair(lang: "ell", via: "eng"))
+        XCTAssertNil(vm.practiseRun)
+    }
+
+    /// No cancels the drill: no run, no card, no log row, no language.
+    func testNoCancels() async throws {
+        let vm = await definition("γράφω")
+        await vm.practise()
+        await vm.answerPractise(yes: false)
+        XCTAssertNil(vm.practiseQuestion)
+        XCTAssertNil(vm.practiseRun)
+        let cards = try await count("learn_card")
+        let reviews = try await count("learn_review")
+        XCTAssertEqual(cards, 0)
+        XCTAssertEqual(reviews, 0)
+        XCTAssertEqual(settings.learningLanguages, [])
+        XCTAssertEqual(packs.installed, [])
+    }
+
+    /// Yes learns Greek through its pair, as Learn does, then starts.
+    func testYesLearnsGreekThenStarts() async throws {
+        let vm = await definition("γράφω")
+        await vm.practise()
+        await vm.answerPractise(yes: true)
+        XCTAssertEqual(settings.learningLanguages, ["ell"])
+        XCTAssertEqual(settings.learningVia, ["ell": "eng"])
+        XCTAssertEqual(packs.installed, ["ell-eng"])
+        XCTAssertEqual(vm.practiseRun?.verb.word, "γράφω")
+        XCTAssertNil(vm.errorMessage)
+    }
+
+    /// A Russian UI asks for the limited Greek via Russian; the verb's
+    /// translation stays English, its meanings language.
+    func testRussianUIAsksForGreekViaRussian() async throws {
+        let russian = LearningLanguageService(settings: settings, packs: packs, uiLanguage: { "ru" })
+        let vm = await definition("γράφω", languages: russian)
+        XCTAssertEqual(vm.drillVerb?.translation, "write")
+        await vm.practise()
+        XCTAssertEqual(vm.practiseQuestion?.lang, "ell")
+        XCTAssertEqual(vm.practiseQuestion?.via, "rus")
+        XCTAssertEqual(vm.practiseQuestion?.meaningsLang, "eng")
+    }
+}
+
+/// The Learn home's Conjugation row: only while Greek is chosen, with the
+/// drill's tense level, whether or not words are in learning.
+final class LearnHomeConjugationRowTests: LearnTabTestCase {
+    func testRowOnlyForGreek() async throws {
+        settings.learningLanguages = ["ell", "eng"]
+        let vm = LearnViewModel(settings: settings, languages: languages)
+        await vm.load(locale: Locale(identifier: "en"))
+        XCTAssertEqual(vm.language, "ell")
+        XCTAssertEqual(vm.drillLevel, .a1, "no word in learning, no list: still the row")
+        await vm.select("eng")
+        XCTAssertNil(vm.drillLevel)
+        settings.learningListIDs = ["ky-ell-b1"]
+        await vm.select("ell")
+        XCTAssertEqual(vm.drillLevel, .b1)
+        settings.learningDrillTenses = .b2
+        await vm.load(locale: Locale(identifier: "en"))
+        XCTAssertEqual(vm.drillLevel, .b2)
     }
 }

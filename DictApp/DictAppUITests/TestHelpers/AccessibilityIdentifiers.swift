@@ -244,6 +244,48 @@ struct AccessibilityIdentifiers {
         static let summaryGoal = "run_summary_goal"
     }
 
+    // MARK: - Conjugation drill (0132, #168)
+    //
+    // The run itself is E4's (`Exercise`): `exercise_view`, the options,
+    // the feedback bar and the summary.
+    struct Conjugation {
+        /// The Learn home's Trainers row, while Greek is chosen; its value
+        /// is the tense level as the UI writes it ("A1"; "Α1" in Greek).
+        static let trainerRow = "learn_trainer_conjugation"
+        /// The Conjugation screen.
+        static let screen = "drill_start"
+        /// "Verbs from Greek A1, Greek A2" and "253 verbs".
+        static let lists = "drill_lists"
+        static let verbCount = "drill_verb_count"
+        /// "Tenses up to": its segments are labelled by level.
+        static let tensesPicker = "drill_tenses_picker"
+        /// A tense of the level, `drill_tense_aorist`; its value is the
+        /// accuracy ("82%") or empty.
+        static func tense(_ tense: String) -> String { "drill_tense_\(tense)" }
+        static let startButton = "drill_start_button"
+        /// No Greek list checked.
+        static let noLists = "drill_no_lists"
+        static let chooseLists = "drill_choose_lists"
+        /// No Greek pack.
+        static let needsGreek = "drill_needs_greek"
+        static let downloadGreek = "drill_download_greek"
+        static let downloadProgress = "drill_download_progress"
+        /// A question: the verb, its translation, the tense line (its label
+        /// "Aorist, εγώ") and the note of a verb with passive forms only.
+        static let promptVerb = "drill_prompt_verb"
+        static let promptTranslation = "drill_prompt_translation"
+        static let promptTense = "drill_prompt_tense"
+        static let passiveNote = "drill_passive_note"
+        /// The whole tense after an answer; a row `drill_tense_row_1sg`
+        /// reads "εγώ, έγραψα", and the asked one has the value `asked`.
+        static let tenseTable = "drill_tense_table"
+        static func tenseRow(_ person: String) -> String { "drill_tense_row_\(person)" }
+        /// The summary's tense, `drill_summary_tense_aorist`, value `4/5`.
+        static func summaryTense(_ tense: String) -> String { "drill_summary_tense_\(tense)" }
+        /// Practise under a Greek verb's table on the Definition screen.
+        static let practiseButton = "drill_practise_button"
+    }
+
     // MARK: - Match the pairs (0131, #160)
     struct Match {
         static let view = "match_view"

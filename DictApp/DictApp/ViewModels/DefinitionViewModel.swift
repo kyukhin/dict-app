@@ -41,6 +41,25 @@ final class DefinitionViewModel: ObservableObject {
     /// Issue #144: the Greek headword's inflection table; nil for other
     /// sources and for words without one.
     @Published private(set) var inflectionTable: InflectionTable?
+    /// 0132, #168: the verb Practise drills, from the table's paradigm, with
+    /// its translation in the meanings language of Greek's pair; nil for a
+    /// noun, an adjective, another source, or a verb with no question.
+    @Published private(set) var drillVerb: DrillVerb?
+    /// "Learn Greek via English?" (Greek's pair), asked by Practise while
+    /// Greek is not a learned language; nil when not shown.
+    @Published var practiseQuestion: LearningPair?
+    /// The Practise run to present; nil when none.
+    @Published var practiseRun: PractiseRun?
+
+    /// A single-verb drill (0132, "A single verb").
+    struct PractiseRun: Identifiable {
+        let id = UUID()
+        let verb: DrillVerb
+        /// The drill's tense level; the run raises it to the verb's first
+        /// level with a question.
+        let level: DrillLevel
+        let meaningsLang: String
+    }
 
     let entry: DictionaryEntry
     /// Issue #202: the headword's voice language. Without that voice the
@@ -48,16 +67,20 @@ final class DefinitionViewModel: ObservableObject {
     let speechLanguage: String
     let canSpeak: Bool
     private let db: DatabaseService
+    private let settings: SettingsService
     private let languages: LearningLanguageService
     private let clock: LearningClock
     /// The entry's word (`wordKey(for:)`), known after `onAppear`.
     private var wordKey: WordKey?
+    /// The meanings language of `drillVerb`'s translation.
+    private var drillMeaningsLang = "eng"
 
-    init(entry: DictionaryEntry, db: DatabaseService = .shared,
+    init(entry: DictionaryEntry, db: DatabaseService = .shared, settings: SettingsService = .shared,
          languages: LearningLanguageService? = nil, clock: LearningClock = LearningClock(),
          hasVoice: (String) -> Bool = SpeechService.hasVoice(for:)) {
         self.entry = entry
         self.db = db
+        self.settings = settings
         self.languages = languages ?? .shared
         self.clock = clock
         speechLanguage = SpeechService.language(forSource: entry.source)
@@ -173,5 +196,69 @@ final class DefinitionViewModel: ObservableObject {
         guard InflectionLookup.sources.contains(entry.source) else { return }
         guard let paradigm = try? await db.inflection(for: entry) else { return }
         inflectionTable = ParadigmLayout.table(for: paradigm, locale: locale)
+        // 0132, #168: a conjugation table with a question gives Practise.
+        guard inflectionTable?.kind == .conjugation,
+              let verb = DrillVerb.make(word: entry.word, paradigm: paradigm, translation: "") else { return }
+        drillVerb = verb.translated(await drillTranslation(of: verb))
+    }
+
+    // MARK: - 0132, #168: Practise
+
+    /// The drilled word's meaning (πηγαίνω for πάω) in the meanings language
+    /// of Greek's pair, its stored via or else its default: 0131's
+    /// `meanings`, the first of the pair's dictionaries in Dictionary Order
+    /// that has it. "" when none has.
+    private func drillTranslation(of verb: DrillVerb) async -> String {
+        let lang = ConjugationPlanner.lang
+        do {
+            guard let meaningsLang = try await languages.pair(for: lang)?.meaningsLang else { return "" }
+            drillMeaningsLang = meaningsLang
+            let sourceOrder = try await languages.sourceOrder(lang: lang, meaningsLang: meaningsLang)
+            let key = WordKey(lang: lang, word: verb.word)
+            let meanings = try await db.meanings(of: [MeaningQuery(key: key, lookup: verb.word)], lang: lang,
+                                                 meaningsLang: meaningsLang, sourceOrder: sourceOrder)
+            return meanings[key] ?? ""
+        } catch {
+            return ""
+        }
+    }
+
+    /// Practise: the verb's drill at once when Greek is learned; otherwise
+    /// E4's "Learn Greek via English?" first (Kirill, 2026-11-04).
+    func practise() async {
+        guard let drillVerb else { return }
+        let lang = ConjugationPlanner.lang
+        guard languages.isLearned(lang) else {
+            do {
+                practiseQuestion = try await languages.pair(for: lang)
+            } catch {
+                errorMessage = error.localizedDescription
+            }
+            return
+        }
+        startPractise(drillVerb)
+    }
+
+    /// The answer to `practiseQuestion`: Yes learns Greek through that pair
+    /// (`learn(language:)`, as Learn does), then starts the drill; No
+    /// cancels it, and nothing changes.
+    func answerPractise(yes: Bool) async {
+        practiseQuestion = nil
+        guard yes, let drillVerb else { return }
+        do {
+            try await languages.learn(language: ConjugationPlanner.lang)
+            try await refreshLearning()
+        } catch {
+            errorMessage = error.localizedDescription
+            return
+        }
+        startPractise(drillVerb)
+    }
+
+    /// The single-verb run at the drill's tense level ("Tenses up to", or
+    /// A1 with no Greek list checked).
+    private func startPractise(_ verb: DrillVerb) {
+        let level = DrillScope.tenseLevel(checked: settings.learningListIDs, stored: settings.learningDrillTenses)
+        practiseRun = PractiseRun(verb: verb, level: level, meaningsLang: drillMeaningsLang)
     }
 }
