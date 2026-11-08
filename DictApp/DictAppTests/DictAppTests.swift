@@ -13,6 +13,7 @@ import UIKit
 import OSLog
 import CryptoKit
 import UserNotifications
+import SwiftUI
 
 final class DictAppTests: XCTestCase {
 
@@ -5746,6 +5747,8 @@ extension DictAppTests {
         "dictionaryInfo.direction.value %@ %@",
         "sourceBadge.accessibilityLabel.single %@ %@",
         "wordLists.listTitle %@ %@",
+        // #178: "%@ · Tatoeba" is the same in every LTR language.
+        "examples.byline %@",
     ]
 
     /// CEFR levels keep their Latin letters but in Greek (Α1 … Γ2, 0130).
@@ -6521,7 +6524,8 @@ final class ArabicBidiOrderTests: XCTestCase {
             let path = try XCTUnwrap(Bundle.main.path(forResource: code, ofType: "lproj"),
                                      "'\(code).lproj' must be compiled into the app bundle")
             let bundle = try XCTUnwrap(Bundle(path: path))
-            for key in ["dictionaryPair.title %@ %@", "dictionaryInfo.direction.value %@ %@"] {
+            for key in ["dictionaryPair.title %@ %@", "dictionaryInfo.direction.value %@ %@",
+                        "examples.byline %@", "examples.a11y.byline %@"] {
                 let value = bundle.localizedString(forKey: key, value: "\u{0}MISSING", table: nil)
                 XCTAssertNotEqual(value, "\u{0}MISSING", "'\(key)' missing in \(code).lproj")
                 XCTAssertEqual(value.unicodeScalars.first, "\u{200F}",
@@ -9465,6 +9469,21 @@ enum TestDictionary {
         var toLang = "eng"
     }
 
+    /// An example of a word (0134, #178): the `example_word` row, its
+    /// sentence and the sentence's translations, each with its author.
+    struct Example {
+        var lang = "ell"
+        var word: String
+        var ord: Int
+        /// The Tatoeba sentence id.
+        var id: Int64
+        var text: String
+        var author = "Zeus"
+        /// The highlighted form, in Unicode scalars of `text`.
+        var form: Range<Int>
+        var translations: [ExampleTranslation] = []
+    }
+
     /// `count` distinct rows for `source` (`<source>-w<i>`, "def <i>").
     static func rows(source: String, count: Int) -> [Row] {
         (0..<count).map { Row(word: "\(source)-w\($0)", definition: "def \($0)", pos: "noun", source: source) }
@@ -9493,10 +9512,11 @@ enum TestDictionary {
     /// IGNORE` as the build does), one `dict_metadata` row per source:
     /// `metadata` where given, else the default, with `word_count` = its
     /// rows, and the catalog's `limitedPairs` (the bundle's by default).
-    /// Returns its URL: `url`, or a new temp file.
+    /// `examples` fill the example tables (0134), a sentence shared by two
+    /// words once. Returns its URL: `url`, or a new temp file.
     @discardableResult
     static func make(rows: [Row], metadata: [Metadata] = [], limitedPairs: [LimitedPair] = bundleLimitedPairs,
-                     at url: URL? = nil) throws -> URL {
+                     examples: [Example] = [], at url: URL? = nil) throws -> URL {
         let url = url ?? FileManager.default.temporaryDirectory
             .appendingPathComponent("dictionary-\(UUID().uuidString).sqlite")
         let schema = try BundledDictionary().read { db in
@@ -9549,6 +9569,22 @@ enum TestDictionary {
             for pair in limitedPairs {
                 try db.execute(sql: "INSERT INTO catalog_pair(lang, via, meanings_lang) VALUES (?, ?, ?)",
                                arguments: [pair.lang, pair.via, pair.meaningsLang])
+            }
+            for example in examples {
+                try db.execute(sql: "INSERT OR IGNORE INTO example_sentence(id, lang, text, author) VALUES (?, ?, ?, ?)",
+                               arguments: [example.id, example.lang, example.text, example.author])
+                for (index, translation) in example.translations.enumerated() {
+                    try db.execute(sql: """
+                        INSERT OR IGNORE INTO example_translation(sentence_id, lang, id, text, author)
+                        VALUES (?, ?, ?, ?, ?)
+                        """, arguments: [example.id, translation.lang, example.id * 10 + Int64(index), translation.text,
+                                         translation.author])
+                }
+                try db.execute(sql: """
+                    INSERT INTO example_word(lang, word, ord, sentence_id, form_start, form_length)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    """, arguments: [example.lang, example.word, example.ord, example.id, example.form.lowerBound,
+                                     example.form.count])
             }
         }
         return url
@@ -13837,11 +13873,16 @@ final class DictionaryReopenTests: XCTestCase {
         try await invalidate(removing: link)
     }
 
-    /// Steps 3 to 5 alone, on a new control connection. A test calls it
-    /// again to invalidate the connections a reopen opened.
-    private func invalidate(removing link: URL) async throws {
+    /// The control connection's read: every `dict.entries` row, or, for a
+    /// pack of examples (#178), every sentence.
+    private var controlSQL = "SELECT SUM(LENGTH(definition)) FROM dict.entries"
+
+    /// Steps 3 to 5 alone, on a new control connection to `file` (the
+    /// dictionary file by default). A test calls it again to invalidate the
+    /// connections a reopen opened.
+    private func invalidate(removing link: URL, file: URL? = nil) async throws {
         let control = try DatabaseQueue()
-        let uri = DatabaseService.dictionaryURI(dictionaryURL)
+        let uri = DatabaseService.dictionaryURI(file ?? dictionaryURL)
         try control.inDatabase { db in
             try db.execute(sql: "ATTACH DATABASE ? AS dict", arguments: [uri])
             try db.execute(sql: "PRAGMA dict.cache_size = 0")
@@ -13865,8 +13906,9 @@ final class DictionaryReopenTests: XCTestCase {
     private func controlReadError() -> DatabaseError? {
         guard let control else { return nil }
         do {
+            let sql = controlSQL
             _ = try control.inDatabase { db in
-                try Int.fetchOne(db, sql: "SELECT SUM(LENGTH(definition)) FROM dict.entries")
+                try Int.fetchOne(db, sql: sql)
             }
             return nil
         } catch {
@@ -31037,5 +31079,617 @@ final class LearnHomeConjugationRowTests: LearnTabTestCase {
         settings.learningDrillTenses = .b2
         await vm.load(locale: Locale(identifier: "en"))
         XCTAssertEqual(vm.drillLevel, .b2)
+    }
+}
+
+// MARK: - Example sentences on Definition and in learning (0134, #178)
+//
+// 0134-example-sentences.md, Test plan: the unit rows of #178. The choice of
+// translation, the highlight and the byline are pure (`ExampleText`); the
+// read, the Definition screen and the runs work on made-up example rows
+// (`ExampleFixture`) attached as the Greek and English lists packs.
+
+/// Made-up example rows: γράφω with four Greek examples, two of them with a
+/// Russian translation; σπίτι with one; house with three English ones, two
+/// with Spanish. Other words have none.
+enum ExampleFixture {
+    typealias Example = TestDictionary.Example
+
+    static func translation(_ lang: String, _ text: String, _ author: String) -> ExampleTranslation {
+        ExampleTranslation(lang: lang, text: text, author: author)
+    }
+
+    static let greek: [Example] = [
+        Example(word: "γράφω", ord: 1, id: 101, text: "Έγραψε ένα γράμμα.", form: 0..<6,
+                translations: [translation("eng", "She wrote a letter.", "CH"),
+                               translation("rus", "Она написала письмо.", "odexed")]),
+        Example(word: "γράφω", ord: 2, id: 102, text: "Έγραψα ένα τραγούδι για σένα.", form: 0..<6,
+                translations: [translation("eng", "I wrote a song for you.", "Shishir")]),
+        Example(word: "γράφω", ord: 3, id: 103, text: "Θα γράψω ένα γράμμα στον Τομ.", form: 3..<8,
+                translations: [translation("eng", "I'm going to write Tom a letter.", "CK"),
+                               translation("rus", "Я напишу Тому письмо.", "Selena777")]),
+        Example(word: "γράφω", ord: 4, id: 104, text: "Γράφω ποιήματα.", form: 0..<5,
+                translations: [translation("eng", "I write poems.", "Zeus")]),
+        Example(word: "σπίτι", ord: 1, id: 201, text: "Το σπίτι είναι μεγάλο.", form: 3..<8,
+                translations: [translation("eng", "The house is big.", "CK")]),
+    ]
+
+    static let english: [Example] = [
+        Example(lang: "eng", word: "house", ord: 1, id: 301, text: "Who owns this house?", author: "CK", form: 14..<19,
+                translations: [translation("ell", "Σε ποιον ανήκει αυτό το σπίτι;", "katkat"),
+                               translation("spa", "¿Quién es el dueño de esta casa?", "Shishir")]),
+        Example(lang: "eng", word: "house", ord: 2, id: 302, text: "The house is on fire.", author: "CK", form: 4..<9,
+                translations: [translation("rus", "Дом горит.", "marafon")]),
+        Example(lang: "eng", word: "house", ord: 3, id: 303, text: "This house is mine.", author: "CK", form: 5..<10,
+                translations: [translation("spa", "Esta casa es mía.", "Shishir")]),
+    ]
+
+    /// Two files with only the example rows, to attach as the `ell` and
+    /// `eng-lists` packs.
+    static func packs(in folder: URL) throws -> [PackID: URL] {
+        [.ell: try TestDictionary.make(rows: [], limitedPairs: [], examples: greek,
+                                       at: folder.appendingPathComponent("examples-ell.sqlite")),
+         .engLists: try TestDictionary.make(rows: [], limitedPairs: [], examples: english,
+                                            at: folder.appendingPathComponent("examples-eng.sqlite"))]
+    }
+}
+
+/// The pure parts: which translation shows, the highlight, the byline and
+/// VoiceOver's label.
+final class ExampleTextTests: XCTestCase {
+    private let grafo1 = ExampleSentence(id: 101, lang: "ell", text: "Έγραψε ένα γράμμα.", author: "Zeus", form: 0..<6,
+                                         translations: [ExampleTranslation(lang: "eng", text: "She wrote a letter.", author: "CH"),
+                                                        ExampleTranslation(lang: "rus", text: "Она написала письмо.", author: "odexed")])
+
+    private func greek(_ translations: [String], author: String = "Zeus") -> ExampleSentence {
+        ExampleSentence(id: 1, lang: "ell", text: "Γράφω.", author: author, form: 0..<5,
+                        translations: translations.map { ExampleTranslation(lang: $0, text: "in \($0)", author: "t-\($0)") })
+    }
+
+    private func english(_ translations: [String]) -> ExampleSentence {
+        ExampleSentence(id: 2, lang: "eng", text: "I write.", author: "CK", form: 2..<7,
+                        translations: translations.map { ExampleTranslation(lang: $0, text: "in \($0)", author: "t-\($0)") })
+    }
+
+    private func bundle(_ code: String) throws -> Bundle {
+        let path = try XCTUnwrap(Bundle.main.path(forResource: code, ofType: "lproj"), "\(code).lproj")
+        return try XCTUnwrap(Bundle(path: path))
+    }
+
+    /// The form is bold and tinted, exactly on its span in Unicode scalars,
+    /// and the text carries its language; a span past the end gives the
+    /// plain sentence.
+    func testHighlightCoversTheForm() {
+        for (example, form) in [(grafo1, "Έγραψε"),
+                                (ExampleSentence(id: 3, lang: "ell", text: "Θα γράψω ένα γράμμα στον Τομ.", author: "Zeus",
+                                                 form: 3..<8, translations: []), "γράψω"),
+                                (ExampleSentence(id: 4, lang: "eng", text: "We went home.", author: "CK", form: 3..<7,
+                                                 translations: []), "went")] {
+            let attributed = ExampleText.sentence(example)
+            XCTAssertEqual(String(attributed.characters), example.text)
+            var highlighted = ""
+            for run in attributed.runs {
+                let text = String(attributed[run.range].characters)
+                let isBold = run.inlinePresentationIntent == .stronglyEmphasized
+                XCTAssertEqual(isBold, run.foregroundColor == .accentColor, "bold and tinted together: '\(text)'")
+                if isBold { highlighted += text }
+                XCTAssertEqual(run.languageIdentifier, example.lang == "ell" ? "el" : "en", "VoiceOver's voice")
+            }
+            XCTAssertEqual(highlighted, form, example.text)
+        }
+        let outside = ExampleSentence(id: 5, lang: "ell", text: "Γράφω.", author: "Zeus", form: 4..<9, translations: [])
+        let plain = ExampleText.sentence(outside)
+        XCTAssertEqual(String(plain.characters), "Γράφω.")
+        XCTAssertTrue(plain.runs.allSatisfy { $0.inlinePresentationIntent == nil && $0.foregroundColor == nil },
+                      "a span that does not fit: the plain sentence")
+    }
+
+    /// The byline names the sentence's author, then the translation's when
+    /// that is someone else, then Tatoeba; each name isolated. Arabic starts
+    /// with U+200F. VoiceOver reads "From Tatoeba: Zeus and CH".
+    func testBylineNamesBothAuthors() throws {
+        let en = try bundle("en")
+        let english = grafo1.translation(in: "eng")
+        XCTAssertEqual(ExampleText.byline(grafo1, translation: english, bundle: en),
+                       "\u{2068}Zeus\u{2069}, \u{2068}CH\u{2069} · Tatoeba")
+        XCTAssertEqual(ExampleText.byline(grafo1, translation: nil, bundle: en), "\u{2068}Zeus\u{2069} · Tatoeba",
+                       "no translation shows: one name")
+        let same = ExampleTranslation(lang: "eng", text: "I write poems.", author: "Zeus")
+        XCTAssertEqual(ExampleText.byline(grafo1, translation: same, bundle: en), "\u{2068}Zeus\u{2069} · Tatoeba",
+                       "the same author once")
+        XCTAssertEqual(ExampleText.authors(grafo1, translation: english), ["Zeus", "CH"])
+
+        let arabic = ExampleText.byline(grafo1, translation: english, bundle: try bundle("ar"))
+        XCTAssertEqual(arabic.unicodeScalars.first, "\u{200F}", arabic)
+        XCTAssertEqual(UITestVisible.text(arabic), "Zeus, CH · Tatoeba")
+
+        let spoken = ExampleText.accessibilityLabel(grafo1, translation: english, bundle: en, locale: Locale(identifier: "en"))
+        XCTAssertEqual(String(spoken.characters), "Έγραψε ένα γράμμα. She wrote a letter. From Tatoeba: Zeus and CH")
+        let languages = spoken.runs.map { $0.languageIdentifier }
+        XCTAssertEqual(languages.first, "el", "the sentence in the Greek voice")
+        XCTAssertTrue(languages.contains("en"), "the translation in the English voice")
+        let russian = ExampleText.accessibilityLabel(grafo1, translation: grafo1.translation(in: "rus"), bundle: try bundle("ru"),
+                                                     locale: Locale(identifier: "ru"))
+        XCTAssertTrue(String(russian.characters).hasSuffix("Из Tatoeba: Zeus и odexed"), String(russian.characters))
+        let alone = ExampleText.accessibilityLabel(grafo1, translation: nil, bundle: en, locale: Locale(identifier: "en"))
+        XCTAssertEqual(String(alone.characters), "Έγραψε ένα γράμμα. From Tatoeba: Zeus")
+    }
+
+    /// The Definition screen's rule (0134): the UI language's translation
+    /// when Tatoeba has it and it is not the sentence's language, else the
+    /// English one unless the sentence is English, else none.
+    func testTranslationFollowsTheUILanguage() {
+        let all = greek(["eng", "rus", "spa", "arb"])
+        XCTAssertEqual(ExampleText.translation(for: all, uiLanguage: "rus")?.lang, "rus")
+        XCTAssertEqual(ExampleText.translation(for: greek(["eng"]), uiLanguage: "rus")?.lang, "eng", "no Russian: English")
+        XCTAssertEqual(ExampleText.translation(for: all, uiLanguage: "spa")?.lang, "spa")
+        XCTAssertEqual(ExampleText.translation(for: all, uiLanguage: "arb")?.lang, "arb")
+        XCTAssertEqual(ExampleText.translation(for: all, uiLanguage: "eng")?.lang, "eng")
+        XCTAssertEqual(ExampleText.translation(for: all, uiLanguage: "ell")?.lang, "eng", "a Greek sentence in a Greek UI")
+        XCTAssertEqual(ExampleText.translation(for: greek([]), uiLanguage: "ell")?.lang, nil)
+
+        XCTAssertNil(ExampleText.translation(for: english(["rus", "spa", "ell"]), uiLanguage: "eng"),
+                     "an English sentence in an English UI")
+        XCTAssertEqual(ExampleText.translation(for: english(["rus", "ell"]), uiLanguage: "ell")?.lang, "ell")
+        XCTAssertNil(ExampleText.translation(for: english(["rus"]), uiLanguage: "ell"), "no Greek: none, never English")
+        XCTAssertEqual(ExampleText.translation(for: english(["spa"]), uiLanguage: "spa")?.lang, "spa")
+        XCTAssertNil(ExampleText.translation(for: english(["rus"]), uiLanguage: "spa"), "no Spanish: none")
+    }
+
+    /// Learning (0134): the via's direct translation; in a limited pair,
+    /// else the meanings language's; none for a sentence in the via.
+    func testLearningTranslationFollowsTheVia() {
+        XCTAssertEqual(ExampleText.learningTranslation(for: greek(["eng", "rus"]), via: "eng", meanings: "eng")?.lang, "eng")
+        let spanish = english(["spa", "ell", "rus"])
+        XCTAssertEqual(ExampleText.learningTranslation(for: spanish, via: "spa", meanings: "spa")?.lang, "spa")
+        XCTAssertNil(ExampleText.learningTranslation(for: english(["ell", "rus"]), via: "spa", meanings: "spa"),
+                     "no Spanish: none, never the Greek or the Russian one")
+        XCTAssertEqual(ExampleText.learningTranslation(for: spanish, via: "ell", meanings: "ell")?.lang, "ell")
+        XCTAssertNil(ExampleText.learningTranslation(for: spanish, via: "eng", meanings: "eng"),
+                     "English via English: the sentence is in the via")
+        XCTAssertEqual(ExampleText.learningTranslation(for: greek(["eng", "rus"]), via: "rus", meanings: "eng")?.lang, "rus",
+                       "Greek via Russian, limited: Russian when Tatoeba has it")
+        XCTAssertEqual(ExampleText.learningTranslation(for: greek(["eng"]), via: "rus", meanings: "eng")?.lang, "eng",
+                       "else the meanings language's")
+    }
+
+    /// The sheet takes up to 3, those with a translation in the via first,
+    /// in the build's order otherwise.
+    func testLearningPrefersExamplesWithTheVia() {
+        let examples = [english(["rus"]), english(["spa"]), english(["ell"]), english(["spa", "ell"]), english([])]
+            .enumerated().map { index, example in
+                ExampleSentence(id: Int64(index + 1), lang: "eng", text: example.text, author: example.author,
+                                form: example.form, translations: example.translations)
+            }
+        XCTAssertEqual(ExampleText.forLearning(examples, via: "spa").map(\.id), [2, 4, 1])
+        XCTAssertEqual(ExampleText.forLearning(examples, via: "ell", limit: 5).map(\.id), [3, 4, 1, 2, 5])
+        XCTAssertEqual(ExampleText.forLearning(examples, via: "arb").map(\.id), [1, 2, 3], "none in the via: build order")
+        XCTAssertEqual(ExampleText.forLearning([], via: "spa"), [])
+    }
+}
+
+/// `UITestHelpers.visible` for unit tests: without U+200F and the isolates.
+enum UITestVisible {
+    static func text(_ s: String) -> String {
+        String(s.unicodeScalars.filter { !["\u{200F}", "\u{2068}", "\u{2069}"].contains($0) })
+    }
+}
+
+/// `DatabaseService.examples(for:limit:)` on made-up rows attached as the
+/// Greek and English lists packs.
+@MainActor
+final class ExampleReadTests: XCTestCase {
+    private var tempDir: URL!
+    private var db: DatabaseService { .shared }
+    private var userPath: String { tempDir.appendingPathComponent("user.sqlite").path }
+
+    override func setUp() async throws {
+        try await super.setUp()
+        await DictAppTests.waitForHostAppLaunch()
+        tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+    }
+
+    override func tearDown() async throws {
+        try? FileManager.default.removeItem(at: tempDir)
+        try await super.tearDown()
+    }
+
+    private func open(packs: Bool = true) async throws {
+        let dictionary = try ExerciseFixture.make(at: tempDir.appendingPathComponent("dictionary.sqlite"))
+        try await db.setup(userPath: userPath, dictionaryURL: dictionary,
+                           packFiles: packs ? try ExampleFixture.packs(in: tempDir) : [:])
+    }
+
+    /// In `ord` order, at most `limit`, each with its translations and its
+    /// form; English from the English lists pack.
+    func testExamplesComeInOrder() async throws {
+        try await open()
+        let grafo = try await db.examples(for: WordKey(lang: "ell", word: "γράφω"))
+        XCTAssertEqual(grafo.map(\.id), [101, 102, 103, 104])
+        XCTAssertEqual(grafo.first, ExampleSentence(id: 101, lang: "ell", text: "Έγραψε ένα γράμμα.", author: "Zeus",
+                                                    form: 0..<6, translations: ExampleFixture.greek[0].translations))
+        XCTAssertEqual(grafo[2].form, 3..<8)
+        XCTAssertEqual(grafo[1].translations.map(\.lang), ["eng"])
+        let two = try await db.examples(for: WordKey(lang: "ell", word: "γράφω"), limit: 2)
+        XCTAssertEqual(two.map(\.id), [101, 102], "the limit")
+        let house = try await db.examples(for: WordKey(lang: "eng", word: "house"))
+        XCTAssertEqual(house.map(\.id), [301, 302, 303])
+        XCTAssertEqual(house[0].translations.map(\.lang), ["ell", "spa"])
+        XCTAssertEqual(house[0].form, 14..<19)
+    }
+
+    /// A word without examples reads none; so does a Greek word looked up
+    /// in another case or language.
+    func testWordWithoutExamplesReadsNone() async throws {
+        try await open()
+        let nero = try await db.examples(for: WordKey(lang: "ell", word: "νερό"))
+        XCTAssertEqual(nero, [])
+        let water = try await db.examples(for: WordKey(lang: "eng", word: "water"))
+        XCTAssertEqual(water, [])
+        let wrongLanguage = try await db.examples(for: WordKey(lang: "eng", word: "γράφω"))
+        XCTAssertEqual(wrongLanguage, [], "the English lists pack has no Greek word")
+    }
+
+    /// Without the packs their stubs are attached: no examples, no error.
+    func testMissingPackReadsNone() async throws {
+        try await open(packs: false)
+        let grafo = try await db.examples(for: WordKey(lang: "ell", word: "γράφω"))
+        XCTAssertEqual(grafo, [])
+        let house = try await db.examples(for: WordKey(lang: "eng", word: "house"))
+        XCTAssertEqual(house, [])
+    }
+
+    /// Languages without examples read nothing: no SQL runs.
+    func testOtherLanguagesReadNothing() async throws {
+        try await open()
+        let before = await db.exampleReadCount
+        for lang in ["spa", "und", "rus", "arb"] {
+            let found = try await db.examples(for: WordKey(lang: lang, word: "casa"))
+            XCTAssertEqual(found, [], lang)
+        }
+        let after = await db.exampleReadCount
+        XCTAssertEqual(after, before, "no read for a language without examples")
+        let grafo = try await db.examples(for: WordKey(lang: "ell", word: "γράφω"))
+        XCTAssertFalse(grafo.isEmpty)
+        let read = await db.exampleReadCount
+        XCTAssertEqual(read, before + 1, "the seam counts a real read")
+    }
+
+    /// The build stores words in NFC, but `WordKey` does not normalize: a
+    /// decomposed γράφω (a list file typed with a combining accent) finds
+    /// the same examples. A limit of 0 reads nothing.
+    func testDecomposedWordFindsItsExamples() async throws {
+        try await open()
+        let decomposed = "γράφω".decomposedStringWithCanonicalMapping
+        XCTAssertNotEqual(Array(decomposed.unicodeScalars), Array("γράφω".unicodeScalars), "the fixture is NFD")
+        let found = try await db.examples(for: WordKey(lang: "ell", word: decomposed))
+        XCTAssertEqual(found.map(\.id), [101, 102, 103, 104])
+        let before = await db.exampleReadCount
+        let none = try await db.examples(for: WordKey(lang: "ell", word: "γράφω"), limit: 0)
+        XCTAssertEqual(none, [])
+        let after = await db.exampleReadCount
+        XCTAssertEqual(after, before, "a limit of 0 reads nothing")
+    }
+
+    /// The committed Greek and English lists packs (`PackFixtures`): the
+    /// sample words of `examples-qa.md` each read their 3 to 5 examples from
+    /// their own pack. 0134 expects a read under 5 ms; an optimized build
+    /// takes 0.11 to 0.18 ms (QA #178, iPhone 17 simulator, iOS 26.4, median
+    /// of 3), this Debug (-Onone) one about 0.3 ms, so the bound only catches
+    /// a regression such as a scan of `example_word`.
+    func testCommittedPacksReadQuickly() async throws {
+        try await db.setup(userPath: userPath, dictionaryURL: try TestDictionary.bundledURL(),
+                           packFiles: try PackFixtures.all())
+        let keys = ["γράφω", "είμαι", "σπίτι", "καλός", "μέρα"].map { WordKey(lang: "ell", word: $0) }
+            + ["go", "house", "write", "good"].map { WordKey(lang: "eng", word: $0) }
+        func milliseconds(_ duration: Duration) -> Double {
+            Double(duration.components.seconds) * 1_000 + Double(duration.components.attoseconds) / 1e15
+        }
+        var medians: [String: Double] = [:]
+        for key in keys {
+            let warm = try await db.examples(for: key)
+            XCTAssertTrue((3...5).contains(warm.count), "\(key.word): \(warm.count) examples")
+            XCTAssertTrue(warm.allSatisfy { $0.lang == key.lang }, "\(key.word): from its own pack")
+            var times: [Double] = []
+            for _ in 0..<3 {
+                let start = ContinuousClock.now
+                let again = try await db.examples(for: key)
+                times.append(milliseconds(ContinuousClock.now - start))
+                XCTAssertEqual(again, warm, key.word)
+            }
+            medians[key.word] = times.sorted()[1]
+        }
+        let slowest = medians.values.max() ?? 0
+        print("QA #178: examples(for:) median of 3 per word, ms: \(medians.sorted { $0.key < $1.key }), slowest \(slowest)")
+        XCTAssertLessThan(slowest, 50, "examples(for:): \(medians) ms")
+    }
+}
+
+/// The Definition screen reads the examples of the entry's `WordKey`.
+final class DefinitionViewModelExampleTests: ExerciseTestCase {
+    /// γράφω from El–En · FD and from El–En · WN loads the same examples;
+    /// WordNet's house loads the English ones; a word without examples, and
+    /// any word without the packs, loads none.
+    func testEntryUsesItsWordKey() async throws {
+        try await attachExamples()
+        func examples(_ key: EntryKey) async throws -> [ExampleSentence] {
+            let entry = try await db.entry(for: key)
+            let vm = DefinitionViewModel(entry: try XCTUnwrap(entry, "\(key)"), languages: languages, hasVoice: { _ in false })
+            await vm.loadExamples()
+            return vm.examples
+        }
+        let fd = try await examples(EntryKey(source: self.fd, word: "γράφω"))
+        let wn = try await examples(EntryKey(source: self.wn, word: "γράφω"))
+        XCTAssertEqual(fd.map(\.id), [101, 102, 103, 104])
+        XCTAssertEqual(wn, fd, "one word, one set of examples")
+        let house = try await examples(EntryKey(source: wordnet, word: "house"))
+        XCTAssertEqual(house.map(\.id), [301, 302, 303])
+        let houseEs = try await examples(EntryKey(source: enEs, word: "house"))
+        XCTAssertEqual(houseEs, house, "En–Es · FD's house is the same English word")
+        let nero = try await examples(EntryKey(source: self.fd, word: "νερό"))
+        XCTAssertEqual(nero, [])
+
+        try await db.setup(userPath: tempDir.appendingPathComponent("user.sqlite").path,
+                           dictionaryURL: tempDir.appendingPathComponent("dictionary.sqlite"))
+        let withoutPacks = try await examples(EntryKey(source: self.fd, word: "γράφω"))
+        XCTAssertEqual(withoutPacks, [], "no Greek pack: no section")
+    }
+}
+
+extension ExerciseTestCase {
+    /// Reopens the service with `ExampleFixture`'s rows attached as the
+    /// Greek and English lists packs, on the same user database.
+    func attachExamples() async throws {
+        try await db.setup(userPath: tempDir.appendingPathComponent("user.sqlite").path,
+                           dictionaryURL: tempDir.appendingPathComponent("dictionary.sqlite"),
+                           packFiles: try ExampleFixture.packs(in: tempDir))
+    }
+}
+
+/// 0134, #178: the example sheet and the bar's Example button in a run.
+extension ExerciseRunViewModelTests {
+    /// What happened at one question: its word, whether it was new, the
+    /// sheet after the answer and its examples.
+    private struct Seen {
+        let word: String
+        let isNew: Bool
+        let sheet: Bool
+        let examples: [Int64]
+    }
+
+    /// Answers every question right, recording the sheet after each answer.
+    private func answerRecordingSheets(_ vm: ExerciseRunViewModel) async throws -> [Seen] {
+        var seen: [Seen] = []
+        while vm.phase == .question, let question = vm.question {
+            guard seen.count < 30 else { XCTFail("the run does not end"); break }
+            if question.input == .choice {
+                await vm.choose(try XCTUnwrap(question.rightIndex))
+            } else {
+                vm.typed = question.word.term
+                await vm.check()
+            }
+            seen.append(Seen(word: question.card.key.word.word, isNew: question.isNew, sheet: vm.showsExampleSheet,
+                             examples: vm.showsExampleSheet ? (vm.exampleSheet?.examples.map(\.sentence.id) ?? []) : []))
+            await vm.next()
+        }
+        return seen
+    }
+
+    /// `myWords5`: the first answer to γράφω's and σπίτι's first question
+    /// opens the sheet with 1 to 3 examples; their later questions do not;
+    /// words without examples never.
+    func testNewWordOpensTheExampleSheet() async throws {
+        try await attachExamples()
+        _ = try await db.writeLearningFixture("myWords5", today: today)
+        let vm = sessionRun()
+        await vm.start()
+        XCTAssertNil(vm.errorMessage)
+        let seen = try await answerRecordingSheets(vm)
+        XCTAssertEqual(vm.phase, .summary)
+        XCTAssertEqual(seen.count, 10, "five new words, two cards each")
+        XCTAssertTrue(seen.allSatisfy(\.isNew))
+        let opened = seen.filter(\.sheet)
+        XCTAssertEqual(opened.map(\.word).sorted(), ["γράφω", "σπίτι"], "once per word with examples")
+        for word in ["γράφω", "σπίτι"] {
+            let first = try XCTUnwrap(seen.firstIndex { $0.word == word })
+            XCTAssertTrue(seen[first].sheet, "\(word)'s first question")
+            XCTAssertFalse(seen[(first + 1)...].contains { $0.word == word && $0.sheet }, "\(word)'s later question")
+        }
+        XCTAssertEqual(opened.first { $0.word == "γράφω" }?.examples, [101, 102, 103], "up to 3, in the build's order")
+        XCTAssertEqual(opened.first { $0.word == "σπίτι" }?.examples, [201])
+    }
+
+    /// A review (session), a trainer and a mistakes question of a word with
+    /// examples offer them: no sheet by itself, the button opens it with the
+    /// same examples. A word without examples: no button, no sheet.
+    func testExampleButtonOnEveryBar() async throws {
+        try await attachExamples()
+        _ = try await db.writeLearningFixture("due", today: today)
+        settings.learningAnswerMode = .choice
+        for vm in [run(.recognition), sessionRun()] {
+            await vm.start()
+            var words: Set<String> = []
+            while vm.phase == .question, let question = vm.question, words.count < 30 {
+                let word = question.card.key.word.word
+                words.insert(word)
+                XCTAssertFalse(question.isNew)
+                await vm.choose(try XCTUnwrap(question.rightIndex))
+                XCTAssertFalse(vm.showsExampleSheet, "\(word): a review opens no sheet by itself")
+                let expected: [Int64] = ["γράφω": [101, 102, 103], "σπίτι": [201]][word] ?? []
+                XCTAssertEqual(vm.sheetExamples.map(\.sentence.id), expected, word)
+                vm.showExamples()
+                XCTAssertEqual(vm.showsExampleSheet, !expected.isEmpty, "\(word): the button opens the sheet")
+                if !expected.isEmpty {
+                    XCTAssertEqual(vm.exampleSheet?.examples, vm.sheetExamples, "\(word): the same examples")
+                    XCTAssertEqual(vm.exampleSheet?.word, question.word)
+                }
+                await vm.next()
+                XCTAssertFalse(vm.showsExampleSheet, "Continue closes it")
+            }
+            XCTAssertTrue(words.isSuperset(of: ["γράφω", "σπίτι", "νερό"]), "\(words)")
+        }
+
+        try await db.clearLearning()
+        _ = try await db.writeLearningFixture("mistakes", today: today)
+        let mistakes = sessionRun(.mistakes)
+        await mistakes.start()
+        let first = try XCTUnwrap(mistakes.question)
+        XCTAssertEqual(first.card.key.word.word, "γράφω")
+        await mistakes.choose(try XCTUnwrap(first.rightIndex))
+        XCTAssertFalse(mistakes.showsExampleSheet)
+        mistakes.showExamples()
+        XCTAssertTrue(mistakes.showsExampleSheet, "mistakes practice offers the examples too")
+        XCTAssertEqual(mistakes.exampleSheet?.examples.map(\.sentence.id), [101, 102, 103])
+        XCTAssertEqual(mistakes.exampleSheet?.word.term, "γράφω")
+        XCTAssertEqual(mistakes.exampleSheet?.feedback, mistakes.feedback)
+    }
+
+    /// Continue on the sheet goes to the next question, as the bar's does;
+    /// a swipe down only closes it, and the bar's Continue then moves on.
+    func testSheetContinueMovesOn() async throws {
+        try await attachExamples()
+        _ = try await db.writeLearningFixture("myWords5", today: today)
+        let vm = sessionRun()
+        await vm.start()
+        // To the first question of a word with examples.
+        while let question = vm.question, !["γράφω", "σπίτι"].contains(question.card.key.word.word) {
+            await vm.choose(try XCTUnwrap(question.rightIndex))
+            XCTAssertFalse(vm.showsExampleSheet)
+            await vm.next()
+        }
+        var question = try XCTUnwrap(vm.question)
+        await vm.choose(try XCTUnwrap(question.rightIndex))
+        XCTAssertTrue(vm.showsExampleSheet, "a new word's first answer")
+        let position = vm.position
+        await vm.next()
+        XCTAssertFalse(vm.showsExampleSheet, "Continue closes the sheet")
+        XCTAssertEqual(vm.position, position + 1, "and shows the next question")
+        XCTAssertNil(vm.feedback)
+
+        // The other word with examples: swiped down, back to the bar.
+        let firstWord = question.card.key.word
+        func isOtherWordsFirst(_ next: Question) -> Bool {
+            next.isNew && next.card.key.word != firstWord && ["γράφω", "σπίτι"].contains(next.card.key.word.word)
+        }
+        while let next = vm.question, !isOtherWordsFirst(next) {
+            await vm.choose(try XCTUnwrap(next.rightIndex))
+            XCTAssertFalse(vm.showsExampleSheet, "\(next.card.key.word.word)")
+            await vm.next()
+        }
+        question = try XCTUnwrap(vm.question)
+        await vm.choose(try XCTUnwrap(question.rightIndex))
+        XCTAssertTrue(vm.showsExampleSheet)
+        vm.showsExampleSheet = false
+        XCTAssertNotNil(vm.feedback, "a swipe down returns to the bar")
+        XCTAssertEqual(vm.question, question)
+        XCTAssertFalse(vm.sheetExamples.isEmpty, "with its Example button")
+        let at = vm.position
+        await vm.next()
+        XCTAssertEqual(vm.position, at + 1, "the bar's Continue moves on")
+    }
+
+    /// Two questions of one word read its examples once.
+    func testExamplesReadOncePerWord() async throws {
+        try await attachExamples()
+        _ = try await db.writeLearningFixture("myWords5", today: today)
+        let before = await db.exampleReadCount
+        let vm = sessionRun()
+        await vm.start()
+        let seen = try await answerRecordingSheets(vm)
+        let after = await db.exampleReadCount
+        XCTAssertEqual(seen.count, 10)
+        XCTAssertEqual(Set(seen.map(\.word)).count, 5)
+        XCTAssertEqual(after - before, 5, "one read per word, not per question")
+    }
+
+    /// The translation is the via's: English via Spanish shows the Spanish
+    /// ones, those first, and none for a sentence without; Greek via
+    /// Russian (limited) shows Russian where Tatoeba has it, else English,
+    /// the Russian ones first.
+    func testExampleUsesTheLanguagesVia() async throws {
+        try await attachExamples()
+        _ = try await db.writeLearningFixture("bilingual", today: today)
+        settings.learningVia = ["eng": "spa", "ell": "rus"]
+        settings.learningAnswerMode = .choice
+
+        let english = run(.recognition, lang: "eng", meaningsLang: "spa")
+        await english.start()
+        var seenHouse = false
+        while english.phase == .question, let question = english.question {
+            if question.card.key.word.word == "house" {
+                seenHouse = true
+                XCTAssertEqual(english.sheetExamples.map(\.sentence.id), [301, 303, 302], "Spanish ones first")
+                XCTAssertEqual(english.sheetExamples.map { $0.translation?.lang }, ["spa", "spa", nil],
+                               "Spanish, else none: never the Greek or Russian one")
+            } else {
+                XCTAssertEqual(english.sheetExamples, [], "water has none")
+            }
+            await english.choose(try XCTUnwrap(question.rightIndex))
+            await english.next()
+        }
+        XCTAssertTrue(seenHouse)
+
+        let greek = run(.recognition, lang: "ell", meaningsLang: "eng")
+        await greek.start()
+        var seenGrafo = false
+        while greek.phase == .question, let question = greek.question {
+            if question.card.key.word.word == "γράφω" {
+                seenGrafo = true
+                XCTAssertEqual(greek.sheetExamples.map(\.sentence.id), [101, 103, 102], "Russian ones first")
+                XCTAssertEqual(greek.sheetExamples.map { $0.translation?.lang }, ["rus", "rus", "eng"],
+                               "Russian where Tatoeba has it, else English")
+            }
+            await greek.choose(try XCTUnwrap(question.rightIndex))
+            await greek.next()
+        }
+        XCTAssertTrue(seenGrafo)
+
+        settings.learningVia = [:]
+        let viaEnglish = run(.production, lang: "ell", meaningsLang: "eng")
+        await viaEnglish.start()
+        while viaEnglish.phase == .question, let question = viaEnglish.question {
+            if question.card.key.word.word == "γράφω" {
+                XCTAssertEqual(viaEnglish.sheetExamples.map(\.sentence.id), [101, 102, 103])
+                XCTAssertEqual(viaEnglish.sheetExamples.map { $0.translation?.lang }, ["eng", "eng", "eng"])
+            }
+            await viaEnglish.choose(try XCTUnwrap(question.rightIndex))
+            await viaEnglish.next()
+        }
+    }
+}
+
+/// 0134, #178: the example read goes through #213's retry, like every read
+/// of a dictionary file.
+extension DictionaryReopenTests {
+    /// The Greek pack of examples is invalidated (its other hard link goes):
+    /// the next `examples(for:)` reopens the files and returns what it
+    /// returned before, with one reopen.
+    func testExampleReadRecoversAfterTheFileIsInvalidated() async throws {
+        // Enough sentences that the control's read misses its page cache.
+        let filler = (0..<2000).map { i in
+            TestDictionary.Example(word: "λέξη\(i)", ord: 1, id: Int64(10_000 + i),
+                                   text: "Πρόταση \(i): " + String(repeating: "μια μεγάλη πρόταση ", count: 10), form: 0..<7)
+        }
+        let pack = try TestDictionary.make(rows: [], limitedPairs: [], examples: ExampleFixture.greek + filler,
+                                           at: tempDir.appendingPathComponent("examples-ell.sqlite"))
+        let staging = tempDir.appendingPathComponent("staging-ell.sqlite")
+        try FileManager.default.linkItem(at: pack, to: staging)
+        let grafo = WordKey(lang: "ell", word: "γράφω")
+
+        try await db.setup(userPath: userPath, dictionaryURL: dictionaryURL, packFiles: [.ell: pack])
+        let expected = try await db.examples(for: grafo)
+        XCTAssertEqual(expected.map(\.id), [101, 102, 103, 104])
+
+        try await db.setup(userPath: userPath, dictionaryURL: dictionaryURL, packFiles: [.ell: pack])
+        _ = try await db.fetchMetadata()
+        controlSQL = "SELECT SUM(LENGTH(text)) FROM dict.example_sentence"
+        try await invalidate(removing: staging, file: pack)
+        let reopens = await db.dictionaryReopenCount
+
+        let recovered = try await db.examples(for: grafo)
+        XCTAssertEqual(recovered, expected, "examples(for:)")
+        let after = await db.dictionaryReopenCount
+        XCTAssertEqual(after - reopens, 1, "one reopen")
     }
 }

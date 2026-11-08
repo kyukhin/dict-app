@@ -17006,6 +17006,258 @@
           }
         }
       }
+    },
+    "examples.title": {
+      "comment": "Definition: title of the Examples section, real sentences with the word from Tatoeba (#178).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Examples"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Примеры"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ejemplos"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أمثلة"
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Παραδείγματα"
+          }
+        }
+      }
+    },
+    "examples.more": {
+      "comment": "Definition: button under the first 3 examples that shows the rest (#178).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "More examples"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ещё примеры"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Más ejemplos"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مزيد من الأمثلة"
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Περισσότερα παραδείγματα"
+          }
+        }
+      }
+    },
+    "examples.fewer": {
+      "comment": "Definition: the More examples button once the rest shows; hides them again (#178).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fewer examples"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Меньше примеров"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Menos ejemplos"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أمثلة أقل"
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Λιγότερα παραδείγματα"
+          }
+        }
+      }
+    },
+    "examples.byline %@": {
+      "comment": "Example byline in small print, e.g. \"Zeus, CH · Tatoeba\". %@: the Tatoeba usernames, joined with \", \", each isolated (FSI…PDI); never translated. ar: leading U+200F (RLM) so the line reads right to left (#119). Every RTL language needs it (#178).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ · Tatoeba"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ · Tatoeba"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ · Tatoeba"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "\u200F%@ · Tatoeba"
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ · Tatoeba"
+          }
+        }
+      }
+    },
+    "examples.a11y.byline %@": {
+      "comment": "VoiceOver: the end of an example's label, e.g. \"From Tatoeba: Zeus and Shishir\". %@: the usernames joined by the language's \"and\" (#178). ar: leading U+200F (RLM), as every composed Arabic string (#119).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "From Tatoeba: %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Из Tatoeba: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "De Tatoeba: %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "\u200Fمن Tatoeba: %@"
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Από το Tatoeba: %@"
+          }
+        }
+      }
+    },
+    "examples.button": {
+      "comment": "Learning: the feedback bar's button that opens the word's example sentences (#178).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Example"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Пример"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ejemplo"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مثال"
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Παράδειγμα"
+          }
+        }
+      }
+    },
+    "credits.dataSources.tatoeba": {
+      "comment": "Credits: the source of the example sentences (#178). Tatoeba, tatoeba.org and the license are not translated.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Example sentences: Tatoeba (tatoeba.org), CC BY 2.0 FR. Each example names its authors."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Примеры предложений: Tatoeba (tatoeba.org), CC BY 2.0 FR. У каждого примера указаны его авторы."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Frases de ejemplo: Tatoeba (tatoeba.org), CC BY 2.0 FR. Cada ejemplo indica sus autores."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "جمل الأمثلة: Tatoeba (tatoeba.org)، CC BY 2.0 FR. يذكر كل مثال أسماء مؤلفيه."
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Παραδείγματα προτάσεων: Tatoeba (tatoeba.org), CC BY 2.0 FR. Κάθε παράδειγμα αναφέρει τους συγγραφείς του."
+          }
+        }
+      }
     }
   },
   "version": "1.1"

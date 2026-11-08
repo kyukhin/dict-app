@@ -290,6 +290,15 @@ struct AnswerFeedback: Equatable {
     let rightAnswer: String
 }
 
+/// What the example sheet shows (0134, #178): the result line, the word and
+/// its examples. Kept as it was opened, so a closing sheet does not change
+/// while the next question comes.
+struct ExampleSheetContent: Equatable {
+    let feedback: AnswerFeedback
+    let word: WordChoice
+    let examples: [ShownExample]
+}
+
 /// Runs a plan of questions (0131, "Runs"): builds each question just
 /// before showing it, grades the answer at once, writes it at once with
 /// `recordAnswer`, so closing early loses nothing, and requeues a wrong
@@ -339,6 +348,16 @@ final class ExerciseRunViewModel: ObservableObject {
     /// The daily goal at the end of the run; nil until then.
     @Published private(set) var goalProgress: GoalProgress?
     @Published var errorMessage: String?
+    /// 0134, #178: up to 3 examples of the question's word, each with its
+    /// translation in the via (in a limited pair, else the meanings
+    /// language); empty for a word without examples. Read before the
+    /// question shows, so the bar never changes after it appears.
+    @Published private(set) var sheetExamples: [ShownExample] = []
+    /// The example sheet is up: after the first answer to a new word, or
+    /// from the bar's Example button. A swipe down only clears it.
+    @Published var showsExampleSheet = false
+    /// What the sheet shows, kept until it opens again.
+    @Published private(set) var exampleSheet: ExampleSheetContent?
 
     let run: Run
     /// The chosen language: a run never mixes languages.
@@ -373,6 +392,14 @@ final class ExerciseRunViewModel: ObservableObject {
     private var samples: [String: [WordChoice]] = [:]
     private var pendingWrite: Task<Void, Never>?
     private var isStarted = false
+    /// The pair's via, the language of the examples' translations; nil
+    /// without a pair (Other).
+    private var via: String?
+    /// The examples of the run's words, read once per word.
+    private var examples: [WordKey: [ExampleSentence]] = [:]
+    /// The words whose first question of this run was new: only the first
+    /// opens the sheet.
+    private var introducedWords: Set<WordKey> = []
 
     init(run: Run, lang: String, meaningsLang: String?, db: DatabaseService = .shared,
          settings: SettingsService = .shared, languages: LearningLanguageService? = nil,
@@ -402,6 +429,7 @@ final class ExerciseRunViewModel: ObservableObject {
         do {
             let today = clock.today
             sourceOrder = try await languages.sourceOrder(lang: lang, meaningsLang: meaningsLang)
+            via = (try? await languages.pair(for: lang))?.via ?? meaningsLang
             try await loadWords()
             switch run {
             case let .trainer(kind):
@@ -468,9 +496,11 @@ final class ExerciseRunViewModel: ObservableObject {
         await answer(.wrong, chosen: nil, mindTheAccent: false)
     }
 
-    /// Continue: the next question, or the summary after the last.
+    /// Continue, on the bar or the example sheet: the next question, or the
+    /// summary after the last.
     func next() async {
         guard feedback != nil else { return }
+        showsExampleSheet = false
         await pendingWrite?.value
         index += 1
         await show()
@@ -479,6 +509,14 @@ final class ExerciseRunViewModel: ObservableObject {
     /// The haptic of an answer; nil when Haptics is off.
     func haptic(for outcome: Outcome) -> SensoryFeedback? {
         player.haptic(for: outcome)
+    }
+
+    /// The bar's Example button (0134, #178): the sheet with the question's
+    /// examples, once it is answered. Nothing for a word without examples.
+    func showExamples() {
+        guard let feedback, let question, !sheetExamples.isEmpty else { return }
+        exampleSheet = ExampleSheetContent(feedback: feedback, word: question.word, examples: sheetExamples)
+        showsExampleSheet = true
     }
 
     // MARK: Questions
@@ -492,10 +530,12 @@ final class ExerciseRunViewModel: ObservableObject {
     private func show() async {
         question = nil
         feedback = nil
+        showsExampleSheet = false
         typed = ""
         while index < plan.count {
             let card = plan[index].card
             if let word = words[card.key.word], let built = await build(card, word) {
+                sheetExamples = await shownExamples(of: built.word.key)
                 question = built
                 position = index + 1
                 total = plan.count
@@ -546,6 +586,25 @@ final class ExerciseRunViewModel: ObservableObject {
                                      meaningsLang: meaningsLang, rng: &rng)
     }
 
+    /// 0134, #178: the sheet's examples of `key`, read once per run and
+    /// word: up to 3, those with a translation in the via first, each with
+    /// its learning translation. None without a via or examples, or when
+    /// the read fails: examples are extra.
+    private func shownExamples(of key: WordKey) async -> [ShownExample] {
+        guard let via else { return [] }
+        let all: [ExampleSentence]
+        if let cached = examples[key] {
+            all = cached
+        } else {
+            all = (try? await db.examples(for: key, limit: 5)) ?? []
+            examples[key] = all
+        }
+        return ExampleText.forLearning(all, via: via, limit: 3).map {
+            ShownExample(sentence: $0, translation: ExampleText.learningTranslation(for: $0, via: via,
+                                                                                    meanings: meaningsLang))
+        }
+    }
+
     /// The source sample for `word`'s part of speech, read once per run and
     /// source: with a pair, from the pair dictionary that gave its meaning,
     /// else the pair's first; without (Other), from its own source.
@@ -573,6 +632,10 @@ final class ExerciseRunViewModel: ObservableObject {
         feedback = AnswerFeedback(outcome: outcome, chosenIndex: chosen, mindTheAccent: mindTheAccent,
                                   rightAnswer: question.rightAnswer)
         player.play(outcome)
+        // 0134, #178: a new word's first question opens its examples.
+        if question.isNew, introducedWords.insert(question.word.key).inserted {
+            showExamples()
+        }
         let durationMs = min(max(Int(clock.now().timeIntervalSince(shownAt) * 1000), 0), ReviewSummary.durationCapMs)
         answered += 1
         let record = AnswerRecord(card: question.card.key, exercise: question.exercise, mode: run.mode,

@@ -512,6 +512,32 @@ final class GreekLocalizationTests: XCTestCase {
         try assertNoEnglishLeak(on: "Inflection table, all forms", skippingIdentifierPrefixes: ["definition_content"])
     }
 
+    /// 0134, #178: γράφω's examples in Greek: the title "Παραδείγματα", the
+    /// More button, and the English translation (a Greek UI shows the
+    /// English one of a Greek sentence), with "Από το Tatoeba: Zeus και CH".
+    func testExamplesInGreek() throws {
+        let field = app.searchFields.firstMatch
+        XCTAssertTrue(field.waitForExistence(timeout: TestData.Timeouts.long))
+        field.tap()
+        dismissSiriPrivacyNoticeIfPresent()
+        app.searchFields.firstMatch.typeText("γράφω")
+        let row = app.collectionViews.firstMatch.cells
+            .containing(.any, identifier: AccessibilityIdentifiers.Search.sourceBadge(source: TestData.Sources.freedictEllEng))
+            .containing(NSPredicate(format: "label == %@", "γράφω"))
+            .firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: TestData.Timeouts.long), "'γράφω' must list the FreeDict entry")
+        dismissKeyboardIfPresent()
+        row.tap()
+        let page = DefinitionPage(app: app)
+        XCTAssertTrue(page.waitForExamples(timeout: TestData.Timeouts.long), "γράφω has examples")
+        XCTAssertEqual(page.examplesTitle.label, "Παραδείγματα")
+        XCTAssertEqual(page.example(1).label, "Έγραψε ένα γράμμα. She wrote a letter. Από το Tatoeba: Zeus και CH")
+        XCTAssertTrue(InflectionTablePage(app: app).reveal(page.examplesMoreButton))
+        XCTAssertEqual(page.examplesMoreButton.label, "Περισσότερα παραδείγματα")
+        attachScreenshot("15-examples-grafo")
+        try assertNoEnglishLeak(on: "Examples", skippingIdentifierPrefixes: ["definition_content", "example_"])
+    }
+
     /// Issue #145: the Search chips in Greek. "All" reads "Όλα τα λεξικά",
     /// the Greek pair comes first (the #88 default), and with every chip off
     /// a query shows the Greek hint.

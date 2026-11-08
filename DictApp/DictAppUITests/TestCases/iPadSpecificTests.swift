@@ -287,9 +287,12 @@ final class iPadSpecificTests: XCTestCase {
 
             run.choose(right: true)
             XCTAssertEqual(run.waitForFeedback(), "right")
-            let continueButton = run.continueButton
-            XCTAssertLessThanOrEqual(continueButton.frame.width, 600, "the feedback bar's button in the column")
-            XCTAssertEqual(continueButton.frame.midX, window.midX, accuracy: 2)
+            // The bar's buttons: Continue, with Example beside it when the
+            // word has examples (0134, #178).
+            var buttons = run.continueButton.frame
+            if run.exampleButton.exists { buttons = buttons.union(run.exampleButton.frame) }
+            XCTAssertLessThanOrEqual(buttons.width, 600, "the feedback bar's buttons in the column")
+            XCTAssertEqual(buttons.midX, window.midX, accuracy: 2)
             run.tapContinue()
             answered += 1
         }

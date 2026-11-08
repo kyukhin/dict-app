@@ -23,6 +23,16 @@ class ExercisePage: BasePage {
     var continueButton: XCUIElement { app.buttons[IDs.continueButton].firstMatch }
     var summary: XCUIElement { element(IDs.summary) }
     var summaryDone: XCUIElement { app.buttons[IDs.summaryDone].firstMatch }
+    /// 0134, #178: the bar's Example button and the example sheet.
+    var exampleButton: XCUIElement { app.buttons[AccessibilityIdentifiers.Examples.exampleButton].firstMatch }
+    var exampleSheet: XCUIElement { element(AccessibilityIdentifiers.Examples.sheet) }
+    var exampleSheetWord: XCUIElement { element(AccessibilityIdentifiers.Examples.sheetWord) }
+    var exampleSheetContinue: XCUIElement { app.buttons[AccessibilityIdentifiers.Examples.sheetContinue].firstMatch }
+
+    /// Example `n` (from 1) on the sheet.
+    func example(_ n: Int) -> XCUIElement {
+        element(AccessibilityIdentifiers.Examples.example(n))
+    }
 
     /// A summary value's text (#161): `IDs.summaryExercises` reads "11".
     func summaryValue(_ identifier: String) -> String {
@@ -92,9 +102,22 @@ class ExercisePage: BasePage {
         return feedback.value as? String
     }
 
+    /// Continue: the example sheet's when it is up (0134, #178: a new word's
+    /// first answer opens it, slightly after the bar), else the bar's.
     func tapContinue() {
+        if waitForExampleSheet(timeout: newBadge.exists ? TestData.Timeouts.short : 0) {
+            XCTAssertTrue(exampleSheetContinue.waitForExistence(timeout: TestData.Timeouts.medium), "the sheet's Continue")
+            exampleSheetContinue.tap()
+            XCTAssertTrue(exampleSheet.waitForNonExistence(timeout: TestData.Timeouts.medium), "the sheet closes")
+            return
+        }
         XCTAssertTrue(continueButton.waitForExistence(timeout: TestData.Timeouts.medium), "Continue")
         continueButton.tap()
+    }
+
+    /// Whether the example sheet is up within `timeout`.
+    func waitForExampleSheet(timeout: TimeInterval = TestData.Timeouts.medium) -> Bool {
+        exampleSheet.exists || (timeout > 0 && exampleSheet.waitForExistence(timeout: timeout))
     }
 
     func tapDone() {

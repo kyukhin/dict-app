@@ -34,13 +34,21 @@ struct ExerciseRunView: View {
         .safeAreaInset(edge: .bottom, spacing: 0) {
             VStack {
                 if let feedback = vm.feedback {
-                    FeedbackBar(feedback: feedback) {
+                    // 0134, #178: Example beside Continue when the word has examples.
+                    FeedbackBar(feedback: feedback, onExample: vm.sheetExamples.isEmpty ? nil : { vm.showExamples() }) {
                         Task { await vm.next() }
                     }
                     .transition(.move(edge: .bottom).combined(with: .opacity))
                 }
             }
             .animation(.easeOut(duration: 0.2), value: vm.feedback)
+        }
+        .sheet(isPresented: $vm.showsExampleSheet) {
+            if let content = vm.exampleSheet {
+                ExampleSheet(content: content) {
+                    Task { await vm.next() }
+                }
+            }
         }
         .background(Color(.systemBackground))
         .sensoryFeedback(trigger: vm.feedback) { _, feedback in
@@ -467,23 +475,26 @@ private struct OptionButton: View {
     }
 }
 
-/// Slides up on an answer: "Right!" or "Right answer: write", and Continue.
-/// The drill (0132, #168) puts the whole tense above Continue (`detail`);
-/// taller than `detailMaxHeight`, the result and the tense scroll.
+/// Slides up on an answer: "Right!" or "Right answer: write", and Continue;
+/// Example beside it when the word has examples (0134, #178). The drill
+/// (0132, #168) puts the whole tense above Continue (`detail`); taller than
+/// `detailMaxHeight`, the result and the tense scroll.
 struct FeedbackBar: View {
     let feedback: AnswerFeedback
     let detail: AnyView?
     let detailMaxHeight: CGFloat?
+    /// Opens the example sheet; nil: no Example button.
+    let onExample: (() -> Void)?
     let onContinue: () -> Void
-    @Environment(\.locale) private var locale
     /// The result's and `detail`'s height, to fit the scroll to them.
     @State private var resultHeight: CGFloat = 0
 
     init(feedback: AnswerFeedback, detail: AnyView? = nil, detailMaxHeight: CGFloat? = nil,
-         onContinue: @escaping () -> Void) {
+         onExample: (() -> Void)? = nil, onContinue: @escaping () -> Void) {
         self.feedback = feedback
         self.detail = detail
         self.detailMaxHeight = detailMaxHeight
+        self.onExample = onExample
         self.onContinue = onContinue
     }
 
@@ -493,7 +504,7 @@ struct FeedbackBar: View {
         VStack(alignment: .leading, spacing: 12) {
             if let detail {
                 let content = VStack(alignment: .leading, spacing: 12) {
-                    result
+                    FeedbackResultLine(feedback: feedback)
                     detail
                 }
                 if let detailMaxHeight, detailMaxHeight > 0 {
@@ -508,16 +519,23 @@ struct FeedbackBar: View {
                     content
                 }
             } else {
-                result
+                FeedbackResultLine(feedback: feedback)
             }
-            Button(action: onContinue) {
-                Text("exercise.continue")
-                    .frame(maxWidth: .infinity)
+            if let onExample {
+                // Side by side; stacked when the text is too large for that.
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 12) {
+                        exampleButton(onExample, fills: false)
+                        continueButton
+                    }
+                    VStack(spacing: 12) {
+                        continueButton
+                        exampleButton(onExample, fills: true)
+                    }
+                }
+            } else {
+                continueButton
             }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.large)
-            .tint(isRight ? .green : .red)
-            .accessibilityIdentifier("exercise_continue")
         }
         .padding()
         .frame(maxWidth: ExerciseRunView.maxWidth, alignment: .leading)
@@ -533,24 +551,28 @@ struct FeedbackBar: View {
         .accessibilityIdentifier("exercise_feedback")
     }
 
-    /// The mark, "Right!" or "Right answer: …", and a detail line.
-    private var result: some View {
-        let lines = Self.lines(feedback, locale: locale)
-        return HStack(alignment: .firstTextBaseline, spacing: 10) {
-            Image(systemName: isRight ? "checkmark.circle.fill" : "xmark.circle.fill")
-                .font(.title2)
-                .foregroundStyle(isRight ? Color.green : Color.red)
-                .accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: 4) {
-                Text(verbatim: lines.title)
-                    .font(.headline)
-                if let detail = lines.detail {
-                    Text(verbatim: detail)
-                        .font(.subheadline)
-                }
-            }
-            .fixedSize(horizontal: false, vertical: true)
+    private var continueButton: some View {
+        Button(action: onContinue) {
+            Text("exercise.continue")
+                .frame(maxWidth: .infinity)
         }
+        .buttonStyle(.borderedProminent)
+        .controlSize(.large)
+        .tint(isRight ? .green : .red)
+        .accessibilityIdentifier("exercise_continue")
+    }
+
+    /// `fills`: as wide as Continue, under it; else as wide as its label.
+    private func exampleButton(_ action: @escaping () -> Void, fills: Bool) -> some View {
+        Button(action: action) {
+            Label("examples.button", systemImage: "text.quote")
+                .frame(maxWidth: fills ? .infinity : nil)
+                .fixedSize(horizontal: !fills, vertical: false)
+        }
+        .buttonStyle(.bordered)
+        .controlSize(.large)
+        .tint(isRight ? .green : .red)
+        .accessibilityIdentifier("exercise_example_button")
     }
 
     /// The bar's text, also announced by VoiceOver. The word or meaning is
@@ -571,6 +593,82 @@ struct FeedbackBar: View {
         case .wrong:
             return (text(feedback.mindTheAccent ? "exercise.mindAccent %@" : "exercise.rightAnswer %@", feedback.rightAnswer), nil)
         }
+    }
+}
+
+/// The result line, as the bar and the example sheet show it: a check
+/// mark or a cross, "Right!" or "Right answer: write", and "Mind the
+/// accent" under it.
+private struct FeedbackResultLine: View {
+    let feedback: AnswerFeedback
+    @Environment(\.locale) private var locale
+
+    var body: some View {
+        let isRight = feedback.outcome.isRight
+        let lines = FeedbackBar.lines(feedback, locale: locale)
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
+            Image(systemName: isRight ? "checkmark.circle.fill" : "xmark.circle.fill")
+                .font(.title2)
+                .foregroundStyle(isRight ? Color.green : Color.red)
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(verbatim: lines.title)
+                    .font(.headline)
+                if let detail = lines.detail {
+                    Text(verbatim: detail)
+                        .font(.subheadline)
+                }
+            }
+            .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+}
+
+// MARK: - The example sheet (0134, #178)
+
+/// After a new word's first answer, or from the bar's Example button: the
+/// result line, the word as the question shows it, 1–3 examples with their
+/// translation in the via, and Continue, which goes to the next question as
+/// the bar's does. iPhone: half height, pulled up to full; full height at
+/// accessibility text sizes. iPad: a form sheet. Continue stays at the bottom
+/// while the examples scroll.
+struct ExampleSheet: View {
+    let content: ExampleSheetContent
+    let onContinue: () -> Void
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
+    var body: some View {
+        VStack(spacing: 0) {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 20) {
+                    FeedbackResultLine(feedback: content.feedback)
+                    LearnWordText(term: content.word.term, endings: content.word.endings, lang: content.word.key.lang)
+                        .font(.title.bold())
+                        .fixedSize(horizontal: false, vertical: true)
+                        .accessibilityAddTraits(.isHeader)
+                        .accessibilityIdentifier("example_sheet_word")
+                    ForEach(Array(content.examples.enumerated()), id: \.element.sentence.id) { index, example in
+                        ExampleSentenceView(example: example, number: index + 1)
+                    }
+                }
+                .padding()
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            Button(action: onContinue) {
+                Text("exercise.continue")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+            .tint(content.feedback.outcome.isRight ? .green : .red)
+            .accessibilityIdentifier("example_sheet_continue")
+            .padding()
+            .background(.bar)
+        }
+        .presentationDetents(dynamicTypeSize.isAccessibilitySize ? [.large] : [.medium, .large])
+        .presentationDragIndicator(.visible)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("example_sheet")
     }
 }
 

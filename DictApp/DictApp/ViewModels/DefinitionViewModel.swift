@@ -61,6 +61,10 @@ final class DefinitionViewModel: ObservableObject {
         let meaningsLang: String
     }
 
+    /// 0134, #178: the examples of the entry's word (`wordKey(for:)`), in
+    /// the build's order; empty for words without examples.
+    @Published private(set) var examples: [ExampleSentence] = []
+
     let entry: DictionaryEntry
     /// Issue #202: the headword's voice language. Without that voice the
     /// speaker button is hidden rather than reading the word in another language.
@@ -260,5 +264,16 @@ final class DefinitionViewModel: ObservableObject {
     private func startPractise(_ verb: DrillVerb) {
         let level = DrillScope.tenseLevel(checked: settings.learningListIDs, stored: settings.learningDrillTenses)
         practiseRun = PractiseRun(verb: verb, level: level, meaningsLang: drillMeaningsLang)
+    }
+
+    // MARK: - 0134, #178: example sentences
+
+    /// Loads the examples of the entry's `WordKey`: γράφω from El–En · FD
+    /// and from El–En · WN shows the same ones. Examples are extra: a failed
+    /// read leaves the screen without them.
+    func loadExamples() async {
+        guard let key = try? await db.wordKey(for: EntryKey(entry)),
+              let found = try? await db.examples(for: key) else { return }
+        examples = found
     }
 }
