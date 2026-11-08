@@ -1,6 +1,5 @@
 lemma	γράφω	verb	γράφω,γράφεις,γράφει,έγραψα,έγραψε,γράψω,γράψε
 lemma	ημέρα	noun	ημέρα,ημέρας,ημέρες,μέρα
-lemma	μαλάκας	noun	μαλάκας,μαλάκα,μαλάκες
 lemma	πηγαίνω	verb	πηγαίνω,πήγα
 link	πάω	πηγαίνω
 headword	γράφω
@@ -20,7 +19,6 @@ morphy	even	14
 morphy	walk	3
 morphy	house	3
 morphy	write	2
-morphy	fuck	2
 morphy	good	5
 morphy	be	2
 morphy	hope	3

@@ -92,9 +92,8 @@ Credits gains "Example sentences: Tatoeba (tatoeba.org), CC BY 2.0 FR. Each exam
 
 Filtered at build time, never at run time:
 - Tatoeba's own tags: the sentence or translation carries a maintenance tag (`@change`, `@needs native check`, `@check translation`, `@delete`, …) or a content tag (`vulgar`, `offensive`, `rude`, `sexual`, `racist`, `slur`, `violence`, `drugs`, …). The full list is in `build_examples.py`.
-- A stoplist: Greek and English by lemma, so every form counts (γαμάω covers γαμάς, γάμησε); Russian, Spanish and Arabic translations by word prefix. A translation with a stoplisted word is dropped; if it was the English one of a Greek sentence, the sentence goes too.
-- Measured: tags drop 318 Greek sentences and 19 of their translations, the stoplist 78 and 16; for English, tags drop 1,037 sentences and the stoplist 4,888.
-- A user who still finds a bad sentence reports it through "Report a bug"; the next data refresh adds it to the stoplist.
+- Measured (the build of 2026-11-08): tags drop 315 Greek sentences and 28 of their translations; for English, 486 sentences of the subset and 831 translations.
+- A user who still finds a bad sentence reports it through "Report a bug"; we tag it on Tatoeba and the next data refresh drops it.
 
 ### Decisions
 
@@ -113,6 +112,7 @@ Filtered at build time, never at run time:
 - 2026-11-04 (Kirill): Greek via Russian is offered as a limited pair (0131), although there is no Greek–Russian dictionary. Applied here: in learning, its examples show the Russian translation when Tatoeba has a direct one, else the English one; examples with a Russian translation come first. Direct translations only, as before.
 - 2026-11-04 (Kirill, Open question 5): the 85% gate counts all 500 verbs; a data refresh that falls below asks Kirill in its PR with the list of misses.
 - 2026-11-04 (Kirill, Open question 6): the examples section sits above the inflection table on the Definition screen.
+- 2026-11-08 (Kirill): no stoplist; only Tatoeba's own tags filter the sentences. Replaces #177's "a stoplist".
 
 Design choices of this spec, for review:
 - Greek examples ship in the Greek pack, English examples in the English lists pack; the bundle gains only empty tables.
@@ -230,16 +230,15 @@ Export of 2026-10-31 (`Last-Modified` Sat, 31 Oct 2026 06:39–06:59 GMT), 22 fi
 
 **Steps** (`build(conn, cache_dir)`, after `build_forms`, `build_morphy` and `build_wordlists`, whose tables it reads):
 
-1. **Sentences.** A Greek sentence is a candidate when, in this order (measured drops):
+1. **Sentences.** A Greek sentence is a candidate when, in this order (drops measured on the build of 2026-11-08):
    - it has an author: an orphan has no one to credit (476);
-   - it has no blocking tag (318);
+   - it has no blocking tag (315);
    - it has at most 15 words (911);
-   - it has no stoplisted word (78);
-   - it has a usable English translation (11,387: most link only to other languages; 339 English translations have no author, 10 are tagged, 14 stoplisted).
-   - 29,815 candidates remain.
+   - it has a usable English translation (11,413: most link only to other languages; 297 English translations have no author, 15 are tagged).
+   - 29,870 candidates remain.
 
-   An English sentence is a candidate when it has an author (44,402 of 2,040,024 have none, most of them Tanaka corpus sentences), no blocking tag (1,037), at most 15 words (73,557), no stoplisted word (4,888) and at least one usable direct translation into rus, spa, arb or ell: an example for learners whose UI or via is one of those.
-2. **Translations.** Tatoeba's direct links only, both directions. Per language the first usable one (author, no blocking tag, no stoplisted word), by: author declares that language native, then lowest id. Candidates with Russian: 3,169, Spanish 1,857, Arabic 265.
+   An English sentence is a candidate when it has an author (44,402 of 2,040,024 have none, most of them Tanaka corpus sentences), no blocking tag (1,037), at most 15 words (73,557) and at least one usable direct translation into rus, spa, arb or ell: an example for learners whose UI or via is one of those.
+2. **Translations.** Tatoeba's direct links only, both directions. Per language the first usable one (author, no blocking tag), by: author declares that language native, then lowest id. Candidates with Russian: 3,172, Spanish 1,865, Arabic 264 (the build of 2026-11-08).
 3. **Tokens.** Runs of letters and marks, an inner apostrophe kept (`[^\W\d_]+(?:['’][^\W\d_]+)*`), each with its start and length in Unicode scalars.
 4. **Keys.** A token, lowercased (Python `str.lower()`) and NFC, gives:
    - the `word` of every lemma it is a cell of (`paradigm`), the lemma's own word, or one of its link pages (`form_link`): έγραψα → γράφω, πάει → πάω;
@@ -255,28 +254,23 @@ Export of 2026-10-31 (`Last-Modified` Sat, 31 Oct 2026 06:39–06:59 GMT), 22 fi
    English ranks the number of translations first, then the native author: nearly every English candidate has a native author, and the vias of English (Spanish, Greek) are the rarer translations.
 
    Then take, in that order, one sentence per new form first, then the rest, up to 5. So γράφω shows έγραψε, έγραψα, γράψω, γράψε, γράφω, and go shows go, going, went, goes, gone. The highlight is the first token of the sentence that gave the key.
-6. **Stoplist.** `Scripts/data/examples-stoplist.tsv` (`lang`, `kind`, `entry`):
-   - Greek seed: the one-word lemmas of the pinned Wiktionary subset (0136) whose every sense is tagged vulgar, offensive, derogatory, pejorative or slur: 187 lemmas;
-   - lines with `kind` `remove` drop seed entries that are not offensive (measured candidates: χειμωνιάτικα, καλοκαιριάτικα, όχλος, σκάσε);
-   - `lemma` lines add Greek or English lemmas (γαμάω, χέζω, αυτοκτονώ, βιασμός; English as the prototype list); `prefix` lines add Russian, Spanish and Arabic word starts (хуй, пизд, puta, mierd, …).
-   - The developer drafts it; Kirill reviews the whole list in the #177 PR. βιάζω is not on it: its forms are also βιάζομαι's ("I'm in a hurry", a top-500 verb).
-7. **Credit.** The `data_source` row.
+6. **Credit.** The `data_source` row.
 
 **Gates** (`build()` raises, so the build fails):
 
 | Gate | Measured |
 |---|---|
-| Top-500 Greek verbs (0136's ranking) with 3+ examples ≥ 85% | 428 of 500, 85.6%. 6 of the 72 misses are stoplisted on purpose (γαμάω, γαμημένος, γαμιέμαι, γαμήσου, αυτοκτονώ, χέζω); many others are participles tagged as verbs (καλεσμένος, δεμένος) or rare in Tatoeba (ερευνάω, κανονίζω). 472 have at least one. Top-500 nouns with 3+: 430 (reported, not gated) |
+| Top-500 Greek verbs (0136's ranking) with 3+ examples ≥ 85% | 429 of 500, 85.8% (the build of 2026-11-08). Many of the 71 misses are participles tagged as verbs (καλεσμένος, δεμένος) or rare in Tatoeba (ερευνάω, κανονίζω). 476 have at least one. Top-500 nouns with 3+: 434 (reported, not gated) |
 | Every Greek sentence stored has an English translation; every English one has a translation into rus, spa, arb or ell; every stored text has an author | holds |
 | English list words with 3+ examples (reported, not gated) | 6,622 of 8,609; 7,458 have at least one |
 | Every span lies inside its text, and its token gives its key | holds |
-| No stored sentence or translation has a stoplisted word or a blocking tag (checked again on the output) | 0 |
+| No stored sentence or translation has a blocking tag (checked again on the output) | 0 |
 | Example tables ≤ 10 MB in the full file | 9.24 MB (Greek 2.34, English 6.90) |
 | Every translation and word row points at a stored sentence | holds |
 
-**Report** `Scripts/reports/examples-qa.md`, rewritten by every build and committed: the export date and hashes; counts per filter; candidates and translations per language; the coverage gate with the missing verbs listed; every stoplist hit; samples (γράφω, είμαι, σπίτι, καλός, μέρα; go, house, write, good); table sizes and a sha256 of each table's rows in key order.
+**Report** `Scripts/reports/examples-qa.md`, rewritten by every build and committed: the export date and hashes; counts per filter; candidates and translations per language; the coverage gate with the missing verbs listed; the blocking tags hit; samples (γράφω, είμαι, σπίτι, καλός, μέρα; go, house, write, good); table sizes and a sha256 of each table's rows in key order.
 
-**Reproducibility.** Sorted inserts, no timestamps; `build_dictionaries.py --verify` and `cut_packs.py --verify` (0237) prove the files byte-identical. `build_examples.py --self-check` runs offline on `Scripts/fixtures/tatoeba-sample/` (about 30 lines in the subset's format, with a small forms fixture): a tagged sentence, an orphan, a 16-word sentence, a stoplisted sentence and a stoplisted translation, a Greek sentence without English, γράφω in six forms (five kept, the new forms first), μέρα, πότε and ποτέ, two Russian translations by a native and a non-native author; went, going and gone keying go, an English sentence without any translation (dropped), an English word not in the lists fixture (no key). It builds twice and requires equal table hashes, as `build_forms.py --self-check` does.
+**Reproducibility.** Sorted inserts, no timestamps; `build_dictionaries.py --verify` and `cut_packs.py --verify` (0237) prove the files byte-identical. `build_examples.py --self-check` runs offline on `Scripts/fixtures/tatoeba-sample/` (about 30 lines in the subset's format, with a small forms fixture): a tagged sentence and a tagged translation, an orphan, a 16-word sentence, a Greek sentence without English, γράφω in six forms (five kept, the new forms first), μέρα, πότε and ποτέ, two Russian translations by a native and a non-native author; went, going and gone keying go, an English sentence without any translation (dropped), an English word not in the lists fixture (no key). It builds twice and requires equal table hashes, as `build_forms.py --self-check` does.
 
 ### Reading (#178)
 
@@ -315,7 +309,7 @@ Export of 2026-10-31 (`Last-Modified` Sat, 31 Oct 2026 06:39–06:59 GMT), 22 fi
 - Texts are shown unchanged (only NFC), so no notice of changes is needed.
 - Credits names Tatoeba, the license and tatoeba.org; the `data_source` row records the same. The committed subset keeps every author.
 - The dictionaries already ship CC BY-SA 3.0 and 4.0 data with attribution in Credits; CC BY 2.0 FR asks no more than that.
-- Build inputs only, nothing shipped: the Wiktionary subset for the stoplist seed (CC BY-SA 4.0, already credited for the forms) and FrequencyWords for the gate (CC BY-SA 4.0, as in 0136).
+- Build input only, nothing shipped: FrequencyWords for the gate (CC BY-SA 4.0, as in 0136).
 
 ### Identifiers
 
@@ -353,7 +347,7 @@ Seven keys. The implementing agent checks these texts and enters them in the cat
 | Path | Change | Ticket |
 |---|---|---|
 | `Scripts/build_examples.py` | New step in `STEPS`: `SCHEMA` and an empty `build()` (#240); the pipeline, `--refresh` and `--self-check` (#177) | #240, #177 |
-| `Scripts/data/tatoeba-20261031/*.tsv.xz` (LFS), `Scripts/data/examples-stoplist.tsv`, `Scripts/fixtures/tatoeba-sample/`, `Scripts/reports/examples-qa.md`; `.gitattributes` | New | #177 |
+| `Scripts/data/tatoeba-20261031/*.tsv.xz` (LFS), `Scripts/fixtures/tatoeba-sample/`, `Scripts/reports/examples-qa.md`; `.gitattributes` | New | #177 |
 | `Scripts/packs.json`, `Scripts/build_dictionaries.py` | The row filters; the step in `STEPS`, within format 4 | #240 |
 | `Scripts/inputs.json` | The export and subset pins | #177 |
 | `DictApp/DictApp/Resources/dictionaries.sqlite`, `empty-pack.sqlite` | The empty tables, in format 4 | #240 |
@@ -376,7 +370,7 @@ Sizes are pipeline days: development, QA on the four simulators, review and the 
 | Ticket | Scope | Needs | Size | Stream |
 |---|---|---|---|---|
 | #240 (0237 T1), the E7 part | `build_examples.py` with `SCHEMA` and an empty `build()` in `STEPS`; the three tables in format 4; the `packs.json` filters | — | +0.25 | Data |
-| #177 Pipeline | `build_examples.py` (filters, keys, choice, gates, report, `--refresh`, `--self-check`) for Greek (2) and English (1); both subsets and the pins; the stoplist with Kirill's review; rebuilt `ell` and `eng-lists` assets; `--verify` | Approval; #240; E3 #153 (the English key set) and #152, or a rebase after them (one rebuilt file per data PR, 0129) | L, 3 | Data, whichever is free |
+| #177 Pipeline | `build_examples.py` (filters, keys, choice, gates, report, `--refresh`, `--self-check`) for Greek (2) and English (1); both subsets and the pins; rebuilt `ell` and `eng-lists` assets; `--verify` | Approval; #240; E3 #153 (the English key set) and #152, or a rebase after them (one rebuilt file per data PR, 0129) | L, 3 | Data, whichever is free |
 | #178 Definition and learning | Model, read, Definition section, More, byline, VoiceOver, Arabic, Credits, the strings in five languages, `ExampleSentencesTests` on the matrix with a Greek and an English word (1.75); the learning sheet, the bar's Example button and their tests (1.0); the via translation (0.25) | #177 for the data (unit tests start on made-up rows); E3 #151 (`wordKey(for:)`; if absent, add exactly it, as 0131 allows #157); 0237 T2 #241 (`-installPacks`). The learning part: E4 #157 (`LearningPairs.via`), #159 and #161 | L, 3 | UI |
 
 - 6 stream-days, plus 0.25 inside #240. Against the first draft's 4.25: English +1.25 (Kirill, 2026-11-04) and the sheet in place of a line in the feedback bar +0.5.
@@ -393,7 +387,7 @@ Unit classes go in `DictAppTests.swift`; async tests are `@MainActor` (#229). Da
 | #134, #177, #178: each example has a translation, the highlighted form and its author | Build gates. Unit `ExampleDataTests.testEveryExampleIsComplete` (in both packs: every Greek sentence has an English translation, every English one a translation into rus, spa, arb or ell, every text an author, every span inside its text), `ExampleTextTests.testHighlightCoversTheForm` (bold and tinted exactly on the span; a span past the end gives the plain text), `testBylineNamesBothAuthors` (one name when they are equal or no translation shows). UI `ExampleSentencesTests.testGreekWordShowsExamples` (γράφω: `examples_section`, 3 examples, each with a sentence, a translation and a byline ending "Tatoeba"; More shows 5 and reads "Fewer examples") |
 | #178: More is hidden with 3 or fewer examples | UI `ExampleSentencesTests.testThreeExamplesShowNoMoreButton` (λύπη has exactly 3: no More button) |
 | #134, #178: a Russian translation with the Russian UI when Tatoeba has one | Unit `ExampleTextTests.testTranslationFollowsTheUILanguage` (ru present → ru; absent → eng; es; ar → arb; Greek UI and a Greek sentence → eng; an English sentence with the English UI → none, with the Greek UI → ell or none). UI `ExampleSentencesTests.testRussianUIShowsRussianTranslation` (`-AppleLanguages (ru)`: γράφω's first translation is Cyrillic; with the English UI it is Latin) |
-| #134, #177: offensive sentences filtered; stoplisted words never stored | Build gate (re-scan of the output). `--self-check` (the tagged, stoplisted and stoplisted-translation fixtures are absent). Unit `ExampleDataTests.testNoStoplistedWordInThePack` (reads `examples-stoplist.tsv` through `#filePath`; no stored text holds a stoplisted form, through the pack's forms tables, or a stoplisted prefix) |
+| #134, #177: offensive sentences filtered by Tatoeba's tags | Build gate (re-scan of the output: no stored sentence or translation has a blocking tag). `--self-check` (the tagged sentence and the tagged translation are absent) |
 | #134, #177: added size ≤ 10 MB | Build gate (measured 9.24 MB); table sizes in `examples-qa.md`. QA: both assets' and files' sizes, and App Size in TestFlight (unchanged), recorded in History |
 | Kirill 2026-11-04: English examples ship, in the English lists pack only | Unit `ExampleDataTests.testEnglishListWordsHaveExamples` (go, house, write, good: 3+ each in `eng-lists`; went, going, gone highlighted for go), `testExamplesGoWithTheirLanguage` (Greek rows only in `ell`, English rows only in `eng-lists`, none in the bundle, the stub or the other packs). UI `ExampleSentencesTests.testEnglishWordShowsExamples` (house from WordNet with `-installPacks eng-lists`: the section; `-AppleLanguages (es)`: a Spanish translation), `testEnglishWordWithoutTheListsPackShowsNone` (`-installPacks ell` only: house shows no section) |
 | Kirill 2026-11-04: the tables land in format 4 with #240 | Unit `ExampleDataTests.testEveryFileHasTheExampleTables` (bundle, stub and every committed asset: the three tables, empty in the bundle and the stub), with 0237's `PackFileTests.testEveryFileHasTheFormat` (format 4). Review: #177 changes no table shape and no `user_version` |
@@ -428,3 +422,4 @@ QA records in History: the gate figures, the Greek and English lists assets' and
 - 2026-11-07: #177, Morphy over-generation (CodeRabbit, PR #249): a token keys no inferred lemma when two of its lemmas are list words (lives: live, life), and no suffix-guessed lemma when the token is itself a list word (evening ↛ even, hopes ↛ hop); WordNet's irregular forms stay (was → be). 6,651 English words keep 3 or more examples (−17).
 - 2026-11-07: #177 filters as built: a Greek sentence drops when any linked English translation is stoplisted; stoplists also check the pieces of a word split at an apostrophe; tokens include combining marks (harakat, stress marks), so a prefix entry cannot be split off; a tag blocks when it starts with "@" (except audio and adoption tags) or is on the content-tag list. `inputs.json` pins the export's 22 files as one folder entry plus 8 file entries; the subset is 25.8 MB in LFS; `--refresh --export-dir --export-date` and `--standalone` are added. The stoplist awaits Kirill's review.
 - 2026-11-08: #178 as built: each example is one VoiceOver element, so UI tests read `example_<n>`'s label (the sentence, translation and byline have no reachable ids); the byline keys are `examples.byline %@` and `examples.a11y.byline %@`; usernames sit in bidi isolates in every language, not only Arabic; the sheet opens once per word per run. QA: 18 deliberate breaks each failed their target test; `ExampleReadTests.testDecomposedWordFindsItsExamples` (an NFD word) added; `examples(for:)` takes 0.11–0.18 ms in Release on iPhone 17, iOS 26.4 (target under 5 ms). Unit 949 pass; `ExampleSentencesTests` 8/8 on iPhone and iPad. E7 is implemented.
+- 2026-11-08: No stoplist (Kirill): `examples-stoplist.tsv`, its Wiktionary seed, its part of the output gate and `ExampleDataTests.testNoStoplistedWordInThePack` are gone; Tatoeba's tags are the only filter. As built: 429 of the top 500 Greek verbs have 3 or more examples (85.8%); 10,853 Greek and 29,040 English sentences; 6,662 English list words have 3 or more; tables 9.31 MB (Greek 2.34, English 6.98). The `ell` asset is 11,902,208 bytes (+31,528), `eng-lists` 2,826,948 (+5,336), both still under release `packs-20261107`.

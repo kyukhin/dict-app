@@ -46,7 +46,6 @@ import bz2
 import collections
 import email.utils
 import functools
-import gzip
 import hashlib
 import heapq
 import json
@@ -105,7 +104,6 @@ KEY_ORDER = {"example_sentence": "id", "example_translation": "sentence_id, lang
 SCRIPTS_DIR = Path(__file__).resolve().parent
 REPO = SCRIPTS_DIR.parent
 REPORT = SCRIPTS_DIR / "reports" / "examples-qa.md"
-STOPLIST = SCRIPTS_DIR / "data" / "examples-stoplist.tsv"
 FIXTURE = SCRIPTS_DIR / "fixtures" / "tatoeba-sample"
 
 # The pinned subset: `inputs.json` has one entry for the folder (the export
@@ -135,8 +133,6 @@ NATIVE_LEVEL = "5"
 FREQUENCY_KEY = "frequencywords/el_50k.txt"
 GREEK_DICTIONARIES = ("freedict-ell-eng", "wordnet-ell-eng")
 ENGLISH_LISTS = "cefr-eng"
-# The kaikki.org subset of build_forms.py: the stoplist's Greek seed.
-KAIKKI_PREFIX = "Scripts/data/kaikki-el-"
 
 DATA_SOURCE = {
     "id": "tatoeba",
@@ -175,12 +171,7 @@ CONTENT_TAGS = frozenset({
 
 # Runs of letters, an inner apostrophe kept (spec, Pipeline step 3).
 WORD = re.compile(r"[^\W\d_]+(?:['’][^\W\d_]+)*")
-APOSTROPHE = re.compile(r"['’]")
 ASCII_LOWER = str.maketrans("ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz")
-
-# The Greek stoplist seed: one-word lemmas of the Wiktionary subset whose
-# every sense carries one of these tags (spec, Pipeline step 6).
-SEED_TAGS = frozenset({"vulgar", "offensive", "derogatory", "pejorative", "slur"})
 
 
 def nfc(s: str) -> str:
@@ -195,12 +186,6 @@ def word_key(word: str) -> str:
 def tokens(text: str) -> list[tuple[str, int, int]]:
     """(token, start, length) of each word, offsets in Unicode scalars."""
     return [(m.group(0), m.start(), m.end() - m.start()) for m in WORD.finditer(text)]
-
-
-def parts(token: str) -> list[str]:
-    """The token and, around an apostrophe, its pieces: the stoplists check
-    each (fuck's, σ'αγαπώ)."""
-    return [token] + (APOSTROPHE.split(token) if APOSTROPHE.search(token) else [])
 
 
 def is_blocking(tag: str) -> bool:
@@ -261,78 +246,6 @@ def subset_paths(folder: str) -> dict[str, dict[str, Path]]:
 
 
 # ---------------------------------------------------------------------------
-# Stoplist
-# ---------------------------------------------------------------------------
-
-@dataclass
-class Stoplist:
-    """`Scripts/data/examples-stoplist.tsv` with its Greek seed."""
-    lemmas: dict[str, frozenset[str]]  # 'ell', 'eng' -> lemmas, lowercase NFC
-    prefixes: dict[str, tuple[str, ...]]  # 'rus', 'spa', 'arb' -> word starts
-    seed: tuple[str, ...] = ()
-    removed: tuple[str, ...] = ()
-    added: dict[str, tuple[str, ...]] = field(default_factory=dict)
-
-
-def stoplist_seed(lines: Iterable[str]) -> set[str]:
-    """The one-word Greek lemmas of the Wiktionary subset whose every sense
-    (form-of and alt-of senses aside) carries a SEED_TAGS tag."""
-    senses = collections.defaultdict(lambda: [0, 0])
-    for line in lines:
-        page = json.loads(line)
-        if page.get("lang_code") != "el":
-            continue
-        word = page.get("word", "")
-        for sense in page.get("senses", []):
-            if sense.get("form_of") or sense.get("alt_of"):
-                continue
-            count = senses[(word, page.get("pos", ""))]
-            count[1] += 1
-            if SEED_TAGS & set(sense.get("tags", [])):
-                count[0] += 1
-    return {nfc(word.lower()) for (word, _), (tagged, total) in senses.items()
-            if total and tagged == total and WORD.fullmatch(word)}
-
-
-def read_stoplist(path: Path, seed: set[str]) -> Stoplist:
-    """Parses the stoplist: `lang`, `kind`, `entry`, tab-separated, `#`
-    comments. `lemma` lines add Greek or English lemmas, `prefix` lines
-    Russian, Spanish or Arabic word starts, `remove` lines drop Greek seed
-    entries. A malformed line or a `remove` of no seed entry fails."""
-    lemmas = {"ell": set(seed), "eng": set()}
-    prefixes = {"rus": [], "spa": [], "arb": []}
-    added = {lang: [] for lang in ("ell", "eng", "rus", "spa", "arb")}
-    removed, problems = [], []
-    for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
-        if not line.strip() or line.startswith("#") or line == "lang\tkind\tentry":
-            continue
-        fields = line.split("\t")
-        if len(fields) != 3 or fields[2] != nfc(fields[2].strip().lower()) or not fields[2]:
-            problems.append(f"line {number}: want lang, kind and a lowercase NFC entry: {line!r}")
-            continue
-        lang, kind, entry = fields
-        if kind == "lemma" and lang in lemmas:
-            lemmas[lang].add(entry)
-            added[lang].append(entry)
-        elif kind == "prefix" and lang in prefixes:
-            prefixes[lang].append(entry)
-            added[lang].append(entry)
-        elif kind == "remove" and lang == "ell":
-            if entry not in seed:
-                problems.append(f"line {number}: remove {entry!r}, which is no seed entry")
-            lemmas["ell"].discard(entry)
-            removed.append(entry)
-        else:
-            problems.append(f"line {number}: kind {kind!r} is not for {lang!r}")
-    if problems:
-        raise RuntimeError(f"{path.name}: " + "; ".join(problems))
-    return Stoplist({k: frozenset(v) for k, v in lemmas.items()},
-                    {k: tuple(sorted(set(v))) for k, v in prefixes.items()},
-                    tuple(sorted(seed)), tuple(sorted(removed)),
-                    {k: tuple(sorted(set(v))) for k, v in added.items()})
-
-
-# ---------------------------------------------------------------------------
 # Keys: Greek through the forms tables, English through morphy
 # ---------------------------------------------------------------------------
 
@@ -352,9 +265,6 @@ class GreekWords:
         self.headwords = {nfc(word) for (word,) in reader.execute(
             f"SELECT word FROM entries WHERE source IN ({','.join('?' * len(GREEK_DICTIONARIES))})",
             GREEK_DICTIONARIES)}
-
-    def lemmas(self, token: str) -> set[str]:
-        return self.lemmas_of.get(nfc(token.lower()), set())
 
     def keys(self, token: str) -> set[str]:
         """The lemmas the token is a cell, the word or a link page of, and the
@@ -456,49 +366,6 @@ class EnglishWords:
         return frozenset(own | inferred)
 
 
-class Stops:
-    """Which stoplist entry a token or a text hits, per language."""
-
-    def __init__(self, stoplist: Stoplist, greek: GreekWords, english: EnglishWords):
-        self.stoplist, self.greek, self.english = stoplist, greek, english
-
-    def token(self, lang: str, token: str) -> str | None:
-        for part in parts(token):
-            lower = nfc(part.lower())
-            if lang == "ell":
-                stop = self.stoplist.lemmas["ell"]
-                if lower in stop:
-                    return lower
-                hit = next((w for w in sorted(self.greek.lemmas(lower)) if nfc(w.lower()) in stop), None)
-                if hit:
-                    return hit
-            elif lang == "eng":
-                stop = self.stoplist.lemmas["eng"]
-                if lower in stop:
-                    return lower
-                if lower.isascii() and lower.isalpha():
-                    hit = next((b for b in self.english.bases(lower) if b in stop), None)
-                    if hit:
-                        return hit
-            else:
-                hit = next((p for p in self.stoplist.prefixes[lang] if lower.startswith(p)), None)
-                if hit:
-                    return hit
-        return None
-
-    def text(self, lang: str, text: str) -> tuple[str, str] | None:
-        """(entry, token) of the first stoplisted token of `text`. A word
-        start matches the word without its combining marks, which would
-        split it (Arabic harakat, Russian stress marks: су́ка)."""
-        if lang in self.stoplist.prefixes:
-            text = "".join(c for c in text if unicodedata.category(c) != "Mn")
-        for tok, _, _ in tokens(text):
-            hit = self.token(lang, tok)
-            if hit:
-                return hit, tok
-        return None
-
-
 # ---------------------------------------------------------------------------
 # The pipeline
 # ---------------------------------------------------------------------------
@@ -524,7 +391,6 @@ class Result:
     candidates: dict[int, Candidate] = field(default_factory=dict)
     occurrences: dict[str, int] = field(default_factory=dict)  # key -> candidate sentences
     words: dict[str, list[tuple[int, int, int, str]]] = field(default_factory=dict)  # key -> (sid, start, length, form)
-    stop_hits: list[tuple[str, str, str, int, str]] = field(default_factory=list)  # (what, entry, token, id, text)
     tag_hits: collections.Counter = field(default_factory=collections.Counter)
 
 
@@ -552,14 +418,14 @@ def choose(occurrences: list[tuple[tuple, int, int, int, str]], limit: int = PER
     return chosen
 
 
-def build_language(lang: str, subset: Subset, keys_of: Callable[[str], Iterable[str]], stops: Stops) -> Result:
+def build_language(lang: str, subset: Subset, keys_of: Callable[[str], Iterable[str]]) -> Result:
     """Spec, Pipeline steps 1 to 5 for the sentences of one language."""
-    result = candidates(lang, subset, stops)
+    result = candidates(lang, subset)
     result.occurrences, result.words = index(result, keys_of)
     return result
 
 
-def candidates(lang: str, subset: Subset, stops: Stops) -> Result:
+def candidates(lang: str, subset: Subset) -> Result:
     """Steps 1 and 2: the sentences that pass the filters, with their
     translations and their rank."""
     result = Result(lang)
@@ -578,11 +444,6 @@ def candidates(lang: str, subset: Subset, stops: Stops) -> Result:
             elif blocking:
                 reason = "blocking tag"
                 result.tag_hits.update(blocking)
-            else:
-                hit = stops.text(tl, nfc(raw))
-                if hit:
-                    reason = "stoplisted word"
-                    result.stop_hits.append((f"{tl} translation", hit[0], hit[1], tid, nfc(raw)))
             usable_cache[tid] = reason
             result.translation_drops.setdefault(tl, collections.Counter())[reason or "usable"] += 1
         return usable_cache[tid]
@@ -603,22 +464,7 @@ def candidates(lang: str, subset: Subset, stops: Stops) -> Result:
         if len(toks) > MAX_WORDS:
             drops[f"over {MAX_WORDS} words"] += 1
             continue
-        hit = stops.text(lang, text)
-        if hit:
-            drops["stoplisted word"] += 1
-            result.stop_hits.append(("sentence", hit[0], hit[1], sid, text))
-            continue
         linked = [t for t in subset.links.get(sid, ()) if t in subset.sentences]
-        if lang == "ell":
-            # A stoplisted English translation shows what the Greek says: the
-            # sentence goes too (spec, "Offensive sentences").
-            english = [t for t in linked if subset.sentences[t][0] == "eng"]
-            bad = next(((t, h) for t in english if (h := stops.text("eng", nfc(subset.sentences[t][1])))), None)
-            if bad:
-                drops["stoplisted English translation"] += 1
-                result.stop_hits.append(("English translation of a Greek sentence", bad[1][0], bad[1][1], bad[0],
-                                         nfc(subset.sentences[bad[0]][1])))
-                continue
         translations = {}
         for tl in TRANSLATIONS[lang]:
             options = [t for t in linked if subset.sentences[t][0] == TATOEBA[tl] and not unusable(t, tl)]
@@ -635,8 +481,8 @@ def candidates(lang: str, subset: Subset, stops: Stops) -> Result:
         native = (tatoeba, author) in subset.natives
         result.candidates[sid] = Candidate(sid, text, author, toks, translations, native,
                                            rank(lang, native, len(translations), len(toks), sid))
-    order = ["no author", "blocking tag", f"over {MAX_WORDS} words", "stoplisted word",
-             "stoplisted English translation", "no usable English translation", "no usable translation"]
+    order = ["no author", "blocking tag", f"over {MAX_WORDS} words", "no usable English translation",
+             "no usable translation"]
     result.drops = {name: drops[name] for name in order if name in drops}
     return result
 
@@ -739,7 +585,7 @@ def shipped_size(rows: Rows, lang: str | None = None) -> tuple[dict[str, int], i
 # Checks on the output (the gates that do not need the frequency list)
 # ---------------------------------------------------------------------------
 
-def output_failures(rows: Rows, results: list[Result], subsets: dict[str, Subset], stops: Stops,
+def output_failures(rows: Rows, results: list[Result], subsets: dict[str, Subset],
                     keys_of: dict[str, Callable[[str], Iterable[str]]]) -> dict[str, list[str]]:
     """Problems per gate (spec, Gates), checked on the rows as stored."""
     tags = {}
@@ -758,17 +604,15 @@ def output_failures(rows: Rows, results: list[Result], subsets: dict[str, Subset
             complete.append(f"{sid}: an English sentence without a translation into rus, spa, arb or ell")
         if not author or text != nfc(text) or not text:
             complete.append(f"{sid}: no author, or a text not in NFC")
-        hit = stops.text(lang, text)
-        if hit or any(is_blocking(t) for t in tags.get(sid, ())):
-            clean.append(f"sentence {sid}: {hit or sorted(tags.get(sid, ()))}")
+        if any(is_blocking(t) for t in tags.get(sid, ())):
+            clean.append(f"sentence {sid}: {sorted(tags[sid])}")
     for sid, tl, tid, text, author in rows.translations:
         if sid not in sentences:
             references.append(f"translation {tid} of a sentence not stored: {sid}")
         if not author or text != nfc(text) or not text:
             complete.append(f"translation {tid}: no author, or a text not in NFC")
-        hit = stops.text(tl, text)
-        if hit or any(is_blocking(t) for t in tags.get(tid, ())):
-            clean.append(f"translation {tid} ({tl}): {hit or sorted(tags.get(tid, ()))}")
+        if any(is_blocking(t) for t in tags.get(tid, ())):
+            clean.append(f"translation {tid} ({tl}): {sorted(tags[tid])}")
     for lang, key, order, sid, start, length in rows.words:
         s = sentences.get(sid)
         if s is None or s[1] != lang:
@@ -852,7 +696,7 @@ def byline(sentence_author: str, translation_author: str | None) -> str:
     return ", ".join(names) + " · Tatoeba"
 
 
-def report(folder: str, pins: dict, stoplist: Stoplist, results: list[Result], english: EnglishWords,
+def report(folder: str, pins: dict, results: list[Result], english: EnglishWords,
            ambiguity: list[tuple], skipped: collections.Counter, verbs: dict, hashes: dict, sizes: dict,
            gates: list) -> str:
     folder_pin = pins[folder]
@@ -884,13 +728,13 @@ def report(folder: str, pins: dict, stoplist: Stoplist, results: list[Result], e
             left -= count
             out.append(f"| {step} | {count:,} | {left:,} |")
         out += ["", "### Translations", "", "| Language | Candidates with one | Stored | Usable links | "
-                "No author | Blocking tag | Stoplisted |", "|---|---|---|---|---|---|---|"]
+                "No author | Blocking tag |", "|---|---|---|---|---|---|"]
         for tl in TRANSLATIONS[r.lang]:
             with_tl = sum(1 for c in r.candidates.values() if tl in c.translations)
             stored = sum(1 for t in shown.translations if t[1] == tl)
             d = r.translation_drops.get(tl, collections.Counter())
             out.append(f"| {tl} | {with_tl:,} | {stored:,} | {d['usable']:,} | {d['no author']:,} | "
-                       f"{d['blocking tag']:,} | {d['stoplisted word']:,} |")
+                       f"{d['blocking tag']:,} |")
         out += ["", "### Keys", "",
                 f"- Candidates: {len(r.candidates):,}, of them by a native author: "
                 f"{sum(1 for c in r.candidates.values() if c.native):,}",
@@ -904,8 +748,8 @@ def report(folder: str, pins: dict, stoplist: Stoplist, results: list[Result], e
                     f"{len(verbs['nouns'])}",
                     f"- Greek headwords with an example: {verbs['headwords']:,} of {verbs['headwords_total']:,}",
                     "", f"**Top-{TOP_VERBS} verbs with fewer than 3 examples ({len(verbs['missing'])})**, "
-                    "with their count; *stoplisted* marks a verb the stoplist keeps out on purpose:", "",
-                    ", ".join(f"{w} ({n}{', stoplisted' if s else ''})" for w, n, s in verbs["missing"]) or "None."]
+                    "with their count:", "",
+                    ", ".join(f"{w} ({n})" for w, n in verbs["missing"]) or "None."]
         else:
             words = english.list_words
             with_one = sum(1 for w in words if w in r.words)
@@ -941,29 +785,7 @@ def report(folder: str, pins: dict, stoplist: Stoplist, results: list[Result], e
                            f"{cell(byline(c.author, shown_tl[2] if shown_tl else None))} |")
             out.append("")
 
-    out += ["## Stoplist", "",
-            f"`Scripts/data/examples-stoplist.tsv`: the Greek seed has {len(stoplist.seed)} lemmas "
-            f"({len(stoplist.removed)} removed), plus "
-            + ", ".join(f"{len(v)} {k} {'prefixes' if k in ('rus', 'spa', 'arb') else 'lemmas'}"
-                        for k, v in stoplist.added.items()) + ".", "",
-            f"**Greek seed ({len(stoplist.seed)})**: " + ", ".join(
-                f"~~{w}~~" if w in stoplist.removed else w for w in stoplist.seed) + " (struck out: removed).", ""]
-    hits = [(r.lang, *h) for r in results for h in r.stop_hits]
-    by_entry = collections.defaultdict(list)
-    for lang, what, entry, tok, sid, text in hits:
-        by_entry[(what if what != "sentence" else f"{lang} sentence", entry)].append((tok, sid, text))
-    out += [f"### Hits per entry ({len(hits):,} texts)", "",
-            "| Text | Entry | Hits | Samples |", "|---|---|---|---|"]
-    for (what, entry), found in sorted(by_entry.items(), key=lambda x: (x[0][0], -len(x[1]), x[0][1])):
-        sample = "; ".join(f"{cell(text)} ({tok}, {sid})" for tok, sid, text in found[:3])
-        out.append(f"| {what} | {entry} | {len(found):,} | {sample} |")
-    unused = [f"{e} ({lang})" for lang, entries in stoplist.added.items() for e in entries
-              if not any(k[1] == e for k in by_entry)]
-    out += ["", f"Entries with no hit ({len(unused)}): {', '.join(unused) or 'none'}."]
-    greek = [h for h in hits if h[0] == "ell"]
-    out += ["", f"### Every Greek hit ({len(greek)})", ""]
-    out += [f"- {what}: {cell(text)} ({tok} → {entry}, {sid})" for _, what, entry, tok, sid, text in greek] or ["None."]
-    out += ["", "### Blocking tags hit", "", "Sentences and translations each tag kept out."]
+    out += ["## Blocking tags hit", "", "Sentences and translations each tag kept out."]
     for r in results:
         out += ["", f"- {'Greek' if r.lang == 'ell' else 'English'}: " + ", ".join(
             f"{tag} ({n:,})" for tag, n in sorted(r.tag_hits.items(), key=lambda x: (-x[1], x[0])))]
@@ -992,11 +814,6 @@ def run(writer: sqlite3.Connection, reader: sqlite3.Connection, cache_dir: Path,
     folder = subset_folder()
     pins = inputs.pins()
     paths = subset_paths(folder)
-    kaikki = [k for k in pins if k.startswith(KAIKKI_PREFIX)]
-    if len(kaikki) != 1:
-        raise RuntimeError(f"inputs.json must pin exactly one {KAIKKI_PREFIX}*.jsonl.gz, found {kaikki}")
-    with gzip.open(inputs.committed(kaikki[0]), "rt", encoding="utf-8") as lines:
-        stoplist = read_stoplist(STOPLIST, stoplist_seed(lines))
 
     greek, english = GreekWords(reader), EnglishWords(reader)
     if not greek.lemmas_of or not greek.headwords:
@@ -1004,11 +821,10 @@ def run(writer: sqlite3.Connection, reader: sqlite3.Connection, cache_dir: Path,
     if not english.list_words or not english.lemma_masks:
         raise RuntimeError("No English list words or morphy lemmas: the step runs after build_morphy and "
                            "build_wordlists")
-    stops = Stops(stoplist, greek, english)
     subsets = {lang: read_subset(paths[lang]) for lang in SUBSETS}
     print(f"  subset {folder}: " + ", ".join(f"{lang} {len(s.sentences):,} sentences" for lang, s in subsets.items()))
-    results = [build_language("ell", subsets["ell"], greek.keys, stops),
-               build_language("eng", subsets["eng"], english.keys, stops)]
+    results = [build_language("ell", subsets["ell"], greek.keys),
+               build_language("eng", subsets["eng"], english.keys)]
     variants = {"guess": (english, results[1].words)}
     for rule in EnglishWords.AMBIGUITY_RULES[1:]:
         variant = EnglishWords(reader, rule)
@@ -1038,19 +854,18 @@ def run(writer: sqlite3.Connection, reader: sqlite3.Connection, cache_dir: Path,
     top_verbs = top_lemmas(reader, frequency, "verb")
     top_nouns = top_lemmas(reader, frequency, "noun")
     counts = {key: len(chosen) for key, chosen in results[0].words.items()}
-    stopped = {w for w in top_verbs if stops.token("ell", w)}
     three, verbs_pass = verb_gate(top_verbs, counts)
     verbs = {
         "verbs": top_verbs, "nouns": top_nouns,
         "three": three,
         "one": sum(1 for w in top_verbs if counts.get(w, 0) >= 1),
         "nouns_three": sum(1 for w in top_nouns if counts.get(w, 0) >= 3),
-        "missing": [(w, counts.get(w, 0), w in stopped) for w in top_verbs if counts.get(w, 0) < 3],
+        "missing": [(w, counts.get(w, 0)) for w in top_verbs if counts.get(w, 0) < 3],
         "headwords": sum(1 for h in greek.headwords if word_key(h) in counts),
         "headwords_total": len(greek.headwords),
     }
 
-    failures = output_failures(rows, results, subsets, stops, {"ell": greek.keys, "eng": english.keys})
+    failures = output_failures(rows, results, subsets, {"ell": greek.keys, "eng": english.keys})
     total = sum(sizes["all"][0].values())
     english_three = sum(1 for w in english.list_words if len(results[1].words.get(w, ())) >= 3)
     gates = [
@@ -1063,7 +878,7 @@ def run(writer: sqlite3.Connection, reader: sqlite3.Connection, cache_dir: Path,
          f"{english_three:,} of {len(english.list_words):,}", "—", True),
         ("Every span lies inside its text, and its token gives its key", f"{len(failures['spans'])} problems",
          "0", not failures["spans"]),
-        ("No stored sentence or translation has a stoplisted word or a blocking tag",
+        ("No stored sentence or translation has a blocking tag",
          f"{len(failures['clean'])}", "0", not failures["clean"]),
         ("Example tables of all files", f"{total / 1e6:.2f} MB", f"≤ {SIZE_BUDGET / 1e6:.0f} MB",
          total <= SIZE_BUDGET),
@@ -1071,8 +886,8 @@ def run(writer: sqlite3.Connection, reader: sqlite3.Connection, cache_dir: Path,
          "0", not failures["references"]),
     ]
     report_path.parent.mkdir(parents=True, exist_ok=True)
-    report_path.write_text(report(folder, pins, stoplist, results, english, ambiguity, skipped, verbs, hashes,
-                                  sizes, gates), encoding="utf-8")
+    report_path.write_text(report(folder, pins, results, english, ambiguity, skipped, verbs, hashes, sizes, gates),
+                           encoding="utf-8")
 
     print("  " + ", ".join(f"{t} {hashes[t][0]:,}" for t in TABLES) + f"; {total:,} bytes")
     for name, measured, needed, ok in gates:
@@ -1171,13 +986,11 @@ def self_check() -> int:
     """Build the fixture twice, compare the table hashes, check the cases."""
     reader = fixture_reader(FIXTURE)
     greek, english = GreekWords(reader), EnglishWords(reader)
-    stoplist = read_stoplist(FIXTURE / "stoplist.tsv", {"μαλάκας", "χειμωνιάτικα"})
-    stops = Stops(stoplist, greek, english)
     subsets = {lang: read_subset({part: FIXTURE / f"{lang}-{part}.tsv" for part in PARTS}) for lang in SUBSETS}
     runs = []
     for _ in range(2):
-        results = [build_language("ell", subsets["ell"], greek.keys, stops),
-                   build_language("eng", subsets["eng"], english.keys, stops)]
+        results = [build_language("ell", subsets["ell"], greek.keys),
+                   build_language("eng", subsets["eng"], english.keys)]
         rows = rows_of(results)
         conn = new_database(":memory:")
         write_rows(conn, rows, "self-check")
@@ -1199,14 +1012,14 @@ def self_check() -> int:
 
     ell, eng = results
     keys = {"ell": greek.keys, "eng": english.keys}
-    failures = output_failures(rows, results, subsets, stops, keys)
-    # The output gates on rows they must refuse: a Greek orphan without
-    # English holding a stoplisted word, a translation of no stored sentence,
-    # a span that is no token, a token that does not give its key.
-    caught = output_failures(Rows(rows.sentences + [(999, "ell", "Είσαι μαλάκα.", "")],
+    failures = output_failures(rows, results, subsets, keys)
+    # The output gates on rows they must refuse: the tagged sentence stored
+    # as an orphan without English, a translation of no stored sentence, a
+    # span that is no token, a token that does not give its key.
+    caught = output_failures(Rows(rows.sentences + [(101, "ell", "Το σπίτι είναι μεγάλο.", "")],
                                   rows.translations + [(998, "rus", 997, "Привет.", "olga")],
                                   rows.words + [("ell", "γράφω", 6, 107, 0, 3), ("ell", "πότε", 2, 107, 0, 6)]),
-                             results, subsets, stops, keys)
+                             results, subsets, keys)
     # (native, translations, words, id) of six candidates, for step 5's order.
     ranks = [(False, 4, 5, 1), (True, 1, 11, 2), (True, 1, 2, 3), (True, 2, 11, 4), (True, 1, 10, 5), (True, 1, 3, 6)]
 
@@ -1231,15 +1044,8 @@ def self_check() -> int:
          and ell.translation_drops["rus"]["blocking tag"] == 1),
         ("direct translations only: the Spanish of πάω σπίτι's English is not its own",
          "spa" not in ell.candidates[117].translations),
-        ("a stoplisted sentence is dropped (μαλάκα → μαλάκας, the seed)",
-         104 not in stored and ell.drops.get("stoplisted word") == 1),
-        ("a Greek sentence whose English translation is stoplisted is dropped",
-         105 not in stored and ell.drops.get("stoplisted English translation") == 1),
         ("a Greek sentence without English is dropped", 106 not in stored
          and ell.drops.get("no usable English translation") == 1),
-        ("a stoplisted Russian translation is dropped, the sentence stays",
-         translation(111, "rus") is None and translation(111, "eng") == 211),
-        ("a word start matches across a combining mark (су́ка)", "rus" not in ell.candidates[113].translations),
         ("γράφω: five of six forms, the new forms first",
          forms_of("ell", "γράφω") == ["έγραψε", "έγραψα", "γράψω", "γράψε", "γράφω"]),
         ("μέρα keys its headword and its lemma", forms_of("ell", "μέρα") == ["μέρα"]
@@ -1255,10 +1061,6 @@ def self_check() -> int:
         ("an English sentence without a translation is dropped", 506 not in stored
          and eng.drops.get("no usable translation") == 1),
         ("an English word not in the lists has no key", not forms_of("eng", "walk") and not forms_of("eng", "walked")),
-        ("an English sentence with a stoplisted word is dropped (fucking → fuck)", 505 not in eng.candidates),
-        ("the stoplist checks each piece of an apostrophe word (fuck's)", 511 not in eng.candidates),
-        ("a removed seed entry is not stoplisted", "χειμωνιάτικα" not in stoplist.lemmas["ell"]
-         and "μαλάκας" in stoplist.lemmas["ell"]),
         ("hopes keys hope, not hop (morphy's first rule whose base is a lemma)",
          forms_of("eng", "hope") == ["hopes"] and not forms_of("eng", "hop")),
         ("lives keys neither live nor life; evening keys evening, not its suffix guess even",
@@ -1284,14 +1086,6 @@ def self_check() -> int:
          and verb_gate(verbs[:-1], passing)[1] is False),
         ("the data_source row", conn.execute("SELECT id, kind, license, url FROM data_source").fetchall()
          == [("tatoeba", "example_sentences", "CC BY 2.0 FR", "https://tatoeba.org")]),
-        ("the seed rule: every sense tagged, one word",
-         stoplist_seed([json.dumps({"lang_code": "el", "word": "βρισιά", "pos": "noun",
-                                    "senses": [{"tags": ["vulgar"]}, {"tags": ["offensive", "slang"]}]}),
-                        json.dumps({"lang_code": "el", "word": "μισό", "pos": "noun",
-                                    "senses": [{"tags": ["vulgar"]}, {"tags": []}]}),
-                        json.dumps({"lang_code": "el", "word": "δύο λέξεις", "pos": "phrase",
-                                    "senses": [{"tags": ["vulgar"]}]})]) == {"βρισιά"}),
-        ("the stoplist file parses", bool(read_stoplist(STOPLIST, set(read_seed_removes())).lemmas["eng"])),
     ]
     failed = [name for name, ok in checks if not ok]
     for name, ok in checks:
@@ -1319,13 +1113,6 @@ def self_check() -> int:
         return 1
     print("OK: examples self-check passed.")
     return 0
-
-
-def read_seed_removes() -> list[str]:
-    """The `remove` entries of the stoplist: the self-check parses the real
-    file against them, without the Wiktionary seed."""
-    return [line.split("\t")[2] for line in STOPLIST.read_text(encoding="utf-8").splitlines()
-            if line.startswith("ell\tremove\t")]
 
 
 # ---------------------------------------------------------------------------
