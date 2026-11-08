@@ -50,6 +50,10 @@ final class DefinitionViewModel: ObservableObject {
     @Published var practiseQuestion: LearningPair?
     /// The Practise run to present; nil when none.
     @Published var practiseRun: PractiseRun?
+    /// 0133, #174: the grammar topics that apply to a Greek headword, in
+    /// level and topic order, titled in Greek's explanation language; empty
+    /// for other sources and without the Greek pack.
+    @Published private(set) var grammarTopics: [GrammarTopicSummary] = []
 
     /// A single-verb drill (0132, "A single verb").
     struct PractiseRun: Identifiable {
@@ -194,16 +198,40 @@ final class DefinitionViewModel: ObservableObject {
     // MARK: - Issue #144: inflection table
 
     /// Loads the table of a Greek headword, its labels in the language of
-    /// `locale`. Other sources read nothing. A table is extra: a failed read
-    /// leaves the screen without one.
+    /// `locale`, then the grammar topics that apply to it, with or without
+    /// a table (0133, #174). Other sources read nothing. A table and its
+    /// topics are extra: a failed read leaves the screen without them.
     func loadInflection(locale: Locale) async {
         guard InflectionLookup.sources.contains(entry.source) else { return }
-        guard let paradigm = try? await db.inflection(for: entry) else { return }
-        inflectionTable = ParadigmLayout.table(for: paradigm, locale: locale)
+        let paradigm = try? await db.inflection(for: entry)
+        let table = paradigm.flatMap { ParadigmLayout.table(for: $0, locale: locale) }
+        inflectionTable = table
         // 0132, #168: a conjugation table with a question gives Practise.
-        guard inflectionTable?.kind == .conjugation,
-              let verb = DrillVerb.make(word: entry.word, paradigm: paradigm, translation: "") else { return }
-        drillVerb = verb.translated(await drillTranslation(of: verb))
+        if let paradigm, table?.kind == .conjugation,
+           let verb = DrillVerb.make(word: entry.word, paradigm: paradigm, translation: "") {
+            drillVerb = verb.translated(await drillTranslation(of: verb))
+        }
+        await loadGrammar(paradigm: table == nil ? nil : paradigm)
+    }
+
+    // MARK: - 0133, #174: grammar topics
+
+    /// The topics that apply to the entry (`GrammarLinks.topics`): by its
+    /// headword or its table's lemma, by the classes of the table it shows
+    /// (`paradigm`, nil without one) or else of its part of speech, and the
+    /// tenses of its verb. Greek's links and topics, read on each use.
+    private func loadGrammar(paradigm: LemmaParadigm?) async {
+        let lang = ConjugationPlanner.lang
+        do {
+            let links = try await db.grammarLinks(lang: lang)
+            guard !links.isEmpty else { return }
+            let topics = try await db.grammarTopics(lang: lang,
+                                                    explainLang: try await languages.explanationLanguage(of: lang))
+            let subject = GrammarSubject(headword: entry.word, paradigm: paradigm, entryPOS: entry.pos)
+            grammarTopics = GrammarLinks.topics(for: subject, topics: topics, links: links)
+        } catch {
+            grammarTopics = []
+        }
     }
 
     // MARK: - 0132, #168: Practise

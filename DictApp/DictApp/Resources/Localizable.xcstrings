@@ -17679,6 +17679,78 @@
         }
       }
     },
+    "grammar.rule": {
+      "comment": "Conjugation drill: the button beside Continue after an answer that opens the grammar topic of the question's tense (0133).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rule"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Правило"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Regla"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "القاعدة"
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Κανόνας"
+          }
+        }
+      }
+    },
+    "grammar.a11y.rule %@": {
+      "comment": "VoiceOver: the drill's Rule button; the argument is the question's tense, \"Aorist\".",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Grammar rule: %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Грамматическое правило: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Regla gramatical: %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "القاعدة النحوية: %@"
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Γραμματικός κανόνας: %@"
+          }
+        }
+      }
+    },
     "credits.dataSources.greekGrammar": {
       "comment": "Credits: the Greek grammar notes, LibreDict's own text (0133). LibreDict and the license are not translated.",
       "extractionState": "manual",

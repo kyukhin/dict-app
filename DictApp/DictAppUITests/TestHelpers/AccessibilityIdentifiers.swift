@@ -271,6 +271,13 @@ struct AccessibilityIdentifiers {
         static let unavailable = "grammar_unavailable"
         /// The Credits line, through `Inflection.creditsLink`.
         static let creditsGreekGrammar = "credits_greek_grammar"
+        /// 0133, #174: Definition's Grammar section and its topic rows.
+        static let definitionSection = "definition_grammar_section"
+        static func definitionTopic(_ id: String) -> String { "definition_grammar_topic_\(id)" }
+        /// The drill's Rule button beside Continue, its sheet and Done.
+        static let ruleButton = "drill_rule_button"
+        static let sheet = "grammar_sheet"
+        static let sheetDone = "grammar_sheet_done"
     }
 
     // MARK: - Exercises (0131, #159)

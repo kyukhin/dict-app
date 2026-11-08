@@ -2410,6 +2410,14 @@ enum DrillText {
         return mark + String(format: localized("drill.a11y.practise %@", locale), locale: locale, isolated(citation))
     }
 
+    /// "Grammar rule: Aorist" (`grammar.a11y.rule`): the drill's Rule
+    /// button (0133, #174), as VoiceOver reads it.
+    static func ruleLabel(_ tense: ConjugationTense, locale: Locale) -> String {
+        let mark = isRightToLeft(locale) ? "\u{200F}" : ""
+        return mark + String(format: localized("grammar.a11y.rule %@", locale), locale: locale,
+                             tense.title(locale: locale))
+    }
+
     /// A tense level as the UI writes it: Α1 in Greek (E3's `wordLists.level.*`).
     static func levelName(_ level: DrillLevel, locale: Locale) -> String {
         WordListsViewModel.levelName(level.rawValue, locale: locale)
@@ -2604,7 +2612,8 @@ struct GrammarTopicSummary: Hashable, Identifiable, Sendable {
 }
 
 /// A class of words a topic applies to, as the files write it
-/// (`grammar_link` kind `class`). #174 maps an entry to its classes.
+/// (`grammar_link` kind `class`). #174 maps an entry to its classes
+/// (`classes(paradigm:entryPOS:)`).
 enum GrammarClass: String, CaseIterable, Sendable {
     case verb
     case verbConj1 = "verb.conj1"
@@ -2948,5 +2957,183 @@ extension DrillScope {
     /// The tenses of `tenses` a drill at `level` asks: those Practise names.
     static func askedTenses(_ tenses: [ConjugationTense], level: DrillLevel) -> [ConjugationTense] {
         tenses.filter { DrillLevel.mainLevel(of: $0, voice: .active) <= level }
+    }
+}
+
+// MARK: - Grammar: links from Definition and the drill (0133, #174)
+//
+// 0133-grammar.md, "Links from the Definition screen" and "Rule in the
+// drill". A topic links the words it lists (by word) and the classes of
+// words it names (by class, from the entry's table). Pure: the callers read
+// the language's links and topics once and pass them in.
+
+extension GrammarClass {
+    /// The conjugation of a verb by its present εγώ form: `verbConj2` for
+    /// -άω or an accented -ώ (αγαπάω, μπορώ), `verbConj1` for an unaccented
+    /// -ω (γράφω, λέω, ζω), nil otherwise.
+    static func conjugation(ofPresent form: String) -> GrammarClass? {
+        let scalars = Array(form.lowercased().precomposedStringWithCanonicalMapping.unicodeScalars)
+        switch scalars.last {
+        // ώ
+        case "\u{03CE}": return .verbConj2
+        // ω: -άω is the second conjugation, any other -ω the first.
+        case "\u{03C9}": return scalars.dropLast().last == "\u{03AC}" ? .verbConj2 : .verbConj1
+        default: return nil
+        }
+    }
+
+    /// The classes of an entry, from the table it shows (`paradigm`, nil
+    /// without one): a verb is `verbPassive` when its main voice is the
+    /// passive, else `verb` and its conjugation; a noun or a proper noun is
+    /// `noun`, an adjective `adj`. Without a table, a noun or an adjective
+    /// by the entry's part of speech (#144's label map); a verb has none.
+    static func classes(paradigm: LemmaParadigm?, entryPOS: String) -> Set<GrammarClass> {
+        guard let paradigm else {
+            return Set(InflectionLookup.lemmaPOS(forEntryPOS: entryPOS).compactMap(nominal))
+        }
+        guard paradigm.pos == "verb" else { return nominal(paradigm.pos).map { Set([$0]) } ?? [] }
+        return verbClasses(ParadigmLayout.voiceForms(paradigm.cells))
+    }
+
+    /// A verb's classes from its voices: `verbPassive` for a verb with
+    /// passive forms only; otherwise `verb` and the conjugation of the
+    /// active voice's first present εγώ form.
+    static func verbClasses(_ voices: [ParadigmLayout.Voice: ParadigmLayout.VoiceForms]) -> Set<GrammarClass> {
+        guard ParadigmLayout.mainVoice(voices) == .active else { return [.verbPassive] }
+        var classes: Set<GrammarClass> = [.verb]
+        if let present = voices[.active]?.forms(.present, .firstSingular).first,
+           let conjugation = conjugation(ofPresent: present) {
+            classes.insert(conjugation)
+        }
+        return classes
+    }
+
+    /// `noun` for a noun or a proper noun, `adj` for an adjective.
+    private static func nominal(_ pos: String) -> GrammarClass? {
+        switch pos {
+        case "noun", "name": return .noun
+        case "adj": return .adj
+        default: return nil
+        }
+    }
+}
+
+/// What a topic can link to: an entry's words (its headword and the lemma
+/// of the table it shows), its classes, and the tenses its verb has.
+struct GrammarSubject: Equatable, Sendable {
+    /// NFC.
+    let words: Set<String>
+    let classes: Set<GrammarClass>
+    /// The tenses with a form in the verb's main voice; empty for others.
+    let tenses: Set<ConjugationTense>
+    /// The classes come from the entry's part of speech alone (no table).
+    let classesFromPartOfSpeech: Bool
+
+    init(words: Set<String>, classes: Set<GrammarClass>, tenses: Set<ConjugationTense>,
+         classesFromPartOfSpeech: Bool = false) {
+        self.words = Set(words.map(\.precomposedStringWithCanonicalMapping))
+        self.classes = classes
+        self.tenses = tenses
+        self.classesFromPartOfSpeech = classesFromPartOfSpeech
+    }
+
+    /// A Definition entry: its headword, the lemma of the table it shows
+    /// (πάω → πηγαίνω), the classes of that table or else of its part of
+    /// speech, and the tenses of a verb's table. `paradigm` is nil when the
+    /// entry shows no table (σε still links by its word).
+    init(headword: String, paradigm: LemmaParadigm?, entryPOS: String) {
+        var words: Set<String> = [headword]
+        var tenses: Set<ConjugationTense> = []
+        if let paradigm {
+            words.insert(paradigm.word)
+            if paradigm.pos == "verb" {
+                let voices = ParadigmLayout.voiceForms(paradigm.cells)
+                tenses = voices[ParadigmLayout.mainVoice(voices)].map { Self.tenses(of: $0) } ?? []
+            }
+        }
+        self.init(words: words, classes: GrammarClass.classes(paradigm: paradigm, entryPOS: entryPOS),
+                  tenses: tenses, classesFromPartOfSpeech: paradigm == nil)
+    }
+
+    /// The tenses with a form in `voice` for some person, with E5's θα / να
+    /// fallback (`ConjugationTense.forms`): έχω has a future, no aorist.
+    static func tenses(of voice: ParadigmLayout.VoiceForms) -> Set<ConjugationTense> {
+        let lacksDependent = ConjugationTense.lacksDependent(voice)
+        return Set(ConjugationTense.allCases.filter { tense in
+            tense.persons.contains { !tense.forms(voice, $0, lacksDependent: lacksDependent).isEmpty }
+        })
+    }
+}
+
+/// Which topics apply to an entry or a drill question (0133, "Links from
+/// the Definition screen", its rules and the part-of-speech rule after
+/// rule 4).
+enum GrammarLinks {
+    /// One topic's links, gathered.
+    private struct Links {
+        var words: Set<String> = []
+        var classes: Set<GrammarClass> = []
+        var tenses: Set<ConjugationTense> = []
+    }
+
+    /// The topics of `topics` that apply to `subject`, in level order, then
+    /// topic order:
+    /// 1. a topic that lists one of the subject's words;
+    /// 2. a topic of one of its classes,
+    /// 3. which, when it is about tenses, needs one of them in the verb;
+    /// 4. a class topic about a tense a listed topic has is dropped (the
+    ///    listed word wins its tenses: πηγαίνω gets the irregular aorists,
+    ///    not the regular one);
+    /// 5. a word without a table that a topic lists gets no class from its
+    ///    part of speech alone: εγώ and θα, which El–En · FD calls nouns,
+    ///    keep only the topic that lists them; ώρα, a noun with a table,
+    ///    keeps its noun topics.
+    static func topics(for subject: GrammarSubject, topics: [GrammarTopicSummary],
+                       links: [GrammarLink]) -> [GrammarTopicSummary] {
+        let byTopic = gather(links)
+        let listed = topics.filter { !(byTopic[$0.id]?.words ?? []).isDisjoint(with: subject.words) }
+        let classes = subject.classesFromPartOfSpeech && !listed.isEmpty ? [] : subject.classes
+        let won = listed.reduce(into: Set<ConjugationTense>()) { $0.formUnion(byTopic[$1.id]?.tenses ?? []) }
+        let byClass = topics.filter { topic in
+            let own = byTopic[topic.id] ?? Links()
+            return own.words.isDisjoint(with: subject.words) && !own.classes.isDisjoint(with: classes)
+                && (own.tenses.isEmpty || !own.tenses.isDisjoint(with: subject.tenses))
+                && own.tenses.isDisjoint(with: won)
+        }
+        return (listed + byClass).sorted { ($0.level, $0.ord) < ($1.level, $1.ord) }
+    }
+
+    /// The topic of a drill question (0133, "Rule in the drill"): the first
+    /// topic of the facet's tense that the rules give the drilled verb, with
+    /// the classes and tenses of the asked voice. Nil for a passive facet,
+    /// which has no Rule, and for a tense without a topic.
+    static func ruleTopic(verb: DrillVerb, facet: ConjugationFacet, topics: [GrammarTopicSummary],
+                          links: [GrammarLink]) -> GrammarTopicSummary? {
+        guard facet.voice == .active, verb.voices[.active] != nil else { return nil }
+        let subject = GrammarSubject(
+            words: [verb.word, verb.citation],
+            classes: GrammarClass.verbClasses(verb.voices),
+            tenses: Set(verb.cells.keys.filter { $0.voice == facet.voice }.map(\.tense)))
+        let byTopic = gather(links)
+        return Self.topics(for: subject, topics: topics, links: links)
+            .first { byTopic[$0.id]?.tenses.contains(facet.tense) ?? false }
+    }
+
+    private static func gather(_ links: [GrammarLink]) -> [String: Links] {
+        var result: [String: Links] = [:]
+        for link in links {
+            var own = result[link.topicID] ?? Links()
+            switch link.kind {
+            case .word: own.words.insert(link.key.precomposedStringWithCanonicalMapping)
+            case .wordClass:
+                if let found = GrammarClass(rawValue: link.key) { own.classes.insert(found) }
+            case .tense:
+                if let tense = ConjugationTense(rawValue: link.key) { own.tenses.insert(tense) }
+            case .topic:
+                break
+            }
+            result[link.topicID] = own
+        }
+        return result
     }
 }

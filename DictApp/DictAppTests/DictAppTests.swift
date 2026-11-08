@@ -21812,6 +21812,656 @@ final class GrammarTopicViewModelTests: GrammarTestCase {
     }
 }
 
+// MARK: - Issue #174: grammar links from Definition and the drill (0133-grammar.md)
+
+/// 0133, #174: the classes an entry links by. The conjugation is pure; the
+/// tables are the Greek pack's, found by the Definition rule (#144).
+@MainActor
+final class GrammarClassTests: XCTestCase {
+    private var tempDir: URL!
+
+    override func setUp() async throws {
+        try await super.setUp()
+        tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try await DrillFixture.open(in: tempDir)
+    }
+
+    override func tearDown() async throws {
+        try? FileManager.default.removeItem(at: tempDir)
+        try await super.tearDown()
+    }
+
+    /// An unaccented -ω is the first conjugation (ζω too, a monosyllable);
+    /// -άω and an accented -ώ the second; anything else none.
+    func testConjugationOfThePresent() {
+        for word in ["γράφω", "δουλεύω", "ακούω", "λέω", "τρώω", "ζω"] {
+            XCTAssertEqual(GrammarClass.conjugation(ofPresent: word), .verbConj1, word)
+        }
+        for word in ["αγαπάω", "αγαπώ", "μπορώ", "οδηγώ"] {
+            XCTAssertEqual(GrammarClass.conjugation(ofPresent: word), .verbConj2, word)
+        }
+        XCTAssertEqual(GrammarClass.conjugation(ofPresent: "αγαπάω".decomposedStringWithCanonicalMapping), .verbConj2,
+                       "NFD reads as NFC")
+        for word in ["έρχομαι", "πρέπει", "σπίτι", ""] {
+            XCTAssertNil(GrammarClass.conjugation(ofPresent: word), word)
+        }
+    }
+
+    /// A table's classes: a verb with passive forms only is `verbPassive`;
+    /// πάω shows πηγαίνω's table, so the first conjugation; nouns, proper
+    /// nouns and adjectives by their table.
+    func testClassesOfTables() async throws {
+        let expected: [(word: String, pos: String, classes: Set<GrammarClass>)] = [
+            ("έρχομαι", "verb", [.verbPassive]), ("θυμάμαι", "verb", [.verbPassive]),
+            ("γράφω", "verb", [.verb, .verbConj1]), ("πάω", "verb", [.verb, .verbConj1]),
+            ("αγαπάω", "verb", [.verb, .verbConj2]), ("μπορώ", "verb", [.verb, .verbConj2]),
+            ("έχω", "verb", [.verb, .verbConj1]),
+            ("σπίτι", "noun", [.noun]), ("Αθήνα", "proper noun", [.noun]), ("καλός", "adjective", [.adj]),
+        ]
+        for item in expected {
+            let source = item.word == "πάω" ? "wordnet-ell-eng" : "freedict-ell-eng"
+            let paradigm = try await InflectionFixture.paradigm(item.word, pos: item.pos, source: source)
+            XCTAssertNotNil(paradigm, "\(item.word) has a table")
+            XCTAssertEqual(GrammarClass.classes(paradigm: paradigm, entryPOS: item.pos), item.classes, item.word)
+        }
+    }
+
+    /// Without a table: a noun or an adjective by the part of speech, a
+    /// proper noun as a noun; a verb or a particle has no class.
+    func testClassesWithoutATable() {
+        XCTAssertEqual(GrammarClass.classes(paradigm: nil, entryPOS: "noun"), [.noun])
+        XCTAssertEqual(GrammarClass.classes(paradigm: nil, entryPOS: "proper noun"), [.noun])
+        XCTAssertEqual(GrammarClass.classes(paradigm: nil, entryPOS: "adjective, noun"), [.adj, .noun])
+        XCTAssertEqual(GrammarClass.classes(paradigm: nil, entryPOS: "verb"), [])
+        XCTAssertEqual(GrammarClass.classes(paradigm: nil, entryPOS: ""), [])
+    }
+}
+
+/// 0133, #174: the link rules on fixed links that mirror Content (pure),
+/// and the drill's Rule topic for real verbs of the Greek pack.
+@MainActor
+final class GrammarLinksTests: XCTestCase {
+    private typealias Subject = GrammarSubject
+
+    /// Content's 17 topics in order: tenses, classes and some of their words.
+    private static let content: [(id: String, tenses: [String], classes: [String], words: [String])] = [
+        ("ell-alphabet", [], [], []),
+        ("ell-articles", [], ["noun"], ["ο", "το", "ένας"]),
+        ("ell-noun-endings", [], ["noun"], ["δρόμος", "σπίτι"]),
+        ("ell-adjectives", [], ["adj"], ["καλός", "ωραίος"]),
+        ("ell-pronouns", [], [], ["εγώ", "εσύ"]),
+        ("ell-possessives", [], [], ["σου", "δικός"]),
+        ("ell-eimai-echo", ["present"], [], ["είμαι", "έχω"]),
+        ("ell-present-1", ["present"], ["verb.conj1"], ["γράφω", "δουλεύω"]),
+        ("ell-present-2", ["present"], ["verb.conj2"], ["αγαπάω", "μιλάω", "μπορώ", "ζω"]),
+        ("ell-negation-questions", [], [], ["δεν", "μην", "τι"]),
+        ("ell-se-prepositions", [], [], ["σε", "από", "με"]),
+        ("ell-numbers-time", [], [], ["ένας", "δύο", "ώρα"]),
+        ("ell-aorist-regular", ["aorist"], ["verb"], ["γράφω", "διαβάζω"]),
+        ("ell-aorist-irregular", ["aorist"], [], ["πηγαίνω", "έρχομαι", "κάνω"]),
+        ("ell-future", ["future"], ["verb"], ["θα"]),
+        ("ell-na-perfective", ["subjunctiveSimple"], ["verb"], ["να"]),
+        ("ell-imperative", ["imperativeSimple", "imperativeContinuous"], ["verb"], ["γράφω"]),
+    ]
+
+    private static var topics: [GrammarTopicSummary] {
+        content.enumerated().map { index, topic in
+            GrammarTopicSummary(id: topic.id, lang: "ell", level: "A1", ord: index + 1, title: topic.id,
+                                explainLang: "eng")
+        }
+    }
+
+    private static var links: [GrammarLink] {
+        content.flatMap { topic -> [GrammarLink] in
+            func make(_ kind: GrammarLink.Kind, _ keys: [String]) -> [GrammarLink] {
+                keys.enumerated().map { GrammarLink(topicID: topic.id, kind: kind, key: $1, ord: $0 + 1) }
+            }
+            return make(.tense, topic.tenses) + make(.wordClass, topic.classes) + make(.word, topic.words)
+        }
+    }
+
+    private static let allTenses = Set(ConjugationTense.allCases)
+    private static let verbTail = ["ell-future", "ell-na-perfective", "ell-imperative"]
+
+    private func ids(_ subject: Subject) -> [String] {
+        GrammarLinks.topics(for: subject, topics: Self.topics, links: Self.links).map(\.id)
+    }
+
+    /// Every row of the Behaviour table.
+    func testBehaviourTable() {
+        let conj1: Set<GrammarClass> = [.verb, .verbConj1]
+        let conj2: Set<GrammarClass> = [.verb, .verbConj2]
+        XCTAssertEqual(ids(Subject(words: ["γράφω"], classes: conj1, tenses: Self.allTenses)),
+                       ["ell-present-1", "ell-aorist-regular"] + Self.verbTail)
+        for word in ["αγαπάω", "μπορώ"] {
+            XCTAssertEqual(ids(Subject(words: [word], classes: conj2, tenses: Self.allTenses)),
+                           ["ell-present-2", "ell-aorist-regular"] + Self.verbTail, word)
+        }
+        XCTAssertEqual(ids(Subject(words: ["πηγαίνω"], classes: conj1, tenses: Self.allTenses)),
+                       ["ell-present-1", "ell-aorist-irregular"] + Self.verbTail)
+        XCTAssertEqual(ids(Subject(words: ["πάω", "πηγαίνω"], classes: conj1, tenses: Self.allTenses)),
+                       ["ell-present-1", "ell-aorist-irregular"] + Self.verbTail)
+        let echoTenses: Set<ConjugationTense> = [.present, .imperfect, .future, .subjunctiveSimple]
+        XCTAssertEqual(ids(Subject(words: ["έχω"], classes: conj1, tenses: echoTenses)),
+                       ["ell-eimai-echo", "ell-future", "ell-na-perfective"])
+        XCTAssertEqual(ids(Subject(words: ["έχω"], classes: conj1, tenses: echoTenses.union([.imperativeContinuous]))),
+                       ["ell-eimai-echo", "ell-future", "ell-na-perfective", "ell-imperative"],
+                       "the imperative only if its table has one")
+        XCTAssertEqual(ids(Subject(words: ["έρχομαι"], classes: [.verbPassive], tenses: Self.allTenses)),
+                       ["ell-aorist-irregular"], "no class topic for a verb with passive forms only")
+        for word in ["σπίτι", "Αθήνα"] {
+            XCTAssertEqual(ids(Subject(words: [word], classes: [.noun], tenses: [])),
+                           ["ell-articles", "ell-noun-endings"], word)
+        }
+        XCTAssertEqual(ids(Subject(words: ["καλός"], classes: [.adj], tenses: [])), ["ell-adjectives"])
+        XCTAssertEqual(ids(Subject(words: ["σε"], classes: [], tenses: [])), ["ell-se-prepositions"])
+        XCTAssertEqual(ids(Subject(words: ["εγώ"], classes: [], tenses: [])), ["ell-pronouns"])
+        XCTAssertEqual(ids(Subject(words: ["δεν"], classes: [], tenses: [])), ["ell-negation-questions"])
+    }
+
+    /// A topic that lists the word drops the class topics of its tenses:
+    /// πηγαίνω has no regular aorist, έχω no first conjugation, ζω (an
+    /// unaccented -ω) the second conjugation only.
+    func testListedWordWinsItsTenses() {
+        let pigaino = ids(Subject(words: ["πηγαίνω"], classes: [.verb, .verbConj1], tenses: Self.allTenses))
+        XCTAssertTrue(pigaino.contains("ell-aorist-irregular"))
+        XCTAssertFalse(pigaino.contains("ell-aorist-regular"))
+        let echo = ids(Subject(words: ["έχω"], classes: [.verb, .verbConj1], tenses: [.present, .future]))
+        XCTAssertTrue(echo.contains("ell-eimai-echo"))
+        XCTAssertFalse(echo.contains("ell-present-1"))
+        let zo = ids(Subject(words: ["ζω"], classes: [.verb, .verbConj1], tenses: Self.allTenses))
+        XCTAssertTrue(zo.contains("ell-present-2"))
+        XCTAssertFalse(zo.contains("ell-present-1"))
+        XCTAssertTrue(zo.contains("ell-aorist-regular"), "other tenses still link by class")
+    }
+
+    /// Without a table, a word a topic lists gets no class from its part of
+    /// speech alone (El–En · FD calls εγώ and θα nouns); an unlisted word
+    /// without a table still does, and a table's classes always count (ώρα,
+    /// a noun listed by Numbers and time, keeps its noun topics).
+    func testPartOfSpeechGivesNoClassToAListedWord() {
+        XCTAssertEqual(ids(Subject(words: ["εγώ"], classes: [.noun], tenses: [], classesFromPartOfSpeech: true)),
+                       ["ell-pronouns"])
+        XCTAssertEqual(ids(Subject(words: ["θα"], classes: [.noun], tenses: [], classesFromPartOfSpeech: true)),
+                       ["ell-future"])
+        XCTAssertEqual(ids(Subject(words: ["βιβλίο"], classes: [.noun], tenses: [], classesFromPartOfSpeech: true)),
+                       ["ell-articles", "ell-noun-endings"], "not listed: its part of speech counts")
+        XCTAssertEqual(ids(Subject(words: ["ώρα"], classes: [.noun], tenses: [])),
+                       ["ell-articles", "ell-noun-endings", "ell-numbers-time"])
+        XCTAssertEqual(ids(Subject(words: ["σπίτι"], classes: [.noun], tenses: [])),
+                       ["ell-articles", "ell-noun-endings"])
+        XCTAssertEqual(ids(Subject(words: ["καλός"], classes: [.adj], tenses: [])), ["ell-adjectives"])
+        XCTAssertEqual(ids(Subject(words: ["γράφω"], classes: [.verb, .verbConj1], tenses: Self.allTenses)),
+                       ["ell-present-1", "ell-aorist-regular", "ell-future", "ell-na-perfective", "ell-imperative"])
+    }
+
+    /// A class topic about tenses needs one of them in the verb: έχω has no
+    /// aorist, so no aorist topic; a topic without tenses needs none.
+    func testTenseNeedsTheVerbsForms() {
+        let echo = ids(Subject(words: ["έχω"], classes: [.verb, .verbConj1], tenses: [.present, .future]))
+        XCTAssertFalse(echo.contains("ell-aorist-regular"))
+        XCTAssertFalse(echo.contains("ell-na-perfective"))
+        XCTAssertEqual(ids(Subject(words: ["βιβλίο"], classes: [.noun], tenses: [])),
+                       ["ell-articles", "ell-noun-endings"])
+    }
+
+    /// The lemma of the table an entry shows links like its headword: πάω
+    /// through πηγαίνω's table.
+    func testLinkedTableLemmaCounts() {
+        let alone = ids(Subject(words: ["πάω"], classes: [.verb, .verbConj1], tenses: Self.allTenses))
+        XCTAssertFalse(alone.contains("ell-aorist-irregular"))
+        let linked = ids(Subject(words: ["πάω", "πηγαίνω"], classes: [.verb, .verbConj1], tenses: Self.allTenses))
+        XCTAssertTrue(linked.contains("ell-aorist-irregular"))
+        XCTAssertFalse(linked.contains("ell-aorist-regular"))
+        XCTAssertEqual(GrammarSubject(words: ["πάω".decomposedStringWithCanonicalMapping], classes: [], tenses: []).words,
+                       ["πάω"], "words are NFC")
+    }
+
+    /// Level order, then topic order, whatever order the topics come in; a
+    /// listed topic and a class topic interleave.
+    func testOrder() {
+        var topics = Array(Self.topics.reversed())
+        topics.append(GrammarTopicSummary(id: "ell-a2-first", lang: "ell", level: "A2", ord: 1, title: "",
+                                          explainLang: "eng"))
+        let links = Self.links + [GrammarLink(topicID: "ell-a2-first", kind: .wordClass, key: "noun", ord: 1)]
+        let found = GrammarLinks.topics(for: Subject(words: ["σπίτι", "ο"], classes: [.noun], tenses: []),
+                                        topics: topics, links: links).map(\.id)
+        XCTAssertEqual(found, ["ell-articles", "ell-noun-endings", "ell-a2-first"])
+    }
+
+    /// The drill's Rule: the topic of the question's tense for the drilled
+    /// verb (the pack's verbs and links); none for a passive facet or a
+    /// tense without a topic.
+    func testRuleTopicForDrillFacets() async throws {
+        let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+        try await DrillFixture.open(in: tempDir)
+        let links = try await DatabaseService.shared.grammarLinks(lang: "ell")
+        let topics = try await DatabaseService.shared.grammarTopics(lang: "ell", explainLang: "eng")
+        func rule(_ word: String, _ tense: ConjugationTense, _ voice: ParadigmLayout.Voice = .active) async throws -> String? {
+            let verb = try await DrillFixture.verb(word)
+            return GrammarLinks.ruleTopic(verb: verb, facet: ConjugationFacet(tense, voice), topics: topics,
+                                          links: links)?.id
+        }
+        let expected: [(String, ConjugationTense, String)] = [
+            ("γράφω", .aorist, "ell-aorist-regular"), ("πηγαίνω", .aorist, "ell-aorist-irregular"),
+            ("πάω", .aorist, "ell-aorist-irregular"), ("αγαπάω", .present, "ell-present-2"),
+            ("έχω", .present, "ell-eimai-echo"), ("γράφω", .present, "ell-present-1"),
+            ("γράφω", .future, "ell-future"), ("γράφω", .subjunctiveSimple, "ell-na-perfective"),
+            ("γράφω", .imperativeSimple, "ell-imperative"), ("γράφω", .imperativeContinuous, "ell-imperative"),
+        ]
+        for (word, tense, id) in expected {
+            let found = try await rule(word, tense)
+            XCTAssertEqual(found, id, "\(word) \(tense.rawValue)")
+        }
+        let passive = try await rule("γράφω", .present, .passive)
+        XCTAssertNil(passive, "a passive facet has no Rule")
+        let deponent = try await rule("έρχομαι", .aorist, .passive)
+        XCTAssertNil(deponent, "a verb with passive forms only has no Rule")
+        for tense in [ConjugationTense.imperfect, .futureContinuous, .subjunctiveContinuous, .perfect] {
+            let found = try await rule("γράφω", tense)
+            XCTAssertNil(found, "\(tense.rawValue): no 2.0 topic")
+        }
+        let noAorist = try await rule("έχω", .aorist)
+        XCTAssertNil(noAorist, "έχω has no aorist topic")
+    }
+
+    /// QA (#174): Rule on more of the pack's verbs. A listed word wins its
+    /// tense (είμαι and έχω take "είμαι and έχω"; ζω, an unaccented -ω,
+    /// the second conjugation); each facet the verb has without a 2.0 topic
+    /// (the imperfect, the continuous future and subjunctive, the three
+    /// perfects) and every passive facet has none.
+    func testRuleTopicOnMoreVerbs() async throws {
+        let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+        try await DrillFixture.open(in: tempDir)
+        let links = try await DatabaseService.shared.grammarLinks(lang: "ell")
+        let topics = try await DatabaseService.shared.grammarTopics(lang: "ell", explainLang: "eng")
+        XCTAssertEqual(topics.count, 17)
+        let expected: [(String, ConjugationTense, String)] = [
+            ("είμαι", .present, "ell-eimai-echo"), ("είμαι", .future, "ell-future"),
+            ("ζω", .present, "ell-present-2"), ("μπορώ", .present, "ell-present-2"),
+            ("μπορώ", .aorist, "ell-aorist-regular"), ("πηγαίνω", .present, "ell-present-1"),
+            ("πηγαίνω", .imperativeSimple, "ell-imperative"), ("αγαπάω", .aorist, "ell-aorist-regular"),
+            ("έχω", .imperativeContinuous, "ell-imperative"), ("έχω", .subjunctiveSimple, "ell-na-perfective"),
+        ]
+        for (word, tense, id) in expected {
+            let verb = try await DrillFixture.verb(word)
+            XCTAssertNotNil(verb.cells[ConjugationFacet(tense, .active)], "\(word) is asked \(tense.rawValue)")
+            let found = GrammarLinks.ruleTopic(verb: verb, facet: ConjugationFacet(tense, .active), topics: topics,
+                                               links: links)
+            XCTAssertEqual(found?.id, id, "\(word) \(tense.rawValue)")
+        }
+        let withoutTopic: Set<ConjugationTense> = [.imperfect, .futureContinuous, .subjunctiveContinuous, .perfect,
+                                                   .pluperfect, .futurePerfect]
+        for word in ["γράφω", "πηγαίνω", "αγαπάω", "έχω", "έρχομαι"] {
+            let verb = try await DrillFixture.verb(word)
+            var checked = 0
+            for facet in verb.cells.keys where facet.voice == .passive || withoutTopic.contains(facet.tense) {
+                checked += 1
+                let found = GrammarLinks.ruleTopic(verb: verb, facet: facet, topics: topics, links: links)
+                XCTAssertNil(found, "\(word) \(facet.rawValue): no Rule")
+            }
+            XCTAssertGreaterThan(checked, 0, "\(word) has facets without a topic")
+        }
+        // The facets with a topic all have one: the drill never asks one
+        // of them without Rule.
+        let grafo = try await DrillFixture.verb("γράφω")
+        let a1: Set<ConjugationTense> = [.present, .aorist, .future, .subjunctiveSimple, .imperativeSimple,
+                                         .imperativeContinuous]
+        for facet in grafo.cells.keys where facet.voice == .active && a1.contains(facet.tense) {
+            XCTAssertNotNil(GrammarLinks.ruleTopic(verb: grafo, facet: facet, topics: topics, links: links),
+                            facet.rawValue)
+        }
+    }
+
+    /// QA (#174): no links or no topics (a failed read, the stub) give no
+    /// topic and never crash; a link to a topic the list lacks is skipped.
+    func testEmptyLinksOrTopicsGiveNothing() {
+        let subject = Subject(words: ["γράφω"], classes: [.verb, .verbConj1], tenses: Self.allTenses)
+        XCTAssertEqual(GrammarLinks.topics(for: subject, topics: Self.topics, links: []), [])
+        XCTAssertEqual(GrammarLinks.topics(for: subject, topics: [], links: Self.links), [])
+        let partial = Self.topics.filter { $0.id != "ell-present-1" }
+        XCTAssertEqual(GrammarLinks.topics(for: subject, topics: partial, links: Self.links).map(\.id),
+                       ["ell-aorist-regular"] + Self.verbTail)
+        let unknown = [GrammarLink(topicID: "ell-future", kind: .tense, key: "gerund", ord: 9),
+                       GrammarLink(topicID: "ell-future", kind: .wordClass, key: "verb.conj9", ord: 9)]
+        XCTAssertEqual(GrammarLinks.topics(for: subject, topics: Self.topics, links: Self.links + unknown).map(\.id),
+                       ["ell-present-1", "ell-aorist-regular"] + Self.verbTail, "unknown keys are ignored")
+    }
+}
+
+/// 0133, #174: the Definition screen's Grammar section on the real Greek
+/// pack: the topics of a Greek headword, titled in Greek's explanation
+/// language; none for other sources or without the pack.
+@MainActor
+final class DefinitionViewModelGrammarTests: XCTestCase {
+    private var tempDir: URL!
+    private var db: DatabaseService { .shared }
+    private var settings: SettingsService!
+    private var packs: FakePairPacks!
+
+    override func setUp() async throws {
+        try await super.setUp()
+        tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try await DrillFixture.open(in: tempDir)
+        settings = SettingsService(store: InMemoryKeyValueStore())
+        packs = FakePairPacks(languagesWithLists: ["ell"])
+    }
+
+    override func tearDown() async throws {
+        try? FileManager.default.removeItem(at: tempDir)
+        try await super.tearDown()
+    }
+
+    private func topics(_ word: String, pos: String = "verb", source: String = "freedict-ell-eng",
+                        uiLanguage: String = "en") async -> [GrammarTopicSummary] {
+        let languages = LearningLanguageService(settings: settings, packs: packs, uiLanguage: { uiLanguage })
+        let vm = DefinitionViewModel(entry: InflectionFixture.entry(word, pos: pos, source: source), db: db,
+                                     settings: settings, languages: languages, hasVoice: { _ in false })
+        await vm.loadInflection(locale: Locale(identifier: "en"))
+        return vm.grammarTopics
+    }
+
+    /// γράφω, from El–En · FD and El–En · WN: the first conjugation, the
+    /// regular aorist, the future, να and the imperative, in topic order.
+    func testVerbLinksToItsTenseTopics() async throws {
+        for source in ["freedict-ell-eng", "wordnet-ell-eng"] {
+            let found = await topics("γράφω", source: source).map(\.id)
+            XCTAssertEqual(found, ["ell-present-1", "ell-aorist-regular", "ell-future", "ell-na-perfective",
+                                   "ell-imperative"], source)
+        }
+    }
+
+    /// σπίτι: articles and noun endings, titled in English.
+    func testNounLinksToArticlesAndEndings() async throws {
+        let found = await topics("σπίτι", pos: "noun")
+        XCTAssertEqual(found.map(\.id), ["ell-articles", "ell-noun-endings"])
+        XCTAssertEqual(found.first?.title, "Articles and gender")
+        XCTAssertEqual(found.first?.explainLang, "eng")
+    }
+
+    /// The Behaviour table's other rows on the pack's entries.
+    func testBehaviourRowsOnThePack() async throws {
+        let tail = ["ell-future", "ell-na-perfective", "ell-imperative"]
+        let rows: [(word: String, pos: String, source: String, ids: [String])] = [
+            ("αγαπάω", "verb", "freedict-ell-eng", ["ell-present-2", "ell-aorist-regular"] + tail),
+            ("πηγαίνω", "verb", "freedict-ell-eng", ["ell-present-1", "ell-aorist-irregular"] + tail),
+            ("πάω", "verb", "wordnet-ell-eng", ["ell-present-1", "ell-aorist-irregular"] + tail),
+            ("έρχομαι", "verb", "freedict-ell-eng", ["ell-aorist-irregular"]),
+            ("Αθήνα", "proper noun", "freedict-ell-eng", ["ell-articles", "ell-noun-endings"]),
+            ("καλός", "adjective", "wordnet-ell-eng", ["ell-adjectives"]),
+            ("σε", "", "freedict-ell-eng", ["ell-se-prepositions"]),
+            ("δεν", "", "freedict-ell-eng", ["ell-negation-questions"]),
+        ]
+        for row in rows {
+            let found = await topics(row.word, pos: row.pos, source: row.source).map(\.id)
+            XCTAssertEqual(found, row.ids, row.word)
+        }
+        let echo = await topics("έχω").map(\.id)
+        XCTAssertEqual(Array(echo.prefix(3)), ["ell-eimai-echo", "ell-future", "ell-na-perfective"])
+        XCTAssertFalse(echo.contains("ell-present-1"), "έχω is listed: no first conjugation")
+        XCTAssertFalse(echo.contains("ell-aorist-regular"), "έχω has no aorist")
+    }
+
+    /// QA (#174): the Behaviour table's verb rows exactly, from both Greek
+    /// dictionaries. μπορώ is the second conjugation with the same four as
+    /// αγαπάω; έχω and είμαι take "είμαι and έχω", the future and να, and
+    /// only έχω the imperative (its table has έχε; είμαι's imperatives are
+    /// archaic and rare, so hidden); ζω, an unaccented -ω, is listed by the
+    /// second conjugation and gets it instead of the first.
+    func testVerbRowsExactlyOnBothDictionaries() async throws {
+        let tail = ["ell-future", "ell-na-perfective", "ell-imperative"]
+        let rows: [(word: String, ids: [String])] = [
+            ("γράφω", ["ell-present-1", "ell-aorist-regular"] + tail),
+            ("μπορώ", ["ell-present-2", "ell-aorist-regular"] + tail),
+            ("πηγαίνω", ["ell-present-1", "ell-aorist-irregular"] + tail),
+            ("έχω", ["ell-eimai-echo", "ell-future", "ell-na-perfective", "ell-imperative"]),
+            ("είμαι", ["ell-eimai-echo", "ell-future", "ell-na-perfective"]),
+            ("ζω", ["ell-present-2", "ell-aorist-regular"] + tail),
+            ("έρχομαι", ["ell-aorist-irregular"]),
+        ]
+        for source in ["freedict-ell-eng", "wordnet-ell-eng"] {
+            for row in rows {
+                let found = await topics(row.word, source: source).map(\.id)
+                XCTAssertEqual(found, row.ids, "\(row.word), \(source)")
+            }
+        }
+        // FreeDict has αγαπάω, WordNet πάω only.
+        let agapao = await topics("αγαπάω").map(\.id)
+        XCTAssertEqual(agapao, ["ell-present-2", "ell-aorist-regular"] + tail)
+        let pao = await topics("πάω", source: "wordnet-ell-eng").map(\.id)
+        XCTAssertEqual(pao, ["ell-present-1", "ell-aorist-irregular"] + tail, "πάω shows πηγαίνω's table")
+    }
+
+    /// QA (#174): the nominal rows from both dictionaries (WordNet calls
+    /// Αθήνα a noun, FreeDict a proper noun), and a noun the topics do not
+    /// list. A noun gets no verb topic; an adjective no noun topic.
+    func testNominalRowsOnBothDictionaries() async throws {
+        for source in ["freedict-ell-eng", "wordnet-ell-eng"] {
+            let spiti = await topics("σπίτι", pos: "noun", source: source).map(\.id)
+            XCTAssertEqual(spiti, ["ell-articles", "ell-noun-endings"], source)
+            let ora = await topics("ώρα", pos: "noun", source: source).map(\.id)
+            XCTAssertEqual(ora, ["ell-articles", "ell-noun-endings", "ell-numbers-time"], source)
+        }
+        let athens = await topics("Αθήνα", pos: "noun", source: "wordnet-ell-eng").map(\.id)
+        XCTAssertEqual(athens, ["ell-articles", "ell-noun-endings"])
+        let kalos = await topics("καλός", pos: "adjective", source: "wordnet-ell-eng").map(\.id)
+        XCTAssertEqual(kalos, ["ell-adjectives"])
+        let water = await topics("νερό", pos: "noun").map(\.id)
+        XCTAssertEqual(water, ["ell-articles", "ell-noun-endings"], "an unlisted noun links by its class")
+    }
+
+    /// QA (#174): a section's topics carry the pack's titles and level, in
+    /// level and topic order, so the rows read as the Grammar screen does.
+    func testTopicsCarryTheirTitlesInOrder() async throws {
+        let found = await topics("γράφω")
+        XCTAssertEqual(found.map(\.title), ["Present tense: first conjugation",
+                                            "The aorist of regular verbs and the augment", "The future with θα",
+                                            "να + the simple form", "The imperative"])
+        XCTAssertEqual(found.map(\.ord), found.map(\.ord).sorted())
+        XCTAssertTrue(found.allSatisfy { $0.level == "A1" && $0.lang == "ell" && $0.explainLang == "eng" })
+    }
+
+    /// εγώ, θα and σε have no table and get only the topic that lists them,
+    /// though El–En · FD calls εγώ and θα nouns; ώρα, σπίτι and καλός keep
+    /// the topics of their tables.
+    func testListedWordsKeepOnlyTheirTopic() async throws {
+        let rows: [(word: String, pos: String, ids: [String])] = [
+            ("εγώ", "noun", ["ell-pronouns"]), ("θα", "noun", ["ell-future"]), ("σε", "", ["ell-se-prepositions"]),
+            ("ώρα", "noun", ["ell-articles", "ell-noun-endings", "ell-numbers-time"]),
+            ("σπίτι", "noun", ["ell-articles", "ell-noun-endings"]), ("καλός", "adjective, noun", ["ell-adjectives"]),
+        ]
+        for row in rows {
+            let found = await topics(row.word, pos: row.pos).map(\.id)
+            XCTAssertEqual(found, row.ids, row.word)
+        }
+    }
+
+    /// Greek via Russian, a Russian UI's default: the titles in Russian.
+    func testTitlesInTheExplanationLanguage() async throws {
+        let found = await topics("σπίτι", pos: "noun", uiLanguage: "ru")
+        XCTAssertEqual(found.map(\.explainLang), ["rus", "rus"])
+        XCTAssertTrue(found.allSatisfy { $0.title.unicodeScalars.contains { (0x0400...0x04FF).contains($0.value) } },
+                      "\(found.map(\.title))")
+    }
+
+    /// An English entry has no Grammar section.
+    func testEnglishEntryHasNone() async throws {
+        let found = await topics("house", pos: "noun", source: "wordnet")
+        XCTAssertEqual(found, [])
+    }
+
+    /// Without the Greek pack (the stub stands in) there is no topic and no
+    /// section.
+    func testNoneWithoutTheGreekPack() async throws {
+        try await db.setup(userPath: tempDir.appendingPathComponent("stub-user.sqlite").path,
+                           dictionaryURL: try TestDictionary.bundledURL())
+        let found = await topics("γράφω")
+        XCTAssertEqual(found, [])
+    }
+}
+
+/// 0133, #174: the drill's run gives each question its Rule topic, read once
+/// per run from the Greek pack.
+@MainActor
+final class ConjugationRunRuleTests: XCTestCase {
+    private var tempDir: URL!
+    private var settings: SettingsService!
+
+    override func setUp() async throws {
+        try await super.setUp()
+        tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try await DrillFixture.open(in: tempDir)
+        settings = SettingsService(store: InMemoryKeyValueStore())
+    }
+
+    override func tearDown() async throws {
+        try? FileManager.default.removeItem(at: tempDir)
+        try await super.tearDown()
+    }
+
+    private func run(_ verb: DrillVerb, level: DrillLevel, length: Int) -> ConjugationRunViewModel {
+        let languages = LearningLanguageService(settings: settings, packs: FakePairPacks(languagesWithLists: ["ell"]),
+                                                uiLanguage: { "en" })
+        return ConjugationRunViewModel(mode: .verb(verb, level: level), db: .shared, settings: settings,
+                                       languages: languages, clock: TestClock("2026-11-04T12:00:00Z").clock,
+                                       player: FeedbackPlayer(settings: settings, sink: RecordingFeedbackSink()),
+                                       seed: 174, answerHints: true, length: length)
+    }
+
+    /// γράφω at B1: the A1 tenses of the active voice have their topic; the
+    /// imperfect, the continuous ones and the passive have none. The topic
+    /// stays through the answer and changes with the question.
+    func testEachQuestionHasItsTensesTopic() async throws {
+        let verb = try await DrillFixture.verb("γράφω")
+        let vm = run(verb, level: .b1, length: 15)
+        await vm.start()
+        XCTAssertNil(vm.errorMessage)
+        let expected: [ConjugationTense: String] = [
+            .present: "ell-present-1", .aorist: "ell-aorist-regular", .future: "ell-future",
+            .subjunctiveSimple: "ell-na-perfective", .imperativeSimple: "ell-imperative",
+            .imperativeContinuous: "ell-imperative",
+        ]
+        var withTopic = 0, without = 0
+        while vm.phase == .question, let question = vm.question {
+            let id = question.facet.voice == .active ? expected[question.facet.tense] : nil
+            XCTAssertEqual(vm.ruleTopic?.id, id, question.facet.rawValue)
+            if id == nil { without += 1 } else { withTopic += 1 }
+            await vm.choose(question.rightIndex)
+            XCTAssertEqual(vm.ruleTopic?.id, id, "after the answer")
+            await vm.next()
+        }
+        XCTAssertGreaterThan(withTopic, 0)
+        XCTAssertGreaterThan(without, 0, "B1 asks tenses without a topic")
+        XCTAssertNil(vm.ruleTopic, "none on the summary")
+    }
+
+    /// Without the Greek pack's grammar (the stub), no question has a Rule.
+    func testNoRuleWithoutGrammar() async throws {
+        let verb = try await DrillFixture.verb("γράφω")
+        try await DatabaseService.shared.setup(userPath: tempDir.appendingPathComponent("stub-user.sqlite").path,
+                                               dictionaryURL: try TestDictionary.bundledURL())
+        let vm = run(verb, level: .a1, length: 3)
+        await vm.start()
+        XCTAssertEqual(vm.phase, .question)
+        XCTAssertNil(vm.ruleTopic)
+    }
+
+    /// A run of `mode` on `clock`.
+    private func run(_ mode: ConjugationRunViewModel.Mode, clock: TestClock, length: Int,
+                     uiLanguage: String = "en") -> ConjugationRunViewModel {
+        let languages = LearningLanguageService(settings: settings, packs: FakePairPacks(languagesWithLists: ["ell"]),
+                                                uiLanguage: { uiLanguage })
+        return ConjugationRunViewModel(mode: mode, db: .shared, settings: settings, languages: languages,
+                                       clock: clock.clock,
+                                       player: FeedbackPlayer(settings: settings, sink: RecordingFeedbackSink()),
+                                       seed: 174, answerHints: true, length: length)
+    }
+
+    /// Answers every question right; returns each question's facet and
+    /// Rule topic id, as shown and after the answer.
+    private func answerAll(_ vm: ConjugationRunViewModel) async -> [(facet: ConjugationFacet, rule: String?)] {
+        var asked: [(facet: ConjugationFacet, rule: String?)] = []
+        while vm.phase == .question, let question = vm.question, asked.count < 40 {
+            let shown = vm.ruleTopic?.id
+            await vm.choose(question.rightIndex)
+            XCTAssertEqual(vm.ruleTopic?.id, shown, "Rule stays after the answer")
+            asked.append((question.facet, shown))
+            await vm.next()
+        }
+        return asked
+    }
+
+    /// QA (#174): the Behaviour's Rule rows through the run. A drill of one
+    /// tense on one verb (#172's `.tenses` mode) gives every question the
+    /// same topic: the aorist of πηγαίνω the irregular aorists, the present
+    /// of αγαπάω the second conjugation, the aorist of γράφω the regular
+    /// aorist; the imperfect of γράφω none.
+    func testRuleRowsThroughTheRun() async throws {
+        let rows: [(word: String, tense: ConjugationTense, level: DrillLevel, id: String?)] = [
+            ("πηγαίνω", .aorist, .a1, "ell-aorist-irregular"), ("αγαπάω", .present, .a1, "ell-present-2"),
+            ("γράφω", .aorist, .a1, "ell-aorist-regular"), ("γράφω", .imperfect, .b1, nil),
+        ]
+        for row in rows {
+            let verb = try await DrillFixture.verb(row.word)
+            let vm = run(.tenses([row.tense], pool: [verb], level: row.level), clock: TestClock("2026-11-04T12:00:00Z"),
+                         length: 4)
+            await vm.start()
+            XCTAssertNil(vm.errorMessage)
+            let asked = await answerAll(vm)
+            XCTAssertFalse(asked.isEmpty, "\(row.word) \(row.tense.rawValue)")
+            XCTAssertTrue(asked.allSatisfy { $0.facet == ConjugationFacet(row.tense, .active) }, "\(asked.map(\.facet))")
+            XCTAssertEqual(asked.map(\.rule), Array(repeating: row.id, count: asked.count),
+                           "\(row.word) \(row.tense.rawValue)")
+        }
+    }
+
+    /// QA (#174): Rule sits after the answer, so the time a learner spends
+    /// in its sheet is not the answer's: `duration_ms` is the time from the
+    /// question to the tap, and the next question's starts when it shows.
+    func testRuleTimeIsNotTheAnswersTime() async throws {
+        let clock = TestClock("2026-11-04T12:00:00Z")
+        let vm = run(.verb(try await DrillFixture.verb("γράφω"), level: .a1), clock: clock, length: 2)
+        await vm.start()
+        XCTAssertNotNil(vm.ruleTopic, "an A1 question has its topic")
+        clock.advance(2.5)
+        await vm.choose(try XCTUnwrap(vm.question).rightIndex)
+        clock.advance(95)  // reading the rule in the sheet
+        await vm.next()
+        clock.advance(1.25)
+        await vm.choose(try XCTUnwrap(vm.question).rightIndex)
+        clock.advance(40)
+        await vm.next()
+        XCTAssertEqual(vm.phase, .summary)
+        let durations = try await DatabaseService.shared.writeForTesting { db in
+            try Int.fetchAll(db, sql: "SELECT duration_ms FROM learn_review ORDER BY id")
+        }
+        XCTAssertEqual(durations, [2_500, 1_250])
+    }
+
+    /// QA (#174): a Russian UI's default pair, Greek via Russian, titles
+    /// the Rule topic in Russian; the sheet opens the same topic id.
+    func testRuleTopicInTheExplanationLanguage() async throws {
+        let vm = run(.verb(try await DrillFixture.verb("γράφω"), level: .a1), clock: TestClock("2026-11-04T12:00:00Z"),
+                     length: 1, uiLanguage: "ru")
+        await vm.start()
+        let topic = try XCTUnwrap(vm.ruleTopic)
+        XCTAssertEqual(topic.explainLang, "rus")
+        XCTAssertTrue(topic.title.unicodeScalars.contains { (0x0400...0x04FF).contains($0.value) }, topic.title)
+    }
+
+    /// VoiceOver reads Rule as "Grammar rule: Aorist"; Arabic starts with
+    /// U+200F.
+    func testRuleLabel() {
+        XCTAssertEqual(DrillText.ruleLabel(.aorist, locale: Locale(identifier: "en")), "Grammar rule: Aorist")
+        XCTAssertEqual(DrillText.ruleLabel(.future, locale: Locale(identifier: "en")), "Grammar rule: Future: simple form")
+        let arabic = DrillText.ruleLabel(.aorist, locale: Locale(identifier: "ar"))
+        XCTAssertTrue(arabic.hasPrefix("\u{200F}"), arabic)
+        XCTAssertNotEqual(DrillText.ruleLabel(.aorist, locale: Locale(identifier: "ru")), "Grammar rule: Aorist")
+    }
+}
+
 // MARK: - Issue #153: the built English lists
 //
 // 0130-word-lists.md, Test plan: CEFR-J 1.5 (A1–B2) and Octanove C1/C2 1.0

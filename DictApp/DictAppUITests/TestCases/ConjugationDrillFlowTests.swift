@@ -10,7 +10,8 @@ import XCTest
 /// option's value is `answer`), a fixed `-learningSeed`, and the Greek pack
 /// installed from the committed assets unless a test removes it. Most tests
 /// answer a few questions (`-drillLength`); `testSessionOfFifteen` answers
-/// the default 15.
+/// the default 15. Rule after an answer opens the grammar topic of the
+/// question's tense in a sheet (0133, #174).
 final class ConjugationDrillFlowTests: XCTestCase {
 
     private typealias IDs = AccessibilityIdentifiers.Conjugation
@@ -35,6 +36,10 @@ final class ConjugationDrillFlowTests: XCTestCase {
             return ["-learningLanguages", "ell", "-drillLength", "3"]
         }
         if name.contains("testPractiseAsksLearnGreekFirst") { return ["-drillLength", "3"] }
+        if name.contains("testRuleOpensTheTensesTopic") { return ["-learningLanguages", "ell", "-drillLength", "2"] }
+        if name.contains("testNoRuleWithoutATopic") {
+            return ["-learningLanguages", "ell", "-learningLists", "ky-ell-b1", "-drillLength", "15"]
+        }
         if name.contains("testRowOnlyForGreek") { return ["-learningFixture", "bilingual"] }
         return []
     }
@@ -335,6 +340,95 @@ final class ConjugationDrillFlowTests: XCTestCase {
         learnPage.selectLanguage(named: "Greek")
         XCTAssertTrue(learnPage.trainerConjugation.waitForExistence(timeout: TestData.Timeouts.medium),
                       "Greek again: the row")
+    }
+
+    /// The topic Rule opens for γράφω, by the tense line's start (English).
+    private static let grafoTopics: [(tense: String, id: String, title: String)] = [
+        ("Present", "ell-present-1", "Present tense: first conjugation"),
+        ("Aorist", "ell-aorist-regular", "The aorist of regular verbs and the augment"),
+        ("Future: simple form", "ell-future", "The future with θα"),
+        ("Subjunctive: simple form", "ell-na-perfective", "να + the simple form"),
+        ("Imperative", "ell-imperative", "The imperative"),
+    ]
+
+    /// Practise on γράφω: after the answer, Rule opens the topic of the
+    /// question's tense in a sheet, with no Practise; a word there opens its
+    /// Definition, also without Practise. Done returns to the same answer's
+    /// feedback, and Continue goes on.
+    func testRuleOpensTheTensesTopic() throws {
+        let drill = openDefinition("γράφω")
+        drill.practise()
+        XCTAssertTrue(drill.waitForQuestion(), "a question")
+        let grammar = GrammarPage(app: app)
+        XCTAssertFalse(grammar.ruleButton.exists, "no Rule before the answer")
+        let line = drill.promptTense.label
+        let topic = try XCTUnwrap(Self.grafoTopics.first { line.hasPrefix($0.tense) }, "a topic for '\(line)'")
+        XCTAssertEqual(drill.answer(right: true), "right")
+        XCTAssertTrue(grammar.ruleButton.waitForExistence(timeout: TestData.Timeouts.medium), "Rule beside Continue")
+        XCTAssertTrue(grammar.ruleButton.label.hasPrefix("Grammar rule: "), grammar.ruleButton.label)
+        XCTAssertTrue(drill.run.continueButton.exists)
+        grammar.ruleButton.tap()
+
+        // The Definition the run covers stays in the hierarchy: look inside the sheet.
+        let sheet = grammar.sheet
+        XCTAssertTrue(sheet.waitForExistence(timeout: TestData.Timeouts.medium), "the sheet")
+        XCTAssertTrue(grammar.waitForTopic(), "the topic")
+        XCTAssertTrue(sheet.descendants(matching: .any)[AccessibilityIdentifiers.Grammar.title].exists, "in the sheet")
+        XCTAssertEqual(grammar.title.label, topic.title, "the topic of '\(line)'")
+        XCTAssertFalse(grammar.practiseButton.exists, "no Practise in the sheet")
+        XCTAssertTrue(grammar.sheetDone.exists, "Done")
+
+        // γράφω's word link, on this topic or on a related one.
+        if !grammar.word("γράφω").exists {
+            let related = ["ell-aorist-regular", "ell-imperative"].map(grammar.related).first { $0.exists }
+            grammar.tapOnTopic(try XCTUnwrap(related, "a related topic with γράφω"), "a related topic")
+            XCTAssertTrue(grammar.word("γράφω").waitForExistence(timeout: TestData.Timeouts.medium), "γράφω's row")
+            XCTAssertFalse(grammar.practiseButton.exists, "no Practise on a related topic in the sheet")
+        }
+        grammar.tapOnTopic(grammar.word("γράφω"), "γράφω's row")
+        XCTAssertTrue(sheet.descendants(matching: .any)[AccessibilityIdentifiers.Inflection.table].firstMatch
+            .waitForExistence(timeout: TestData.Timeouts.long), "γράφω's Definition with its table, in the sheet")
+        XCTAssertFalse(sheet.buttons[AccessibilityIdentifiers.Conjugation.practiseButton].firstMatch
+            .waitForExistence(timeout: TestData.Timeouts.short), "no Practise on a Definition in the sheet")
+        XCTAssertTrue(sheet.descendants(matching: .any)[AccessibilityIdentifiers.Grammar.definitionSection].exists,
+                      "its Grammar section still shows")
+
+        // Back to the sheet's root, then Done.
+        while !grammar.sheetDone.exists, app.navigationBars.firstMatch.buttons.count > 0 {
+            grammar.goBack()
+            _ = grammar.sheetDone.waitForExistence(timeout: TestData.Timeouts.short)
+        }
+        grammar.sheetDone.tap()
+        XCTAssertTrue(grammar.sheet.waitForNonExistence(timeout: TestData.Timeouts.medium), "the sheet closes")
+        XCTAssertTrue(drill.run.feedback.exists, "the same answer's feedback")
+        XCTAssertEqual(drill.run.feedback.value as? String, "right")
+        XCTAssertTrue(grammar.ruleButton.exists, "Rule stays")
+        drill.run.tapContinue()
+        XCTAssertTrue(drill.waitForQuestion(), "Continue goes on")
+        XCTAssertFalse(grammar.ruleButton.exists)
+    }
+
+    /// Tenses up to B1 (Greek B1 checked): Practise on γράφω asks tenses
+    /// with no 2.0 topic (the imperfect, the continuous future and
+    /// subjunctive, the passive), which have no Rule; the others have it.
+    func testNoRuleWithoutATopic() throws {
+        let drill = openDefinition("γράφω")
+        drill.practise()
+        let grammar = GrammarPage(app: app)
+        var without: [String] = []
+        var with: [String] = []
+        while without.isEmpty || with.isEmpty, with.count + without.count < 15, drill.waitForQuestion() {
+            let line = drill.promptTense.label
+            let hasTopic = !line.contains("passive") && !line.hasPrefix("Imperfect")
+                && !line.hasPrefix("Future: continuous") && !line.hasPrefix("Subjunctive: continuous")
+            XCTAssertEqual(drill.answer(right: true), "right", line)
+            XCTAssertTrue(drill.run.continueButton.waitForExistence(timeout: TestData.Timeouts.medium))
+            XCTAssertEqual(grammar.ruleButton.exists, hasTopic, "Rule for '\(line)'")
+            if hasTopic { with.append(line) } else { without.append(line) }
+            drill.run.tapContinue()
+        }
+        XCTAssertFalse(without.isEmpty, "a question without a topic; asked \(with)")
+        XCTAssertFalse(with.isEmpty, "a question with a topic; asked \(without)")
     }
 
     /// No Greek pack (`-resetPacks`): "Download Greek to practise

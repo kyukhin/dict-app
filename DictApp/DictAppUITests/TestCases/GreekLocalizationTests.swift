@@ -669,6 +669,17 @@ final class GreekLocalizationTests: XCTestCase {
         drill.answer(right: true)
         XCTAssertTrue(drill.tenseTable.waitForExistence(timeout: TestData.Timeouts.medium), "the whole tense")
         attachScreenshot("19-conjugation-tense")
+        // QA (0133, #174): Rule in Greek, read with the tense; its sheet's
+        // Done reads "Τέλος".
+        let grammar = GrammarPage(app: app)
+        XCTAssertTrue(grammar.ruleButton.waitForExistence(timeout: TestData.Timeouts.medium), "Rule")
+        XCTAssertTrue(titles.contains { grammar.ruleButton.label == "Γραμματικός κανόνας: " + $0 },
+                      grammar.ruleButton.label)
+        grammar.ruleButton.tap()
+        XCTAssertTrue(grammar.sheet.waitForExistence(timeout: TestData.Timeouts.medium), "the Rule sheet")
+        XCTAssertEqual(grammar.sheetDone.label, "Τέλος")
+        grammar.sheetDone.tap()
+        XCTAssertTrue(grammar.sheet.waitForNonExistence(timeout: TestData.Timeouts.medium), "Done closes it")
         drill.run.tapContinue()
         XCTAssertTrue(drill.waitForQuestion(), "the second question")
         drill.answer(right: false)
