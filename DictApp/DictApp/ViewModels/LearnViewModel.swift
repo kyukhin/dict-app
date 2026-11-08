@@ -840,6 +840,10 @@ final class ConjugationRunViewModel: ObservableObject {
     @Published private(set) var tenseScores: [(tense: String, tally: Tally)] = []
     /// The daily goal at the end of the run; nil until then.
     @Published private(set) var goalProgress: GoalProgress?
+    /// 0133, #174: the grammar topic of the question's tense for its verb,
+    /// which Rule opens after the answer; nil for a tense without a topic
+    /// and for a passive facet.
+    @Published private(set) var ruleTopic: GrammarTopicSummary?
     @Published var errorMessage: String?
 
     let mode: Mode
@@ -854,6 +858,7 @@ final class ConjugationRunViewModel: ObservableObject {
 
     private let db: DatabaseService
     private let settings: SettingsService
+    private let languages: LearningLanguageService
     private let clock: LearningClock
     private let player: FeedbackPlayer
     /// The answer that reaches today's goal cancels today's reminder (#162).
@@ -864,15 +869,20 @@ final class ConjugationRunViewModel: ObservableObject {
     private var shownAt = Date()
     private var pendingWrite: Task<Void, Never>?
     private var isStarted = false
+    /// Greek's grammar topics and links, read once per run (#174).
+    private var grammarTopics: [GrammarTopicSummary] = []
+    private var grammarLinks: [GrammarLink] = []
 
     init(mode: Mode, meaningsLang: String = "eng", db: DatabaseService = .shared, settings: SettingsService = .shared,
-         clock: LearningClock = LearningClock(), player: FeedbackPlayer? = nil, reminder: LearningReminder? = nil,
+         languages: LearningLanguageService? = nil, clock: LearningClock = LearningClock(),
+         player: FeedbackPlayer? = nil, reminder: LearningReminder? = nil,
          seed: UInt64? = LearningLaunchOptions.seed, answerHints: Bool = LearningLaunchOptions.answerHints,
          length: Int? = LearningLaunchOptions.drillLength) {
         self.mode = mode
         self.meaningsLang = meaningsLang
         self.db = db
         self.settings = settings
+        self.languages = languages ?? .shared
         self.clock = clock
         self.player = player ?? .shared
         // As in `ExerciseRunViewModel`: the app's reminder on the app's settings.
@@ -905,7 +915,25 @@ final class ConjugationRunViewModel: ObservableObject {
         } catch {
             errorMessage = error.localizedDescription
         }
+        await loadGrammar()
         await show()
+    }
+
+    /// Greek's grammar links and topics, titled in its explanation
+    /// language, for each question's Rule (0133, #174). Grammar is extra: a
+    /// failed read, or no Greek pack, leaves the run without Rule.
+    private func loadGrammar() async {
+        let lang = ConjugationPlanner.lang
+        do {
+            let links = try await db.grammarLinks(lang: lang)
+            guard !links.isEmpty else { return }
+            grammarTopics = try await db.grammarTopics(lang: lang,
+                                                       explainLang: try await languages.explanationLanguage(of: lang))
+            grammarLinks = links
+        } catch {
+            grammarTopics = []
+            grammarLinks = []
+        }
     }
 
     /// Grades the option tapped at once (the feedback bar, the sound; the
@@ -952,9 +980,12 @@ final class ConjugationRunViewModel: ObservableObject {
     private func show() async {
         question = nil
         feedback = nil
+        ruleTopic = nil
         while index < plan.count {
             if let built = plan[index].question(rng: &rng) {
                 question = built
+                ruleTopic = GrammarLinks.ruleTopic(verb: built.verb, facet: built.facet, topics: grammarTopics,
+                                                   links: grammarLinks)
                 position = index + 1
                 total = plan.count
                 shownAt = clock.now()

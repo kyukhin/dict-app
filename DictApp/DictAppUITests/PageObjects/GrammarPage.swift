@@ -23,6 +23,13 @@ final class GrammarPage: BasePage {
     var watchOut: XCUIElement { element(IDs.watchOut) }
     var practiseButton: XCUIElement { app.buttons[IDs.practiseButton].firstMatch }
 
+    // 0133, #174: Definition's Grammar section; the drill's Rule and its sheet.
+    var definitionSection: XCUIElement { element(IDs.definitionSection) }
+    func definitionTopic(_ id: String) -> XCUIElement { element(IDs.definitionTopic(id)) }
+    var ruleButton: XCUIElement { app.buttons[IDs.ruleButton].firstMatch }
+    var sheet: XCUIElement { element(IDs.sheet) }
+    var sheetDone: XCUIElement { app.buttons[IDs.sheetDone].firstMatch }
+
     func levelHeader(_ level: String) -> XCUIElement { element(IDs.level(level)) }
     func topicRow(_ id: String) -> XCUIElement { element(IDs.topicRow(id)) }
     func table(_ n: Int) -> XCUIElement { element(IDs.table(n)) }
@@ -72,6 +79,18 @@ final class GrammarPage: BasePage {
         XCTAssertTrue(app.scrollToElement(element, in: app.scrollViews[IDs.topic].firstMatch),
                       "\(name) on screen", file: file, line: line)
         element.tap()
+    }
+
+    /// On a Definition screen: scrolls to the Grammar row of topic `id`,
+    /// taps it and waits for the topic.
+    @discardableResult
+    func openDefinitionTopic(_ id: String, file: StaticString = #filePath, line: UInt = #line) -> Bool {
+        let row = definitionTopic(id)
+        XCTAssertTrue(row.waitForExistence(timeout: TestData.Timeouts.long), "the Grammar row of \(id)",
+                      file: file, line: line)
+        XCTAssertTrue(app.scrollToElement(row), "the Grammar row of \(id) on screen", file: file, line: line)
+        row.tap()
+        return waitForTopic()
     }
 
     /// The back button, by index (it carries the previous screen's title).

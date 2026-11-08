@@ -476,25 +476,36 @@ private struct OptionButton: View {
 }
 
 /// Slides up on an answer: "Right!" or "Right answer: write", and Continue;
-/// Example beside it when the word has examples (0134, #178). The drill
-/// (0132, #168) puts the whole tense above Continue (`detail`); taller than
-/// `detailMaxHeight`, the result and the tense scroll.
+/// Example beside it when the word has examples (0134, #178), Rule in the
+/// drill when the question's tense has a grammar topic (0133, #174). The
+/// drill (0132, #168) puts the whole tense above Continue (`detail`); taller
+/// than `detailMaxHeight`, the result and the tense scroll.
 struct FeedbackBar: View {
+    /// The drill's Rule button: VoiceOver's label ("Grammar rule: Aorist")
+    /// and what a tap does.
+    struct Rule {
+        let accessibilityLabel: String
+        let action: () -> Void
+    }
+
     let feedback: AnswerFeedback
     let detail: AnyView?
     let detailMaxHeight: CGFloat?
     /// Opens the example sheet; nil: no Example button.
     let onExample: (() -> Void)?
+    /// Opens the grammar topic; nil: no Rule button.
+    let rule: Rule?
     let onContinue: () -> Void
     /// The result's and `detail`'s height, to fit the scroll to them.
     @State private var resultHeight: CGFloat = 0
 
     init(feedback: AnswerFeedback, detail: AnyView? = nil, detailMaxHeight: CGFloat? = nil,
-         onExample: (() -> Void)? = nil, onContinue: @escaping () -> Void) {
+         onExample: (() -> Void)? = nil, rule: Rule? = nil, onContinue: @escaping () -> Void) {
         self.feedback = feedback
         self.detail = detail
         self.detailMaxHeight = detailMaxHeight
         self.onExample = onExample
+        self.rule = rule
         self.onContinue = onContinue
     }
 
@@ -521,16 +532,16 @@ struct FeedbackBar: View {
             } else {
                 FeedbackResultLine(feedback: feedback)
             }
-            if let onExample {
+            if onExample != nil || rule != nil {
                 // Side by side; stacked when the text is too large for that.
                 ViewThatFits(in: .horizontal) {
                     HStack(spacing: 12) {
-                        exampleButton(onExample, fills: false)
+                        sideButtons(fill: false)
                         continueButton
                     }
                     VStack(spacing: 12) {
                         continueButton
-                        exampleButton(onExample, fills: true)
+                        sideButtons(fill: true)
                     }
                 }
             } else {
@@ -562,6 +573,17 @@ struct FeedbackBar: View {
         .accessibilityIdentifier("exercise_continue")
     }
 
+    /// Example and Rule, whichever the run gives.
+    @ViewBuilder
+    private func sideButtons(fill: Bool) -> some View {
+        if let onExample {
+            exampleButton(onExample, fills: fill)
+        }
+        if let rule {
+            ruleButton(rule, fills: fill)
+        }
+    }
+
     /// `fills`: as wide as Continue, under it; else as wide as its label.
     private func exampleButton(_ action: @escaping () -> Void, fills: Bool) -> some View {
         Button(action: action) {
@@ -573,6 +595,21 @@ struct FeedbackBar: View {
         .controlSize(.large)
         .tint(isRight ? .green : .red)
         .accessibilityIdentifier("exercise_example_button")
+    }
+
+    /// 0133, #174: "Rule", after the answer only, so it never helps to
+    /// answer and does not count in the answer's time.
+    private func ruleButton(_ rule: Rule, fills: Bool) -> some View {
+        Button(action: rule.action) {
+            Label("grammar.rule", systemImage: "book")
+                .frame(maxWidth: fills ? .infinity : nil)
+                .fixedSize(horizontal: !fills, vertical: false)
+        }
+        .buttonStyle(.bordered)
+        .controlSize(.large)
+        .tint(isRight ? .green : .red)
+        .accessibilityLabel(Text(verbatim: rule.accessibilityLabel))
+        .accessibilityIdentifier("drill_rule_button")
     }
 
     /// The bar's text, also announced by VoiceOver. The word or meaning is
@@ -788,15 +825,20 @@ struct RunSummaryView: View {
 /// A drill run, in a `fullScreenCover`: E4's run shell (close button,
 /// progress, feedback bar, Continue) around `ConjugationQuestionView`; after
 /// each answer the whole tense (`ConjugationTenseView`) in the feedback bar,
-/// and at the end E4's summary with the run by tense. The content is at most
-/// 600 pt wide and centred, and scrolls when it does not fit.
+/// with Rule beside Continue when the tense has a grammar topic (0133,
+/// #174), and at the end E4's summary with the run by tense. The content is
+/// at most 600 pt wide and centred, and scrolls when it does not fit.
 struct ConjugationRunView: View {
     @StateObject private var vm: ConjugationRunViewModel
     @Environment(\.dismiss) private var dismiss
     @Environment(\.locale) private var locale
+    @Environment(\.layoutDirection) private var layoutDirection
     /// The run's height: the feedback bar takes at most half of it before
     /// its tense scrolls.
     @State private var height: CGFloat = 0
+    /// The topic Rule shows in a sheet; nil when none. The run waits on the
+    /// same answer's feedback meanwhile.
+    @State private var ruleSheet: GrammarTopicSummary?
 
     init(mode: ConjugationRunViewModel.Mode, meaningsLang: String) {
         _vm = StateObject(wrappedValue: ConjugationRunViewModel(mode: mode, meaningsLang: meaningsLang))
@@ -815,7 +857,13 @@ struct ConjugationRunView: View {
                 if let feedback = vm.feedback, let question = vm.question {
                     FeedbackBar(feedback: feedback,
                                 detail: AnyView(ConjugationTenseView(question: question)),
-                                detailMaxHeight: height / 2) {
+                                detailMaxHeight: height / 2,
+                                rule: vm.ruleTopic.map { topic in
+                                    FeedbackBar.Rule(accessibilityLabel: DrillText.ruleLabel(question.facet.tense,
+                                                                                            locale: locale)) {
+                                        ruleSheet = topic
+                                    }
+                                }) {
                         Task { await vm.next() }
                     }
                     .transition(.move(edge: .bottom).combined(with: .opacity))
@@ -835,6 +883,11 @@ struct ConjugationRunView: View {
         }
         .task {
             await vm.start()
+        }
+        .sheet(item: $ruleSheet) { topic in
+            GrammarRuleSheet(topicID: topic.id)
+                .environment(\.locale, locale)
+                .environment(\.layoutDirection, layoutDirection)
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("exercise_view")
@@ -883,6 +936,33 @@ struct ConjugationRunView: View {
             }
             .frame(maxWidth: ExerciseRunView.maxWidth)
         }
+    }
+}
+
+/// The Rule sheet (0133, #174): the topic in its own stack, where its
+/// words and related topics open, with Done. Nothing in it offers Practise
+/// (`\.allowsPractise`), neither the topic nor a Definition opened from it.
+struct GrammarRuleSheet: View {
+    let topicID: String
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            GrammarTopicView(id: topicID)
+                .toolbar {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button {
+                            dismiss()
+                        } label: {
+                            Text("welcome.done")
+                        }
+                        .accessibilityIdentifier("grammar_sheet_done")
+                    }
+                }
+        }
+        .environment(\.allowsPractise, false)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("grammar_sheet")
     }
 }
 

@@ -7,8 +7,8 @@ import XCTest
 /// otherwise; the Greek pack installed from the committed assets;
 /// `-resetData` first.
 ///
-/// Practise from a topic opened on Definition (`testPractiseAsksLearnGreekFirst`)
-/// waits for #174's links.
+/// #174: the Grammar section of a Greek headword's Definition, and Practise
+/// on a topic opened from it while Greek is not learned.
 final class GrammarFlowTests: XCTestCase {
     private typealias IDs = AccessibilityIdentifiers.Grammar
 
@@ -21,7 +21,7 @@ final class GrammarFlowTests: XCTestCase {
         if name.contains("testGreekViaRussianReadsRussian") {
             return ["-AppleLanguages", "(ru)", "-AppleLocale", "ru", "-learningLanguages", "ell:rus"]
         }
-        if name.contains("testCreditsListsGrammar") { return [] }
+        if name.contains("testCreditsListsGrammar") || name.contains("testPractiseAsksLearnGreekFirst") { return [] }
         if name.contains("testPractiseOpensTheDrillForThatTense") {
             return ["-learningLanguages", "ell", "-learningLists", "ky-ell-a1", "-drillLength", "3",
                     "-learningSeed", "1", "-learningAnswerHints"]
@@ -39,6 +39,17 @@ final class GrammarFlowTests: XCTestCase {
         // XCTAutomationSupport's fault callback segfaults (strcmp on NULL in
         // runtime_issue_os_log_fault_callback), killing the app mid-test.
         app.launchEnvironment["OS_ACTIVITY_MODE"] = "disable"
+        // iOS 26 "Enable Dictation?" springboard alert on the first search.
+        addUIInterruptionMonitor(withDescription: "Enable Dictation alert") { alert in
+            for label in ["Not Now", "Cancel", "Don't Enable", "Don't Allow"] {
+                let button = alert.buttons[label]
+                if button.exists {
+                    button.tap()
+                    return true
+                }
+            }
+            return false
+        }
         // Sim orientation persists across sessions; landscape breaks swipes.
         XCUIDevice.shared.orientation = .portrait
         app.launch()
@@ -243,7 +254,88 @@ final class GrammarFlowTests: XCTestCase {
         XCTAssertEqual(line.label, "Greek grammar notes: LibreDict (CC BY-SA 4.0)")
     }
 
+    // MARK: - Definition (#174)
+
+    /// γράφω's Definition (El–En · FD) lists its tense topics under the
+    /// table and Practise, in topic order; a row opens the topic.
+    func testDefinitionLinksOfGrafo() throws {
+        openDefinition("γράφω")
+        let ids = ["ell-present-1", "ell-aorist-regular", "ell-future", "ell-na-perfective", "ell-imperative"]
+        XCTAssertTrue(page.definitionTopic(ids[0]).waitForExistence(timeout: TestData.Timeouts.long),
+                      "the Grammar section")
+        XCTAssertTrue(page.definitionSection.exists)
+        for id in ids {
+            XCTAssertTrue(page.definitionTopic(id).exists, id)
+        }
+        XCTAssertFalse(page.definitionTopic("ell-aorist-irregular").exists, "γράφω is regular")
+        XCTAssertFalse(page.definitionTopic("ell-present-2").exists)
+        XCTAssertEqual(page.definitionTopic("ell-present-1").label, "Present tense: first conjugation")
+        let rows = ids.map { page.definitionTopic($0).frame.minY }
+        XCTAssertEqual(rows, rows.sorted(), "topic order")
+        let practise = app.buttons[AccessibilityIdentifiers.Conjugation.practiseButton].firstMatch
+        XCTAssertTrue(practise.exists, "Practise under the table")
+        XCTAssertLessThan(practise.frame.maxY, rows[0], "the section under Practise")
+
+        XCTAssertTrue(page.openDefinitionTopic("ell-aorist-regular"), "a tap opens the topic")
+        XCTAssertEqual(page.title.label, "The aorist of regular verbs and the augment")
+        XCTAssertTrue(page.practiseButton.exists, "Greek is learned: Practise on the topic")
+    }
+
+    /// σπίτι links to articles and noun endings, and to no verb topic.
+    func testNounLinksToArticlesAndEndings() throws {
+        openDefinition("σπίτι")
+        XCTAssertTrue(page.definitionTopic("ell-articles").waitForExistence(timeout: TestData.Timeouts.long),
+                      "Articles and gender")
+        XCTAssertTrue(page.definitionTopic("ell-noun-endings").exists, "Noun endings")
+        XCTAssertFalse(page.definitionTopic("ell-present-1").exists)
+        XCTAssertFalse(page.definitionTopic("ell-adjectives").exists)
+        XCTAssertTrue(page.openDefinitionTopic("ell-noun-endings"))
+        XCTAssertEqual(page.title.label, "Noun endings: nominative and accusative")
+    }
+
+    /// QA (#174): a word without a table links by its word alone. El–En ·
+    /// FD calls εγώ a noun, yet it gets Personal pronouns only, no noun
+    /// topic from that label; the row opens the topic.
+    func testWordWithoutATableLinksByWord() throws {
+        openDefinition("εγώ", expectsTable: false)
+        XCTAssertTrue(page.definitionTopic("ell-pronouns").waitForExistence(timeout: TestData.Timeouts.long),
+                      "Personal pronouns")
+        XCTAssertTrue(page.definitionSection.exists)
+        XCTAssertFalse(InflectionTablePage(app: app).table.exists, "εγώ has no table")
+        for id in ["ell-articles", "ell-noun-endings", "ell-possessives", "ell-present-1"] {
+            XCTAssertFalse(page.definitionTopic(id).exists, id)
+        }
+        XCTAssertEqual(page.definitionTopic("ell-pronouns").label, "Personal pronouns, strong and weak")
+        XCTAssertTrue(page.openDefinitionTopic("ell-pronouns"), "a tap opens the topic")
+        XCTAssertEqual(page.title.label, "Personal pronouns, strong and weak")
+        XCTAssertTrue(page.word("εγώ").exists, "the topic lists εγώ")
+    }
+
+    /// No learned language: the aorist topic opened from γράφω's Definition
+    /// still offers Practise, which asks "Learn Greek via English?" first;
+    /// No starts nothing.
+    func testPractiseAsksLearnGreekFirst() throws {
+        openDefinition("γράφω")
+        XCTAssertTrue(page.openDefinitionTopic("ell-aorist-regular"), "the topic from Definition")
+        XCTAssertFalse(page.englishNote.exists, "Greek's default pair explains in English")
+        page.tapOnTopic(page.practiseButton, "Practise")
+        let alert = app.alerts["Learn Greek via English?"]
+        XCTAssertTrue(alert.waitForExistence(timeout: TestData.Timeouts.medium), "the alert")
+        alert.buttons["No"].tap()
+        XCTAssertFalse(ExercisePage(app: app).view.waitForExistence(timeout: TestData.Timeouts.short),
+                       "No: no drill")
+        XCTAssertTrue(page.title.exists, "still on the topic")
+    }
+
     // MARK: - Helpers
+
+    /// Searches `word` and opens its El–En · FD Definition.
+    private func openDefinition(_ word: String, expectsTable: Bool = true, file: StaticString = #filePath,
+                                line: UInt = #line) {
+        let search = tabBarPage.tapSearchTab()
+        _ = InflectionTablePage.open(word, source: "freedict-ell-eng", from: search, app: app,
+                                     expectsTable: expectsTable, file: file, line: line)
+    }
 
     /// The Learn home's Grammar row, which reads `rowValue`, then the
     /// Grammar screen.

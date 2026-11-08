@@ -1197,8 +1197,8 @@ private struct GrammarTextBlock: View {
 }
 
 /// A Words or Related topics row: its text, a secondary line, and a
-/// chevron that mirrors in Arabic.
-private struct GrammarLinkRow: View {
+/// chevron that mirrors in Arabic. Definition's Grammar rows too (#174).
+struct GrammarLinkRow: View {
     let title: AttributedString
     let subtitle: AttributedString?
     let isLink: Bool

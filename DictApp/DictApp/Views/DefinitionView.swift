@@ -10,6 +10,8 @@ struct DefinitionView: View {
     /// The in-app language, for the inflection table's labels (Issue #144).
     @Environment(\.locale) private var locale
     @Environment(\.layoutDirection) private var layoutDirection
+    /// False in the drill's Rule sheet (0133, #174): no Practise there.
+    @Environment(\.allowsPractise) private var allowsPractise
 
     init(entry: DictionaryEntry) {
         _vm = StateObject(wrappedValue: DefinitionViewModel(entry: entry))
@@ -83,9 +85,15 @@ struct DefinitionView: View {
                     Divider()
                     InflectionTableView(table: table)
                     // 0132, #168: Practise under a verb's table.
-                    if table.kind == .conjugation, let verb = vm.drillVerb {
+                    if allowsPractise, table.kind == .conjugation, let verb = vm.drillVerb {
                         practiseButton(verb)
                     }
+                }
+
+                // 0133, #174: the grammar topics of a Greek headword.
+                if !vm.grammarTopics.isEmpty {
+                    Divider()
+                    grammarSection
                 }
             }
             .padding()
@@ -185,6 +193,33 @@ struct DefinitionView: View {
         }
     }
 
+    /// 0133, #174: "Grammar", one row per topic that applies to the entry,
+    /// titled in Greek's explanation language. A row pushes the topic in the
+    /// same stack (a tab's, or the drill's Rule sheet).
+    private var grammarSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("grammar.title")
+                .font(.title3.bold())
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .accessibilityAddTraits(.isHeader)
+            VStack(spacing: 0) {
+                ForEach(vm.grammarTopics) { topic in
+                    NavigationLink {
+                        GrammarTopicView(id: topic.id)
+                    } label: {
+                        GrammarLinkRow(title: GrammarDocument.taggingGreek(AttributedString(topic.title)),
+                                       subtitle: nil, isLink: true)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("definition_grammar_topic_\(topic.id)")
+                    if topic.id != vm.grammarTopics.last?.id { Divider() }
+                }
+            }
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("definition_grammar_section")
+    }
+
     private var learnButtonLabel: LocalizedStringKey {
         switch vm.learnAction {
         case .learn: return "definition.a11y.learn"
@@ -246,8 +281,9 @@ private struct AllowsPractiseKey: EnvironmentKey {
 }
 
 extension EnvironmentValues {
-    /// False in the drill's Rule sheet (0133, #174): a grammar topic shows
-    /// no Practise there; the topic itself still shows.
+    /// False in the drill's Rule sheet (0133, #174): a grammar topic and a
+    /// Definition opened from it show no Practise there; the topic itself
+    /// still shows.
     var allowsPractise: Bool {
         get { self[AllowsPractiseKey.self] }
         set { self[AllowsPractiseKey.self] = newValue }

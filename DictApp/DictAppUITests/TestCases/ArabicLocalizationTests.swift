@@ -838,6 +838,24 @@ final class ArabicLocalizationTests: XCTestCase {
         XCTAssertGreaterThan(columns.ink.upperBound - columns.strong.upperBound, 10,
                              "RTL: the pronoun column right of the forms: \(columns)")
         attachScreenshot("conjugation tense table (ar)")
+        // QA (0133, #174): Rule mirrors: right of Continue, its VoiceOver
+        // label after U+200F. Its sheet keeps the topic's English left to
+        // right, with Done ("تم") on the mirrored, left, side.
+        let grammar = GrammarPage(app: app)
+        let rule = grammar.ruleButton
+        XCTAssertTrue(rule.waitForExistence(timeout: TestData.Timeouts.medium), "Rule after an A1 answer")
+        XCTAssertEqual(rule.label.unicodeScalars.first, "\u{200F}", rule.label)
+        XCTAssertTrue(Self.visible(rule.label).hasPrefix("القاعدة النحوية: "), rule.label)
+        XCTAssertGreaterThan(rule.frame.minX, drill.run.continueButton.frame.maxX, "RTL: Rule right of Continue")
+        rule.tap()
+        XCTAssertTrue(grammar.sheet.waitForExistence(timeout: TestData.Timeouts.medium), "the Rule sheet")
+        XCTAssertTrue(grammar.waitForTopic(), "the topic")
+        XCTAssertLessThan(grammar.title.frame.minX, window.midX, "LTR: the English title on the left")
+        XCTAssertEqual(grammar.sheetDone.label, "تم")
+        XCTAssertLessThan(grammar.sheetDone.frame.maxX, window.midX, "RTL: Done on the left")
+        attachScreenshot("conjugation rule sheet (ar)")
+        grammar.sheetDone.tap()
+        XCTAssertTrue(grammar.sheet.waitForNonExistence(timeout: TestData.Timeouts.medium), "Done closes it")
         drill.run.tapContinue()
         XCTAssertTrue(drill.waitForQuestion(), "the second question")
         drill.answer(right: true)

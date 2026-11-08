@@ -27,7 +27,8 @@ import XCTest
 ///      600 pt wide and centred, in both orientations.
 ///   6) The word lists (0130, #154) in both orientations.
 ///   7) The conjugation drill (0132, #168): its question and its tense
-///      table in a centred column of at most 600 pt, in both orientations.
+///      table in a centred column of at most 600 pt, in both orientations;
+///      Rule and Continue a centred row (0133, #174).
 ///
 /// All tests skip cleanly on non-iPad destinations.
 final class iPadSpecificTests: XCTestCase {
@@ -377,8 +378,19 @@ final class iPadSpecificTests: XCTestCase {
                 let window = app.windows.firstMatch.frame
                 return (window.width > window.height) == orientation.isLandscape
             }
-            _ = XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: turned, object: nil)],
-                               timeout: TestData.Timeouts.medium)
+            let result = XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: turned, object: nil)],
+                                        timeout: TestData.Timeouts.medium)
+            // A rotation that times out would measure the other layout.
+            // QA (#174): the iPadOS 26.4 simulator ignores XCUIDevice's
+            // rotation (the screen and Settings stay portrait too), so
+            // landscape is skipped there, never measured as portrait; an
+            // app window that stays put on a turned screen fails.
+            let screen = XCUIScreen.main.screenshot().image.size
+            if result != .completed && orientation.isLandscape && screen.width < screen.height {
+                throw XCTSkip("The simulator did not turn to landscape (screen \(screen)); portrait was checked")
+            }
+            XCTAssertEqual(result, .completed,
+                           "the window turned to \(orientation.rawValue): window \(app.windows.firstMatch.frame), screen \(screen)")
             let window = app.windows.firstMatch.frame
             let rule = page.rule.frame
             XCTAssertLessThanOrEqual(rule.width, 700, "the rule in the column, \(orientation.rawValue)")
@@ -452,7 +464,17 @@ final class iPadSpecificTests: XCTestCase {
             XCTAssertTrue(drill.tenseTable.waitForExistence(timeout: TestData.Timeouts.medium), "the whole tense")
             XCTAssertLessThanOrEqual(drill.tenseTable.frame.width, 600, "the tense in the column")
             XCTAssertGreaterThan(drill.tenseTable.frame.minX, window.midX - 300 - 1)
-            XCTAssertEqual(run.continueButton.frame.midX, window.midX, accuracy: 2, "Continue is centred")
+            // 0133, #174: an active tense's question has Rule beside
+            // Continue; the two make one centred row in the column.
+            let rule = GrammarPage(app: app).ruleButton
+            if rule.exists {
+                let row = rule.frame.union(run.continueButton.frame)
+                XCTAssertEqual(rule.frame.midY, run.continueButton.frame.midY, accuracy: 2, "Rule beside Continue")
+                XCTAssertLessThanOrEqual(row.width, 600, "Rule and Continue in the column")
+                XCTAssertEqual(row.midX, window.midX, accuracy: 2, "Rule and Continue are centred")
+            } else {
+                XCTAssertEqual(run.continueButton.frame.midX, window.midX, accuracy: 2, "Continue is centred")
+            }
             let attachment = XCTAttachment(screenshot: app.screenshot())
             attachment.name = "conjugation drill on iPad (\(orientation.rawValue))"
             attachment.lifetime = .keepAlways
