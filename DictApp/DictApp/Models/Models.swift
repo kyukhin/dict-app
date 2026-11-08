@@ -2744,3 +2744,141 @@ struct ListImportPreview: Hashable, Sendable {
     /// Words with a dictionary entry.
     var linkedCount: Int { words.reduce(0) { $0 + ($1.headword == nil ? 0 : 1) } }
 }
+
+// MARK: - Example sentences (0134, #178)
+
+/// A direct Tatoeba translation of an example (0134, "Data: tables").
+struct ExampleTranslation: Hashable, Sendable {
+    /// ISO 639-3: `eng`, `rus`, `spa`, `arb`, or `ell` for an English sentence.
+    let lang: String
+    let text: String
+    /// The Tatoeba username, credited in the byline.
+    let author: String
+}
+
+/// A Tatoeba sentence shown as an example of a word, with its direct
+/// translations, at most one per language. Read by
+/// `DatabaseService.examples(for:limit:)` in the build's order.
+struct ExampleSentence: Identifiable, Hashable, Sendable {
+    /// The Tatoeba sentence id.
+    let id: Int64
+    /// ISO 639-3 of the sentence: `ell` or `eng`.
+    let lang: String
+    /// NFC.
+    let text: String
+    let author: String
+    /// The word's form in `text`, in Unicode scalars.
+    let form: Range<Int>
+    let translations: [ExampleTranslation]
+
+    /// Its translation into `lang`, if Tatoeba has a direct one.
+    func translation(in lang: String) -> ExampleTranslation? {
+        translations.first { $0.lang == lang }
+    }
+}
+
+/// An example as a screen shows it: the sentence and the translation chosen
+/// for it, nil when none shows.
+struct ShownExample: Hashable, Sendable {
+    let sentence: ExampleSentence
+    let translation: ExampleTranslation?
+}
+
+/// What an example shows (0134, "Reading"): which translation, the byline
+/// and the VoiceOver label. Pure; the highlight is in `DefinitionView.swift`,
+/// since its tint is a SwiftUI attribute.
+enum ExampleText {
+    /// The Definition screen's translation (0134, "Translation on the
+    /// Definition screen"): the one in `uiLanguage` (ISO 639-3) when
+    /// Tatoeba has it and it is not the sentence's own language; else the
+    /// English one, unless the sentence is English; else none.
+    static func translation(for example: ExampleSentence, uiLanguage: String) -> ExampleTranslation? {
+        if uiLanguage != example.lang, let own = example.translation(in: uiLanguage) {
+            return own
+        }
+        guard example.lang != "eng" else { return nil }
+        return example.translation(in: "eng")
+    }
+
+    /// Learning's translation (0134, "Translation in learning"): the direct
+    /// one in `via`; in a limited pair (`meanings` other than `via`), else
+    /// the one in `meanings`; nil when there is none, or when the sentence
+    /// is in `via` itself.
+    static func learningTranslation(for example: ExampleSentence, via: String,
+                                    meanings: String?) -> ExampleTranslation? {
+        guard example.lang != via else { return nil }
+        if let translation = example.translation(in: via) { return translation }
+        guard let meanings, meanings != via, meanings != example.lang else { return nil }
+        return example.translation(in: meanings)
+    }
+
+    /// The sheet's examples: up to `limit`, those with a translation in
+    /// `via` first, otherwise in the build's order.
+    static func forLearning(_ examples: [ExampleSentence], via: String, limit: Int = 3) -> [ExampleSentence] {
+        let withVia = examples.filter { $0.translation(in: via) != nil }
+        let others = examples.filter { $0.translation(in: via) == nil }
+        return Array((withVia + others).prefix(max(limit, 0)))
+    }
+
+    /// The authors to credit: the sentence's, then the translation's when
+    /// that is someone else.
+    static func authors(_ example: ExampleSentence, translation: ExampleTranslation?) -> [String] {
+        guard let translation, translation.author != example.author else { return [example.author] }
+        return [example.author, translation.author]
+    }
+
+    /// The byline, "Zeus, CH · Tatoeba" (`examples.byline %@`): each name
+    /// isolated (FSI…PDI), so a list of Latin names keeps its order in
+    /// Arabic, whose value starts with U+200F (#119).
+    static func byline(_ example: ExampleSentence, translation: ExampleTranslation?, bundle: Bundle) -> String {
+        let names = authors(example, translation: translation).map { "\u{2068}\($0)\u{2069}" }
+        return String(format: format("examples.byline %@", bundle: bundle), names.joined(separator: ", "))
+    }
+
+    /// What VoiceOver reads for one example: the sentence and the
+    /// translation in their own voices, then "From Tatoeba: Zeus and
+    /// Shishir" in the UI language (`locale`), the names joined by the
+    /// locale's "and".
+    static func accessibilityLabel(_ example: ExampleSentence, translation: ExampleTranslation?,
+                                   bundle: Bundle, locale: Locale) -> AttributedString {
+        let formatter = ListFormatter()
+        formatter.locale = locale
+        let names = authors(example, translation: translation)
+        let list = formatter.string(from: names) ?? names.joined(separator: ", ")
+        var label = spoken(example.text, lang: example.lang)
+        if let translation {
+            label += AttributedString(" ") + spoken(translation.text, lang: translation.lang)
+        }
+        label += AttributedString(" " + String(format: format("examples.a11y.byline %@", bundle: bundle), list))
+        return label
+    }
+
+    /// `text` tagged with the language VoiceOver reads it in (`el` for Greek).
+    static func spoken(_ text: String, lang: String) -> AttributedString {
+        var run = AttributedString(text)
+        if let identifier = languageIdentifiers[lang] {
+            run.languageIdentifier = identifier
+        }
+        return run
+    }
+
+    /// ISO 639-3 → the language identifier of a text run.
+    static let languageIdentifiers = ["eng": "en", "ell": "el", "rus": "ru", "spa": "es", "arb": "ar"]
+
+    private static func format(_ key: String, bundle: Bundle) -> String {
+        bundle.localizedString(forKey: key, value: key, table: nil)
+    }
+}
+
+extension DictionarySchemas {
+    /// The schema of a language's example tables (0134): Greek in the Greek
+    /// pack, English in the English lists pack; nil for every other
+    /// language, which has no examples.
+    static func examplesSchema(for lang: String) -> String? {
+        switch lang {
+        case "ell": return PackID.ell.schema
+        case "eng": return PackID.engLists.schema
+        default: return nil
+        }
+    }
+}

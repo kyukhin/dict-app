@@ -40,6 +40,31 @@ class DefinitionPage: BasePage {
         return app.otherElements[AccessibilityIdentifiers.Definition.definitionContent]
     }
 
+    // MARK: - Examples (0134, #178)
+
+    private typealias ExampleIDs = AccessibilityIdentifiers.Examples
+
+    var examplesSection: XCUIElement { app.descendants(matching: .any)[ExampleIDs.section].firstMatch }
+    var examplesTitle: XCUIElement { app.descendants(matching: .any)[ExampleIDs.title].firstMatch }
+    var examplesMoreButton: XCUIElement { app.buttons[ExampleIDs.moreButton].firstMatch }
+
+    /// Example `n` (from 1): one element whose label is what VoiceOver reads.
+    func example(_ n: Int) -> XCUIElement {
+        app.descendants(matching: .any)[ExampleIDs.example(n)].firstMatch
+    }
+
+    /// The examples shown, 1…5, in display order.
+    var shownExamples: [XCUIElement] {
+        (1...5).map(example).filter(\.exists)
+    }
+
+    /// Waits for the section, or with `expected` false makes sure it does not
+    /// come: the examples load after the definition.
+    func waitForExamples(_ expected: Bool = true, timeout: TimeInterval = TestData.Timeouts.medium) -> Bool {
+        if expected { return examplesSection.waitForExistence(timeout: timeout) }
+        return !examplesSection.waitForExistence(timeout: timeout)
+    }
+
     // MARK: - Actions
 
     func tapLearnButton() {

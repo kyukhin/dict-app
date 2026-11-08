@@ -1376,6 +1376,55 @@ actor DatabaseService {
         }
     }
 
+    // MARK: - Example sentences (0134, #178)
+    //
+    // A word's examples are one primary-key prefix read of `example_word`
+    // in its language's pack, with their sentences, then their translations
+    // by `(sentence_id, lang)`. A pack that is not installed reads its
+    // stub's empty tables: no examples, with no special code.
+
+    #if DEBUG
+    /// Unit-test seam: how many times `examples(for:limit:)` read a file. It
+    /// only grows.
+    private(set) var exampleReadCount = 0
+    #endif
+
+    /// The examples of `key` in the build's order, at most `limit`, each with
+    /// its translations. Languages without examples (`DictionarySchemas.
+    /// examplesSchema`) read nothing. The word is looked up in NFC, as the
+    /// build stores it.
+    func examples(for key: WordKey, limit: Int = 5) async throws -> [ExampleSentence] {
+        guard let schema = DictionarySchemas.examplesSchema(for: key.lang), limit > 0 else { return [] }
+        guard let pool = dbPool else { throw DBError.notConnected }
+        #if DEBUG
+        exampleReadCount += 1
+        #endif
+        let word = key.word.precomposedStringWithCanonicalMapping
+        return try await read(pool) { db in
+            let rows = try Row.fetchAll(db, sql: """
+                SELECT s.id, s.lang, s.text, s.author, w.form_start, w.form_length
+                FROM \(schema).example_word w JOIN \(schema).example_sentence s ON s.id = w.sentence_id
+                WHERE w.lang = ? AND w.word = ? ORDER BY w.ord LIMIT ?
+                """, arguments: [key.lang, word, limit])
+            guard !rows.isEmpty else { return [] }
+            let ids: [Int64] = rows.map { $0["id"] }
+            var translations: [Int64: [ExampleTranslation]] = [:]
+            for row in try Row.fetchAll(db, sql: """
+                SELECT sentence_id, lang, text, author FROM \(schema).example_translation
+                WHERE sentence_id IN (\(Self.placeholders(ids.count))) ORDER BY sentence_id, lang
+                """, arguments: StatementArguments(ids)) {
+                translations[row["sentence_id"], default: []].append(
+                    ExampleTranslation(lang: row["lang"], text: row["text"], author: row["author"]))
+            }
+            return rows.map { row in
+                let id: Int64 = row["id"]
+                let start: Int = row["form_start"], length: Int = row["form_length"]
+                return ExampleSentence(id: id, lang: row["lang"], text: row["text"], author: row["author"],
+                                       form: start..<(start + max(length, 0)), translations: translations[id] ?? [])
+            }
+        }
+    }
+
     // MARK: - Conjugation drill (0132, #167)
     //
     // The drill's verbs: the verbs of the checked Greek lists that have a

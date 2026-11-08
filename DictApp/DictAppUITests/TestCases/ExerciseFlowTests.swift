@@ -209,6 +209,35 @@ final class ExerciseFlowTests: XCTestCase {
         }
     }
 
+    /// 0134, #178: a review opens no sheet by itself; the bar's Example
+    /// button opens it with the word and its examples. A swipe down returns
+    /// to the bar; the sheet's Continue shows the next question.
+    func testExampleButtonOpensTheSheet() throws {
+        let run = learnPage.openTrainer()
+        guard let prompt = nextPrompt(run, after: nil) else { return }
+        XCTAssertFalse(run.newBadge.exists, "a review")
+        run.choose(right: true)
+        XCTAssertEqual(run.waitForFeedback(), "right")
+        XCTAssertFalse(run.waitForExampleSheet(timeout: TestData.Timeouts.short), "no sheet by itself")
+        XCTAssertTrue(run.exampleButton.waitForExistence(timeout: TestData.Timeouts.medium), "\(prompt) has examples")
+        XCTAssertEqual(run.exampleButton.label, "Example")
+        run.exampleButton.tap()
+        XCTAssertTrue(run.waitForExampleSheet(), "Example opens the sheet")
+        XCTAssertTrue(run.exampleSheetWord.label.hasPrefix(prompt), "the word: \(run.exampleSheetWord.label)")
+        XCTAssertTrue(run.example(1).waitForExistence(timeout: TestData.Timeouts.medium), "its first example")
+
+        run.exampleSheet.swipeDown(velocity: .fast)
+        XCTAssertTrue(run.exampleSheet.waitForNonExistence(timeout: TestData.Timeouts.medium), "swiped down")
+        XCTAssertTrue(run.feedback.exists, "back to the bar")
+        XCTAssertEqual(run.prompt.label, prompt, "the same question")
+
+        run.exampleButton.tap()
+        XCTAssertTrue(run.waitForExampleSheet(), "the sheet again")
+        run.exampleSheetContinue.tap()
+        XCTAssertTrue(run.exampleSheet.waitForNonExistence(timeout: TestData.Timeouts.medium), "Continue closes the sheet")
+        XCTAssertNotNil(nextPrompt(run, after: prompt), "and shows the next question")
+    }
+
     /// Greek via Russian, limited (`-learningLanguages ell:rus`): the
     /// meanings are English, as via English.
     func testLimitedPairMeaningsAreEnglish() throws {

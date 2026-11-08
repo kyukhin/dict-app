@@ -72,6 +72,12 @@ struct DefinitionView: View {
                     .textSelection(.enabled)
                     .accessibilityIdentifier("definition_content")
 
+                // 0134, #178: real sentences with the word, above the table.
+                if !vm.examples.isEmpty {
+                    Divider()
+                    ExamplesSection(examples: vm.examples)
+                }
+
                 // Issue #144: how a Greek headword inflects.
                 if let table = vm.inflectionTable {
                     Divider()
@@ -118,6 +124,9 @@ struct DefinitionView: View {
         }
         .task {
             await vm.loadInflection(locale: locale)
+        }
+        .task {
+            await vm.loadExamples()
         }
         .task {
             await vm.onAppear()
@@ -245,6 +254,113 @@ struct ReadingModeToolbarButton: View {
                                                        : "readingMode.a11y.enable"))
         .accessibilityAddTraits(readingMode.isEnabled ? .isSelected : [])
         .accessibilityIdentifier("reading_mode_toggle")
+    }
+}
+
+// MARK: - 0134, #178: example sentences
+//
+// Shared with learning's example sheet (`ExerciseView.swift`). Leading and
+// trailing only, so Arabic mirrors the section; a Greek or English sentence
+// keeps its own direction (its first strong letter decides), and the byline
+// starts with U+200F in Arabic.
+
+/// The Examples section: up to 5 examples, 3 at first. "More examples"
+/// shows the rest and becomes "Fewer examples"; hidden with 3 or fewer.
+/// The state is not stored, as with "All forms".
+struct ExamplesSection: View {
+    static let visibleCount = 3
+
+    let examples: [ExampleSentence]
+    @State private var showsAll = false
+    @Environment(\.locale) private var locale
+
+    var body: some View {
+        let uiLanguage = LearningPairs.code(ofUILanguage: locale.language.languageCode?.identifier ?? locale.identifier)
+        let shown = showsAll ? examples : Array(examples.prefix(Self.visibleCount))
+        VStack(alignment: .leading, spacing: 16) {
+            Text("examples.title")
+                .font(.title3.bold())
+                .accessibilityAddTraits(.isHeader)
+                .accessibilityIdentifier("examples_title")
+            ForEach(Array(shown.enumerated()), id: \.element.id) { index, example in
+                ExampleSentenceView(example: ShownExample(sentence: example,
+                                                          translation: ExampleText.translation(for: example,
+                                                                                               uiLanguage: uiLanguage)),
+                                    number: index + 1)
+            }
+            if examples.count > Self.visibleCount {
+                Button {
+                    showsAll.toggle()
+                } label: {
+                    Text(showsAll ? LocalizedStringKey("examples.fewer") : LocalizedStringKey("examples.more"))
+                }
+                .buttonStyle(.bordered)
+                .accessibilityIdentifier("examples_more_button")
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("examples_section")
+    }
+}
+
+/// One example: the sentence with the word's form in bold and the accent
+/// colour (selectable, like the definition), its translation in the
+/// secondary colour, and the byline in small print. VoiceOver reads it as
+/// one element: the sentence and the translation in their own voices, then
+/// "From Tatoeba: Zeus and Shishir". `number` (from 1, in display order)
+/// numbers the identifiers.
+struct ExampleSentenceView: View {
+    let example: ShownExample
+    let number: Int
+    @Environment(\.locale) private var locale
+
+    var body: some View {
+        let bundle = SettingsViewModel.localizedBundle(for: locale)
+        VStack(alignment: .leading, spacing: 4) {
+            Text(ExampleText.sentence(example.sentence))
+                .font(.body)
+                .fixedSize(horizontal: false, vertical: true)
+                .textSelection(.enabled)
+                .accessibilityIdentifier("example_sentence_\(number)")
+            if let translation = example.translation {
+                Text(ExampleText.spoken(translation.text, lang: translation.lang))
+                    .font(.body)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("example_translation_\(number)")
+            }
+            Text(verbatim: ExampleText.byline(example.sentence, translation: example.translation, bundle: bundle))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier("example_byline_\(number)")
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text(ExampleText.accessibilityLabel(example.sentence, translation: example.translation,
+                                                                bundle: bundle, locale: locale)))
+        .accessibilityIdentifier("example_\(number)")
+    }
+}
+
+extension ExampleText {
+    /// The sentence as shown: the word's form (`form`, in Unicode scalars)
+    /// bold and in the accent colour; the text tagged with its language, so
+    /// VoiceOver reads it in that voice, as #144's cells do. A span that does
+    /// not fit the text (never, per the build's gates) gives the plain text.
+    static func sentence(_ example: ExampleSentence) -> AttributedString {
+        var text = spoken(example.text, lang: example.lang)
+        let count = example.text.unicodeScalars.count
+        guard example.form.lowerBound >= 0, !example.form.isEmpty, example.form.upperBound <= count else {
+            return text
+        }
+        let scalars = text.unicodeScalars
+        let start = scalars.index(scalars.startIndex, offsetBy: example.form.lowerBound)
+        let end = scalars.index(start, offsetBy: example.form.count)
+        text[start..<end].inlinePresentationIntent = .stronglyEmphasized
+        text[start..<end].foregroundColor = .accentColor
+        return text
     }
 }
 

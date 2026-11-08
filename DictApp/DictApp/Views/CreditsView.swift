@@ -29,6 +29,9 @@ struct CreditsView: View {
                     .accessibilityIdentifier("credits_octanove")
                 Text("credits.dataSources.frequencyWords")
                     .accessibilityIdentifier("credits_frequency_words")
+                // Issue #178: the example sentences, CC BY 2.0 FR (0134).
+                Text("credits.dataSources.tatoeba")
+                    .accessibilityIdentifier("credits_tatoeba")
             }
             Section("credits.licenses.section") {
                 Text("credits.licenses.placeholder")

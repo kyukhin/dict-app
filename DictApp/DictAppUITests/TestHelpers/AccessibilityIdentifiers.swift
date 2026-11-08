@@ -107,6 +107,32 @@ struct AccessibilityIdentifiers {
         static let creditsWiktionary = "credits_wiktionary"
     }
 
+    // MARK: - Example sentences (0134, #178)
+    //
+    // On the Definition screen above the inflection table, and in learning's
+    // example sheet. An example is one VoiceOver element: its `label` reads
+    // the sentence, the translation and "From Tatoeba: Zeus and CH". Numbered
+    // ids (1…5 in display order) avoid the `firstMatch`-in-another-cell
+    // gotcha (#143).
+    struct Examples {
+        static let section = "examples_section"
+        static let title = "examples_title"
+        /// "More examples" / "Fewer examples".
+        static let moreButton = "examples_more_button"
+        static func example(_ n: Int) -> String { "example_\(n)" }
+        static func sentence(_ n: Int) -> String { "example_sentence_\(n)" }
+        static func translation(_ n: Int) -> String { "example_translation_\(n)" }
+        static func byline(_ n: Int) -> String { "example_byline_\(n)" }
+        /// Learning: the sheet, its word and its Continue.
+        static let sheet = "example_sheet"
+        static let sheetWord = "example_sheet_word"
+        static let sheetContinue = "example_sheet_continue"
+        /// Learning: the feedback bar's Example button.
+        static let exampleButton = "exercise_example_button"
+        /// The Tatoeba line on Credits.
+        static let creditsTatoeba = "credits_tatoeba"
+    }
+
     // MARK: - Reading Mode (Issue #5)
     struct ReadingMode {
         /// Open-book toolbar toggle shared by the Search root and Definition.

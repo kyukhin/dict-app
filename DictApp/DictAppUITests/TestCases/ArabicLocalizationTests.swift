@@ -443,6 +443,66 @@ final class ArabicLocalizationTests: XCTestCase {
         attachScreenshot("γράφω (ar), all forms")
     }
 
+    /// 0134, #178: the Examples section mirrors. Its title reads "أمثلة" on
+    /// the right; the Greek sentence and its English translation keep their
+    /// order (Tatoeba has no Arabic one for it); the authors come after
+    /// U+200F, "من Tatoeba: Zeus وCH".
+    func testExamplesRightToLeft() throws {
+        search(for: "γράφω")
+        let row = app.collectionViews.firstMatch.cells
+            .containing(.any, identifier: AccessibilityIdentifiers.Search.sourceBadge(source: TestData.Sources.freedictEllEng))
+            .containing(NSPredicate(format: "label == %@", "γράφω"))
+            .firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: TestData.Timeouts.long), "'γράφω' must list the FreeDict entry")
+        app.dismissKeyboardIfPresent()
+        row.tap()
+        let page = DefinitionPage(app: app)
+        XCTAssertTrue(page.waitForExamples(timeout: TestData.Timeouts.long), "γράφω has examples")
+        XCTAssertEqual(page.examplesTitle.label, "أمثلة")
+        let label = page.example(1).label
+        XCTAssertTrue(label.hasPrefix("Έγραψε ένα γράμμα. She wrote a letter. "), label)
+        XCTAssertTrue(label.contains("\u{200F}من Tatoeba: "), "the byline starts with U+200F: \(label.unicodeScalars.map(\.value))")
+        XCTAssertEqual(Self.visible(label), "Έγραψε ένα γράμμα. She wrote a letter. من Tatoeba: Zeus وCH")
+        let window = app.windows.firstMatch.frame
+        let title = page.examplesTitle.frame
+        XCTAssertGreaterThan(title.minX, window.midX, "RTL: the title on the right")
+        XCTAssertGreaterThan(title.maxX, window.maxX - 40, "RTL: the section's leading edge is the right one")
+        XCTAssertTrue(InflectionTablePage(app: app).reveal(page.examplesMoreButton))
+        XCTAssertEqual(page.examplesMoreButton.label, "مزيد من الأمثلة")
+        XCTAssertGreaterThan(page.examplesMoreButton.frame.minX, window.midX, "RTL: More on the right")
+        attachScreenshot("γράφω, examples (ar)")
+    }
+
+    /// 0134, #178: the example sheet mirrors. After a new word's first
+    /// answer the sheet's word sits on the right, its Continue reads
+    /// "متابعة", and each example's authors come after U+200F.
+    func testExampleSheetRightToLeft() throws {
+        app.terminate()
+        app.launchArguments += ["-learningFixture", "myWords5", "-learningAnswerHints", "-learningSeed", "161",
+                                "-learning_answer_mode", "choice"]
+        app.launch()
+        XCTAssertTrue(app.waitForDictionariesReady(), "Search screen after launch")
+        tapTab(ArabicTab.learn)
+        let learnPage = LearnPage(app: app)
+        XCTAssertTrue(learnPage.waitForHome(timeout: TestData.Timeouts.long), "the Learn home")
+        let run = learnPage.startSession()
+        XCTAssertTrue(run.waitForQuestionOrSummary(), "the first question")
+        XCTAssertTrue(run.newBadge.exists, "a new word")
+        XCTAssertNotNil(run.choose(right: true), "the answer hint")
+        XCTAssertEqual(run.waitForFeedback(), "right")
+        XCTAssertTrue(run.waitForExampleSheet(), "the sheet")
+        let window = app.windows.firstMatch.frame
+        XCTAssertTrue(run.exampleSheetWord.waitForExistence(timeout: TestData.Timeouts.medium))
+        XCTAssertGreaterThan(run.exampleSheetWord.frame.minX, window.midX, "RTL: the word on the right")
+        XCTAssertEqual(run.exampleSheetContinue.label, "متابعة")
+        let example = run.example(1)
+        XCTAssertTrue(example.waitForExistence(timeout: TestData.Timeouts.medium), "an example")
+        XCTAssertTrue(example.label.contains("\u{200F}من Tatoeba: "), example.label)
+        attachScreenshot("example sheet (ar)")
+        run.exampleSheetContinue.tap()
+        XCTAssertTrue(run.exampleSheet.waitForNonExistence(timeout: TestData.Timeouts.medium), "Continue closes it")
+    }
+
     /// 0131, #158: the Learn tab in Arabic, mirrored. The picker asks in
     /// Arabic and names the pairs in Arabic; on γράφω the Learn button
     /// reads "تعلّم", sits left of the reading-mode toggle (the trailing
