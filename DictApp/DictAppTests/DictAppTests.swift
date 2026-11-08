@@ -20984,6 +20984,834 @@ final class GrammarContentTests: XCTestCase {
     }
 }
 
+// MARK: - Issue #172: the grammar reader (0133-grammar.md)
+//
+// The parser is pure. The screens' view models read the real Greek pack
+// (`PackFixtures`) with the bundled file, or a made-up `ell` pack
+// (`TestDictionary.make` plus grammar rows) for explanation languages
+// without texts.
+
+/// `GrammarDocument`: the body shape the build writes, parsed into blocks.
+final class GrammarDocumentTests: XCTestCase {
+    private func text(_ string: AttributedString) -> String { String(string.characters) }
+
+    /// The rule's paragraphs and `- ` lists, with their inline Markdown;
+    /// a paragraph's lead-in line before a list stays a paragraph.
+    func testRuleParagraphsAndLists() {
+        let blocks = GrammarDocument.parse(body: """
+            The aorist says what happened: *έγραψα*, I wrote.
+
+            The stem usually changes:
+            - -φω takes -ψ-: *γράφω*, *έγραψα*;
+            - most -ζω take -σ-: *διαβάζω*, *διάβασα*.
+
+            Longer verbs need none: ~~εδιάβασα~~.
+            """)
+        XCTAssertEqual(blocks.count, 4)
+        guard case let .paragraph(first) = blocks[0], case let .paragraph(second) = blocks[1],
+              case let .bullets(items) = blocks[2], case let .paragraph(last) = blocks[3] else {
+            return XCTFail("paragraph, paragraph, bullets, paragraph: \(blocks)")
+        }
+        XCTAssertEqual(text(first), "The aorist says what happened: έγραψα, I wrote.", "the marks are gone")
+        XCTAssertEqual(text(second), "The stem usually changes:")
+        XCTAssertEqual(items.map(text), ["-φω takes -ψ-: γράφω, έγραψα;", "most -ζω take -σ-: διαβάζω, διάβασα."])
+        XCTAssertEqual(text(last), "Longer verbs need none: εδιάβασα.")
+        XCTAssertTrue(blocks.allSatisfy(\.isRule))
+        let italic = first.runs.first { String(first[$0.range].characters) == "έγραψα" }
+        XCTAssertEqual(italic?.inlinePresentationIntent, .emphasized, "*έγραψα* is italic")
+        let struck = last.runs.first { String(last[$0.range].characters) == "εδιάβασα" }
+        XCTAssertEqual(struck?.inlinePresentationIntent, .strikethrough)
+    }
+
+    /// A pipe table becomes #144's section: with an empty top-left cell the
+    /// first column is the row headers; without, every column is data and
+    /// a cell names its row by the first cell. Forms split at " / ".
+    func testPipeTableWithAndWithoutRowHeaders() throws {
+        let blocks = GrammarDocument.parse(body: """
+            **Regular verbs**
+
+            | | γράφω | διαβάζω |
+            |---|---|---|
+            | εγώ | έγραψα | διάβασα |
+            | αυτοί | έγραψαν / γράψανε | διάβασαν / διαβάσανε |
+
+            **Letters**
+
+            | Letter | Name | Sound |
+            |---|---|---|
+            | Α α | άλφα | a, as in father |
+            | Β β | βήτα | |
+            """)
+        XCTAssertEqual(blocks.count, 4)
+        guard case let .caption(caption) = blocks[0], case let .table(verbs) = blocks[1],
+              case .caption = blocks[2], case let .table(letters) = blocks[3] else {
+            return XCTFail("caption, table, caption, table: \(blocks)")
+        }
+        XCTAssertEqual(text(caption), "Regular verbs")
+
+        XCTAssertEqual(verbs.id, "grammar_table_1")
+        XCTAssertEqual(verbs.columns.map(\.title), ["γράφω", "διαβάζω"])
+        XCTAssertTrue(verbs.showsRowHeaders)
+        XCTAssertEqual(verbs.rows.map { $0.header?.title }, ["εγώ", "αυτοί"])
+        XCTAssertEqual(verbs.rows[0].cells[0].id, "grammar_cell_1_0_0")
+        XCTAssertEqual(verbs.rows[0].cells[0].text, "έγραψα")
+        XCTAssertEqual(verbs.rows[1].cells[1].id, "grammar_cell_1_1_1")
+        XCTAssertEqual(verbs.rows[1].cells[0].forms, ["έγραψαν", "γράψανε"])
+        XCTAssertEqual(verbs.rows[1].cells[0].accessibilityText, "γράφω, αυτοί, έγραψαν / γράψανε",
+                       "column, row, text")
+
+        XCTAssertEqual(letters.id, "grammar_table_2")
+        XCTAssertFalse(letters.showsRowHeaders)
+        XCTAssertEqual(letters.columns.map(\.title), ["Letter", "Name", "Sound"])
+        XCTAssertEqual(letters.rows[0].cells.map(\.text), ["Α α", "άλφα", "a, as in father"],
+                       "a cell without \" / \" is one form, commas and all")
+        XCTAssertEqual(letters.rows[0].cells[0].accessibilityText, "Letter, Α α")
+        XCTAssertEqual(letters.rows[0].cells[2].accessibilityText, "Sound, Α α, a, as in father",
+                       "a table without row headers names the row by its first cell")
+        XCTAssertEqual(letters.rows[1].cells[2].forms, [], "an empty cell has no form")
+        XCTAssertEqual(letters.rows[1].cells[2].text, InflectionTable.Cell.missing)
+    }
+
+    /// The build's comment over a forms table is skipped; the table after
+    /// it is read.
+    func testFormsCommentIsSkipped() throws {
+        let blocks = GrammarDocument.parse(body: """
+            **Most verbs**
+
+            <!-- forms words=γράφω tense=aorist voice=active -->
+            | | γράφω |
+            |---|---|
+            | εγώ | έγραψα |
+            """)
+        XCTAssertEqual(blocks.count, 2)
+        guard case let .table(section) = blocks.last else { return XCTFail("\(blocks)") }
+        XCTAssertEqual(section.rows.first?.cells.first?.text, "έγραψα")
+        XCTAssertFalse(blocks.contains { block in
+            if case let .paragraph(text) = block { return String(text.characters).contains("forms") }
+            return false
+        })
+    }
+
+    /// Examples: a Greek line and its translation on the indented second
+    /// line; VoiceOver reads the Greek, then the translation.
+    func testExamplesAreTwoLineItems() throws {
+        let blocks = GrammarDocument.parse(body: """
+            ## Examples
+
+            - Χθες έγραψα ένα γράμμα.
+              Yesterday I wrote a letter.
+            - Πού αγόρασες αυτά τα παπούτσια;
+              Где ты купил эти туфли?
+            """)
+        guard blocks.count == 1, case let .examples(examples) = blocks[0] else { return XCTFail("\(blocks)") }
+        XCTAssertEqual(examples.map { text($0.greek) }, ["Χθες έγραψα ένα γράμμα.", "Πού αγόρασες αυτά τα παπούτσια;"])
+        XCTAssertEqual(examples.map { text($0.translation) }, ["Yesterday I wrote a letter.", "Где ты купил эти туфли?"])
+        XCTAssertEqual(text(examples[0].accessibilityLabel), "Χθες έγραψα ένα γράμμα., Yesterday I wrote a letter.")
+        let greek = examples[0].greek.runs.first { String(examples[0].greek[$0.range].characters) == "Χθες έγραψα ένα γράμμα" }
+        XCTAssertEqual(greek?.languageIdentifier, "el", "the Greek sentence in the Greek voice")
+        XCTAssertFalse(examples[0].translation.runs.contains { $0.languageIdentifier == "el" })
+        XCTAssertFalse(blocks[0].isRule)
+    }
+
+    /// Watch out: one or two items, with inline Markdown.
+    func testWatchOut() throws {
+        let blocks = GrammarDocument.parse(body: """
+            ## Examples
+
+            - Ξέρεις τη Μαρία;
+              Do you know Maria?
+
+            ## Watch out
+
+            - The augment comes and goes with the stress: *έγραψα*, but *γράψαμε*.
+            - Longer verbs need none: *διάβασα*, not ~~εδιάβασα~~.
+            """)
+        XCTAssertEqual(blocks.count, 2)
+        guard case let .watchOut(items) = blocks[1] else { return XCTFail("\(blocks)") }
+        XCTAssertEqual(items.map(text), ["The augment comes and goes with the stress: έγραψα, but γράψαμε.",
+                                         "Longer verbs need none: διάβασα, not εδιάβασα."])
+    }
+
+    /// Anything else is a plain paragraph, never a failure: a heading the
+    /// app does not know, a lone pipe line, text in the Examples part.
+    func testUnknownLinesBecomeParagraphs() {
+        let blocks = GrammarDocument.parse(body: """
+            ### A heading
+            | only one line |
+
+            ## Examples
+
+            Not an item.
+            """)
+        XCTAssertEqual(blocks.map { block -> String in
+            if case let .paragraph(text) = block { return String(text.characters) }
+            return "\(block)"
+        }, ["### A heading", "| only one line |", "Not an item."])
+        XCTAssertEqual(GrammarDocument.parse(body: ""), [])
+        XCTAssertEqual(GrammarDocument.parse(body: "**ο** and **η**").count, 1, "a rule line in bold is no caption")
+        if case .paragraph = GrammarDocument.parse(body: "**ο** and **η**")[0] {} else { XCTFail("a paragraph") }
+    }
+
+    /// Every run of Greek letters is spoken in Greek, inside English or
+    /// Russian; a Greek phrase is one run; the rest has no language.
+    func testGreekRunsCarryTheGreekLanguage() {
+        let text = GrammarDocument.inline("The adjective agrees: *ο καλός φίλος*, the good friend; и *έγραψα*.")
+        let greek = text.runs.filter { $0.languageIdentifier == "el" }.map { String(text[$0.range].characters) }
+        XCTAssertEqual(greek, ["ο καλός φίλος", "έγραψα"])
+        let rest = text.runs.filter { $0.languageIdentifier == nil }.map { String(text[$0.range].characters) }
+            .joined()
+        XCTAssertFalse(rest.contains { GrammarDocument.isGreek($0) })
+        XCTAssertTrue(rest.contains("the good friend; и "), "English and Russian keep the UI voice")
+        // Polytonic and Greek-block letters both count.
+        XCTAssertTrue(GrammarDocument.isGreek("ά"))
+        XCTAssertTrue(GrammarDocument.isGreek("ἀ"))
+        XCTAssertFalse(GrammarDocument.isGreek("a"))
+        XCTAssertFalse(GrammarDocument.isGreek("а"), "Cyrillic а")
+    }
+
+    /// The rule's words, counted as `build_grammar.py`'s `word_count`: marks
+    /// removed, tokens with a letter, the text before the first table.
+    func testRuleWordCountMatchesTheBuild() throws {
+        // The build's self-check case.
+        XCTAssertEqual(GrammarDocument.ruleWordCount(body: "- -ος, *έγραψα*, ~~εδιάβασα~~ — 1, 2 and **3**"), 4)
+        XCTAssertEqual(GrammarDocument.ruleWordCount(body: """
+            The aorist: *έγραψα*, I wrote.
+
+            - two words
+
+            **Caption**
+
+            | | γράφω |
+            |---|---|
+            | εγώ | έγραψα |
+
+            ## Examples
+
+            - Χθες έγραψα.
+              Yesterday I wrote.
+            """), 7, "the rule stops at the first caption")
+        // Every shipped text keeps the build's 120-word gate.
+        let pack = try PackFixtures.file(.ell)
+        let bodies = try DatabaseQueue(path: pack.path, configuration: {
+            var configuration = Configuration()
+            configuration.readonly = true
+            return configuration
+        }()).read { db in try String.fetchAll(db, sql: "SELECT body FROM grammar_text") }
+        XCTAssertEqual(bodies.count, 34, "17 topics in English and Russian")
+        for body in bodies {
+            let words = GrammarDocument.ruleWordCount(body: body)
+            XCTAssertTrue((1...120).contains(words), "\(words) words: \(body.prefix(60))")
+        }
+    }
+
+    /// Every shipped text parses into a rule, 1–3 tables, 3–5 examples with
+    /// a translation and 1–2 Watch out items, in that order.
+    func testShippedTopicsParse() throws {
+        let pack = try PackFixtures.file(.ell)
+        let rows = try DatabaseQueue(path: pack.path, configuration: {
+            var configuration = Configuration()
+            configuration.readonly = true
+            return configuration
+        }()).read { db in
+            try Row.fetchAll(db, sql: "SELECT topic_id, explain_lang, body FROM grammar_text ORDER BY topic_id")
+                .map { ($0["topic_id"] as String, $0["explain_lang"] as String, $0["body"] as String) }
+        }
+        for (id, lang, body) in rows {
+            let blocks = GrammarDocument.parse(body: body)
+            let name = "\(id) \(lang)"
+            XCTAssertTrue(blocks.first?.isRule == true, name)
+            let tables = blocks.compactMap { block -> InflectionTable.Section? in
+                if case let .table(section) = block { return section }
+                return nil
+            }
+            XCTAssertTrue((1...3).contains(tables.count), "\(name): \(tables.count) tables")
+            XCTAssertEqual(tables.map(\.id), (1...tables.count).map { "grammar_table_\($0)" }, name)
+            guard case let .examples(examples)? = blocks.dropLast().last, case let .watchOut(items)? = blocks.last else {
+                XCTFail("\(name): examples, then Watch out, last")
+                continue
+            }
+            XCTAssertTrue((3...5).contains(examples.count), name)
+            XCTAssertTrue(examples.allSatisfy { !$0.translation.characters.isEmpty }, name)
+            XCTAssertTrue((1...2).contains(items.count), name)
+        }
+    }
+
+    /// QA (#172): Windows line ends, ragged rows and broken tables never
+    /// crash and never shift a cell id: a short row gets empty cells, a
+    /// long one loses its extra cells, a block without a separator line is
+    /// paragraphs and does not take a table number.
+    func testRaggedTablesAndLineEnds() throws {
+        let blocks = GrammarDocument.parse(body: "| | γράφω | διαβάζω |\r\n|---|:---:|---|\r\n"
+            + "| εγώ | έγραψα |\r\n| εσύ | έγραψες | διάβασες | extra |\r\n")
+        guard blocks.count == 1, case let .table(section) = blocks[0] else { return XCTFail("one table: \(blocks)") }
+        XCTAssertEqual(section.id, "grammar_table_1")
+        XCTAssertEqual(section.columns.map(\.title), ["γράφω", "διαβάζω"])
+        XCTAssertEqual(section.rows.map { $0.header?.title }, ["εγώ", "εσύ"])
+        XCTAssertEqual(section.rows.map { $0.cells.count }, [2, 2], "every row has the header's columns")
+        XCTAssertEqual(section.rows[0].cells[1].id, "grammar_cell_1_0_1")
+        XCTAssertEqual(section.rows[0].cells[1].forms, [], "a missing cell is empty")
+        XCTAssertEqual(section.rows[1].cells.map(\.text), ["έγραψες", "διάβασες"], "an extra cell is dropped")
+
+        let broken = GrammarDocument.parse(body: """
+            | a | b |
+            | c | d |
+
+            | |
+            |---|
+            | εγώ |
+
+            | | x |
+            |---|---|
+            | y | z |
+            """)
+        let paragraphs = broken.compactMap { block -> String? in
+            if case let .paragraph(text) = block { return String(text.characters) }
+            return nil
+        }
+        XCTAssertEqual(paragraphs, ["| a | b |", "| c | d |", "| |", "|---|", "| εγώ |"],
+                       "no separator, or only the corner: plain lines")
+        guard case let .table(table)? = broken.last else { return XCTFail("the last block is a table: \(broken)") }
+        XCTAssertEqual(table.id, "grammar_table_1", "broken tables take no number")
+        XCTAssertEqual(table.rows.first?.cells.first?.id, "grammar_cell_1_0_0")
+        XCTAssertEqual(table.rows.first?.cells.first?.text, "z")
+
+        let empty = GrammarDocument.parse(body: "| | γράφω |\n|---|---|")
+        guard case let .table(headerOnly)? = empty.first else { return XCTFail("a table: \(empty)") }
+        XCTAssertEqual(headerOnly.rows.count, 0, "a header without rows is an empty table")
+    }
+
+    /// QA (#172): an example without its translation line reads the Greek
+    /// alone; a blank line ends an item; a caption is one bold span of at
+    /// least one letter.
+    func testExampleWithoutTranslationAndShortCaptions() throws {
+        let blocks = GrammarDocument.parse(body: """
+            **A**
+
+            ****
+
+            ## Examples
+
+            - Γράφω.
+            - Διαβάζω.
+              I read.
+
+              Not part of it.
+            """)
+        XCTAssertEqual(blocks.count, 4, "\(blocks)")
+        guard case let .caption(caption) = blocks[0], case .paragraph = blocks[1],
+              case let .examples(examples) = blocks[2], case let .paragraph(after) = blocks[3] else {
+            return XCTFail("caption, paragraph, examples, paragraph: \(blocks)")
+        }
+        XCTAssertEqual(String(caption.characters), "A")
+        XCTAssertEqual(examples.count, 2)
+        XCTAssertEqual(String(examples[0].translation.characters), "")
+        XCTAssertEqual(String(examples[0].accessibilityLabel.characters), "Γράφω.", "the Greek alone, no comma")
+        XCTAssertEqual(String(examples[1].translation.characters), "I read.")
+        XCTAssertEqual(String(after.characters), "Not part of it.")
+        XCTAssertFalse(GrammarDocument.isCaption("****"))
+        XCTAssertFalse(GrammarDocument.isCaption("**a** b"))
+        XCTAssertTrue(GrammarDocument.isCaption("**A**"))
+    }
+
+    /// QA (#172): a topic keeps only its own links, in their order;
+    /// unknown tenses and classes are skipped.
+    func testTopicKeepsItsOwnLinksInOrder() {
+        let summary = GrammarTopicSummary(id: "ell-x", lang: "ell", level: "A1", ord: 1, title: "X", explainLang: "eng")
+        let links = [
+            GrammarLink(topicID: "ell-x", kind: .word, key: "δεύτερο", ord: 2),
+            GrammarLink(topicID: "ell-x", kind: .word, key: "πρώτο", ord: 1),
+            GrammarLink(topicID: "ell-y", kind: .word, key: "άλλο", ord: 0),
+            GrammarLink(topicID: "ell-x", kind: .tense, key: "future", ord: 4),
+            GrammarLink(topicID: "ell-x", kind: .tense, key: "aorist", ord: 3),
+            GrammarLink(topicID: "ell-x", kind: .tense, key: "optative", ord: 5),
+            GrammarLink(topicID: "ell-x", kind: .wordClass, key: "verb.conj2", ord: 6),
+            GrammarLink(topicID: "ell-x", kind: .wordClass, key: "pronoun", ord: 7),
+            GrammarLink(topicID: "ell-y", kind: .wordClass, key: "noun", ord: 1),
+        ]
+        let topic = GrammarTopic(summary: summary, body: "", links: links, related: [])
+        XCTAssertEqual(topic.words, ["πρώτο", "δεύτερο"], "its own words, by order")
+        XCTAssertEqual(topic.tenses, [.aorist, .future], "known tenses, by order")
+        XCTAssertEqual(topic.classes, [.verbConj2])
+    }
+}
+
+/// The Learn home, the Grammar screen and a topic on the real Greek pack,
+/// with the language services on an in-memory store.
+@MainActor
+class GrammarTestCase: XCTestCase {
+    var tempDir: URL!
+    var db: DatabaseService { .shared }
+    var settings: SettingsService!
+    var packs: FakePairPacks!
+
+    let greekViaEnglish = LearningPair(lang: "ell", via: "eng")
+    let greekViaRussian = LearningPair(lang: "ell", via: "rus", meaningsLang: "eng")
+    let aorist = "ell-aorist-regular"
+
+    override func setUp() async throws {
+        try await super.setUp()
+        await DictAppTests.waitForHostAppLaunch()
+        tempDir = FileManager.default.temporaryDirectory.appendingPathComponent("grammar-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        try await open(packFiles: try PackFixtures.all())
+        settings = SettingsService(store: InMemoryKeyValueStore())
+        packs = FakePairPacks(languagesWithLists: ["ell", "eng"])
+    }
+
+    override func tearDown() async throws {
+        try? FileManager.default.removeItem(at: tempDir)
+        try await super.tearDown()
+    }
+
+    /// The bundled file with `packFiles` attached, on this case's user database.
+    func open(packFiles: [PackID: URL]) async throws {
+        try await db.setup(userPath: tempDir.appendingPathComponent("user.sqlite").path,
+                           dictionaryURL: try TestDictionary.bundledURL(), packFiles: packFiles)
+    }
+
+    func languages(uiLanguage: String = "en") -> LearningLanguageService {
+        LearningLanguageService(settings: settings, packs: packs, uiLanguage: { uiLanguage })
+    }
+
+    func topic(_ id: String, uiLanguage: String = "en") async -> GrammarTopicViewModel {
+        let vm = GrammarTopicViewModel(id: id, settings: settings, languages: languages(uiLanguage: uiLanguage))
+        await vm.load()
+        return vm
+    }
+
+    func count(_ sql: String) async throws -> Int {
+        try await db.writeForTesting { try Int.fetchOne($0, sql: sql) ?? 0 }
+    }
+
+    /// Greek via Spanish, a later pair: an imported Greek–Spanish
+    /// dictionary with both languages offers it (0131).
+    func offerGreekViaSpanish() async throws {
+        try await db.writeForTesting {
+            try $0.execute(sql: "INSERT INTO imported_sources(source, from_lang, to_lang) VALUES ('my-ell-spa', 'ell', 'spa')")
+        }
+    }
+
+    /// A made-up `ell` pack with three topics: `ell-fix-a` (A1, English and
+    /// Russian), `ell-fix-b` (A1, English only) and `ell-fix-c` (A2,
+    /// English, Russian and Spanish).
+    func madeUpPack() throws -> URL {
+        let url = try TestDictionary.make(
+            rows: [TestDictionary.Row(word: "γράφω", definition: "to write", pos: "verb", source: "freedict-ell-eng")],
+            metadata: [TestDictionary.Metadata(source: "freedict-ell-eng", displayName: "El–En", fromLang: "ell",
+                                               toLang: "eng")],
+            at: tempDir.appendingPathComponent("made-up-ell.sqlite"))
+        let body = """
+            A rule with *γράφω*.
+
+            | | γράφω |
+            |---|---|
+            | εγώ | γράφω |
+
+            ## Examples
+
+            - Γράφω.
+              I write.
+
+            ## Watch out
+
+            - Mind it.
+            """
+        try DatabaseQueue(path: url.path).write { db in
+            for (id, level, ord) in [("ell-fix-a", "A1", 1), ("ell-fix-b", "A1", 2), ("ell-fix-c", "A2", 1)] {
+                try db.execute(sql: "INSERT INTO grammar_topic(id, lang, level, ord) VALUES (?, 'ell', ?, ?)",
+                               arguments: [id, level, ord])
+            }
+            for (id, lang, title) in [("ell-fix-a", "eng", "Topic A"), ("ell-fix-a", "rus", "Тема А"),
+                                      ("ell-fix-b", "eng", "Topic B"), ("ell-fix-c", "eng", "Topic C"),
+                                      ("ell-fix-c", "rus", "Тема В"), ("ell-fix-c", "spa", "Tema C")] {
+                try db.execute(sql: "INSERT INTO grammar_text(topic_id, explain_lang, title, body) VALUES (?, ?, ?, ?)",
+                               arguments: [id, lang, title, body.replacingOccurrences(of: "A rule", with: "\(lang) rule")])
+            }
+            for (id, kind, key, ord) in [("ell-fix-a", "word", "γράφω", 1), ("ell-fix-a", "topic", "ell-fix-b", 2),
+                                         ("ell-fix-a", "topic", "ell-fix-c", 3), ("ell-fix-b", "topic", "ell-fix-a", 1)] {
+                try db.execute(sql: "INSERT INTO grammar_link(topic_id, kind, key, ord) VALUES (?, ?, ?, ?)",
+                               arguments: [id, kind, key, ord])
+            }
+        }
+        return url
+    }
+}
+
+/// 0133, #172: the Grammar screen reads the via of Greek's pair.
+final class GrammarTopicsViewModelTests: GrammarTestCase {
+    private func screen(uiLanguage: String = "en") async -> GrammarTopicsViewModel {
+        let vm = GrammarTopicsViewModel(lang: "ell", languages: languages(uiLanguage: uiLanguage))
+        await vm.load()
+        return vm
+    }
+
+    /// Kirill 2026-11-04: topics are explained in the via of the language
+    /// taught, never the UI language; a via without texts reads English,
+    /// with the note, never another language's text.
+    func testExplanationLanguageIsTheVia() async throws {
+        // Greek via English, in each UI language: English, no note.
+        settings.learningLanguages = ["ell"]
+        settings.learningVia = ["ell": "eng"]
+        for ui in ["en", "ru", "es", "ar", "el"] {
+            let vm = await screen(uiLanguage: ui)
+            XCTAssertNil(vm.errorMessage)
+            XCTAssertEqual(vm.explainLang, "eng", ui)
+            XCTAssertEqual(vm.levels.map(\.level), ["A1"], ui)
+            let topics = vm.levels.flatMap(\.topics)
+            XCTAssertEqual(topics.count, 17, ui)
+            XCTAssertEqual(topics.first?.id, "ell-alphabet")
+            XCTAssertEqual(topics.last?.id, "ell-imperative")
+            XCTAssertTrue(topics.allSatisfy { $0.explainLang == "eng" }, ui)
+            XCTAssertEqual(topics.first { $0.id == aorist }?.title, "The aorist of regular verbs and the augment")
+            XCTAssertFalse(vm.showsEnglishNote, ui)
+        }
+        // Greek via Russian, the limited pair: Russian, no note.
+        settings.learningVia = ["ell": "rus"]
+        var vm = await screen()
+        XCTAssertEqual(vm.explainLang, "rus")
+        XCTAssertTrue(vm.levels.flatMap(\.topics).allSatisfy { $0.explainLang == "rus" })
+        XCTAssertEqual(vm.levels.flatMap(\.topics).first { $0.id == "ell-articles" }?.title, "Артикли и род")
+        XCTAssertFalse(vm.showsEnglishNote)
+
+        // Greek not learned: Greek's default via, Russian in a Russian UI.
+        settings.learningLanguages = []
+        settings.learningVia = [:]
+        vm = await screen(uiLanguage: "ru")
+        XCTAssertEqual(vm.explainLang, "rus")
+        vm = await screen(uiLanguage: "el")
+        XCTAssertEqual(vm.explainLang, "eng", "Greek via Greek is no pair: English")
+
+        // A via without texts: Greek via Spanish on the made-up pack.
+        try await open(packFiles: [.ell: try madeUpPack()])
+        try await offerGreekViaSpanish()
+        settings.learningLanguages = ["ell"]
+        settings.learningVia = ["ell": "spa"]
+        vm = await screen()
+        XCTAssertNil(vm.errorMessage)
+        XCTAssertEqual(vm.explainLang, "spa")
+        XCTAssertEqual(vm.levels.map(\.level), ["A1", "A2"], "one section per level, lowest first")
+        XCTAssertEqual(vm.levels.map { $0.topics.map(\.title) }, [["Topic A", "Topic B"], ["Tema C"]],
+                       "English where the via has no text, never Russian")
+        XCTAssertTrue(vm.showsEnglishNote)
+        // Via Russian: the topic without a Russian text falls back.
+        settings.learningVia = ["ell": "rus"]
+        vm = await screen()
+        XCTAssertEqual(vm.levels.flatMap(\.topics).map(\.title), ["Тема А", "Topic B", "Тема В"])
+        XCTAssertTrue(vm.showsEnglishNote)
+    }
+
+    /// Without the Greek pack (the stub), Greek has no topics.
+    func testNoTopicsWithoutThePack() async throws {
+        try await open(packFiles: [:])
+        settings.learningLanguages = ["ell"]
+        let vm = await screen()
+        XCTAssertNil(vm.errorMessage)
+        XCTAssertEqual(vm.levels, [])
+        XCTAssertFalse(vm.showsEnglishNote)
+        let english = try await db.grammarTopics(lang: "eng", explainLang: "eng")
+        XCTAssertEqual(english, [], "no English topic before #176")
+        let spanish = try await db.grammarTopics(lang: "spa", explainLang: "eng")
+        XCTAssertEqual(spanish, [], "a language without lists has no grammar")
+    }
+
+    /// QA (#172): the reads on odd input. An id of a language without
+    /// lists, or with no dash, reads nothing; a link of an unknown kind is
+    /// skipped; related topics follow their link order, not their ids,
+    /// titled in the via with the English fallback.
+    func testReadsOnUnknownIDsAndLinks() async throws {
+        let url = try madeUpPack()
+        try await DatabaseQueue(path: url.path).write { db in
+            try db.execute(sql: "INSERT INTO grammar_link(topic_id, kind, key, ord) VALUES ('ell-fix-a', 'audio', 'x', 9)")
+            try db.execute(sql: "UPDATE grammar_link SET ord = 0 WHERE topic_id = 'ell-fix-a' AND key = 'ell-fix-c'")
+        }
+        try await open(packFiles: [.ell: url])
+        let spanish = try await db.grammarTopic(id: "spa-fix-a", explainLang: "eng")
+        XCTAssertNil(spanish, "a language without lists has no topic")
+        let noDash = try await db.grammarTopic(id: "ell", explainLang: "eng")
+        XCTAssertNil(noDash)
+        let unknown = try await db.grammarTopic(id: "ell-fix-z", explainLang: "eng")
+        XCTAssertNil(unknown)
+
+        let links = try await db.grammarLinks(lang: "ell")
+        XCTAssertEqual(links.count, 4, "the unknown kind is skipped: \(links)")
+        XCTAssertFalse(links.contains { $0.key == "x" })
+        XCTAssertEqual(Set(links.map(\.topicID)), ["ell-fix-a", "ell-fix-b"])
+        let noLinks = try await db.grammarLinks(lang: "spa")
+        XCTAssertEqual(noLinks, [])
+
+        let read = try await db.grammarTopic(id: "ell-fix-a", explainLang: "rus")
+        let topic = try XCTUnwrap(read)
+        XCTAssertEqual(topic.summary.title, "Тема А")
+        XCTAssertEqual(topic.related.map(\.id), ["ell-fix-c", "ell-fix-b"], "by link order")
+        XCTAssertEqual(topic.related.map(\.title), ["Тема В", "Topic B"], "in the via, else English")
+        XCTAssertEqual(topic.words, ["γράφω"])
+        XCTAssertTrue(topic.body.hasPrefix("rus rule"), "the body in the title's language")
+    }
+}
+
+/// 0133, #172: a topic, its words and Practise.
+final class GrammarTopicViewModelTests: GrammarTestCase {
+    /// The topic's blocks, links and words from the pack, in English.
+    func testTopicReadsItsTextAndLinks() async throws {
+        settings.learningLanguages = ["ell"]
+        let vm = await topic(aorist)
+        XCTAssertNil(vm.errorMessage)
+        XCTAssertEqual(vm.state, .ready)
+        XCTAssertEqual(String(vm.title.characters), "The aorist of regular verbs and the augment")
+        XCTAssertEqual(vm.topic?.summary.level, "A1")
+        XCTAssertEqual(vm.topic?.tenses, [.aorist])
+        XCTAssertEqual(vm.topic?.classes, [.verb])
+        XCTAssertEqual(vm.topic?.related.map(\.id), ["ell-aorist-irregular", "ell-future"])
+        XCTAssertEqual(vm.topic?.related.first?.title, "Irregular aorists")
+        XCTAssertEqual(vm.words.map(\.word), ["γράφω", "διαβάζω", "αγοράζω"])
+        guard case let .table(section)? = vm.blocks.first(where: {
+            if case .table = $0 { return true }
+            return false
+        }) else { return XCTFail("a table") }
+        XCTAssertEqual(section.rows.first?.cells.first?.text, "έγραψα")
+        XCTAssertFalse(vm.showsEnglishNote)
+
+        let unknown = await topic("ell-no-such-topic")
+        XCTAssertEqual(unknown.state, .unavailable)
+    }
+
+    /// A topic whose pack was removed shows "Download Greek to read this topic."
+    func testTopicWithoutThePackIsUnavailable() async throws {
+        try await open(packFiles: [:])
+        let vm = await topic(aorist)
+        XCTAssertEqual(vm.state, .unavailable)
+        XCTAssertTrue(vm.practiseTenses.isEmpty)
+    }
+
+    /// The words open their entry in the first Greek dictionary of the
+    /// order, enabled first, as E3 opens list words, with the short meaning.
+    func testWordsResolveInDictionaryOrder() async throws {
+        settings.learningLanguages = ["ell"]
+        var vm = await topic(aorist)
+        let grafo = try XCTUnwrap(vm.words.first)
+        XCTAssertEqual(grafo.entry?.source, "freedict-ell-eng", "El–En · FD first")
+        XCTAssertEqual(grafo.entry?.word, "γράφω")
+        XCTAssertFalse(grafo.meaning.isEmpty)
+        XCTAssertTrue(vm.words.allSatisfy { $0.entry != nil }, "every word has an entry")
+
+        settings.enabledSources = ["wordnet-ell-eng", "wordnet"]
+        vm = await topic(aorist)
+        XCTAssertEqual(vm.words.first?.entry?.source, "wordnet-ell-eng", "the enabled dictionary first")
+    }
+
+    /// The Words rows read their meaning in the meanings language of the
+    /// pair, 0131's `meanings`: English for both Greek pairs.
+    func testWordMeaningsInTheVia() async throws {
+        settings.learningLanguages = ["ell"]
+        let service = languages()
+        let order = try await service.sourceOrder(lang: "ell", meaningsLang: "eng")
+        let expected = try await db.meanings(of: [MeaningQuery(key: WordKey(lang: "ell", word: "γράφω"), lookup: "γράφω")],
+                                             lang: "ell", meaningsLang: "eng", sourceOrder: order)
+        for via in ["eng", "rus"] {
+            settings.learningVia = ["ell": via]
+            let vm = await topic(aorist)
+            XCTAssertEqual(vm.meaningsLang, "eng", via)
+            XCTAssertEqual(vm.words.first?.meaning, expected[WordKey(lang: "ell", word: "γράφω")], via)
+        }
+        settings.learningVia = ["ell": "rus"]
+        let russian = await topic(aorist)
+        XCTAssertEqual(String(russian.title.characters), "Аорист правильных глаголов и приращение")
+    }
+
+    /// A topic opened alone (from Definition or the Rule sheet) shows the
+    /// English note itself when its own text fell back to English.
+    func testEnglishNoteOnAFallbackTopic() async throws {
+        try await open(packFiles: [.ell: try madeUpPack()])
+        try await offerGreekViaSpanish()
+        settings.learningLanguages = ["ell"]
+        settings.learningVia = ["ell": "rus"]
+        let fallback = await topic("ell-fix-b")
+        XCTAssertEqual(fallback.state, .ready)
+        XCTAssertEqual(String(fallback.title.characters), "Topic B")
+        XCTAssertTrue(fallback.showsEnglishNote)
+        XCTAssertEqual(fallback.topic?.related.map(\.title), ["Тема А"], "related topics in the via")
+
+        let russian = await topic("ell-fix-a")
+        XCTAssertEqual(String(russian.title.characters), "Тема А")
+        XCTAssertFalse(russian.showsEnglishNote)
+        guard case let .paragraph(rule)? = russian.blocks.first else { return XCTFail("a rule") }
+        XCTAssertTrue(String(rule.characters).hasPrefix("rus rule"), "the body in the title's language")
+
+        settings.learningVia = ["ell": "spa"]
+        let spanish = await topic("ell-fix-a")
+        XCTAssertEqual(String(spanish.title.characters), "Topic A", "English, never Russian")
+        XCTAssertTrue(spanish.showsEnglishNote)
+    }
+
+    /// Practise names the topic's tenses asked at the run's level: the
+    /// imperative topic's continuous form waits for B1.
+    func testPractiseTenses() async throws {
+        settings.learningLanguages = ["ell"]
+        let aoristTopic = await topic(aorist)
+        XCTAssertEqual(aoristTopic.practiseTenses, [.aorist])
+        let imperative = await topic("ell-imperative")
+        XCTAssertEqual(imperative.practiseTenses, [.imperativeSimple])
+        settings.learningDrillTenses = .b1
+        let raised = await topic("ell-imperative")
+        XCTAssertEqual(raised.practiseTenses, [.imperativeSimple, .imperativeContinuous])
+        let articles = await topic("ell-articles")
+        XCTAssertEqual(articles.practiseTenses, [], "no Practise for a topic without tenses")
+
+        XCTAssertEqual(GrammarTopicViewModel.practiseTitle([.aorist], locale: Locale(identifier: "en")),
+                       "Practise · Aorist")
+        XCTAssertEqual(GrammarTopicViewModel.practiseTitle([.aorist], locale: Locale(identifier: "ru")),
+                       "Тренировать · Аорист")
+        XCTAssertTrue(GrammarTopicViewModel.practiseTitle([.aorist], locale: Locale(identifier: "ar"))
+            .hasPrefix("\u{200F}"))
+        // Kirill's terms (2026-11-07), shared with the drill (#168).
+        XCTAssertEqual(GrammarTopicViewModel.practiseTitle([.future], locale: Locale(identifier: "en")),
+                       "Practise · Future: simple form")
+        XCTAssertEqual(GrammarTopicViewModel.practiseTitle([.imperativeSimple], locale: Locale(identifier: "ru")),
+                       "Тренировать · Повелительное наклонение: простая форма")
+        XCTAssertEqual(GrammarTopicViewModel.practiseTitle([.subjunctiveSimple], locale: Locale(identifier: "en")),
+                       "Practise · Subjunctive: simple form")
+    }
+
+    /// The topic's run (`ConjugationRunViewModel.Mode.tenses`) asks only the
+    /// topic's tense in each verb's main voice and logs E5's drill rows.
+    func testTenseRunAsksOnlyTheTopicsTense() async throws {
+        settings.learningLanguages = ["ell"]
+        settings.learningListIDs = ["ky-ell-a1"]
+        let future = await topic("ell-future")
+        XCTAssertEqual(future.practiseTenses, [.future])
+        await future.practise()
+        let request = try XCTUnwrap(future.practiseRun)
+        let vm = ConjugationRunViewModel(mode: .tenses(request.tenses, pool: request.pool, level: request.level),
+                                         meaningsLang: request.meaningsLang, db: db, settings: settings,
+                                         clock: TestClock("2026-11-04T12:00:00Z").clock,
+                                         player: FeedbackPlayer(settings: settings, sink: RecordingFeedbackSink()),
+                                         seed: 172, answerHints: true, length: 5)
+        await vm.start()
+        var asked: [ConjugationFacet] = []
+        while vm.phase == .question, let question = vm.question, asked.count < 12 {
+            asked.append(question.facet)
+            await vm.choose(question.rightIndex)
+            await vm.next()
+        }
+        XCTAssertEqual(asked.count, 5)
+        XCTAssertTrue(asked.allSatisfy { $0.tense == .future && $0.voice == .active }, "\(asked.map(\.rawValue))")
+        XCTAssertEqual(vm.phase, .summary)
+        let rows = try await db.writeForTesting { db in
+            try String.fetchAll(db, sql: "SELECT DISTINCT facet || ' ' || mode FROM learn_review")
+        }
+        XCTAssertEqual(rows, ["future.active drill"], "E5's log rows, the topic's tense only")
+    }
+
+    /// Greek learned and a Greek list checked: the drill of the topic's
+    /// tense starts at once, on the checked lists' verbs.
+    func testPractiseStartsWhenGreekIsLearned() async throws {
+        settings.learningLanguages = ["ell"]
+        settings.learningListIDs = ["ky-ell-a1"]
+        let vm = await topic(aorist)
+        await vm.practise()
+        XCTAssertNil(vm.errorMessage)
+        XCTAssertNil(vm.practiseQuestion)
+        XCTAssertFalse(vm.asksForLists)
+        let run = try XCTUnwrap(vm.practiseRun)
+        XCTAssertEqual(run.tenses, [.aorist])
+        XCTAssertEqual(run.lists, ["ky-ell-a1"])
+        XCTAssertEqual(run.level, .a1)
+        XCTAssertEqual(run.meaningsLang, "eng")
+        XCTAssertGreaterThan(run.pool.count, 50, "Greek A1's verbs")
+    }
+
+    /// Greek not learned: "Learn Greek via English?" first (Greek via
+    /// Russian, with its warning, in a Russian UI); nothing starts yet.
+    func testPractiseAsksToLearnGreek() async throws {
+        settings.learningListIDs = ["ky-ell-a1"]
+        var vm = await topic(aorist)
+        await vm.practise()
+        XCTAssertEqual(vm.practiseQuestion, greekViaEnglish)
+        XCTAssertNil(vm.practiseRun)
+        vm = await topic(aorist, uiLanguage: "ru")
+        await vm.practise()
+        XCTAssertEqual(vm.practiseQuestion, greekViaRussian)
+        XCTAssertEqual(settings.learningLanguages, [])
+    }
+
+    /// No cancels: no card, no log row, the languages unchanged.
+    func testNoCancels() async throws {
+        settings.learningListIDs = ["ky-ell-a1"]
+        let vm = await topic(aorist)
+        await vm.practise()
+        await vm.answerPractise(yes: false)
+        XCTAssertNil(vm.practiseQuestion)
+        XCTAssertNil(vm.practiseRun)
+        XCTAssertFalse(vm.asksForLists)
+        XCTAssertEqual(settings.learningLanguages, [])
+        XCTAssertEqual(packs.installed, [])
+        let cards = try await count("SELECT COUNT(*) FROM learn_card")
+        let rows = try await count("SELECT COUNT(*) FROM learn_review")
+        XCTAssertEqual(cards, 0)
+        XCTAssertEqual(rows, 0)
+    }
+
+    /// Yes learns Greek through the pair, then the drill starts.
+    func testYesLearnsGreekThenStarts() async throws {
+        settings.learningListIDs = ["ky-ell-a1"]
+        let vm = await topic(aorist)
+        await vm.practise()
+        await vm.answerPractise(yes: true)
+        XCTAssertNil(vm.errorMessage)
+        XCTAssertEqual(settings.learningLanguages, ["ell"])
+        XCTAssertEqual(settings.learningVia, ["ell": "eng"])
+        XCTAssertEqual(vm.practiseRun?.tenses, [.aorist])
+    }
+
+    /// In the drill's Rule sheet (`\.allowsPractise` false) the topic shows
+    /// without Practise, and Practise does nothing.
+    func testNoPractiseWhenNotAllowed() async throws {
+        settings.learningLanguages = ["ell"]
+        settings.learningListIDs = ["ky-ell-a1"]
+        let vm = GrammarTopicViewModel(id: aorist, settings: settings, languages: languages())
+        vm.allowsPractise = false
+        await vm.load()
+        XCTAssertEqual(vm.state, .ready)
+        XCTAssertEqual(vm.practiseTenses, [])
+        await vm.practise()
+        XCTAssertNil(vm.practiseRun)
+        XCTAssertNil(vm.practiseQuestion)
+    }
+
+    /// No built-in Greek list checked (an imported one does not count): the
+    /// question first. "Greek A1" starts the drill on Greek A1's verbs and
+    /// checks nothing; "Choose lists" opens New words from and starts
+    /// nothing.
+    func testPractiseWithoutListsAsks() async throws {
+        settings.learningLanguages = ["ell"]
+        settings.learningListIDs = ["my-import"]
+        var vm = await topic(aorist)
+        await vm.practise()
+        XCTAssertTrue(vm.asksForLists)
+        XCTAssertNil(vm.practiseRun)
+        await vm.practiseGreekA1()
+        XCTAssertFalse(vm.asksForLists)
+        XCTAssertEqual(vm.practiseRun?.lists, ["ky-ell-a1"])
+        XCTAssertEqual(vm.practiseRun?.tenses, [.aorist])
+        XCTAssertGreaterThan(vm.practiseRun?.pool.count ?? 0, 50)
+        XCTAssertEqual(settings.learningListIDs, ["my-import"], "the checked lists stay as they are")
+
+        vm = await topic(aorist)
+        await vm.practise()
+        XCTAssertTrue(vm.asksForLists)
+        vm.chooseLists()
+        XCTAssertFalse(vm.asksForLists)
+        XCTAssertTrue(vm.showsNewWordsFrom)
+        XCTAssertNil(vm.practiseRun)
+        let cards = try await count("SELECT COUNT(*) FROM learn_card")
+        let rows = try await count("SELECT COUNT(*) FROM learn_review")
+        XCTAssertEqual(cards, 0)
+        XCTAssertEqual(rows, 0)
+        XCTAssertEqual(GrammarTopicViewModel.greekA1Title(locale: Locale(identifier: "en")), "Greek A1")
+        XCTAssertEqual(GrammarTopicViewModel.greekA1Title(locale: Locale(identifier: "el")), "Ελληνικά Α1")
+    }
+}
+
 // MARK: - Issue #153: the built English lists
 //
 // 0130-word-lists.md, Test plan: CEFR-J 1.5 (A1–B2) and Octanove C1/C2 1.0
@@ -23321,6 +24149,29 @@ final class DefinitionViewModelLearnTests: LearnTabTestCase {
 final class LearnViewModelTests: LearnTabTestCase {
     private func home() -> LearnViewModel {
         LearnViewModel(settings: settings, languages: languages)
+    }
+
+    /// 0133, #172: the Grammar row shows the chosen language's topic count:
+    /// Greek with its pack, 17; English, none; Greek on the stub, none.
+    func testGrammarRowOnlyWithTopics() async throws {
+        let userPath = tempDir.appendingPathComponent("grammar-user.sqlite").path
+        try await db.setup(userPath: userPath, dictionaryURL: try TestDictionary.bundledURL(),
+                           packFiles: try PackFixtures.all())
+        settings.learningLanguages = ["ell", "eng"]
+        settings.learningLanguage = "ell"
+        let vm = home()
+        await vm.load(locale: Locale(identifier: "en"))
+        XCTAssertNil(vm.errorMessage)
+        XCTAssertEqual(vm.language, "ell")
+        XCTAssertEqual(vm.grammarTopicCount, 17)
+        await vm.select("eng")
+        XCTAssertEqual(vm.grammarTopicCount, 0, "no English topics before #176")
+
+        try await db.setup(userPath: userPath, dictionaryURL: try TestDictionary.bundledURL())
+        await vm.select("ell")
+        await vm.load(locale: Locale(identifier: "en"))
+        XCTAssertNil(vm.errorMessage)
+        XCTAssertEqual(vm.grammarTopicCount, 0, "the stub has no topics")
     }
 
     /// No learned language: the picker's pairs, languages with lists first,
@@ -28349,6 +29200,121 @@ final class ConjugationPlannerTests: XCTestCase {
         var rng = Fixture.rng(3)
         let question = try XCTUnwrap(item.question(rng: &rng))
         XCTAssertEqual(question.rightForms, ["γράφονται"])
+    }
+
+    // MARK: 0133, #172: Practise on a grammar topic
+
+    @MainActor private static var greekA1Verbs: [DrillVerb]?
+
+    /// The service on the bundled file and the real packs, in a new folder.
+    @MainActor
+    private func openPacks() async throws {
+        await DictAppTests.waitForHostAppLaunch()
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("tense-run-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        addTeardownBlock { try? FileManager.default.removeItem(at: folder) }
+        try await DatabaseService.shared.setup(userPath: folder.appendingPathComponent("user.sqlite").path,
+                                               dictionaryURL: try TestDictionary.bundledURL(),
+                                               packFiles: try PackFixtures.all())
+    }
+
+    /// Greek A1's verbs, as Practise reads them with "Greek A1".
+    @MainActor
+    private func greekA1Pool() async throws -> [DrillVerb] {
+        if let pool = Self.greekA1Verbs { return pool }
+        try await openPacks()
+        let pool = try await DatabaseService.shared.drillVerbs(lists: [DrillScope.greekA1], meaningsLang: "eng")
+        Self.greekA1Verbs = pool
+        return pool
+    }
+
+    private func tenseRun(_ pool: [DrillVerb], level: DrillLevel, tenses: Set<ConjugationTense>,
+                          seed: UInt64) -> [DrillItem] {
+        var generator = Fixture.rng(seed)
+        return ConjugationPlanner.session(pool: pool, level: level, tenses: tenses, cards: [], accuracy: [:],
+                                          today: today, rng: &generator)
+    }
+
+    /// A topic's drill asks only its tenses, in each verb's main voice: the
+    /// aorist over Greek A1's pool, 100 seeds.
+    @MainActor
+    func testTenseRunAsksOnlyThoseTenses() async throws {
+        let pool = try await greekA1Pool()
+        XCTAssertGreaterThan(pool.count, 50)
+        for seed in UInt64(1)...100 {
+            let plan = tenseRun(pool, level: .a1, tenses: [.aorist], seed: seed)
+            XCTAssertEqual(plan.count, 15, "seed \(seed)")
+            XCTAssertTrue(plan.allSatisfy { $0.facet == ConjugationFacet(.aorist, $0.verb.mainVoice) },
+                          "seed \(seed): \(plan.map(\.facet.rawValue))")
+        }
+        // B2 has the passive aorist too: still the main voice only.
+        let b2 = tenseRun(pool, level: .b2, tenses: [.aorist], seed: 3)
+        XCTAssertTrue(b2.allSatisfy { $0.facet == ConjugationFacet(.aorist, $0.verb.mainVoice) })
+        // Without tenses, the drill is E5's.
+        let all = Fixture.session(pool, seed: 3)
+        XCTAssertGreaterThan(Set(all.map(\.facet.tense)).count, 1)
+    }
+
+    /// The level is raised to the first one with the topic's tense: the
+    /// imperfect with tenses up to A1 is drilled at B1, imperfect only.
+    @MainActor
+    func testTenseRunRaisesTheLevelForItsTense() async throws {
+        XCTAssertEqual(DrillScope.tenseRunLevel([.imperfect], from: .a1), .b1)
+        XCTAssertEqual(DrillScope.tenseRunLevel([.aorist], from: .a1), .a1)
+        XCTAssertEqual(DrillScope.tenseRunLevel([.aorist], from: .b2), .b2, "never lowered")
+        XCTAssertEqual(DrillScope.tenseRunLevel([.imperativeSimple, .imperativeContinuous], from: .a1), .a1)
+        XCTAssertEqual(DrillScope.tenseRunLevel([.perfect], from: .a2), .b2)
+        XCTAssertEqual(DrillScope.askedTenses([.imperativeSimple, .imperativeContinuous], level: .a1),
+                       [.imperativeSimple], "only the tenses asked at the level")
+        XCTAssertEqual(DrillScope.askedTenses([.imperativeSimple, .imperativeContinuous], level: .b1),
+                       [.imperativeSimple, .imperativeContinuous])
+
+        let pool = try await greekA1Pool()
+        let level = DrillScope.tenseRunLevel([.imperfect], from: .a1)
+        for seed in UInt64(1)...20 {
+            let plan = tenseRun(pool, level: level, tenses: [.imperfect], seed: seed)
+            XCTAssertEqual(plan.count, 15)
+            XCTAssertTrue(plan.allSatisfy { $0.facet == ConjugationFacet(.imperfect, $0.verb.mainVoice) && $0.level == .b1 })
+        }
+    }
+
+    /// Every A1 topic about tenses has questions at A1 for Greek A1's verbs,
+    /// so Practise never opens an empty run.
+    @MainActor
+    func testEveryA1TopicHasQuestions() async throws {
+        let pool = try await greekA1Pool()
+        try await openPacks()
+        let links = try await DatabaseService.shared.grammarLinks(lang: "ell")
+        var tensesByTopic: [String: [ConjugationTense]] = [:]
+        for link in links where link.kind == .tense {
+            tensesByTopic[link.topicID, default: []].append(try XCTUnwrap(ConjugationTense(rawValue: link.key)))
+        }
+        XCTAssertEqual(Set(tensesByTopic.keys), ["ell-eimai-echo", "ell-present-1", "ell-present-2",
+                                                 "ell-aorist-regular", "ell-aorist-irregular", "ell-future",
+                                                 "ell-na-perfective", "ell-imperative"])
+        for (topic, tenses) in tensesByTopic {
+            let level = DrillScope.tenseRunLevel(Set(tenses), from: .a1)
+            XCTAssertEqual(level, .a1, topic)
+            let asked = Set(DrillScope.askedTenses(tenses, level: level))
+            XCTAssertFalse(asked.isEmpty, topic)
+            let plan = tenseRun(pool, level: level, tenses: asked, seed: 1)
+            XCTAssertEqual(plan.count, 15, topic)
+            XCTAssertEqual(Set(plan.map(\.facet.tense)), asked, topic)
+        }
+    }
+
+    /// Open question 1: with no built-in Greek list checked (none, or only
+    /// an import), Practise asks; "Greek A1" drills Greek A1's verbs.
+    @MainActor
+    func testTenseRunWithoutCheckedListsUsesGreekA1() async throws {
+        XCTAssertEqual(DrillScope.greekLists(checked: []), [])
+        XCTAssertEqual(DrillScope.greekLists(checked: ["my-import"]), [], "an imported list never feeds the drill")
+        XCTAssertEqual(DrillScope.greekA1, "ky-ell-a1")
+        XCTAssertEqual(DrillScope.tenseLevel(checked: [], stored: nil), .a1)
+        let pool = try await greekA1Pool()
+        let plan = tenseRun(pool, level: .a1, tenses: [.present], seed: 9)
+        XCTAssertEqual(plan.count, 15)
+        XCTAssertTrue(plan.allSatisfy { $0.facet.tense == .present })
     }
 }
 

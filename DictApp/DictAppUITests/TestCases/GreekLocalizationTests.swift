@@ -468,6 +468,43 @@ final class GreekLocalizationTests: XCTestCase {
         try assertNoEnglishLeak(on: "New words from", skippingCellContent: true)
     }
 
+    /// 0133, #172: grammar in a Greek UI: the row and the screen in Greek,
+    /// the level written Α1, Greek headings and Practise, the topics in
+    /// English (Greek via English explains in English) with no note.
+    func testGrammarInGreek() throws {
+        app.terminate()
+        app.launchArguments += ["-learningLanguages", "ell"]
+        app.launch()
+        XCTAssertTrue(app.waitForDictionariesReady(), "Search screen after launch")
+        openTab(.learn)
+        let learnPage = LearnPage(app: app)
+        XCTAssertTrue(learnPage.waitForHome(timeout: TestData.Timeouts.long), "Greek learned: the home")
+        let page = GrammarPage(app: app)
+        XCTAssertTrue(app.scrollToElement(page.learnRow), "the Grammar row")
+        XCTAssertTrue(page.learnRow.label.contains("Γραμματική"), page.learnRow.label)
+        XCTAssertEqual(page.learnRowValue, "17 θέματα")
+        XCTAssertTrue(page.openGrammar())
+        XCTAssertTrue(app.navigationBars["Γραμματική"].waitForExistence(timeout: TestData.Timeouts.medium))
+        let level = page.levelHeader("A1")
+        XCTAssertTrue(level.waitForExistence(timeout: TestData.Timeouts.medium))
+        XCTAssertEqual(level.label, "Α1", "Greek certificate letters")
+        XCTAssertFalse(page.englishNote.exists)
+        XCTAssertTrue(page.topicRow("ell-alphabet").label.hasPrefix("The alphabet"), "topics in English")
+        attachScreenshot("17-grammar")
+
+        XCTAssertTrue(page.openTopic("ell-aorist-regular"))
+        XCTAssertEqual(page.title.label, "The aorist of regular verbs and the augment")
+        XCTAssertEqual(page.level.label, "Α1")
+        XCTAssertFalse(page.englishNote.exists, "Greek via English: no note")
+        // The topic is not lazy: its headings exist below the fold too.
+        for (heading, name) in [("Παραδείγματα", "Examples"), ("Προσοχή", "Watch out"), ("Λέξεις", "Words"),
+                                ("Σχετικά θέματα", "Related topics")] {
+            XCTAssertTrue(app.staticTexts[heading].firstMatch.exists, name)
+        }
+        XCTAssertEqual(page.practiseButton.label, "Εξάσκηση · Αόριστος")
+        attachScreenshot("18-grammar-topic")
+    }
+
     /// Issue #144: the inflection table of γράφω in Greek: its title, the
     /// "All forms" button and the VoiceOver label of each cell ("αόριστος,
     /// εγώ, έγραψα"), with no English left.

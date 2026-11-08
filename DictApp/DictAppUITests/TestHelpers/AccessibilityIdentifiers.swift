@@ -242,6 +242,37 @@ struct AccessibilityIdentifiers {
         static func hardestVerb(_ n: Int) -> String { "stats_hardest_verb_\(n)" }
     }
 
+    // MARK: - Grammar (0133, #172)
+    struct Grammar {
+        /// The Learn home's row; its value is "17 topics".
+        static let learnRow = "learn_grammar_row"
+        /// The Grammar screen's list.
+        static let topics = "grammar_topics"
+        /// "Topics are explained in English.", on the Grammar screen and a topic.
+        static let englishNote = "grammar_english_note"
+        /// A level's section header: `grammar_level_A1`.
+        static func level(_ level: String) -> String { "grammar_level_\(level)" }
+        static func topicRow(_ id: String) -> String { "grammar_topic_row_\(id)" }
+        /// The topic screen's scroll view.
+        static let topic = "grammar_topic"
+        static let title = "grammar_topic_title"
+        static let level = "grammar_topic_level"
+        static let rule = "grammar_rule"
+        static func table(_ n: Int) -> String { "grammar_table_\(n)" }
+        /// A table cell, rows and columns from 0; its label is "column, row, text".
+        static func cell(_ table: Int, _ row: Int, _ column: Int) -> String { "grammar_cell_\(table)_\(row)_\(column)" }
+        static let examples = "grammar_examples"
+        static func example(_ n: Int) -> String { "grammar_example_\(n)" }
+        static let watchOut = "grammar_watch_out"
+        /// Its value is the tense raw values, comma-joined.
+        static let practiseButton = "grammar_practise_button"
+        static func word(_ word: String) -> String { "grammar_word_\(word)" }
+        static func related(_ id: String) -> String { "grammar_related_\(id)" }
+        static let unavailable = "grammar_unavailable"
+        /// The Credits line, through `Inflection.creditsLink`.
+        static let creditsGreekGrammar = "credits_greek_grammar"
+    }
+
     // MARK: - Exercises (0131, #159)
     struct Exercise {
         static let view = "exercise_view"

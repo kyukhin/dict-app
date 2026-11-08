@@ -32,6 +32,9 @@ struct CreditsView: View {
                 // Issue #178: the example sentences, CC BY 2.0 FR (0134).
                 Text("credits.dataSources.tatoeba")
                     .accessibilityIdentifier("credits_tatoeba")
+                // 0133, #172: the Greek grammar notes, LibreDict's own text.
+                Text("credits.dataSources.greekGrammar")
+                    .accessibilityIdentifier("credits_greek_grammar")
             }
             Section("credits.licenses.section") {
                 Text("credits.licenses.placeholder")

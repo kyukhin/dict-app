@@ -3,7 +3,8 @@
 // language is learned, else the Learn home. E3's list screens (#154) open
 // from its Lists section and its My words row. Later tickets add their
 // sections to the home: the daily goal ring, the streak and Statistics
-// (0166, #164); the Conjugation trainer and its screen (0132, #168).
+// (0166, #164); the Conjugation trainer and its screen (0132, #168). The
+// Grammar section, the Grammar screen and a grammar topic (0133, #172).
 
 import SwiftUI
 
@@ -25,6 +26,8 @@ struct LearnView: View {
         case statistics
         /// 0132, #168: the Conjugation screen, from its Trainers row.
         case conjugation
+        /// 0133, #172: the Grammar screen of a language.
+        case grammar(String)
     }
 
     /// A run in `lang`, the chosen language, with its pair's meanings
@@ -63,6 +66,7 @@ struct LearnView: View {
                 switch route {
                 case .statistics: StatisticsView()
                 case .conjugation: ConjugationStartView()
+                case let .grammar(lang): GrammarTopicsView(lang: lang)
                 }
             }
             .navigationDestination(for: DictionaryEntry.self) { entry in
@@ -165,6 +169,7 @@ struct LearnView: View {
                 }
             }
             lists
+            grammar
             Section {
                 NavigationLink(value: WordListRoute.list(vm.myWordsList)) {
                     LabeledContent("learn.myWords") {
@@ -340,6 +345,27 @@ struct LearnView: View {
                 Text("learn.allLists")
             }
             .accessibilityIdentifier("learn_all_lists_row")
+        }
+    }
+
+    /// 0133, #172: "Grammar · 17 topics", while the chosen language has
+    /// topics (Greek, with the Greek pack). VoiceOver reads the count as
+    /// the row's value.
+    @ViewBuilder
+    private var grammar: some View {
+        if vm.grammarTopicCount > 0, let language = vm.language {
+            Section("grammar.title") {
+                NavigationLink(value: Route.grammar(language)) {
+                    LabeledContent {
+                        Text("grammar.topicCount \(vm.grammarTopicCount)")
+                            .accessibilityHidden(true)
+                    } label: {
+                        Text("grammar.title")
+                    }
+                }
+                .accessibilityValue(Text("grammar.topicCount \(vm.grammarTopicCount)"))
+                .accessibilityIdentifier("learn_grammar_row")
+            }
         }
     }
 
@@ -799,5 +825,405 @@ struct StreakBadge: View {
         }
         .font(.title3.weight(.semibold))
         .monospacedDigit()
+    }
+}
+
+// MARK: - Grammar (0133, #172)
+
+/// The Grammar screen: one section per level, lowest first, a row per
+/// topic titled in the explanation language, and "Topics are explained in
+/// English." on top when a topic fell back to English. Rows push the topic
+/// with destination links, so the screen works in any stack.
+struct GrammarTopicsView: View {
+    @StateObject private var vm: GrammarTopicsViewModel
+    @Environment(\.locale) private var locale
+
+    init(lang: String) {
+        _vm = StateObject(wrappedValue: GrammarTopicsViewModel(lang: lang))
+    }
+
+    var body: some View {
+        List {
+            if vm.showsEnglishNote {
+                Section {
+                    GrammarEnglishNote()
+                }
+            }
+            ForEach(vm.levels) { level in
+                Section {
+                    ForEach(level.topics) { topic in
+                        NavigationLink {
+                            GrammarTopicView(id: topic.id)
+                        } label: {
+                            Text(GrammarDocument.taggingGreek(AttributedString(topic.title)))
+                        }
+                        .accessibilityIdentifier("grammar_topic_row_\(topic.id)")
+                    }
+                } header: {
+                    Text(verbatim: WordListsViewModel.levelName(level.level, locale: locale))
+                        .accessibilityAddTraits(.isHeader)
+                        .accessibilityIdentifier("grammar_level_\(level.level)")
+                }
+            }
+        }
+        .overlay {
+            if !vm.isLoaded { ProgressView() }
+        }
+        .accessibilityIdentifier("grammar_topics")
+        .navigationTitle("grammar.title")
+        .task { await vm.load() }
+        .alert(Text(verbatim: vm.errorMessage ?? ""), isPresented: Binding(
+            get: { vm.errorMessage != nil },
+            set: { if !$0 { vm.errorMessage = nil } }
+        )) {}
+    }
+}
+
+/// "Topics are explained in English.", in the UI language, with an info
+/// icon hidden from VoiceOver.
+struct GrammarEnglishNote: View {
+    var body: some View {
+        Label {
+            Text("grammar.inEnglish")
+        } icon: {
+            Image(systemName: "info.circle")
+                .accessibilityHidden(true)
+        }
+        .font(.footnote)
+        .foregroundStyle(.secondary)
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("grammar_english_note")
+    }
+}
+
+/// A grammar topic, top to bottom: the title and level, the rule, the
+/// tables (#144's section view and its fallbacks), Examples, Watch out,
+/// Practise for a topic about tenses, Words and Related topics. The topic's
+/// own text (title, rule, tables, examples, Watch out) is laid out left to
+/// right, also in Arabic; headings, Practise and the link rows follow the
+/// UI. A column of at most 700 pt, centred. Links push with destination
+/// links, so the screen works in any tab's stack and in a sheet.
+struct GrammarTopicView: View {
+    @StateObject private var vm: GrammarTopicViewModel
+    @Environment(\.locale) private var locale
+    @Environment(\.layoutDirection) private var layoutDirection
+    @Environment(\.allowsPractise) private var allowsPractise
+
+    init(id: String) {
+        _vm = StateObject(wrappedValue: GrammarTopicViewModel(id: id))
+    }
+
+    var body: some View {
+        Group {
+            switch vm.state {
+            case .loading:
+                ProgressView()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            case .unavailable:
+                ContentUnavailableView {
+                    Label("grammar.unavailable", systemImage: "book.closed")
+                }
+                .accessibilityIdentifier("grammar_unavailable")
+            case .ready:
+                content
+            }
+        }
+        .navigationTitle(Text(vm.title))
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                ReadingModeToolbarButton()
+            }
+        }
+        .task {
+            vm.allowsPractise = allowsPractise
+            await vm.load()
+        }
+        .alert(Text(vm.practiseQuestion.map { LearnViewModel.learnPairQuestion($0, locale: locale) } ?? ""),
+               isPresented: Binding(get: { vm.practiseQuestion != nil },
+                                    set: { if !$0 { vm.practiseQuestion = nil } }),
+               presenting: vm.practiseQuestion) { _ in
+            Button("common.yes") {
+                Task { await vm.answerPractise(yes: true) }
+            }
+            Button("common.no") {
+                Task { await vm.answerPractise(yes: false) }
+            }
+        } message: { pair in
+            // A limited pair's warning: "Words are practised in English."
+            if let warning = LearnViewModel.limitedWarning(pair, locale: locale) {
+                Text(warning)
+            }
+        }
+        .alert(Text("grammar.practise.noLists"), isPresented: $vm.asksForLists) {
+            Button(GrammarTopicViewModel.greekA1Title(locale: locale)) {
+                Task { await vm.practiseGreekA1() }
+            }
+            Button("learn.chooseLists") {
+                vm.chooseLists()
+            }
+        }
+        .navigationDestination(isPresented: $vm.showsNewWordsFrom) {
+            NewWordsFromView()
+        }
+        // E5's drill of the topic's tenses covers the screen.
+        .fullScreenCover(item: $vm.practiseRun) { run in
+            ConjugationRunView(mode: .tenses(run.tenses, pool: run.pool, level: run.level),
+                               meaningsLang: run.meaningsLang)
+                .environment(\.locale, locale)
+                .environment(\.layoutDirection, layoutDirection)
+        }
+        .alert(Text(verbatim: vm.errorMessage ?? ""), isPresented: Binding(
+            get: { vm.errorMessage != nil },
+            set: { if !$0 { vm.errorMessage = nil } }
+        )) {}
+    }
+
+    private var content: some View {
+        let rule = vm.blocks.prefix { $0.isRule }
+        let rest = vm.blocks.dropFirst(rule.count)
+        return ScrollView {
+            VStack(alignment: .leading, spacing: 24) {
+                if vm.showsEnglishNote {
+                    GrammarEnglishNote()
+                }
+                VStack(alignment: .leading, spacing: 20) {
+                    header
+                    VStack(alignment: .leading, spacing: 12) {
+                        ForEach(Array(rule.enumerated()), id: \.offset) { _, block in
+                            GrammarTextBlock(block: block)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .accessibilityElement(children: .contain)
+                    .accessibilityIdentifier("grammar_rule")
+                }
+                .environment(\.layoutDirection, .leftToRight)
+                ForEach(Array(rest.enumerated()), id: \.offset) { _, block in
+                    restBlock(block)
+                }
+                practise
+                words
+                related
+            }
+            .padding()
+            .frame(maxWidth: 700, alignment: .leading)
+            .frame(maxWidth: .infinity)
+        }
+        .accessibilityIdentifier("grammar_topic")
+    }
+
+    /// The title, then the level ("Α1" in a Greek UI).
+    private var header: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(vm.title)
+                .font(.title2.bold())
+                .accessibilityAddTraits(.isHeader)
+                .accessibilityIdentifier("grammar_topic_title")
+            if let level = vm.topic?.summary.level {
+                Text(verbatim: WordListsViewModel.levelName(level, locale: locale))
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .accessibilityIdentifier("grammar_topic_level")
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    @ViewBuilder
+    private func restBlock(_ block: GrammarBlock) -> some View {
+        switch block {
+        case let .caption(text):
+            Text(text)
+                .font(.headline)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .accessibilityAddTraits(.isHeader)
+                .environment(\.layoutDirection, .leftToRight)
+        case let .table(section):
+            InflectionSectionView(section: section)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .accessibilityIdentifier(section.id)
+                .environment(\.layoutDirection, .leftToRight)
+        case let .examples(examples):
+            VStack(alignment: .leading, spacing: 12) {
+                heading("grammar.section.examples")
+                VStack(alignment: .leading, spacing: 14) {
+                    ForEach(Array(examples.enumerated()), id: \.offset) { index, example in
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(example.greek)
+                            Text(example.translation)
+                                .foregroundStyle(.secondary)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .accessibilityElement(children: .ignore)
+                        .accessibilityLabel(Text(example.accessibilityLabel))
+                        .accessibilityIdentifier("grammar_example_\(index + 1)")
+                    }
+                }
+                .environment(\.layoutDirection, .leftToRight)
+                .accessibilityElement(children: .contain)
+                .accessibilityIdentifier("grammar_examples")
+            }
+        case let .watchOut(items):
+            VStack(alignment: .leading, spacing: 12) {
+                heading("grammar.section.watchOut")
+                VStack(alignment: .leading, spacing: 10) {
+                    ForEach(Array(items.enumerated()), id: \.offset) { _, item in
+                        Label {
+                            Text(item)
+                        } icon: {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .foregroundStyle(.orange)
+                                .accessibilityHidden(true)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }
+                .environment(\.layoutDirection, .leftToRight)
+                .accessibilityElement(children: .contain)
+                .accessibilityIdentifier("grammar_watch_out")
+            }
+        case .paragraph, .bullets:
+            GrammarTextBlock(block: block)
+                .environment(\.layoutDirection, .leftToRight)
+        }
+    }
+
+    /// "Practise · Aorist": E5's drill of the topic's tenses.
+    @ViewBuilder
+    private var practise: some View {
+        if allowsPractise && !vm.practiseTenses.isEmpty {
+            Button {
+                Task { await vm.practise() }
+            } label: {
+                Text(verbatim: GrammarTopicViewModel.practiseTitle(vm.practiseTenses, locale: locale))
+            }
+            .buttonStyle(.bordered)
+            .accessibilityValue(Text(verbatim: vm.practiseTenses.map(\.rawValue).joined(separator: ",")))
+            .accessibilityIdentifier("grammar_practise_button")
+        }
+    }
+
+    /// The topic's words, each with its short meaning; a tap opens its
+    /// Definition.
+    @ViewBuilder
+    private var words: some View {
+        if !vm.words.isEmpty {
+            VStack(alignment: .leading, spacing: 8) {
+                heading("grammar.section.words")
+                VStack(spacing: 0) {
+                    ForEach(vm.words) { row in
+                        if let entry = row.entry {
+                            NavigationLink {
+                                DefinitionView(entry: entry)
+                            } label: {
+                                GrammarLinkRow(title: AttributedString.learning(row.word, lang: vm.lang),
+                                               subtitle: row.meaning.isEmpty ? nil
+                                                   : AttributedString.learning(row.meaning,
+                                                                               lang: vm.meaningsLang),
+                                               isLink: true)
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityIdentifier("grammar_word_\(row.word)")
+                        } else {
+                            GrammarLinkRow(title: AttributedString.learning(row.word, lang: vm.lang),
+                                           subtitle: row.meaning.isEmpty ? nil
+                                               : AttributedString.learning(row.meaning, lang: vm.meaningsLang),
+                                           isLink: false)
+                                .accessibilityIdentifier("grammar_word_\(row.word)")
+                        }
+                        if row.id != vm.words.last?.id { Divider() }
+                    }
+                }
+            }
+        }
+    }
+
+    /// Related topics; a tap opens the topic.
+    @ViewBuilder
+    private var related: some View {
+        if let related = vm.topic?.related, !related.isEmpty {
+            VStack(alignment: .leading, spacing: 8) {
+                heading("grammar.section.related")
+                VStack(spacing: 0) {
+                    ForEach(related) { topic in
+                        NavigationLink {
+                            GrammarTopicView(id: topic.id)
+                        } label: {
+                            GrammarLinkRow(title: GrammarDocument.taggingGreek(AttributedString(topic.title)),
+                                           subtitle: nil, isLink: true)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityIdentifier("grammar_related_\(topic.id)")
+                        if topic.id != related.last?.id { Divider() }
+                    }
+                }
+            }
+        }
+    }
+
+    private func heading(_ key: LocalizedStringKey) -> some View {
+        Text(key)
+            .font(.title3.bold())
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .accessibilityAddTraits(.isHeader)
+    }
+}
+
+/// A paragraph or a `- ` list of a topic's rule.
+private struct GrammarTextBlock: View {
+    let block: GrammarBlock
+
+    var body: some View {
+        switch block {
+        case let .paragraph(text):
+            Text(text)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        case let .bullets(items):
+            VStack(alignment: .leading, spacing: 6) {
+                ForEach(Array(items.enumerated()), id: \.offset) { _, item in
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        Text(verbatim: "•")
+                            .accessibilityHidden(true)
+                        Text(item)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }
+            }
+        case .caption, .table, .examples, .watchOut:
+            EmptyView()
+        }
+    }
+}
+
+/// A Words or Related topics row: its text, a secondary line, and a
+/// chevron that mirrors in Arabic.
+private struct GrammarLinkRow: View {
+    let title: AttributedString
+    let subtitle: AttributedString?
+    let isLink: Bool
+
+    var body: some View {
+        HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .foregroundStyle(.primary)
+                if let subtitle {
+                    Text(subtitle)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            if isLink {
+                Image(systemName: "chevron.forward")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(.tertiary)
+                    .accessibilityHidden(true)
+            }
+        }
+        .padding(.vertical, 10)
+        .contentShape(Rectangle())
+        .accessibilityElement(children: .combine)
     }
 }

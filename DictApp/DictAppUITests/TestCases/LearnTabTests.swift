@@ -202,12 +202,15 @@ final class LearnTabTests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Choose lists or tap Learn on a word"].waitForExistence(timeout: TestData.Timeouts.medium))
         XCTAssertFalse(learnPage.importList.exists, "Greek has lists: no Import a list")
         XCTAssertFalse(learnPage.languageSwitch.exists, "one language: no switch")
-        XCTAssertTrue(learnPage.myWordsRow.exists)
         // #159: nothing in learning, so the trainers are off, with the reason.
         XCTAssertTrue(learnPage.trainerRecognition.waitForExistence(timeout: TestData.Timeouts.medium))
         XCTAssertFalse(learnPage.trainerRecognition.isEnabled, "Recognition is off")
         XCTAssertFalse(learnPage.trainerProduction.isEnabled, "Production is off")
         XCTAssertTrue(app.staticTexts["Learn a few words first"].exists)
+        // Below the Lists and Grammar sections (0133, #172): the lazy List
+        // builds it once scrolled to.
+        XCTAssertTrue(app.scrollToElement(learnPage.myWordsRow), "My words")
+        XCTAssertTrue(app.scrollToElement(learnPage.chooseLists), "back to Today")
 
         let newWordsFrom = learnPage.tapChooseLists()
         for id in ["ky-ell-a1", "ky-ell-a2", "ky-ell-b1"] {

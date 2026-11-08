@@ -3,7 +3,8 @@
 // home, with E3's Lists section (#154). The runs: the trainers (#159), the
 // session and mistakes practice (#161); match the pairs (#160). The daily
 // goal and the streak on the home, and the statistics screen (0166, #164).
-// The conjugation drill's screen and run (0132, #168).
+// The conjugation drill's screen and run (0132, #168). The Grammar screen
+// and a grammar topic (0133, #172).
 
 import Foundation
 import SwiftUI
@@ -51,6 +52,9 @@ final class LearnViewModel: ObservableObject {
     /// The chosen language has lists, built-in or imported: the Lists
     /// section offers New words from.
     @Published private(set) var hasLists = false
+    /// The chosen language's grammar topics (0133, #172): the Grammar
+    /// section's row, hidden at 0 (no topics, or no pack).
+    @Published private(set) var grammarTopicCount = 0
     /// False until the first load ends, so the picker never flashes before the home.
     @Published private(set) var isLoaded = false
     /// Today's exercises in every language and the daily goal (0166, #164).
@@ -109,6 +113,7 @@ final class LearnViewModel: ObservableObject {
                 pair = nil
                 canMatch = false
                 drillLevel = nil
+                grammarTopicCount = 0
                 pickerRows = LearningPairs.pickerRows(offered: try await db.learningPairs().keys,
                                                       withLists: languagesWithLists, learned: learned,
                                                       uiLanguage: languages.uiLanguage(),
@@ -190,6 +195,8 @@ final class LearnViewModel: ObservableObject {
         checkedLists = lists.filter { checked.contains($0.id) }
         hasLists = languagesWithLists.contains(language) || !lists.isEmpty
         listProgress = try await WordListsViewModel.progress(of: checkedLists, myWordsLanguage: language, db: db)
+        // 0133, #172: the topics explained in the pair's via.
+        grammarTopicCount = try await db.grammarTopics(lang: language, explainLang: pair?.via ?? "eng").count
         let hasWordsInLearning = try await db.learningWordCount(lang: language) > 0
         guard hasWordsInLearning || !checkedLists.isEmpty else {
             today = hasLists ? .chooseLists : .addWords
@@ -811,6 +818,9 @@ final class ConjugationRunViewModel: ObservableObject {
         case session(pool: [DrillVerb], level: DrillLevel)
         /// Practise on one verb, from `level` up to its first level with a question.
         case verb(DrillVerb, level: DrillLevel)
+        /// Practise on a grammar topic (0133, #172): the drill of `pool` at
+        /// `level`, asking only `tenses`, each in the verb's main voice.
+        case tenses(Set<ConjugationTense>, pool: [DrillVerb], level: DrillLevel)
     }
 
     typealias Phase = ExerciseRunViewModel.Phase
@@ -888,6 +898,9 @@ final class ConjugationRunViewModel: ObservableObject {
             case let .verb(verb, level):
                 plan = ConjugationPlanner.verbRun(verb: verb, level: level, cards: cards, accuracy: accuracy,
                                                   today: today, length: length, rng: &rng)
+            case let .tenses(tenses, pool, level):
+                plan = ConjugationPlanner.session(pool: pool, level: level, tenses: tenses, cards: cards,
+                                                  accuracy: accuracy, today: today, length: length, rng: &rng)
             }
         } catch {
             errorMessage = error.localizedDescription
@@ -1451,5 +1464,288 @@ final class StatisticsViewModel: ObservableObject {
         case .done:
             return String(localized: "stats.forecast.done", bundle: bundle, locale: locale)
         }
+    }
+}
+
+// MARK: - Grammar (0133, #172)
+
+extension LearningLanguageService {
+    /// The language `lang`'s topics are explained in: the via of its pair,
+    /// its stored via or else its default (0131), whatever the UI language;
+    /// English for a language without a pair.
+    func explanationLanguage(of lang: String) async throws -> String {
+        try await pair(for: lang)?.via ?? "eng"
+    }
+}
+
+/// The Grammar screen (0133, "Grammar screen"): `lang`'s topics by level,
+/// lowest first, each titled in the explanation language, with the note
+/// "Topics are explained in English." when a topic has no text in it.
+@MainActor
+final class GrammarTopicsViewModel: ObservableObject {
+    /// One section: a level's topics in their order.
+    struct Level: Identifiable, Equatable {
+        let level: String
+        let topics: [GrammarTopicSummary]
+        var id: String { level }
+    }
+
+    @Published private(set) var levels: [Level] = []
+    /// A topic's title fell back from the explanation language to English.
+    @Published private(set) var showsEnglishNote = false
+    /// The language the titles were asked in.
+    @Published private(set) var explainLang = "eng"
+    @Published private(set) var isLoaded = false
+    @Published var errorMessage: String?
+
+    let lang: String
+    private let db: DatabaseService
+    private let languages: LearningLanguageService
+
+    init(lang: String, db: DatabaseService = .shared, languages: LearningLanguageService? = nil) {
+        self.lang = lang
+        self.db = db
+        self.languages = languages ?? .shared
+    }
+
+    func load() async {
+        do {
+            explainLang = try await languages.explanationLanguage(of: lang)
+            let topics = try await db.grammarTopics(lang: lang, explainLang: explainLang)
+            var levels: [Level] = []
+            for topic in topics {
+                if let last = levels.last, last.level == topic.level {
+                    levels[levels.count - 1] = Level(level: last.level, topics: last.topics + [topic])
+                } else {
+                    levels.append(Level(level: topic.level, topics: [topic]))
+                }
+            }
+            self.levels = levels
+            showsEnglishNote = topics.contains { $0.explainLang != explainLang }
+            errorMessage = nil
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+        isLoaded = true
+    }
+}
+
+/// A grammar topic (0133, "Topic screen"): its text in the explanation
+/// language (the English note above the title when it fell back to English,
+/// however the topic opens), its blocks, its words with their meanings in
+/// the meanings language of the pair, its related topics, and Practise for
+/// a topic about verb tenses.
+@MainActor
+final class GrammarTopicViewModel: ObservableObject {
+    enum State: Equatable {
+        case loading
+        /// The topic is gone, its pack removed: `grammar.unavailable`.
+        case unavailable
+        case ready
+    }
+
+    /// A Words row: the word, its short meaning ("" when none), and the
+    /// entry it opens (nil when no dictionary of the language has it).
+    struct WordRow: Identifiable, Equatable {
+        let word: String
+        let meaning: String
+        let entry: DictionaryEntry?
+        var id: String { word }
+    }
+
+    /// A drill of the topic's tenses, presented as E5's run
+    /// (`ConjugationRunViewModel.Mode.tenses`): the pool of the checked
+    /// Greek lists (or Greek A1), its level, and the meanings language of
+    /// Greek's pair (the verbs' translations).
+    struct PractiseRun: Identifiable {
+        let id = UUID()
+        let tenses: Set<ConjugationTense>
+        let lists: [WordListID]
+        let pool: [DrillVerb]
+        let level: DrillLevel
+        let meaningsLang: String
+    }
+
+    @Published private(set) var state = State.loading
+    @Published private(set) var topic: GrammarTopic?
+    @Published private(set) var blocks: [GrammarBlock] = []
+    /// The text fell back from the explanation language to English.
+    @Published private(set) var showsEnglishNote = false
+    @Published private(set) var words: [WordRow] = []
+    /// The meanings language of the pair: the Words rows' meanings, read in
+    /// its voice.
+    @Published private(set) var meaningsLang: String?
+    /// The tenses Practise drills and names, in the topic's order: those
+    /// with a question at the run's level. Empty: no Practise.
+    @Published private(set) var practiseTenses: [ConjugationTense] = []
+    /// "Learn Greek via English?" (Greek's pair), asked by Practise while
+    /// Greek is not learned; nil when not shown.
+    @Published var practiseQuestion: LearningPair?
+    /// "No Greek list is checked. Practise the verbs of Greek A1, or choose
+    /// lists?" (0133, Open question 1).
+    @Published var asksForLists = false
+    /// "Choose lists": New words from is pushed.
+    @Published var showsNewWordsFrom = false
+    /// The drill to present; nil when none.
+    @Published var practiseRun: PractiseRun?
+    @Published var errorMessage: String?
+    /// False in the drill's Rule sheet (`\.allowsPractise`, #174): the topic
+    /// has no Practise.
+    var allowsPractise = true
+
+    let id: String
+    private let db: DatabaseService
+    private let settings: SettingsService
+    private let languages: LearningLanguageService
+
+    init(id: String, db: DatabaseService = .shared, settings: SettingsService = .shared,
+         languages: LearningLanguageService? = nil) {
+        self.id = id
+        self.db = db
+        self.settings = settings
+        self.languages = languages ?? .shared
+    }
+
+    /// The taught language, from the id (`ell-aorist-regular`).
+    var lang: String { String(id.prefix { $0 != "-" }) }
+
+    /// The title, its Greek in the Greek voice.
+    var title: AttributedString {
+        GrammarDocument.taggingGreek(AttributedString(topic?.summary.title ?? ""))
+    }
+
+    /// Reads the topic in the explanation language, then its words.
+    func load() async {
+        do {
+            let pair = try await languages.pair(for: lang)
+            let explainLang = pair?.via ?? "eng"
+            guard let topic = try await db.grammarTopic(id: id, explainLang: explainLang) else {
+                state = .unavailable
+                return
+            }
+            self.topic = topic
+            blocks = GrammarDocument.parse(body: topic.body)
+            showsEnglishNote = topic.summary.explainLang != explainLang
+            practiseTenses = allowsPractise ? DrillScope.askedTenses(topic.tenses, level: practiseLevel(topic)) : []
+            state = .ready
+            meaningsLang = pair?.meaningsLang
+            words = try await wordRows(topic.words, meaningsLang: pair?.meaningsLang)
+            errorMessage = nil
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    /// Each word with its short meaning in `meaningsLang` and its entry in
+    /// the language's dictionaries, Dictionary Order first, enabled first,
+    /// as a list word opens (E3).
+    private func wordRows(_ words: [String], meaningsLang: String?) async throws -> [WordRow] {
+        guard !words.isEmpty else { return [] }
+        let sourceOrder = try await languages.sourceOrder(lang: lang, meaningsLang: meaningsLang)
+        let queries = words.map { MeaningQuery(key: WordKey(lang: lang, word: $0), lookup: $0) }
+        let meanings = try await db.meanings(of: queries, lang: lang, meaningsLang: meaningsLang,
+                                             sourceOrder: sourceOrder)
+        var rows: [WordRow] = []
+        for query in queries {
+            let entry = try await db.entry(headword: query.lookup, lang: lang, sourceOrder: sourceOrder)
+            rows.append(WordRow(word: query.lookup, meaning: meanings[query.key] ?? "", entry: entry))
+        }
+        return rows
+    }
+
+    /// "Tenses up to" (or the checked lists' floor), raised to the first
+    /// level with one of the topic's tenses.
+    private func practiseLevel(_ topic: GrammarTopic) -> DrillLevel {
+        let stored = DrillScope.tenseLevel(checked: settings.learningListIDs, stored: settings.learningDrillTenses)
+        return DrillScope.tenseRunLevel(Set(topic.tenses), from: stored)
+    }
+
+    // MARK: Practise
+
+    /// Practise: E4's "Learn Greek via English?" first while Greek is not
+    /// learned; then, with no built-in Greek list checked, the Greek A1
+    /// question; then the drill of the topic's tenses.
+    func practise() async {
+        guard allowsPractise, !practiseTenses.isEmpty else { return }
+        guard languages.isLearned(ConjugationPlanner.lang) else {
+            do {
+                practiseQuestion = try await languages.pair(for: ConjugationPlanner.lang)
+            } catch {
+                errorMessage = error.localizedDescription
+            }
+            return
+        }
+        await startOrAskForLists()
+    }
+
+    /// The answer to `practiseQuestion`: Yes learns Greek through that pair,
+    /// then goes on; No cancels, and nothing changes.
+    func answerPractise(yes: Bool) async {
+        practiseQuestion = nil
+        guard yes else { return }
+        do {
+            try await languages.learn(language: ConjugationPlanner.lang)
+        } catch {
+            errorMessage = error.localizedDescription
+            return
+        }
+        await startOrAskForLists()
+    }
+
+    /// "Greek A1": the drill on Greek A1's verbs; the checked lists stay as
+    /// they are.
+    func practiseGreekA1() async {
+        asksForLists = false
+        await start(lists: [DrillScope.greekA1])
+    }
+
+    /// "Choose lists": opens New words from and starts nothing.
+    func chooseLists() {
+        asksForLists = false
+        showsNewWordsFrom = true
+    }
+
+    private func startOrAskForLists() async {
+        let lists = DrillScope.greekLists(checked: settings.learningListIDs)
+        guard !lists.isEmpty else {
+            asksForLists = true
+            return
+        }
+        await start(lists: lists)
+    }
+
+    /// The run of the topic's tenses over the lists' verbs. Nothing is
+    /// stored here: the run writes E5's cards and log rows.
+    private func start(lists: [WordListID]) async {
+        guard let topic else { return }
+        let level = practiseLevel(topic)
+        let tenses = Set(DrillScope.askedTenses(topic.tenses, level: level))
+        guard !tenses.isEmpty else { return }
+        do {
+            let meaningsLang = try await languages.pair(for: ConjugationPlanner.lang)?.meaningsLang ?? "eng"
+            let pool = try await db.drillVerbs(lists: lists, meaningsLang: meaningsLang)
+            practiseRun = PractiseRun(tenses: tenses, lists: lists, pool: pool, level: level,
+                                      meaningsLang: meaningsLang)
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    // MARK: Texts
+
+    /// "Practise · Aorist": E5's `drill.practise` and the tense terms,
+    /// joined with " · " (not translated); right to left in Arabic.
+    nonisolated static func practiseTitle(_ tenses: [ConjugationTense], locale: Locale) -> String {
+        let parts = [SettingsViewModel.localizedString("drill.practise", locale: locale)]
+            + tenses.map { $0.title(locale: locale) }
+        let mark = locale.language.characterDirection == .rightToLeft ? "\u{200F}" : ""
+        return mark + parts.joined(separator: " · ")
+    }
+
+    /// "No Greek list is checked. …", with the list's name "Greek A1".
+    nonisolated static func greekA1Title(locale: Locale) -> String {
+        let list = WordList(id: DrillScope.greekA1, kind: .builtIn, lang: ConjugationPlanner.lang, level: "A1",
+                            title: "", count: 0)
+        return WordListsViewModel.title(of: list, locale: locale)
     }
 }

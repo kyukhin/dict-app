@@ -90,6 +90,11 @@ final class iPadSpecificTests: XCTestCase {
             return false
         }
 
+        // 0133, #172: Greek learned, its grammar in the Greek pack.
+        if name.contains("testGrammarTopicOnIPad") {
+            app.launchArguments += ["-learningLanguages", "ell"] + UITestHelpers.packArguments("ell")
+            app.launchEnvironment["OS_ACTIVITY_MODE"] = "disable"
+        }
         app.launch()
     }
 
@@ -351,6 +356,38 @@ final class iPadSpecificTests: XCTestCase {
             XCTAssertLessThan(exercises.frame.maxX, window.midX + 350 + 1)
             let attachment = XCTAttachment(screenshot: app.screenshot())
             attachment.name = "statistics on iPad (\(orientation.rawValue))"
+            attachment.lifetime = .keepAlways
+            add(attachment)
+        }
+    }
+
+    /// 0133, #172: a grammar topic keeps to one centred column at most
+    /// 700 pt wide, in portrait and in landscape; its table fits it.
+    func testGrammarTopicOnIPad() throws {
+        let tabBarPage = TabBarPage(app: app)
+        let learnPage = tabBarPage.tapLearnTab()
+        XCTAssertTrue(learnPage.waitForHome(timeout: TestData.Timeouts.long), "the Learn home")
+        let page = GrammarPage(app: app)
+        XCTAssertTrue(page.openGrammar(), "the Grammar screen")
+        XCTAssertTrue(page.openTopic("ell-aorist-regular"))
+        for orientation in [UIDeviceOrientation.portrait, .landscapeLeft] {
+            XCUIDevice.shared.orientation = orientation
+            let app = self.app!
+            let turned = NSPredicate { _, _ in
+                let window = app.windows.firstMatch.frame
+                return (window.width > window.height) == orientation.isLandscape
+            }
+            _ = XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: turned, object: nil)],
+                               timeout: TestData.Timeouts.medium)
+            let window = app.windows.firstMatch.frame
+            let rule = page.rule.frame
+            XCTAssertLessThanOrEqual(rule.width, 700, "the rule in the column, \(orientation.rawValue)")
+            XCTAssertEqual(rule.midX, window.midX, accuracy: 30, "the column is centred, \(orientation.rawValue)")
+            let table = page.table(1).frame
+            XCTAssertGreaterThanOrEqual(table.minX, window.midX - 350 - 1, "the table in the column")
+            XCTAssertLessThanOrEqual(table.maxX, window.midX + 350 + 1)
+            let attachment = XCTAttachment(screenshot: app.screenshot())
+            attachment.name = "grammar topic on iPad (\(orientation.rawValue))"
             attachment.lifetime = .keepAlways
             add(attachment)
         }

@@ -2204,7 +2204,11 @@ enum ConjugationPlanner {
     /// a group with only that verb left waits one place when a later group
     /// has another. Paused cards, and cards outside the pool or the level,
     /// are not asked and stay as they are.
-    static func session<G: RandomNumberGenerator>(pool: [DrillVerb], level: DrillLevel, cards: [CardState],
+    ///
+    /// `tenses` (0133, #172: Practise on a grammar topic) keeps only the
+    /// questions of those tenses in each verb's main voice; nil keeps all.
+    static func session<G: RandomNumberGenerator>(pool: [DrillVerb], level: DrillLevel,
+                                                  tenses: Set<ConjugationTense>? = nil, cards: [CardState],
                                                   accuracy: [ConjugationTense: Tally], today: LearnDay,
                                                   length: Int = length, rng: inout G) -> [DrillItem] {
         let states = cardsByWord(cards)
@@ -2213,7 +2217,8 @@ enum ConjugationPlanner {
         var order = 0
         for verb in pool where words.insert(verb.word).inserted {
             let verbStates = states[WordKey(lang: lang, word: verb.word).word]
-            for question in ConjugationQuestionBuilder.questions(verb: verb, level: level) {
+            for question in ConjugationQuestionBuilder.questions(verb: verb, level: level)
+            where tenses.map({ $0.contains(question.facet.tense) && question.facet.voice == verb.mainVoice }) ?? true {
                 let state = verbStates.flatMap { $0[question.facet.rawValue] }
                 guard let origin = Self.origin(of: state, today: today),
                       let group = groups.firstIndex(where: { $0.origin == origin }) else { continue }
@@ -2571,5 +2576,377 @@ enum ChartSummary {
     /// U+200F in a right-to-left language (#119).
     private static func mark(_ locale: Locale) -> String {
         locale.language.characterDirection == .rightToLeft ? "\u{200F}" : ""
+    }
+}
+
+// MARK: - Grammar reference (0133, #172)
+//
+// 0133-grammar.md, "Reading" and "Pure model". A taught language's topics
+// come from its pack (`grammar_topic`, `grammar_text`, `grammar_link`),
+// read by `DatabaseService`. A body has the fixed shape
+// `Scripts/build_grammar.py` writes; `GrammarDocument` parses it into
+// blocks, which the views only render.
+
+/// A topic as the Grammar screen lists it, with its title in the language
+/// of the text it was read from: the explanation language asked, else
+/// English.
+struct GrammarTopicSummary: Hashable, Identifiable, Sendable {
+    let id: String
+    /// The language taught, ISO 639-3.
+    let lang: String
+    /// `A1` … `C2`.
+    let level: String
+    let ord: Int
+    let title: String
+    /// The text's language: the one asked, or `eng` when the topic has no
+    /// text in it (the "explained in English" note).
+    let explainLang: String
+}
+
+/// A class of words a topic applies to, as the files write it
+/// (`grammar_link` kind `class`). #174 maps an entry to its classes.
+enum GrammarClass: String, CaseIterable, Sendable {
+    case verb
+    case verbConj1 = "verb.conj1"
+    case verbConj2 = "verb.conj2"
+    case verbPassive = "verb.passive"
+    case noun, adj
+}
+
+/// One link of a topic's front matter.
+struct GrammarLink: Hashable, Sendable {
+    enum Kind: String, Sendable {
+        case word, topic, tense
+        case wordClass = "class"
+    }
+
+    let topicID: String
+    let kind: Kind
+    /// A Greek headword (NFC), a topic id, a `ConjugationTense` raw value or a class.
+    let key: String
+    let ord: Int
+}
+
+/// A topic with its text and links.
+struct GrammarTopic: Equatable, Sendable {
+    let summary: GrammarTopicSummary
+    /// The Markdown after the title, forms tables rendered.
+    let body: String
+    /// The Words section: headwords, in order.
+    let words: [String]
+    /// The Related topics section, in order, titled in the explanation language.
+    let related: [GrammarTopicSummary]
+    /// The tenses the topic is about, in order: its Practise.
+    let tenses: [ConjugationTense]
+    let classes: Set<GrammarClass>
+
+    /// `links` are the topic's own; unknown tenses and classes are skipped.
+    init(summary: GrammarTopicSummary, body: String, links: [GrammarLink], related: [GrammarTopicSummary]) {
+        let ordered = links.filter { $0.topicID == summary.id }.sorted { $0.ord < $1.ord }
+        func keys(_ kind: GrammarLink.Kind) -> [String] { ordered.filter { $0.kind == kind }.map(\.key) }
+        self.summary = summary
+        self.body = body
+        words = keys(.word)
+        self.related = related
+        tenses = keys(.tense).compactMap(ConjugationTense.init(rawValue:))
+        classes = Set(keys(.wordClass).compactMap(GrammarClass.init(rawValue:)))
+    }
+}
+
+/// An example: a Greek sentence and its translation in the explanation
+/// language.
+struct GrammarExample: Equatable {
+    let greek: AttributedString
+    let translation: AttributedString
+
+    /// VoiceOver reads the Greek sentence, in the Greek voice, then the
+    /// translation.
+    var accessibilityLabel: AttributedString {
+        translation.characters.isEmpty ? greek : greek + AttributedString(", ") + translation
+    }
+}
+
+/// A block of a topic's body, in the order of the text.
+enum GrammarBlock: Equatable {
+    /// A paragraph of the rule.
+    case paragraph(AttributedString)
+    /// A `- ` list of the rule.
+    case bullets([AttributedString])
+    /// A table's caption, a line in bold.
+    case caption(AttributedString)
+    /// A table as #144's model, drawn by #144's section view.
+    case table(InflectionTable.Section)
+    case examples([GrammarExample])
+    case watchOut([AttributedString])
+
+    /// The rule: the text before the first table.
+    var isRule: Bool {
+        switch self {
+        case .paragraph, .bullets: return true
+        case .caption, .table, .examples, .watchOut: return false
+        }
+    }
+}
+
+/// Parses a topic's body: exactly the shape the build writes (0133, "Topic
+/// files"). `<!-- … -->` lines are skipped; anything else becomes a plain
+/// paragraph, never a failure.
+enum GrammarDocument {
+    /// The fixed markers, in English in every explanation language.
+    static let examplesHeading = "## Examples"
+    static let watchOutHeading = "## Watch out"
+
+    private enum Part { case text, examples, watchOut }
+
+    static func parse(body: String) -> [GrammarBlock] {
+        let lines = body.replacingOccurrences(of: "\r\n", with: "\n").components(separatedBy: "\n")
+        var blocks: [GrammarBlock] = []
+        var part = Part.text
+        var tables = 0
+        var paragraph: [String] = []
+
+        func flushParagraph() {
+            guard !paragraph.isEmpty else { return }
+            blocks.append(.paragraph(inline(paragraph.joined(separator: " "))))
+            paragraph = []
+        }
+
+        var index = 0
+        while index < lines.count {
+            let line = lines[index]
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed.isEmpty || isComment(trimmed) {
+                flushParagraph()
+                index += 1
+                continue
+            }
+            if trimmed == examplesHeading || trimmed == watchOutHeading {
+                flushParagraph()
+                part = trimmed == examplesHeading ? .examples : .watchOut
+                index += 1
+                continue
+            }
+            if line.hasPrefix("- ") {
+                flushParagraph()
+                let (item, next) = listItem(lines, at: index)
+                index = next
+                switch part {
+                case .text:
+                    let text = inline(item.joined(separator: " "))
+                    if case let .bullets(items)? = blocks.last {
+                        blocks[blocks.count - 1] = .bullets(items + [text])
+                    } else {
+                        blocks.append(.bullets([text]))
+                    }
+                case .examples:
+                    let example = GrammarExample(greek: inline(item[0]),
+                                                 translation: inline(item.dropFirst().joined(separator: " ")))
+                    if case let .examples(items)? = blocks.last {
+                        blocks[blocks.count - 1] = .examples(items + [example])
+                    } else {
+                        blocks.append(.examples([example]))
+                    }
+                case .watchOut:
+                    let text = inline(item.joined(separator: " "))
+                    if case let .watchOut(items)? = blocks.last {
+                        blocks[blocks.count - 1] = .watchOut(items + [text])
+                    } else {
+                        blocks.append(.watchOut([text]))
+                    }
+                }
+                continue
+            }
+            if part == .text && trimmed.hasPrefix("|") {
+                flushParagraph()
+                var end = index
+                while end < lines.count && lines[end].trimmingCharacters(in: .whitespaces).hasPrefix("|") {
+                    end += 1
+                }
+                let tableLines = lines[index..<end].map { $0.trimmingCharacters(in: .whitespaces) }
+                if let section = table(tableLines, number: tables + 1) {
+                    tables += 1
+                    blocks.append(.table(section))
+                } else {
+                    blocks += tableLines.map { .paragraph(inline($0)) }
+                }
+                index = end
+                continue
+            }
+            if part == .text && isCaption(trimmed) {
+                flushParagraph()
+                blocks.append(.caption(inline(trimmed)))
+                index += 1
+                continue
+            }
+            paragraph.append(trimmed)
+            index += 1
+        }
+        flushParagraph()
+        return blocks
+    }
+
+    /// The rule's words, counted as the build counts them: whitespace-
+    /// separated tokens with a letter, after removing the Markdown marks
+    /// (`*`, `~`, `` ` ``), in the text lines before the first table,
+    /// caption or heading.
+    static func ruleWordCount(body: String) -> Int {
+        var count = 0
+        for line in body.components(separatedBy: "\n") {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed.hasPrefix("|") || trimmed.hasPrefix("#") || isCaption(trimmed) { break }
+            if trimmed.isEmpty || isComment(trimmed) { continue }
+            let plain = trimmed.filter { !"*~`".contains($0) }
+            count += plain.split(whereSeparator: \.isWhitespace).filter { $0.contains(where: \.isLetter) }.count
+        }
+        return count
+    }
+
+    /// Inline Markdown (bold, italic, strikethrough), as Definition parses
+    /// it, with every Greek run in the Greek voice.
+    static func inline(_ text: String) -> AttributedString {
+        let options = AttributedString.MarkdownParsingOptions(interpretedSyntax: .inlineOnlyPreservingWhitespace)
+        let parsed = (try? AttributedString(markdown: text, options: options)) ?? AttributedString(text)
+        return taggingGreek(parsed)
+    }
+
+    /// `text` with each run of Greek letters (U+0370–U+03FF, U+1F00–U+1FFF)
+    /// marked `languageIdentifier = "el"`, as #144's labels, so VoiceOver
+    /// speaks it in Greek inside English or Russian text. Runs only spaces
+    /// apart are one run, so a Greek phrase is read in one voice.
+    static func taggingGreek(_ text: AttributedString) -> AttributedString {
+        var result = text
+        var runs: [Range<AttributedString.Index>] = []
+        var start: AttributedString.Index?
+        var end: AttributedString.Index?
+        var gapIsSpace = true
+        let characters = result.characters
+        var index = characters.startIndex
+        while index < characters.endIndex {
+            let next = characters.index(after: index)
+            let character = characters[index]
+            if isGreek(character) {
+                if start == nil || !gapIsSpace {
+                    if let start, let end { runs.append(start..<end) }
+                    start = index
+                }
+                end = next
+                gapIsSpace = true
+            } else if start != nil && !character.isWhitespace {
+                gapIsSpace = false
+            }
+            index = next
+        }
+        if let start, let end { runs.append(start..<end) }
+        for run in runs {
+            result[run].languageIdentifier = "el"
+        }
+        return result
+    }
+
+    static func isGreek(_ character: Character) -> Bool {
+        guard let scalar = character.unicodeScalars.first else { return false }
+        return (0x0370...0x03FF).contains(scalar.value) || (0x1F00...0x1FFF).contains(scalar.value)
+    }
+
+    /// A caption: one bold span, "**Most verbs**", not a rule line that
+    /// starts and ends in bold, "**ο** and **η**" (the build's `CAPTION`).
+    static func isCaption(_ line: String) -> Bool {
+        guard line.count > 4, line.hasPrefix("**"), line.hasSuffix("**") else { return false }
+        return !line.dropFirst(2).dropLast(2).contains("*")
+    }
+
+    private static func isComment(_ line: String) -> Bool {
+        line.hasPrefix("<!--") && line.hasSuffix("-->")
+    }
+
+    /// The item starting at `index` (`- `) and its indented lines; returns
+    /// the item's lines, trimmed, and the index after it.
+    private static func listItem(_ lines: [String], at index: Int) -> ([String], Int) {
+        var item = [String(lines[index].dropFirst(2)).trimmingCharacters(in: .whitespaces)]
+        var next = index + 1
+        while next < lines.count, let first = lines[next].first, first == " " || first == "\t" {
+            let trimmed = lines[next].trimmingCharacters(in: .whitespaces)
+            guard !trimmed.isEmpty else { break }
+            item.append(trimmed)
+            next += 1
+        }
+        return (item, next)
+    }
+
+    /// A pipe table as #144's section: the header row gives the columns; an
+    /// empty top-left cell makes the first column the row headers. Each
+    /// cell's forms are split at " / ". Ids: the section `grammar_table_<n>`,
+    /// cells `grammar_cell_<n>_<row>_<column>` (rows and columns from 0).
+    /// Each cell reads "column, row, text" (a table without row headers
+    /// names its row by the first cell), its Greek in the Greek voice. Nil
+    /// without a header and a separator line.
+    private static func table(_ lines: [String], number: Int) -> InflectionTable.Section? {
+        guard lines.count >= 2, isSeparator(lines[1]) else { return nil }
+        let header = cells(lines[0])
+        guard !header.isEmpty else { return nil }
+        let hasRowHeaders = header[0].isEmpty
+        let titles = hasRowHeaders ? Array(header.dropFirst()) : header
+        guard !titles.isEmpty else { return nil }
+        let columns = titles.enumerated().map {
+            InflectionTable.Header(id: "grammar_column_\(number)_\($0.offset)", title: $0.element)
+        }
+        let rows = lines.dropFirst(2).enumerated().map { rowIndex, line -> InflectionTable.Row in
+            var values = cells(line)
+            let rowTitle = hasRowHeaders ? (values.isEmpty ? "" : values.removeFirst()) : nil
+            values = Array((values + Array(repeating: "", count: titles.count)).prefix(titles.count))
+            let rowCells = values.enumerated().map { column, text -> InflectionTable.Cell in
+                let rowName = rowTitle ?? (column > 0 ? values[0] : "")
+                let spoken = [titles[column], rowName, text.isEmpty ? InflectionTable.Cell.missing : text]
+                    .filter { !$0.isEmpty }.joined(separator: ", ")
+                return InflectionTable.Cell(id: "grammar_cell_\(number)_\(rowIndex)_\(column)",
+                                            forms: text.isEmpty ? [] : text.components(separatedBy: " / "),
+                                            accessibilityLabel: taggingGreek(AttributedString(spoken)))
+            }
+            return InflectionTable.Row(id: "grammar_row_\(number)_\(rowIndex)",
+                                       header: rowTitle.map {
+                                           InflectionTable.Header(id: "grammar_row_header_\(number)_\(rowIndex)", title: $0)
+                                       },
+                                       cells: rowCells)
+        }
+        return InflectionTable.Section(id: "grammar_table_\(number)", heading: nil, title: nil, isMain: true,
+                                       columns: columns, rows: rows)
+    }
+
+    /// The cells of a pipe-table line, trimmed, Markdown marks removed.
+    private static func cells(_ line: String) -> [String] {
+        var inner = Substring(line.trimmingCharacters(in: .whitespaces))
+        if inner.hasPrefix("|") { inner = inner.dropFirst() }
+        if inner.hasSuffix("|") { inner = inner.dropLast() }
+        return inner.components(separatedBy: "|").map {
+            String(inline($0.trimmingCharacters(in: .whitespaces)).characters)
+        }
+    }
+
+    /// `|---|:---:|`: the line under the header.
+    private static func isSeparator(_ line: String) -> Bool {
+        let parts = cells(line)
+        return !parts.isEmpty && parts.allSatisfy { part in
+            !part.isEmpty && part.contains("-") && part.allSatisfy { $0 == "-" || $0 == ":" }
+        }
+    }
+}
+
+// MARK: - Grammar: Practise for a topic's tenses (0133, #172)
+
+extension DrillScope {
+    /// Practise's verbs when no built-in Greek list is checked and the user
+    /// answers "Greek A1" (0133, Open question 1).
+    static let greekA1: WordListID = "ky-ell-a1"
+
+    /// The level of a topic's drill: `level` ("Tenses up to"), raised to the
+    /// lowest level that asks one of `tenses` in an active verb.
+    static func tenseRunLevel(_ tenses: Set<ConjugationTense>, from level: DrillLevel) -> DrillLevel {
+        guard let lowest = tenses.map({ DrillLevel.mainLevel(of: $0, voice: .active) }).min() else { return level }
+        return max(level, lowest)
+    }
+
+    /// The tenses of `tenses` a drill at `level` asks: those Practise names.
+    static func askedTenses(_ tenses: [ConjugationTense], level: DrillLevel) -> [ConjugationTense] {
+        tenses.filter { DrillLevel.mainLevel(of: $0, voice: .active) <= level }
     }
 }
