@@ -252,12 +252,11 @@ struct LearningSettingsSection: View {
             }
             .accessibilityIdentifier("settings_learning_languages")
 
-            Stepper(value: $vm.newPerDay, in: SettingsService.learningNewPerDayRange) {
-                LabeledContent("settings.learning.newPerDay") {
-                    Text(vm.newPerDay, format: .number)
-                }
+            SettingsStepperRow(title: "settings.learning.newPerDay", value: $vm.newPerDay,
+                               range: SettingsService.learningNewPerDayRange,
+                               id: "settings_learning_new_per_day") {
+                Text(vm.newPerDay, format: .number)
             }
-            .accessibilityIdentifier("settings_learning_new_per_day")
 
             NavigationLink {
                 NewWordsFromView()
@@ -266,12 +265,11 @@ struct LearningSettingsSection: View {
             }
             .accessibilityIdentifier("settings_learning_new_words_from")
 
-            Stepper(value: $vm.dailyGoal, in: SettingsService.learningDailyGoalRange, step: 5) {
-                LabeledContent("settings.learning.goal") {
-                    Text("settings.learning.goal.value \(vm.dailyGoal)")
-                }
+            SettingsStepperRow(title: "settings.learning.goal", value: $vm.dailyGoal,
+                               range: SettingsService.learningDailyGoalRange, step: 5,
+                               id: "settings_learning_goal") {
+                Text("settings.learning.goal.value \(vm.dailyGoal)")
             }
-            .accessibilityIdentifier("settings_learning_goal")
 
             Picker("settings.learning.order", selection: $vm.newOrder) {
                 Text("settings.learning.order.frequency").tag(NewWordOrder.frequency)
@@ -459,5 +457,46 @@ private struct AddLearningLanguageView: View {
         }
         .navigationTitle("settings.learning.addLanguage")
         .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+/// A Learning stepper row: the title and its value beside the − + control,
+/// or above it at the accessibility text sizes (#181), where the three
+/// columns left the title a few points and broke it mid-word ("Цел ь на
+/// день"). There the texts are hidden from VoiceOver: the control reads them
+/// as at the other sizes.
+private struct SettingsStepperRow<Value: View>: View {
+    let title: LocalizedStringKey
+    @Binding var value: Int
+    let range: ClosedRange<Int>
+    var step = 1
+    let id: String
+    @ViewBuilder let valueText: Value
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
+    var body: some View {
+        if dynamicTypeSize.isAccessibilitySize {
+            VStack(alignment: .leading, spacing: 8) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title)
+                    valueText
+                        .foregroundStyle(.secondary)
+                }
+                .accessibilityHidden(true)
+                stepper
+                    .labelsHidden()
+            }
+        } else {
+            stepper
+        }
+    }
+
+    private var stepper: some View {
+        Stepper(value: $value, in: range, step: step) {
+            LabeledContent(title) {
+                valueText
+            }
+        }
+        .accessibilityIdentifier(id)
     }
 }

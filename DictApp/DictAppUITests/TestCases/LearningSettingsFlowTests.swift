@@ -26,6 +26,10 @@ final class LearningSettingsFlowTests: XCTestCase {
         }
         if name.contains("testStopAndResumeALanguage") { return ["-learningFixture", "bilingual"] }
         if name.contains("testNewWordsFromOpensTheScreen") { return ["-learningLanguages", "ell"] }
+        if name.contains("testStepperRowsStackAtTheLargestTextSize") {
+            return ["-AppleLanguages", "(ru)", "-AppleLocale", "ru",
+                    "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"]
+        }
         return []
     }
 
@@ -249,5 +253,35 @@ final class LearningSettingsFlowTests: XCTestCase {
         XCTAssertTrue(learnPage.languageSwitch.waitForExistence(timeout: TestData.Timeouts.medium), "the switch returns")
         XCTAssertTrue(learnPage.languageSwitch.buttons["English"].isSelected, "the language just added")
         XCTAssertTrue(learnPage.waitForLabel(of: learnPage.dueCount, toBe: "2 words due"), "house and water, still due")
+    }
+
+    /// #181: at the largest accessibility text size, in Russian, the daily
+    /// goal and new words per day put their − + control on its own line
+    /// under the title and value, so "Цель на день" keeps the row's width
+    /// instead of breaking mid-word beside the control. VoiceOver still
+    /// reads the control with its title and value, and it still steps.
+    func testStepperRowsStackAtTheLargestTextSize() throws {
+        let page = openSettings()
+        let window = app.windows.firstMatch.frame
+        page.reveal(page.goal)
+        XCTAssertTrue(page.goal.label.contains("Цель на день"), page.goal.label)
+        XCTAssertTrue(page.goal.label.contains("20 упражнений"), page.goal.label)
+        XCTAssertLessThan(page.goal.frame.width, window.width / 2,
+                          "the control alone, not the title beside it: \(page.goal.frame) in \(window)")
+        page.reveal(page.newPerDay)
+        XCTAssertTrue(page.newPerDay.label.contains("Новых слов в день"), page.newPerDay.label)
+        XCTAssertLessThan(page.newPerDay.frame.width, window.width / 2,
+                          "the control alone: \(page.newPerDay.frame) in \(window)")
+
+        page.reveal(page.goal)
+        page.goal.buttons.element(boundBy: 1).tap()
+        let stepped = NSPredicate(format: "label CONTAINS %@", "25 упражнений")
+        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: stepped, object: page.goal)],
+                                      timeout: TestData.Timeouts.medium), .completed,
+                       "+ steps the goal by 5; got '\(page.goal.label)'")
+        let attachment = XCTAttachment(screenshot: app.screenshot())
+        attachment.name = "Settings (ru), largest text"
+        attachment.lifetime = .keepAlways
+        add(attachment)
     }
 }

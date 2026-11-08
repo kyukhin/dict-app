@@ -28742,7 +28742,7 @@ final class LearningReminderTests: LearningReminderTestCase {
         XCTAssertEqual(LearningReminder.body(goal: 1, locale: Locale(identifier: "en")),
                        "Time for today's words. Your goal: 1 exercise.")
         XCTAssertEqual(LearningReminder.body(goal: 20, locale: Locale(identifier: "es")),
-                       "Es hora de las palabras de hoy. Tu objetivo: 20 ejercicios.")
+                       "Es hora de las palabras de hoy. Tu meta: 20 ejercicios.")
         XCTAssertTrue(LearningReminder.body(goal: 20, locale: Locale(identifier: "ar")).hasPrefix("حان وقت كلمات اليوم."))
     }
 

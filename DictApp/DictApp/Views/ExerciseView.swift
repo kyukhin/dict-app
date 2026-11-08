@@ -276,7 +276,7 @@ struct ProductionTypedQuestion: View {
     private var placeholder: Text {
         let lang = question.word.key.lang
         guard lang != "und" else { return Text("exercise.typeWord") }
-        return Text("exercise.typeIn \(LearnViewModel.languageName(lang, locale: locale))")
+        return Text("exercise.typeIn \(LearnViewModel.languageNameInSentence(lang, locale: locale))")
     }
 
     private var borderColor: Color {

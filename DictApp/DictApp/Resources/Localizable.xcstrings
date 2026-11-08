@@ -7326,7 +7326,7 @@
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Импортировать список"
+            "value": "Импорт списка"
           }
         },
         "es": {
@@ -10764,7 +10764,7 @@
         "el": {
           "stringUnit": {
             "state": "translated",
-            "value": "Σε μάθηση"
+            "value": "Σε εκμάθηση"
           }
         }
       }
@@ -12000,7 +12000,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Objetivo diario"
+            "value": "Meta diaria"
           }
         },
         "ar": {
@@ -12318,7 +12318,7 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "التشكيل بدقة"
+            "value": "علامات النبر بدقة"
           }
         },
         "el": {
@@ -12675,13 +12675,13 @@
               "one": {
                 "stringUnit": {
                   "state": "translated",
-                  "value": "Es hora de las palabras de hoy. Tu objetivo: %lld ejercicio."
+                  "value": "Es hora de las palabras de hoy. Tu meta: %lld ejercicio."
                 }
               },
               "other": {
                 "stringUnit": {
                   "state": "translated",
-                  "value": "Es hora de las palabras de hoy. Tu objetivo: %lld ejercicios."
+                  "value": "Es hora de las palabras de hoy. Tu meta: %lld ejercicios."
                 }
               }
             }
@@ -14820,7 +14820,7 @@
         "el": {
           "stringUnit": {
             "state": "translated",
-            "value": "Προεπισκόπηση"
+            "value": "Προβολή"
           }
         }
       }
