@@ -387,71 +387,37 @@
       }
     },
     "credits.dataSources.wordnet": {
+      "comment": "Credits: Princeton WordNet, the English dictionary, and its license (#180). WordNet and the license name are not translated.",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "WordNet — Princeton University"
+            "value": "WordNet — Princeton University, WordNet 3.0 License"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "WordNet — Принстонский университет"
+            "value": "WordNet — Принстонский университет, WordNet 3.0 License"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "WordNet — Universidad de Princeton"
+            "value": "WordNet — Universidad de Princeton, WordNet 3.0 License"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "WordNet — جامعة برينستون"
+            "value": "WordNet — جامعة برينستون، WordNet 3.0 License"
           }
         },
         "el": {
           "stringUnit": {
             "state": "translated",
-            "value": "WordNet — Πανεπιστήμιο του Princeton"
-          }
-        }
-      }
-    },
-    "credits.licenses.placeholder": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Full license information coming soon."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Полная информация о лицензиях скоро появится."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Información completa de licencias próximamente."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "معلومات الترخيص الكاملة ستتوفر قريبًا."
-          }
-        },
-        "el": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Οι πλήρεις πληροφορίες για τις άδειες χρήσης θα είναι σύντομα διαθέσιμες."
+            "value": "WordNet — Πανεπιστήμιο του Princeton, WordNet 3.0 License"
           }
         }
       }
@@ -487,6 +453,78 @@
           "stringUnit": {
             "state": "translated",
             "value": "Άδειες χρήσης"
+          }
+        }
+      }
+    },
+    "credits.software.grdb": {
+      "comment": "Credits › Software: the database library the app links (#180); the row opens its MIT license. GRDB.swift, Gwendal Roué and the license name are not translated.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GRDB.swift by Gwendal Roué, MIT License"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GRDB.swift, автор Gwendal Roué, MIT License"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GRDB.swift, de Gwendal Roué, MIT License"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GRDB.swift من تطوير Gwendal Roué، MIT License"
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GRDB.swift από τον Gwendal Roué, MIT License"
+          }
+        }
+      }
+    },
+    "credits.software.section": {
+      "comment": "Credits: the section of the software libraries the app links (#180).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Software"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Программное обеспечение"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Software"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "البرمجيات"
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Λογισμικό"
           }
         }
       }

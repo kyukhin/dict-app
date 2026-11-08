@@ -746,6 +746,50 @@ final class ArabicLocalizationTests: XCTestCase {
         attachScreenshot("grammar topic rule (ar)")
     }
 
+    /// #180: Credits in Arabic, mirrored. The row under the version and the
+    /// title read "الشكر والتقدير"; the lines are Arabic with the names and
+    /// licenses untranslated; the Licenses header is Arabic, and each
+    /// license row, its name and URL in Latin letters, is on the right.
+    func testCreditsRightToLeft() throws {
+        typealias IDs = AccessibilityIdentifiers.Credits
+        tapTab(ArabicTab.settings)
+        let link = app.descendants(matching: .any)[IDs.link].firstMatch
+        XCTAssertTrue(app.scrollToElement(link), "the Credits row")
+        XCTAssertTrue(UITestHelpers.visible(link.label).contains("الشكر والتقدير"), "the row in Arabic; got '\(link.label)'")
+        link.tap()
+        XCTAssertTrue(app.navigationBars["الشكر والتقدير"].waitForExistence(timeout: TestData.Timeouts.medium),
+                      "the title in Arabic")
+        let wordnet = app.staticTexts[IDs.line("wordnet")]
+        XCTAssertTrue(wordnet.waitForExistence(timeout: TestData.Timeouts.medium))
+        XCTAssertEqual(UITestHelpers.visible(wordnet.label), "WordNet — جامعة برينستون، WordNet 3.0 License")
+        let tatoeba = app.staticTexts[IDs.line("tatoeba")]
+        XCTAssertTrue(app.scrollToElement(tatoeba), "the Tatoeba line")
+        XCTAssertTrue(UITestHelpers.visible(tatoeba.label).hasPrefix("جمل الأمثلة: Tatoeba (tatoeba.org)"),
+                      "Arabic, Tatoeba and its license untranslated; got '\(tatoeba.label)'")
+        attachScreenshot("credits (ar)")
+        let grdb = app.descendants(matching: .any)[IDs.grdb].firstMatch
+        XCTAssertTrue(app.scrollToElement(grdb), "the GRDB.swift row")
+        XCTAssertTrue(UITestHelpers.visible(grdb.label).contains("GRDB.swift من تطوير Gwendal Roué، MIT License"),
+                      "the row in Arabic, the names untranslated; got '\(grdb.label)'")
+
+        let header = app.staticTexts.matching(NSPredicate(format: "label == %@", "التراخيص")).firstMatch
+        XCTAssertTrue(app.scrollToElement(header), "the Licenses header in Arabic")
+        // A header's and a row's frames span the row; their texts show the side.
+        // Nearer the right edge than the left (the row inset is 40 pt on iOS 17).
+        let window = app.windows.firstMatch.frame
+        for license in IDs.licenses {
+            let row = app.descendants(matching: .any)[IDs.license(license.id)].firstMatch
+            XCTAssertTrue(app.scrollToElement(row), "the \(license.name) row")
+            XCTAssertTrue(row.label.contains(license.name) && row.label.contains(license.url),
+                          "\(license.id) untranslated; got '\(row.label)'")
+            let name = row.staticTexts[license.name]
+            XCTAssertTrue(name.exists, "\(license.id): the name")
+            XCTAssertLessThan(window.maxX - name.frame.maxX, name.frame.minX - window.minX,
+                              "RTL: \(license.name) on the right; \(name.frame)")
+        }
+        attachScreenshot("credits licenses (ar)")
+    }
+
     /// 0166, #164: Statistics in Arabic, mirrored. The title reads
     /// "الإحصاءات"; under the 30-day chart "اليوم" (today) is on the left and
     /// the oldest day on the right, so today's bar is at the left edge; the

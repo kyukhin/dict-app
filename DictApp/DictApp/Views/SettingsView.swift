@@ -161,10 +161,6 @@ struct SettingsView: View {
                 }
                 .accessibilityIdentifier("settings_write_review_link")
             }
-            NavigationLink("settings.support.credits") {
-                CreditsView()
-            }
-            .accessibilityIdentifier("settings_credits_link")
         }
     }
 
@@ -172,6 +168,12 @@ struct SettingsView: View {
         Section {
             LabeledContent("settings.version", value: AppVersion.current.displayString)
                 .accessibilityIdentifier("version_value")
+            // 0133 (Kirill, 2026-11-04), #180: Credits sits right under the
+            // version, no longer in Support.
+            NavigationLink("settings.support.credits") {
+                CreditsView()
+            }
+            .accessibilityIdentifier("settings_credits_link")
             Text("settings.licenseNote")
                 .font(.footnote)
                 .foregroundStyle(.secondary)

@@ -1,7 +1,7 @@
 # Dictionaries as one read-only file
 
 > Spec written by Claude (AI) for LibreDict.
-> Status: Approved by Kirill on 2026-11-04 with #237 (before it on 2026-10-30, first on 2026-10-28) · Epic: #129 · Tickets: #112, #138, #139, #140, #213, #216; #237 changes it ([0237](0237-downloads.md)) · Updated: 2026-11-06
+> Status: Approved by Kirill on 2026-11-04 with #237 (before it on 2026-10-30, first on 2026-10-28) · Epic: #129 · Tickets: #112, #138, #139, #140, #213, #216; #237 changes it ([0237](0237-downloads.md)) · Updated: 2026-11-08
 
 This spec is the #112 design. It replaces the Bundled data, Database, Launch and Imported dictionaries sections of [0000-overview.md](0000-overview.md) once implemented. Order: #138, then #139 and #140, then #213.
 
@@ -136,7 +136,7 @@ So concurrent failures cause one reopen, and no call loops. If the file were inv
 | `entries` | `id`, `word`, `word_normalized`, `definition`, `phonetic`, `pos`, `source`. Unique on `(word COLLATE NOCASE, source)`. No `created_at` (it stamped the build time on every row) |
 | `entries_fts` | FTS5 with external content from `entries`, `unicode61 remove_diacritics 2`, as today. No triggers: the file never changes |
 | `dict_metadata` | One row per dictionary source: `display_name`, `version`, `license`, `url`, `word_count` (equal to the row count, checked), `description`, `from_lang` and `to_lang` (ISO 639-3, such as `ell` and `eng`; #208). No `built_at`. Dictionaries only: every row is a Dictionary Order source |
-| `data_source` | One row per non-dictionary data set (Wiktionary forms, Tatoeba, word lists): `id`, `kind`, `display_name`, `version`, `license`, `url`. Empty in E1. Credits will read it |
+| `data_source` | One row per non-dictionary data set (Wiktionary forms, Tatoeba, word lists): `id`, `kind`, `display_name`, `version`, `license`, `url`. Empty in E1. Credits has a line for every row, checked by `CreditsTests` (#180) |
 
 - `PRAGMA user_version` is the format version (1 in #140, 2 since #141 added the word-form tables, 3 since #143 added the morphy tables, 4 since #240 added the catalog and the empty E3, E6 and E7 tables). The app constant `DictionaryFile.formatVersion` must match, and a unit test checks it. The app and the file always ship together, so there is no runtime negotiation.
 - **#237**: the bundle, the stub and every pack share one schema (each file fills its own tables) and one format, 4 with the catalog tables `catalog_pack`, `catalog_source`, `catalog_list` and `catalog_pair` (the limited learning pairs) in the bundle. A pack is attached only when its header's `user_version` equals `DictionaryFile.formatVersion`; otherwise the stub, and the user is offered the update. Entry ids: `(ord << 32) + n` per file, so ids stay unique across files and below 2^40. The bundle measures 56.2 MB (WordNet and morphy), the four language packs 101.2 MB (0237).
@@ -373,3 +373,4 @@ The probe set is ~25 queries across en, ru, es, ar and el (`house`, `a`, `the`, 
 - 2026-11-05: Review fix: the format-4 catalog list names `catalog_pair`, as 0237 does.
 - 2026-11-05: Review fix: the fresh-install target and its test cover English and the installed packs under #237.
 - 2026-11-06: #240 registers `build_wordlists`, `build_examples` and `build_grammar` in `STEPS`, their tables empty, in format 4. The bundle is 56.2 MB, the four language packs 101.2 MB installed (0237).
+- 2026-11-08: #180: Credits does not read `data_source`; its lines are in the app, and `CreditsTests` checks that every row of the bundle and the packs has one.
