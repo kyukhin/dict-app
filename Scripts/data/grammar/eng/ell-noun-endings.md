@@ -9,10 +9,10 @@ topics: ell-articles, ell-adjectives
 ---
 # Noun endings: nominative and accusative
 
-A noun changes its ending with case and number. At A1 you need two cases: the nominative for the subject, and the accusative for the object and after prepositions: *Ο φίλος μου μένει εδώ*, but *Περιμένω τον φίλο μου*.
+A noun changes its ending with case and number. At A1 you need two cases: the nominative for the subject, and the accusative for the object and after most prepositions: *Ο φίλος μου μένει εδώ*, but *Περιμένω τον φίλο μου*.
 
 - Masculine nouns drop the -ς in the accusative singular: *ο φίλος*, *τον φίλο*; *ο πατέρας*, *τον πατέρα*. In the plural, -ος becomes -οι and -ους; -ας and -ης become -ες.
-- Feminine and neuter nouns look the same in both cases; only the article may change: *η γυναίκα*, *τη γυναίκα*.
+- Most feminine and all neuter nouns look the same in both cases; only the feminine article changes: *η γυναίκα*, *τη γυναίκα*.
 - In the plural, feminine -α and most -η become -ες: *η κόρη*, *οι κόρες*. Neuter -ο becomes -α, -ι becomes -ια, and -μα becomes -ματα.
 
 **Masculine**
@@ -51,5 +51,5 @@ headers: το βιβλίο, το σπίτι, το όνομα
 
 ## Watch out
 
-- Masculine nouns drop the -ς in the accusative singular: *Ξέρω τον Νίκο*, not ~~Ξέρω τον Νίκος~~. Neuter nouns in -ος keep it: *Βλέπω ένα λάθος*.
+- Masculine nouns drop the -ς in the accusative singular: *Ξέρω τον Νίκο*, not ~~Ξέρω τον Νίκος~~. Neuter nouns in -ος keep it: *Βλέπω ένα λάθος*. Feminine nouns in -ος change like masculine ones: *η Ρόδος*, *Πάω στη Ρόδο*; *η οδός*, *οι οδοί*.
 - Some plurals are different: *η πόλη*, *οι πόλεις*; *η λέξη*, *οι λέξεις*; *η άσκηση*, *οι ασκήσεις*; *ο καφές*, *οι καφέδες*; *ο παππούς*, *οι παππούδες*. In others the stress moves: *το όνομα*, *τα ονόματα*; *ο άνθρωπος*, *τους ανθρώπους*.

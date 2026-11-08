@@ -16,7 +16,7 @@ Written by `Scripts/build_grammar.py` (docs/specs/0133-grammar.md, "Build step")
 | Tables | 2 | 2 |
 | Examples | 4 | 4 |
 | Watch out | 2 | 2 |
-| sha256 | `12188138d792` | `c7abd0497eba` |
+| sha256 | `e26e10c0594e` | `332d06a70dcf` |
 
 Related topics: `ell-articles` Articles and gender
 
@@ -32,7 +32,7 @@ The diaeresis, *διαλυτικά*, shows that two vowels are said apart, not a
 
 **Letters**
 
-| Letter | Name | Sound |
+| | Name | Sound |
 |---|---|---|
 | Α α | άλφα | a, as in father |
 | Β β | βήτα | v |
@@ -61,7 +61,7 @@ The diaeresis, *διαλυτικά*, shows that two vowels are said apart, not a
 
 **Letter pairs**
 
-| Pair | Sound | Example |
+| | Sound | Example |
 |---|---|---|
 | ου | u, as in food | μουσική |
 | αι | e, as in pet | και |
@@ -100,7 +100,7 @@ The diaeresis, *διαλυτικά*, shows that two vowels are said apart, not a
 
 **Буквы**
 
-| Буква | Название | Звук |
+| | Название | Звук |
 |---|---|---|
 | Α α | άλφα | а |
 | Β β | βήτα | в |
@@ -129,7 +129,7 @@ The diaeresis, *διαλυτικά*, shows that two vowels are said apart, not a
 
 **Сочетания букв**
 
-| Сочетание | Звук | Пример |
+| | Звук | Пример |
 |---|---|---|
 | ου | у | μουσική |
 | αι | э | και |
@@ -164,11 +164,11 @@ The diaeresis, *διαλυτικά*, shows that two vowels are said apart, not a
 
 | | eng | rus |
 |---|---|---|
-| Rule words | 114 | 118 |
+| Rule words | 118 | 120 |
 | Tables | 2 | 2 |
 | Examples | 5 | 5 |
 | Watch out | 2 | 2 |
-| sha256 | `9c514adcaa16` | `a5eec8106118` |
+| sha256 | `88d0b793aea8` | `a4afe6b1b3e9` |
 
 Words:
 - ο: the (Greek – English (FreeDict))
@@ -183,14 +183,14 @@ Example words in no Greek A1 or A2 list: none.
 
 #### English: Articles and gender
 
-Every Greek noun is masculine, feminine or neuter, and its article shows which: *ο δρόμος*, *η πόρτα*, *το σπίτι*. Learn each noun with its article.
+Every Greek noun is masculine, feminine or neuter, and its article in the singular shows which: *ο δρόμος*, *η πόρτα*, *το σπίτι*. Learn each noun with its article.
 
 The ending is a good guide:
 - masculine: -ος, -ας, -ης: *ο φίλος*, *ο πατέρας*, *ο μαθητής*;
 - feminine: -α, -η: *η μητέρα*, *η κόρη*;
 - neuter: -ο, -ι, -μα: *το βιβλίο*, *το παιδί*, *το όνομα*.
 
-The article changes with the noun. Use the nominative for the subject and after *είμαι*: *Η Άννα είναι γιατρός*. Use the accusative for the object and after prepositions: *Ο Νίκος ξέρει τον Πέτρο*, Nikos knows Petros.
+The article changes with the noun. Use the nominative for the subject and after *είμαι*: *Η Άννα είναι γιατρός*. Use the accusative for the object and after most prepositions: *Ο Νίκος ξέρει τον Πέτρο*, Nikos knows Petros.
 
 *ένας*, *μία*, *ένα* means both "a" and "one". In the plural there is no "a": *Έχω φίλους*, I have friends.
 
@@ -230,14 +230,14 @@ The article changes with the noun. Use the nominative for the subject and after 
 
 #### Russian: Артикли и род
 
-Каждое греческое существительное мужского, женского или среднего рода, и это показывает артикль: *ο δρόμος*, *η πόρτα*, *το σπίτι*. Учите слово сразу с артиклем.
+Каждое греческое существительное мужского, женского или среднего рода, и это показывает артикль единственного числа: *ο δρόμος*, *η πόρτα*, *το σπίτι*. Учите слово с артиклем.
 
 Окончание подсказывает род:
 - мужской: -ος, -ας, -ης: *ο φίλος*, *ο πατέρας*, *ο μαθητής*;
 - женский: -α, -η: *η μητέρα*, *η κόρη*;
 - средний: -ο, -ι, -μα: *το βιβλίο*, *το παιδί*, *το όνομα*.
 
-Артикль изменяется вместе с существительным. Именительный падеж нужен для подлежащего и после *είμαι*: *Η Άννα είναι γιατρός* (в русском бывает творительный: «была врачом»). Винительный нужен для дополнения и после предлогов: *Ο Νίκος ξέρει τον Πέτρο*, «Никос знает Петроса».
+Артикль изменяется вместе с существительным. Именительный падеж нужен для подлежащего и после *είμαι*: *Η Άννα είναι γιατρός* (в русском бывает творительный: «была врачом»). Винительный нужен для дополнения и после большинства предлогов: *Ο Νίκος ξέρει τον Πέτρο*, «Никос знает Петроса».
 
 *ένας*, *μία*, *ένα* значит «один» и служит неопределённым артиклем, которого в русском нет. Во множественном числе его нет и в греческом: *Έχω φίλους*, «у меня есть друзья».
 
@@ -281,11 +281,11 @@ The article changes with the noun. Use the nominative for the subject and after 
 
 | | eng | rus |
 |---|---|---|
-| Rule words | 113 | 109 |
+| Rule words | 116 | 115 |
 | Tables | 3 | 3 |
 | Examples | 5 | 5 |
 | Watch out | 2 | 2 |
-| sha256 | `ee96119d7d33` | `42bc86db538c` |
+| sha256 | `f876c1cbb5e0` | `a25cd96124fd` |
 
 Words:
 - δρόμος: road, route (Greek – English (WordNet)); road, way (Greek – English (FreeDict))
@@ -305,10 +305,10 @@ Example words in no Greek A1 or A2 list: none.
 
 #### English: Noun endings: nominative and accusative
 
-A noun changes its ending with case and number. At A1 you need two cases: the nominative for the subject, and the accusative for the object and after prepositions: *Ο φίλος μου μένει εδώ*, but *Περιμένω τον φίλο μου*.
+A noun changes its ending with case and number. At A1 you need two cases: the nominative for the subject, and the accusative for the object and after most prepositions: *Ο φίλος μου μένει εδώ*, but *Περιμένω τον φίλο μου*.
 
 - Masculine nouns drop the -ς in the accusative singular: *ο φίλος*, *τον φίλο*; *ο πατέρας*, *τον πατέρα*. In the plural, -ος becomes -οι and -ους; -ας and -ης become -ες.
-- Feminine and neuter nouns look the same in both cases; only the article may change: *η γυναίκα*, *τη γυναίκα*.
+- Most feminine and all neuter nouns look the same in both cases; only the feminine article changes: *η γυναίκα*, *τη γυναίκα*.
 - In the plural, feminine -α and most -η become -ες: *η κόρη*, *οι κόρες*. Neuter -ο becomes -α, -ι becomes -ια, and -μα becomes -ματα.
 
 **Masculine**
@@ -356,15 +356,15 @@ A noun changes its ending with case and number. At A1 you need two cases: the no
 
 #### Watch out
 
-- Masculine nouns drop the -ς in the accusative singular: *Ξέρω τον Νίκο*, not ~~Ξέρω τον Νίκος~~. Neuter nouns in -ος keep it: *Βλέπω ένα λάθος*.
+- Masculine nouns drop the -ς in the accusative singular: *Ξέρω τον Νίκο*, not ~~Ξέρω τον Νίκος~~. Neuter nouns in -ος keep it: *Βλέπω ένα λάθος*. Feminine nouns in -ος change like masculine ones: *η Ρόδος*, *Πάω στη Ρόδο*; *η οδός*, *οι οδοί*.
 - Some plurals are different: *η πόλη*, *οι πόλεις*; *η λέξη*, *οι λέξεις*; *η άσκηση*, *οι ασκήσεις*; *ο καφές*, *οι καφέδες*; *ο παππούς*, *οι παππούδες*. In others the stress moves: *το όνομα*, *τα ονόματα*; *ο άνθρωπος*, *τους ανθρώπους*.
 
 #### Russian: Окончания существительных: именительный и винительный падежи
 
-Существительное меняет окончание по падежам и числам. В греческом четыре падежа, на уровне A1 нужны два: именительный для подлежащего и винительный для дополнения и после предлогов: *Ο φίλος μου μένει εδώ*, но *Περιμένω τον φίλο μου*.
+Существительное меняет окончание по падежам и числам. В греческом четыре падежа, на уровне A1 нужны два: именительный для подлежащего и винительный для дополнения и после большинства предлогов: *Ο φίλος μου μένει εδώ*, но *Περιμένω τον φίλο μου*.
 
 - Мужской род теряет -ς в винительном падеже единственного числа: *ο φίλος*, *τον φίλο*; *ο πατέρας*, *τον πατέρα*. Во множественном числе -ος даёт -οι и -ους, а -ας и -ης дают -ες.
-- У женского и среднего рода именительный и винительный совпадают, меняется только артикль: *η γυναίκα*, *τη γυναίκα*.
+- У большинства слов женского рода и у среднего именительный и винительный совпадают; артикль меняется только у женского: *η γυναίκα*, *τη γυναίκα*.
 - Во множественном числе женские -α и большинство -η дают -ες: *η κόρη*, *οι κόρες*. В среднем роде -ο даёт -α, -ι даёт -ια, -μα даёт -ματα.
 
 **Мужской род**
@@ -412,7 +412,7 @@ A noun changes its ending with case and number. At A1 you need two cases: the no
 
 #### Watch out
 
-- Мужской род теряет -ς в винительном падеже: *Ξέρω τον Νίκο*, не ~~Ξέρω τον Νίκος~~. Существительные среднего рода на -ος его сохраняют: *Βλέπω ένα λάθος*.
+- Мужской род теряет -ς в винительном падеже: *Ξέρω τον Νίκο*, не ~~Ξέρω τον Νίκος~~. Существительные среднего рода на -ος его сохраняют: *Βλέπω ένα λάθος*. А женские на -ος изменяются как мужские: *η Ρόδος*, *Πάω στη Ρόδο*; *η οδός*, *οι οδοί*.
 - У некоторых слов особое множественное число: *η πόλη*, *οι πόλεις*; *η λέξη*, *οι λέξεις*; *η άσκηση*, *οι ασκήσεις*; *ο καφές*, *οι καφέδες*; *ο παππούς*, *οι παππούδες*. В других сдвигается ударение: *το όνομα*, *τα ονόματα*; *ο άνθρωπος*, *τους ανθρώπους*.
 
 ### A1 · 4. Adjective agreement
@@ -421,11 +421,11 @@ A noun changes its ending with case and number. At A1 you need two cases: the no
 
 | | eng | rus |
 |---|---|---|
-| Rule words | 92 | 84 |
+| Rule words | 93 | 85 |
 | Tables | 2 | 2 |
 | Examples | 5 | 5 |
 | Watch out | 2 | 2 |
-| sha256 | `d53043014710` | `0c519d8cf31e` |
+| sha256 | `5fa8126bf1cf` | `c728ba7d3809` |
 
 Words:
 - καλός: good (Greek – English (WordNet)); good (Greek – English (FreeDict))
@@ -441,7 +441,7 @@ Example words in no Greek A1 or A2 list: none.
 
 An adjective takes the gender, case and number of its noun: *ο καλός φίλος*, *η καλή φίλη*, *το καλό παιδί*, *τα καλά παιδιά*.
 
-Most adjectives end like *καλός*: -ος, -η, -ο. When a vowel comes before the ending, the feminine ends in -α: *ωραίος*, *ωραία*, *ωραίο*; *νέος*, *νέα*, *νέο*.
+Most adjectives end like *καλός*: -ος, -η, -ο. When a vowel comes before the ending, the feminine usually ends in -α: *ωραίος*, *ωραία*, *ωραίο*; *νέος*, *νέα*, *νέο*.
 
 The adjective usually stands between the article and the noun: *το μεγάλο σπίτι*, the big house. After *είμαι* it agrees too: *Η πόλη είναι μεγάλη*, The city is big.
 
@@ -489,7 +489,7 @@ Masculine adjectives change like masculine nouns in -ος: *τον καλό φί
 
 Прилагательное согласуется с существительным в роде, падеже и числе, как в русском: *ο καλός φίλος*, *η καλή φίλη*, *το καλό παιδί*, *τα καλά παιδιά*.
 
-Большинство прилагательных изменяются как *καλός*: -ος, -η, -ο. Если перед окончанием стоит гласная, женский род оканчивается на -α: *ωραίος*, *ωραία*, *ωραίο*; *νέος*, *νέα*, *νέο*.
+Большинство прилагательных изменяются как *καλός*: -ος, -η, -ο. Если перед окончанием стоит гласная, женский род обычно оканчивается на -α: *ωραίος*, *ωραία*, *ωραίο*; *νέος*, *νέα*, *νέο*.
 
 Прилагательное обычно стоит между артиклем и существительным: *το μεγάλο σπίτι*, «большой дом». После *είμαι* оно тоже согласуется: *Η πόλη είναι μεγάλη*, «город большой».
 
@@ -1283,7 +1283,7 @@ After all four, the noun and its article are in the accusative: *από τον �
 | Tables | 3 | 3 |
 | Examples | 5 | 5 |
 | Watch out | 2 | 2 |
-| sha256 | `fa121a1d7328` | `fe4c3c8fd3cd` |
+| sha256 | `1f93f49dd26b` | `152845a93056` |
 
 Words:
 - ένας: a, an, one (Greek – English (FreeDict))
@@ -1373,7 +1373,7 @@ For dates, the month is in the genitive and the number takes the article, as wit
 
 #### Watch out
 
-- *τρεις* and *τέσσερις* go with masculine and feminine nouns, *τρία* and *τέσσερα* with neuter ones: *τρεις ώρες*, but *τρία λεπτά*.
+- *τρεις* and *τέσσερις* go with masculine and feminine nouns, *τρία* and *τέσσερα* with neuter ones: *τρεις ώρες*, but *τρία λεπτά*. But *έντεκα*, 11, never changes: *έντεκα ώρες*.
 - One o'clock is feminine: *στη μία*, not ~~στις ένα~~.
 
 #### Russian: Числа, время и даты
@@ -1454,7 +1454,7 @@ For dates, the month is in the genitive and the number takes the article, as wit
 
 #### Watch out
 
-- *τρεις* и *τέσσερις* ставят с мужским и женским родом, *τρία* и *τέσσερα* со средним: *τρεις ώρες*, но *τρία λεπτά*.
+- *τρεις* и *τέσσερις* ставят с мужским и женским родом, *τρία* и *τέσσερα* со средним: *τρεις ώρες*, но *τρία λεπτά*. А *έντεκα*, 11, не изменяется: *έντεκα ώρες*.
 - *τρεις και μισή* значит «половина четвёртого», а не третьего: греки называют текущий час. Так же *τέσσερις και τέταρτο*, «четверть пятого».
 
 ### A1 · 13. The aorist of regular verbs and the augment
@@ -1463,11 +1463,11 @@ For dates, the month is in the genitive and the number takes the article, as wit
 
 | | eng | rus |
 |---|---|---|
-| Rule words | 102 | 119 |
+| Rule words | 102 | 120 |
 | Tables | 1 | 1 |
 | Examples | 5 | 5 |
 | Watch out | 2 | 2 |
-| sha256 | `acc4f3c456b1` | `65aa498ed318` |
+| sha256 | `acc4f3c456b1` | `131700f68b8d` |
 
 Words:
 - γράφω: read, say (Greek – English (WordNet)); write (Greek – English (FreeDict))
@@ -1524,7 +1524,7 @@ The stress moves back to the third syllable from the end. When a form has only t
 
 #### Russian: Аорист правильных глаголов и приращение
 
-Аорист называет действие, которое произошло и закончилось: *έγραψα*, «я написал». Это основное прошедшее время. Часто он соответствует русскому совершенному виду, но не всегда: если сказано, сколько длилось действие, нужен аорист, хотя по-русски несовершенный вид: «всё лето я работал», *Δούλεψα όλο το καλοκαίρι*. По-русски можно сказать и «проработал всё лето».
+Аорист называет действие, которое произошло и закончилось: *έγραψα*, «я написал». Это основное прошедшее время. Часто он соответствует русскому совершенному виду, но не всегда: если сказано, сколько длилось действие, обычно нужен аорист, хотя по-русски несовершенный вид: «всё лето я работал», *Δούλεψα όλο το καλοκαίρι*. По-русски можно сказать и «проработал всё лето».
 
 Основа обычно меняется, окончания: -α, -ες, -ε, -αμε, -ατε, -αν:
 - -φω, -πω, -βω и -εύω дают -ψ-: *γράφω*, *έγραψα*; *δουλεύω*, *δούλεψα*;
@@ -1570,11 +1570,11 @@ The stress moves back to the third syllable from the end. When a form has only t
 
 | | eng | rus |
 |---|---|---|
-| Rule words | 113 | 102 |
+| Rule words | 119 | 104 |
 | Tables | 2 | 2 |
 | Examples | 5 | 5 |
 | Watch out | 2 | 2 |
-| sha256 | `a4f5bd266f95` | `ee2219cced55` |
+| sha256 | `a5b821c81c9d` | `54c57600230f` |
 
 Words:
 - πηγαίνω: belong, go (Greek – English (WordNet)); go, travel, drive, ride, be off to (Greek – English (FreeDict))
@@ -1621,7 +1621,7 @@ Some of the most common verbs have an aorist stem you learn by heart. The ending
 - *ξέρω*, know: *ήξερα* (past)
 - *θέλω*, want: *ήθελα* (past)
 
-*έρχομαι* ends in -μαι in the present, but its aorist *ήρθα* has the same endings as the others. *ξέρω* and *θέλω* have no everyday aorist, so learn *ήξερα* and *ήθελα* as their past.
+*έρχομαι* ends in -μαι in the present, but its aorist *ήρθα* has the same endings as the others. *ξέρω* has no aorist and *θέλω* only a rare one, *θέλησα*, so learn *ήξερα* and *ήθελα*, the imperfect, as their past.
 
 **The stem changes**
 
@@ -1686,7 +1686,7 @@ Some of the most common verbs have an aorist stem you learn by heart. The ending
 - *ξέρω*, знать: *ήξερα* (прошедшее)
 - *θέλω*, хотеть: *ήθελα* (прошедшее)
 
-*έρχομαι* в настоящем времени оканчивается на -μαι, но у аориста *ήρθα* обычные окончания. У *ξέρω* и *θέλω* аориста в обиходе нет, поэтому *ήξερα* и *ήθελα* учите как их прошедшее время.
+*έρχομαι* в настоящем времени оканчивается на -μαι, но у аориста *ήρθα* обычные окончания. У *ξέρω* аориста нет, у *θέλω* он редкий, *θέλησα*, поэтому *ήξερα* и *ήθελα*, имперфект, учите как их прошедшее время.
 
 **Основа меняется**
 
@@ -2076,14 +2076,14 @@ A reviewed text gets a line `<topic id><TAB><sha256><TAB><review date>` in `revi
 
 | Topic | Text | sha256 | Reviewed |
 |---|---|---|---|
-| `ell-alphabet` | eng | `12188138d792188db12e1ca1a020c7da7d676806ad19af57295bcb696c580639` | 2026-11-07 |
-| `ell-alphabet` | rus | `c7abd0497ebae943ade61f159ebf85a01333d26cc0bb9f0fdb9355edb5466e8e` | 2026-11-07 |
-| `ell-articles` | eng | `9c514adcaa169103934586764fd5be4444942816d9ad724724a8cda8e5cf085e` | 2026-11-07 |
-| `ell-articles` | rus | `a5eec81061183fa91656914f76ca1887409cd4cbbf9233ebf6f6c81a94d32742` | 2026-11-07 |
-| `ell-noun-endings` | eng | `ee96119d7d3357630ee041459ddc0db60b74f57255e46b823d8fe6d72ed96350` | 2026-11-07 |
-| `ell-noun-endings` | rus | `42bc86db538c7bb125d395b063e27d5235bca1b23a24ab6b5de226110cdeb8f7` | 2026-11-07 |
-| `ell-adjectives` | eng | `d53043014710d769c054a65e0859b2c9853ee6c4a91019d48546cab9c7d3df71` | 2026-11-07 |
-| `ell-adjectives` | rus | `0c519d8cf31edc2c44bc2873cd8b2e1e98a74a835d04f80e712cf68f31de93e4` | 2026-11-07 |
+| `ell-alphabet` | eng | `e26e10c0594e96fa2cb9e3a1619f9e3802af9808440f8c90cb0fe96ee70c9306` | 2026-11-08 |
+| `ell-alphabet` | rus | `332d06a70dcf932f7fb16cbfbc71062e847993909533edea43ff75a351b9e063` | 2026-11-08 |
+| `ell-articles` | eng | `88d0b793aea8d2e8e201c1c7a64ed31e6f187e971fb7b2ba5d576157685c344e` | 2026-11-08 |
+| `ell-articles` | rus | `a4afe6b1b3e9b816150a0585274fcfd6920fd1c225d6b97feb663e79e056cbbb` | 2026-11-08 |
+| `ell-noun-endings` | eng | `f876c1cbb5e0d08be20150f25887454a1780d39621fbf5579da1c0dcb971e8eb` | 2026-11-08 |
+| `ell-noun-endings` | rus | `a25cd96124fd267123e5c70f78640930deb2633820becd332898a84fa7ac0c4f` | 2026-11-08 |
+| `ell-adjectives` | eng | `5fa8126bf1cf9bd8f2b9823157b88b79d47cde75b1811a56256165d1075a12d6` | 2026-11-08 |
+| `ell-adjectives` | rus | `c728ba7d38097ad877535b22657db0c10802f02fdf1b16ad7b4e50c5ae9059e8` | 2026-11-08 |
 | `ell-pronouns` | eng | `0435456ab3f320fe589bba473c061765ee20091699418ec72e66f08623b69043` | 2026-11-07 |
 | `ell-pronouns` | rus | `79edddecbd5102471dc482a5bda3211e2a7770c1bb5ecf82db0903f834292fb3` | 2026-11-07 |
 | `ell-possessives` | eng | `3d80dee9147ffbead7cb3a857fa3e82c6bf5e82a75722547e31f3ff5dfd41200` | 2026-11-07 |
@@ -2098,12 +2098,12 @@ A reviewed text gets a line `<topic id><TAB><sha256><TAB><review date>` in `revi
 | `ell-negation-questions` | rus | `043dd6f97534e3c0fd7580e17dc8885e54a91c96556e19cf7131a7be6973843c` | 2026-11-07 |
 | `ell-se-prepositions` | eng | `79c92f40b2fb09bd42d9135f44e6c5826d6d5a9731d6e74c824bd7407ea6595c` | 2026-11-07 |
 | `ell-se-prepositions` | rus | `ae4b358a3cc34042a8bd6595ccb8d433781d847e748c85013c6e6f781cbc6a94` | 2026-11-07 |
-| `ell-numbers-time` | eng | `fa121a1d732869fbb98f07f78b2495ba57433207c1a2eb05c72840ebd72c3edf` | 2026-11-07 |
-| `ell-numbers-time` | rus | `fe4c3c8fd3cd9c4dc4e567e99dc73b45f18b70497410f4ecc62e74a8ca17e282` | 2026-11-07 |
+| `ell-numbers-time` | eng | `1f93f49dd26b9a5197fb4bb25f971c5a8424545b058d9a4bff4658856d0cf46e` | 2026-11-08 |
+| `ell-numbers-time` | rus | `152845a93056e264b71ab930866fb12fbd4d66e620ad9442ea94695768425323` | 2026-11-08 |
 | `ell-aorist-regular` | eng | `acc4f3c456b102a25321da5c15a2c74cf561e8843bd79d198d0e496a48fd835c` | 2026-11-07 |
-| `ell-aorist-regular` | rus | `65aa498ed318e60b188ef08620824e7e49b2ab73a26778aa8246d8037791ce44` | 2026-11-07 |
-| `ell-aorist-irregular` | eng | `a4f5bd266f9599cd5c344f4bfdf3b3bf4f365eca58943aba70e689792e745641` | 2026-11-07 |
-| `ell-aorist-irregular` | rus | `ee2219cced55ed8c576401c1ddf7dcd6e28325ba41f5dcae76b0ec9ac426f00d` | 2026-11-07 |
+| `ell-aorist-regular` | rus | `131700f68b8d6d072eb544ec065753a738ca2248209ec7e57f40cd5c9ca94c31` | 2026-11-08 |
+| `ell-aorist-irregular` | eng | `a5b821c81c9dd8d6baad5baf1b52310dbc2224cfb7a759d947516e65ad6704e9` | 2026-11-08 |
+| `ell-aorist-irregular` | rus | `54c57600230f5756e1ce89f56ac35abd947fec841a4cd838ad4279b6814ce6fb` | 2026-11-08 |
 | `ell-future` | eng | `182d8a9b2d4313908f8339dcbd6d40107fdf60b4e2f0ee7aa736e62c5fc992e5` | 2026-11-07 |
 | `ell-future` | rus | `80db9707017be5a8de73d6d2d073fad587c733f8c0d687f2fe4f33a8f3d65649` | 2026-11-07 |
 | `ell-na-perfective` | eng | `8d784e75040ae9c2f71fe3b5551d464747f27fabff163e82cd28bed80145b533` | 2026-11-07 |
