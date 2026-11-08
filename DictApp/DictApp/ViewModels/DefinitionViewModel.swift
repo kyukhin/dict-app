@@ -71,12 +71,22 @@ final class DefinitionViewModel: ObservableObject {
         return isInMyWords ? .removeFromMyWords : .learn
     }
 
+    /// The History write and the Learn button's state, each on its own: a
+    /// failed write still shows the button right. The first error shows.
     func onAppear() async {
+        var failure: (any Error)?
         do {
             try await db.addToHistory(word: entry.word, source: entry.source)
+        } catch {
+            failure = error
+        }
+        do {
             try await refreshLearning()
         } catch {
-            errorMessage = error.localizedDescription
+            failure = failure ?? error
+        }
+        if let failure {
+            errorMessage = failure.localizedDescription
         }
     }
 

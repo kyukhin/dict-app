@@ -90,6 +90,11 @@ struct LearnView: View {
                 .environment(\.locale, locale)
                 .environment(\.layoutDirection, layoutDirection)
             }
+            // A failed choice or load (#260): shown until dismissed.
+            .alert(Text(verbatim: vm.errorMessage ?? ""), isPresented: Binding(
+                get: { vm.errorMessage != nil },
+                set: { if !$0 { vm.errorMessage = nil } }
+            )) {}
         }
     }
 
@@ -102,6 +107,9 @@ struct LearnView: View {
                         set: { lang in Task { await vm.select(lang) } }
                     ))
                 }
+            }
+            PairInstallSection(packs: vm.pairPacks) {
+                vm.retryInstall()
             }
             Section("learn.today") {
                 goalAndStreak
@@ -383,6 +391,76 @@ struct LanguagePickerView: View {
                     .accessibilityIdentifier("language_picker_size_\(id)")
             }
         }
+    }
+}
+
+/// The chosen pair's install on the Learn home (0237, "Learning a pair";
+/// 0131), in its own section while `PairInstallRow` shows something.
+struct PairInstallSection: View {
+    let packs: [PackID]
+    let onRetry: () -> Void
+    @ObservedObject var status: PackStatusModel = .shared
+
+    var body: some View {
+        if PairInstallRow.shown(packs, status: status) != nil {
+            Section {
+                PairInstallRow(packs: packs, onRetry: onRetry, status: status)
+            }
+        }
+    }
+}
+
+/// A pair's install (0237, "Learning a pair"): its first pack on its way,
+/// "Greek" with "Downloading…" and the progress, or failed, with Try again;
+/// nothing once every pack is installed, or for a pack nobody asked for.
+/// On the Learn home and under a language in Settings → Learning →
+/// Languages.
+struct PairInstallRow: View {
+    let packs: [PackID]
+    let onRetry: () -> Void
+    @ObservedObject var status: PackStatusModel = .shared
+    @Environment(\.locale) private var locale
+
+    var body: some View {
+        if let (id, state) = Self.shown(packs, status: status) {
+            VStack(alignment: .leading, spacing: 8) {
+                // The row's id on its title, not the stack: a container id
+                // would shadow the Try again button's.
+                Text(LearnViewModel.languageName(PackCatalog.shared.pack(id)?.lang ?? "und", locale: locale))
+                    .font(.headline)
+                    .accessibilityIdentifier("learn_install_row")
+                if case .failed = state {
+                    Text("learn.install.failed")
+                        .font(.footnote)
+                        .foregroundStyle(.red)
+                        .accessibilityIdentifier("learn_install_error")
+                    Button("learn.install.retry", action: onRetry)
+                        .accessibilityIdentifier("learn_install_retry")
+                } else {
+                    Text("learn.install.downloading")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                    if case let .downloading(received, total) = state, total > 0 {
+                        ProgressView(value: Double(received), total: Double(total))
+                    } else {
+                        ProgressView()
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }
+            }
+        }
+    }
+
+    /// The first of `packs` waiting, downloading, installing or failed.
+    static func shown(_ packs: [PackID], status: PackStatusModel) -> (PackID, PackState)? {
+        for id in packs {
+            let state = status.state(of: id)
+            switch state {
+            case .waiting, .downloading, .installing, .failed: return (id, state)
+            case .notInstalled, .installed, .updateAvailable, .updateRequired: continue
+            }
+        }
+        return nil
     }
 }
 

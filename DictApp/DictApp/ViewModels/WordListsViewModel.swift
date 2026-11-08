@@ -396,6 +396,6 @@ extension MeaningQuery {
     /// with the list's translation and its language.
     init(_ item: WordListItem) {
         self.init(key: item.key, lookup: item.headword ?? item.term, translation: item.translation,
-                  translationLang: item.translationLang)
+                  translationLang: item.translationLang, partOfSpeech: item.partOfSpeech)
     }
 }

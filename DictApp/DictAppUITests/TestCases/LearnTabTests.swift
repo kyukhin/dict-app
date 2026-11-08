@@ -6,8 +6,9 @@ import XCTest
 /// says otherwise, `-resetData` first.
 ///
 /// The Greek lists come from the Greek pack, installed from the committed
-/// assets as 0237's tests do. The download sizes under the rows wait for
-/// #241's packs. The Recognition trainers of `testPickerOffersPairs`,
+/// assets as 0237's tests do, except where a test downloads its pair's
+/// packs (`-resetPacks`, `-packDownloads`, never the network). The
+/// Recognition trainers of `testPickerOffersPairs`,
 /// `testLimitedPairShowsItsWarning` and `testLanguageSwitch` (#159) are in
 /// `ExerciseFlowTests`: a pair chosen in the picker has no word in learning
 /// yet, so its trainers are disabled; the fixtures give them words.
@@ -28,13 +29,24 @@ final class LearnTabTests: XCTestCase {
         return []
     }
 
+    /// 0237: the packs a test starts from. A pair chosen downloads what is
+    /// missing through the fixture protocol: once failing, or offline.
+    private var packArguments: [String] {
+        if name.contains("testChoosingAPairDownloadsItsPacks") {
+            return ["-resetPacks", UITestHelpers.skipWelcome] + UITestHelpers.downloadArguments("failOnce")
+        }
+        if name.contains("testChoosingAPairOffline") {
+            return ["-resetPacks", UITestHelpers.skipWelcome] + UITestHelpers.downloadArguments("offline")
+        }
+        return UITestHelpers.packArguments()
+    }
+
     override func setUpWithError() throws {
         continueAfterFailure = false
         app = XCUIApplication()
         // Issue #237: no first-launch sheet; the Greek, Spanish and other
         // packs installed from the committed assets.
-        app.launchArguments = ["-disableReviewPrompt", "-resetData"] + learningArguments
-            + UITestHelpers.packArguments()
+        app.launchArguments = ["-disableReviewPrompt", "-resetData"] + learningArguments + packArguments
         // Sim orientation persists across sessions; landscape breaks swipes.
         XCUIDevice.shared.orientation = .portrait
         app.launch()
@@ -71,8 +83,8 @@ final class LearnTabTests: XCTestCase {
     /// No learned language, English UI: a row per pair, the languages with
     /// lists first (English, Greek), then the others by name; within a
     /// language its default via first, then the others by name. Greek via
-    /// Russian carries its warning. Every dictionary is bundled until #241,
-    /// so no row has a size to download.
+    /// Russian carries its warning. Every pack is installed, so no row has a
+    /// size to download.
     func testPickerOffersPairs() throws {
         let learnPage = tabBarPage.tapLearnTab()
         XCTAssertTrue(learnPage.waitForPicker(), "no learned language: the picker")
@@ -99,7 +111,46 @@ final class LearnTabTests: XCTestCase {
         XCTAssertFalse(learnPage.pickerLimited("ell", via: "eng").exists, "a full pair has no warning")
         let sizes = app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH %@",
                                                                          "language_picker_size_"))
-        XCTAssertEqual(sizes.count, 0, "until #241 every pack is bundled: nothing to download")
+        XCTAssertEqual(sizes.count, 0, "every pack installed: nothing to download")
+    }
+
+    /// 0237 with 0131: no pack installed. Greek via English shows the Greek
+    /// pack's size; choosing it downloads it (the fixture protocol: the
+    /// first request stops halfway): the home shows the failure with Try
+    /// again; Try again installs it, the row goes, and Choose lists offers
+    /// Greek's lists.
+    func testChoosingAPairDownloadsItsPacks() throws {
+        let learnPage = tabBarPage.tapLearnTab()
+        XCTAssertTrue(learnPage.waitForPicker())
+        let size = learnPage.pickerSize("ell", via: "eng")
+        XCTAssertTrue(size.waitForExistence(timeout: TestData.Timeouts.medium), "Greek's pack is to download")
+        XCTAssertTrue(size.label.hasSuffix("MB to download"), size.label)
+        XCTAssertTrue(learnPage.pickerSize("eng", via: "eng").exists, "English's lists are to download too")
+
+        XCTAssertTrue(learnPage.choosePair("ell", via: "eng"))
+        XCTAssertTrue(learnPage.installRetry.waitForExistence(timeout: TestData.Timeouts.long),
+                      "the stopped download offers Try again")
+        XCTAssertEqual(learnPage.installRow.label, "Greek")
+        XCTAssertTrue(learnPage.installError.exists)
+        learnPage.installRetry.tap()
+        XCTAssertTrue(learnPage.installRow.waitForNonExistence(timeout: TestData.Timeouts.long),
+                      "installed: the row goes")
+        let newWordsFrom = learnPage.tapChooseLists()
+        XCTAssertTrue(newWordsFrom.newWordsFromRow("ky-ell-a1").waitForExistence(timeout: TestData.Timeouts.long),
+                      "Greek's lists came with its pack")
+    }
+
+    /// 0237: no network. Choosing Spanish via English keeps it learned: its
+    /// home, and the failure with Try again.
+    func testChoosingAPairOffline() throws {
+        let learnPage = tabBarPage.tapLearnTab()
+        XCTAssertTrue(learnPage.waitForPicker())
+        XCTAssertTrue(learnPage.pickerSize("spa", via: "eng").waitForExistence(timeout: TestData.Timeouts.medium))
+        XCTAssertTrue(learnPage.choosePair("spa", via: "eng"))
+        XCTAssertTrue(learnPage.installError.waitForExistence(timeout: TestData.Timeouts.medium), "the failure shows")
+        XCTAssertEqual(learnPage.installRow.label, "Spanish")
+        XCTAssertTrue(learnPage.installRetry.exists)
+        XCTAssertTrue(learnPage.importList.exists, "Spanish is learned: its home")
     }
 
     /// Spanish UI: English's default via is Spanish, so English via Spanish

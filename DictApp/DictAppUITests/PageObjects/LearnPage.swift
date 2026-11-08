@@ -28,6 +28,10 @@ class LearnPage: BasePage {
     var goalRing: XCUIElement { app.buttons[IDs.goalRing].firstMatch }
     var streak: XCUIElement { app.buttons[IDs.streak].firstMatch }
     var statisticsRow: XCUIElement { element(IDs.statisticsRow) }
+    /// 0237: the chosen pair's install row, its failure and Try again.
+    var installRow: XCUIElement { element(IDs.installRow) }
+    var installError: XCUIElement { element(IDs.installError) }
+    var installRetry: XCUIElement { app.buttons[IDs.installRetry].firstMatch }
 
     /// 0130, #154: Today's "Choose lists" and the Lists section's rows.
     var chooseLists: XCUIElement { element(IDs.chooseLists) }

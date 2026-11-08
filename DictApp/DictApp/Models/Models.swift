@@ -423,6 +423,13 @@ struct DictionarySchemas: Equatable, Sendable {
         return installed.contains(schema) ? schema : nil
     }
 
+    /// The installed file a file claims `source` in; nil for a source no
+    /// file claims (an import) or whose pack is not installed. An imported
+    /// source can also be a pack's: its rows are in both (0237, step 7).
+    func claimedSchema(ofSource source: String) -> String? {
+        schemaOfSource[source].flatMap { installed.contains($0) ? $0 : nil }
+    }
+
     /// The files a search reads, in `all` order: those that hold one of
     /// `sources`; for `nil`, the bundle and every installed pack that holds
     /// a dictionary.

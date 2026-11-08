@@ -41,6 +41,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - [#240, #241] The app bundles English only (56 MB instead of 152 MB); every other language is a pack, built byte for byte by `Scripts/cut_packs.py`, that Search, Definition, History and My words read next to the bundle once installed.
 - [#158] The Learn tab replaces Bookmarks: it asks which language you want to learn and through which ("Greek via English"), then shows today's words and My words, and a word's star becomes a Learn button that adds it to My words and starts learning it.
 - [#244] An update from 1.x or the 2.0 alpha keeps History, My words and imports without turning the old copy of each language's dictionaries into imports, keeps their place and switch in Dictionary Order until their pack is installed, and decides which packs the first launch offers (those of the dictionaries that were enabled).
+- [#131] Choosing a language pair to learn downloads the packs it needs, with their size in the picker, the download's progress on the Learn home and Try again after a failure. Greek meanings prefer the FreeDict Greek–English dictionary over WordNet's, English via English skips list words WordNet does not define (he, us, or), and the learning screens get small fixes from review.
 
 ### Fixed
 - [#138] History and Recent words reopen a word in the dictionary it was read in.

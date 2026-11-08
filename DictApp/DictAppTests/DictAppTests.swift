@@ -8169,6 +8169,58 @@ final class PackServiceTests: XCTestCase {
         XCTAssertEqual(status.state(of: .ell), .notInstalled)
     }
 
+    /// 0131 with 0237: learning a pair installs its packs through this
+    /// service (`CatalogPairPacks`). The picker's size is the catalog's for
+    /// the packs not installed; the install downloads only those, then the
+    /// size is 0, and the Learn home's install row shows nothing. Greek via
+    /// Russian, limited, needs the Greek pack only.
+    func testLearningAPairInstallsItsPacks() async throws {
+        let service = try await downloadingService(.ok)
+        let catalog = try PackFixtures.catalog()
+        let packs = CatalogPairPacks(service: service)
+        let greek = LearningPair(lang: "ell", via: "eng")
+        let greekViaRussian = LearningPair(lang: "ell", via: "rus", meaningsLang: "eng")
+        XCTAssertEqual(packs.languagesWithLists, ["ell", "eng"])
+        let englishViaGreek = await packs.packs(of: LearningPair(lang: "eng", via: "ell"))
+        XCTAssertEqual(englishViaGreek, [.engLists, .ell])
+        let limitedPacks = await packs.packs(of: greekViaRussian)
+        XCTAssertEqual(limitedPacks, [.ell])
+        let imported = await packs.packs(of: LearningPair(lang: "deu", via: "eng"))
+        XCTAssertEqual(imported, [], "a pair the catalog lacks needs no pack")
+        let before = await packs.downloadSize(of: greek)
+        XCTAssertEqual(before, catalog.pack(.ell)?.size)
+
+        let languages = LearningLanguageService(settings: settings, packs: packs, uiLanguage: { "en" })
+        try await languages.learn(greek).value
+        XCTAssertEqual(PackFixtureURLProtocol.requests, [try XCTUnwrap(catalog.pack(.ell)?.url)])
+        let after = await packs.downloadSize(of: greek)
+        XCTAssertEqual(after, 0)
+        let limited = await packs.downloadSize(of: greekViaRussian)
+        XCTAssertEqual(limited, 0, "Greek via Russian needs the Greek pack only")
+        await settle()
+        XCTAssertEqual(status.state(of: .ell), .installed)
+        XCTAssertNil(PairInstallRow.shown([.ell], status: status), "nothing left to show")
+    }
+
+    /// Without network the pair stays learned and its pack fails with
+    /// `.offline`, which the Learn home's install row shows, with Try again.
+    func testLearningAPairOfflineShowsTheFailure() async throws {
+        let service = try await downloadingService(.offline)
+        let languages = LearningLanguageService(settings: settings, packs: CatalogPairPacks(service: service),
+                                                uiLanguage: { "en" })
+        let install = try await languages.learn(LearningPair(lang: "ell", via: "eng"))
+        do {
+            try await install.value
+            XCTFail("offline")
+        } catch {
+            XCTAssertEqual(error as? PackError, .offline)
+        }
+        XCTAssertEqual(settings.learningLanguages, ["ell"], "the pair stays learned")
+        await settle()
+        XCTAssertEqual(status.state(of: .ell), .failed(.offline))
+        XCTAssertEqual(PairInstallRow.shown([.engLists, .ell], status: status)?.1, .failed(.offline))
+    }
+
     /// A pack file of another format (a new app version, a restore) gets the
     /// stub and "Update required"; the update downloads and replaces it.
     func testWrongFormatDownloadsTheUpdate() async throws {
@@ -9433,12 +9485,18 @@ enum TestDictionary {
             "Bundled \(name).\(ext) is missing from the app bundle")
     }
 
+    /// The bundle's limited learning pair (0237's `catalog_pair`): Greek via
+    /// Russian, meanings in English.
+    static let bundleLimitedPairs = [LimitedPair(lang: "ell", via: "rus", meaningsLang: "eng")]
+
     /// Writes a dictionary file with `rows` (in this order, `INSERT OR
-    /// IGNORE` as the build does) and one `dict_metadata` row per source:
+    /// IGNORE` as the build does), one `dict_metadata` row per source:
     /// `metadata` where given, else the default, with `word_count` = its
-    /// rows. Returns its URL: `url`, or a new temp file.
+    /// rows, and the catalog's `limitedPairs` (the bundle's by default).
+    /// Returns its URL: `url`, or a new temp file.
     @discardableResult
-    static func make(rows: [Row], metadata: [Metadata] = [], at url: URL? = nil) throws -> URL {
+    static func make(rows: [Row], metadata: [Metadata] = [], limitedPairs: [LimitedPair] = bundleLimitedPairs,
+                     at url: URL? = nil) throws -> URL {
         let url = url ?? FileManager.default.temporaryDirectory
             .appendingPathComponent("dictionary-\(UUID().uuidString).sqlite")
         let schema = try BundledDictionary().read { db in
@@ -9487,6 +9545,10 @@ enum TestDictionary {
                         """,
                     arguments: [source, entry.displayName, entry.license, entry.version,
                                 counts.first { $0.0 == source }?.1 ?? 0, entry.fromLang, entry.toLang])
+            }
+            for pair in limitedPairs {
+                try db.execute(sql: "INSERT INTO catalog_pair(lang, via, meanings_lang) VALUES (?, ?, ?)",
+                               arguments: [pair.lang, pair.via, pair.meaningsLang])
             }
         }
         return url
@@ -17259,8 +17321,10 @@ final class LearningPairsTests: XCTestCase {
         ("wordnet-spa-eng", "spa", "eng"), ("wordnet-arb-eng", "arb", "eng"), ("wordnet-ell-eng", "ell", "eng"),
         ("wordnet-eng-ell", "eng", "ell"), ("freedict-ell-eng", "ell", "eng"), ("freedict-eng-ell", "eng", "ell"),
     ]
-    static let offered = LearningPairs.offered(dictionaries)
     private static let greekViaRussian = Pair(lang: "ell", via: "rus", meaningsLang: "eng")
+    /// The catalog's limited pairs (`catalog_pair`).
+    static let limited: [LearningPair] = [LearningPair(lang: "ell", via: "rus", meaningsLang: "eng")]
+    static let offered = LearningPairs.offered(dictionaries, limited: limited)
     private static let english = ["ell": "Greek", "eng": "English", "spa": "Spanish", "rus": "Russian", "arb": "Arabic"]
 
     private var pairs: Dictionary<Pair, [String]>.Keys { Self.offered.keys }
@@ -17287,17 +17351,24 @@ final class LearningPairsTests: XCTestCase {
 
         // A Greek–Russian dictionary makes Greek via Russian a full pair, with
         // no code change.
-        let withRussian = LearningPairs.offered(Self.dictionaries + [("qa-ell-rus", "ell", "rus")])
+        let withRussian = LearningPairs.offered(Self.dictionaries + [("qa-ell-rus", "ell", "rus")], limited: Self.limited)
         XCTAssertEqual(withRussian.count, 8)
         XCTAssertEqual(withRussian[Pair(lang: "ell", via: "rus")], ["qa-ell-rus"])
         XCTAssertNil(withRussian[Self.greekViaRussian], "the limited pair gives way")
         // Without Greek–English dictionaries the limited pair has no meanings.
-        XCTAssertEqual(LearningPairs.offered([("wordnet", "eng", "eng")]), [Pair(lang: "eng", via: "eng"): ["wordnet"]])
+        XCTAssertEqual(LearningPairs.offered([("wordnet", "eng", "eng")], limited: Self.limited),
+                       [Pair(lang: "eng", via: "eng"): ["wordnet"]])
+        // The limited pairs are the catalog's, not the code's: none
+        // declared, none offered; another declared, offered.
+        XCTAssertNil(LearningPairs.offered(Self.dictionaries, limited: [])[Self.greekViaRussian])
+        let spanishViaRussian = Pair(lang: "spa", via: "rus", meaningsLang: "eng")
+        XCTAssertEqual(LearningPairs.offered(Self.dictionaries, limited: [spanishViaRussian])[spanishViaRussian],
+                       ["wordnet-spa-eng"])
 
         // `und`, unknown or empty languages give no pair; a source counts once.
         XCTAssertEqual(LearningPairs.offered([("a", "und", "eng"), ("b", "eng", "und"), ("c", nil, "eng"),
-                                              ("d", "spa", nil), ("e", "", "eng")]), [:])
-        XCTAssertEqual(LearningPairs.offered([("wordnet", "eng", "eng"), ("wordnet", "eng", "eng")]),
+                                              ("d", "spa", nil), ("e", "", "eng")], limited: Self.limited), [:])
+        XCTAssertEqual(LearningPairs.offered([("wordnet", "eng", "eng"), ("wordnet", "eng", "eng")], limited: []),
                        [Pair(lang: "eng", via: "eng"): ["wordnet"]])
     }
 
@@ -17417,6 +17488,17 @@ final class LearningPairsTests: XCTestCase {
                        "the pair's dictionaries in Dictionary Order, not catalog order")
         XCTAssertEqual(sources(Self.greekViaRussian).prefix(2), ["freedict-ell-eng", "wordnet-ell-eng"],
                        "Greek via Russian looks up the Greek–English dictionaries")
+        // Kirill, 2026-11-07: Greek meanings prefer El–En · FD, whatever
+        // Dictionary Order says; other pairs keep Dictionary Order.
+        let wordNetFirst = ["wordnet-ell-eng", "freedict-ell-eng", "wordnet-eng-ell", "freedict-eng-ell", "wordnet"]
+        XCTAssertEqual(sources(Pair(lang: "ell", via: "eng"), in: wordNetFirst),
+                       ["freedict-ell-eng", "wordnet-ell-eng", "wordnet-eng-ell", "freedict-eng-ell", "wordnet"])
+        XCTAssertEqual(sources(Self.greekViaRussian, in: wordNetFirst).prefix(2), ["freedict-ell-eng", "wordnet-ell-eng"])
+        XCTAssertEqual(sources(Pair(lang: "eng", via: "ell"), in: wordNetFirst).prefix(2),
+                       ["wordnet-eng-ell", "freedict-eng-ell"])
+        XCTAssertEqual(sources(Pair(lang: "ell", via: "eng"), in: wordNetFirst,
+                               enabled: Set(wordNetFirst).subtracting(["freedict-ell-eng"])).prefix(2),
+                       ["wordnet-ell-eng", "freedict-ell-eng"], "an enabled dictionary still comes first")
 
         // Enabled sources first, in each part.
         let enabled = Set(order).subtracting(["freedict-eng-ell", "wordnet"])
@@ -17978,9 +18060,10 @@ final class LearningStoreTests: XCTestCase {
 
     // MARK: Pairs
 
-    /// Until #241 the pairs come from the bundle's `dict_metadata`, in file
-    /// order, and from imports with both languages; Greek via Russian is
-    /// limited, with the Greek–English dictionaries.
+    /// The pairs come from the catalog (0237): the bundle's and the packs'
+    /// dictionaries, in catalog order, and imports with both languages;
+    /// Greek via Russian is limited (`catalog_pair`), with the Greek–English
+    /// dictionaries.
     func testLearningPairsComeFromTheBundleAndImports() async throws {
         try await db.setup(userPath: userPath, dictionaryURL: try TestDictionary.bundledURL())
         var pairs = try await db.learningPairs()
@@ -18005,6 +18088,40 @@ final class LearningStoreTests: XCTestCase {
                        "an import with both languages adds its pair, needing no pack")
         XCTAssertEqual(pairs.count, 9, "imports without both languages add none")
         XCTAssertNil(pairs[LearningPair(lang: "eng", via: "deu")], "a bundled source keeps its own languages")
+    }
+
+    /// The limited pairs are the catalog's `catalog_pair` rows, not code: a
+    /// file declaring Greek via Spanish instead offers that one.
+    func testLimitedPairsComeFromTheCatalog() async throws {
+        let url = try TestDictionary.make(rows: Self.rows, metadata: Self.metadata,
+                                          limitedPairs: [LimitedPair(lang: "ell", via: "spa", meaningsLang: "eng")],
+                                          at: tempDir.appendingPathComponent("dictionary.sqlite"))
+        try await db.setup(userPath: userPath, dictionaryURL: url)
+        let pairs = try await db.learningPairs()
+        XCTAssertEqual(pairs[LearningPair(lang: "ell", via: "spa", meaningsLang: "eng")],
+                       ["freedict-ell-eng", "wordnet-ell-eng"])
+        XCTAssertNil(pairs[LearningPair(lang: "ell", via: "rus", meaningsLang: "eng")], "not declared: not offered")
+    }
+
+    /// CodeRabbit, PR #263: a source both in a file and imported (an import
+    /// a pack covers in part, 0237 step 7) gives meanings and distractors
+    /// from both.
+    func testSourceInAFileAndImportsReadsBoth() async throws {
+        try await open()
+        try await execute("INSERT INTO imported_sources(source, from_lang, to_lang) VALUES ('freedict-ell-eng', 'ell', 'eng')")
+        try await execute("""
+            INSERT INTO imported_entries(word, word_normalized, definition, pos, source)
+            VALUES ('νερό', 'νερο', 'water', 'noun', 'freedict-ell-eng')
+            """)
+        let order = ["freedict-ell-eng", "wordnet-ell-eng", "wordnet"]
+        let water = WordKey(lang: "ell", word: "νερό")
+        let meanings = try await db.meanings(of: [MeaningQuery(key: spitiKey, lookup: "σπίτι"),
+                                                  MeaningQuery(key: water, lookup: "νερό")],
+                                             lang: "ell", meaningsLang: "eng", sourceOrder: order)
+        XCTAssertEqual(meanings, [spitiKey: "house, home", water: "water"], "the file's row and the import's")
+        let sample = try await db.distractorSample(lang: "ell", meaningsLang: "eng", source: "freedict-ell-eng",
+                                                   sourceOrder: order, pos: "noun", near: "σπίτι", seed: 1)
+        XCTAssertEqual(Set(sample.map(\.term)), ["σπίτι", "νερό"])
     }
 
     // MARK: Enrolment
@@ -22605,6 +22722,8 @@ final class FakePairPacks: PairPacksInstalling, @unchecked Sendable {
         set { lock.withLock { sizeByPair = newValue } }
     }
 
+    func packs(of pair: LearningPair) async -> [PackID] { [] }
+
     func downloadSize(of pair: LearningPair) async -> Int64 {
         lock.withLock { sizeByPair[pair] ?? 0 }
     }
@@ -22838,6 +22957,18 @@ final class LearningLanguageServiceTests: LearnTabTestCase {
 }
 
 final class DefinitionViewModelLearnTests: LearnTabTestCase {
+    /// CodeRabbit, PR #260: a failed History write still loads the Learn
+    /// button's state, and shows its error.
+    func testHistoryFailureStillLoadsTheLearnState() async throws {
+        settings.learningLanguages = ["ell"]
+        try await db.learnWord(grafoFD, today: today)
+        try await execute("CREATE TRIGGER fail_history BEFORE INSERT ON history BEGIN SELECT RAISE(ABORT, 'no history'); END")
+        let vm = try await definition(grafoFD)
+        XCTAssertNotNil(vm.errorMessage, "the History write failed")
+        XCTAssertEqual(vm.learnAction, .stopLearning, "the word in learning shows the filled cap")
+        XCTAssertNotNil(vm.learning)
+    }
+
     /// Learn adds the entry to My words with two cards; Stop learning
     /// removes it and pauses the cards with their progress; Learn resumes.
     func testToggleLearnAddsThenPauses() async throws {
@@ -23259,6 +23390,44 @@ final class LearnViewModelTests: LearnTabTestCase {
         await vm.load(locale: Locale(identifier: "en"))
         XCTAssertEqual(vm.today, .allDone, "more started than the limit: none left, not a negative count")
         XCTAssertNil(vm.errorMessage)
+    }
+
+    /// CodeRabbit, PR #270: the home's My words count is the My words
+    /// screen's, one per word: γράφω from two dictionaries counts once. A
+    /// word whose first row no longer resolves shows through its next row.
+    func testMyWordsCountMatchesTheListScreen() async throws {
+        try await execute("INSERT INTO imported_sources(source, from_lang) VALUES ('my-greek', 'ell')")
+        try await execute("""
+            INSERT INTO my_words(source, word, added_at) VALUES ('my-greek', 'γράφω', '2026-01-01 00:00:00')
+            """)
+        try await db.addToMyWords(grafoFD)
+        try await db.addToMyWords(grafoWN)
+        try await db.addToMyWords(house)
+        let entries = try await db.myWordsEntries()
+        XCTAssertEqual(entries.map(\.entry?.source), ["wordnet", "freedict-ell-eng"],
+                       "γράφω's first row has no entry: its next row stands for it")
+
+        let vm = home()
+        settings.learningLanguages = ["ell"]
+        await vm.load(locale: Locale(identifier: "en"))
+        let screen = WordListViewModel(list: .myWordsForTests, settings: settings, languages: languages)
+        await screen.load()
+        XCTAssertEqual(screen.count, 2)
+        XCTAssertEqual(vm.myWordsCount, screen.count, "the home counts as the My words screen does")
+    }
+
+    /// CodeRabbit, PR #260: an error of a choice survives the reload that
+    /// follows it, for the alert to show.
+    func testChooseErrorSurvivesTheReload() async throws {
+        try await db.addToMyWords(grafoFD)
+        try await execute("CREATE TRIGGER fail_enrol BEFORE INSERT ON learn_word BEGIN SELECT RAISE(ABORT, 'no enrol'); END")
+        let vm = home()
+        await vm.load(locale: Locale(identifier: "en"))
+        await vm.choose(greekViaEnglish, locale: Locale(identifier: "en"))
+        XCTAssertNotNil(vm.errorMessage, "the failed enrolment shows")
+        XCTAssertEqual(vm.learned, ["ell"], "the reload ran")
+        await vm.load(locale: Locale(identifier: "en"))
+        XCTAssertNotNil(vm.errorMessage, "until the alert is dismissed")
     }
 }
 
@@ -25288,7 +25457,8 @@ final class ExerciseStoreTests: ExerciseTestCase {
     func testSourceOrderPutsThePairFirst() async throws {
         settings.dictionaryOrder = [wordnet, enEs, enEl, wnEnEl, wn, fd]
         let greek = try await languages.sourceOrder(lang: "ell", meaningsLang: "eng")
-        XCTAssertEqual(greek, [wn, fd, wordnet, enEs, enEl, wnEnEl])
+        XCTAssertEqual(greek, [fd, wn, wordnet, enEs, enEl, wnEnEl],
+                       "Kirill, 2026-11-07: El–En · FD before El–En · WN for meanings, whatever Dictionary Order says")
         let englishViaGreek = try await languages.sourceOrder(lang: "eng", meaningsLang: "ell")
         XCTAssertEqual(englishViaGreek, [enEl, wnEnEl, wordnet, enEs, wn, fd])
         let englishViaSpanish = try await languages.sourceOrder(lang: "eng", meaningsLang: "spa")
@@ -25328,6 +25498,37 @@ extension LearningStoreTests {
     /// committed assets (#237), as on a device that downloaded them.
     private func openShipped() async throws {
         try await openExercises(try TestDictionary.bundledURL(), packFiles: try PackFixtures.all())
+    }
+
+    /// Kirill, 2026-11-07: English WordNet defines nouns, verbs, adjectives
+    /// and adverbs only, so a list word of none of them takes no WordNet
+    /// meaning (he would read "helium", us "North American republic"): in
+    /// English via English it has none and is skipped. Via Greek or Spanish
+    /// it keeps its meaning, and a word that is also a noun (it) keeps
+    /// WordNet's. On the shipped English A1 list.
+    func testWordNetGivesNoMeaningToOtherPartsOfSpeech() async throws {
+        XCTAssertFalse(Gloss.gives("wordnet", partOfSpeech: "determiner, pronoun"))
+        XCTAssertTrue(Gloss.gives("wordnet", partOfSpeech: "noun, pronoun"))
+        XCTAssertTrue(Gloss.gives("wordnet", partOfSpeech: "be-verb"))
+        XCTAssertTrue(Gloss.gives("wordnet", partOfSpeech: ""), "a word of unknown part of speech (My words)")
+        XCTAssertTrue(Gloss.gives("freedict-eng-ell", partOfSpeech: "pronoun"))
+
+        try await openShipped()
+        let items = try await db.wordListItems("cefr-eng-a1")
+        let skipped = ["he", "I", "us", "me", "or", "who"]
+        let queries = try (skipped + ["house", "it"]).map { term in
+            MeaningQuery(try XCTUnwrap(items.first { $0.term == term }, term))
+        }
+        func words(via meaningsLang: String, _ order: [String]) async throws -> Set<String> {
+            let found = try await db.meanings(of: queries, lang: "eng", meaningsLang: meaningsLang, sourceOrder: order)
+            return Set(found.keys.map(\.word))
+        }
+        let english = try await words(via: "eng", ["wordnet"])
+        XCTAssertEqual(english, ["house", "it"], "English via English: no meaning for he, I, us, me, or, who")
+        let greek = try await words(via: "ell", ["freedict-eng-ell", "wordnet-eng-ell"])
+        XCTAssertTrue(greek.isSuperset(of: ["he", "i", "us", "me", "or"]), "via Greek: \(greek.sorted())")
+        let spanish = try await words(via: "spa", ["freedict-eng-spa"])
+        XCTAssertTrue(spanish.isSuperset(of: ["he", "i", "us", "me", "or", "who"]), "via Spanish: \(spanish.sorted())")
     }
 
     private func insertListWord(_ word: String, lang: String = "ell", translation: String, translationLang: String,
@@ -26162,6 +26363,13 @@ final class SessionPlannerTests: ExerciseTestCase {
                        "nothing before `from` moves; β alone at the end")
         XCTAssertEqual(SessionPlanner.separatingWords(items).map(\.card.key.word.word), ["α", "β", "α", "β"])
 
+        // CodeRabbit, PR #266: a new card never moves ahead of a due one;
+        // the last due word keeps its cards together instead.
+        let dueThenNew = SessionPlanner.session(due: [card("α", .production), card("α"), card("β", .production),
+                                                      card("β"), card("γ", .production), card("γ")],
+                                                newWords: [newWord("δ")], today: today)
+        XCTAssertEqual(planText(dueThenNew), ["α:p", "β:p", "α:r", "β:r", "γ:p", "γ:r", "δ:r", "δ:p"])
+
         // The `due` fixture: each word's two cards are read side by side.
         _ = try await db.writeLearningFixture("due", today: today)
         settings.learningAnswerMode = .choice
@@ -26349,13 +26557,14 @@ final class SessionRunTests: ExerciseTestCase {
         XCTAssertEqual(dueAsked.count, 10)
         XCTAssertTrue(dueAsked.allSatisfy { !$0.isNew })
         XCTAssertTrue(newAsked.allSatisfy(\.isNew), "the New word badge")
-        XCTAssertTrue(asked.prefix(9).allSatisfy { !expected.contains($0.card.key.word) },
-                      "the due cards first; the last may swap with a new card, away from its word's other card")
+        XCTAssertTrue(asked.prefix(10).allSatisfy { !expected.contains($0.card.key.word) },
+                      "the due cards first: a new card never moves ahead of a due one (CodeRabbit, PR #266)")
         let groups = newAsked.map { "\($0.card.key.word.word):\($0.card.key.kind == .recognition ? "r" : "p")" }
         let w = expected.map(\.word)
         XCTAssertEqual(groups, ["\(w[0]):r", "\(w[1]):r", "\(w[2]):r", "\(w[0]):p", "\(w[1]):p", "\(w[2]):p",
                                 "\(w[3]):r", "\(w[3]):p"], "groups of three")
-        XCTAssertEqual(adjacentPairs(asked), [])
+        XCTAssertTrue(adjacentPairs(asked).allSatisfy { $0 == asked[9].card.key.word.word },
+                      "only the last due word may keep its cards together, the new cards staying behind it")
         let log = try await rows("SELECT DISTINCT mode, run_id FROM learn_review")
         XCTAssertEqual(log, ["session|\(vm.runID.uuidString)"])
         let started = try await rows("SELECT word FROM learn_review WHERE introduced = 1 ORDER BY id")
@@ -26656,6 +26865,28 @@ class LearningReminderTestCase: LearnTabTestCase {
 }
 
 final class LearningReminderTests: LearningReminderTestCase {
+    /// CodeRabbit, PR #267: a change of the in-app language reschedules
+    /// the week in the new language.
+    func testLanguageChangeReschedules() async throws {
+        settings.learningReminder = 19 * 60
+        let localization = LocalizationManager(settingsService: settings)
+        let english = try XCTUnwrap(localization.supportedLanguages.first { $0.code == "en" })
+        let greek = try XCTUnwrap(localization.supportedLanguages.first { $0.code == "el" })
+        localization.setLanguage(english)
+        let reminder = LearningReminder(center: center, settings: settings, db: db, clock: clock.clock,
+                                        locale: { localization.currentLocale })
+        reminder.observeLanguage(of: localization)
+        await reminder.reschedule()
+        XCTAssertEqual(center.requests.first?.content.body, "Time for today's words. Your goal: 20 exercises.")
+
+        localization.setLanguage(greek)
+        try await eventually("the week in Greek") {
+            self.center.reminders == self.week() && self.center.requests.allSatisfy {
+                $0.content.body == "Ώρα για τις λέξεις της ημέρας. Ο στόχος σας: 20 ασκήσεις."
+            }
+        }
+    }
+
     /// Off: nothing is scheduled, and a reminder left pending goes; other
     /// requests stay.
     func testOffSchedulesNothing() async throws {
@@ -26867,10 +27098,24 @@ final class LearningSettingsViewModelTests: LearningReminderTestCase {
         vm.dailyGoal = 35
         XCTAssertEqual(settings.learningDailyGoal, 35)
         try await eventually("today's goal") { try await self.db.learnDayGoals()[self.day] == 35 }
-        try await eventually("the new text") {
-            self.center.requests.first?.content.body == "Time for today's words. Your goal: 35 exercises."
+        // The whole week, each with the new text (CodeRabbit, PR #267).
+        try await eventually("the new week") {
+            self.center.reminders == self.week() && self.center.requests.allSatisfy {
+                $0.content.body == "Time for today's words. Your goal: 35 exercises."
+            }
         }
-        XCTAssertEqual(center.reminders, week())
+    }
+
+    /// CodeRabbit, PR #267: goal changes are written one after another, so
+    /// the last one is today's goal.
+    func testGoalChangesAreSerialized() async throws {
+        let vm = model()
+        for goal in [25, 30, 35, 40, 45] {
+            vm.dailyGoal = goal
+        }
+        await vm.goalWrites?.value
+        let goals = try await db.learnDayGoals()
+        XCTAssertEqual(goals[day], 45, "the latest change wins")
     }
 
     /// The learned languages with their pairs: Greek's via is a menu of
@@ -27247,6 +27492,37 @@ final class MatchRoundTests: ExerciseTestCase {
 /// `MatchPairsViewModel`: each matched word is one recognition answer,
 /// written at once through the trainers' path.
 final class MatchPairsViewModelTests: ExerciseTestCase {
+    /// CodeRabbit, PR #268: Next round twice while the last answer is still
+    /// being written starts one round, not two.
+    func testNextRoundTwiceStartsOneRound() async throws {
+        _ = try await db.writeLearningFixture("due", today: today)
+        let vm = matchPairs()
+        await vm.start()
+        for word in ["γράφω", "καλός", "είμαι", "σπίτι"] {
+            let index = try index(of: word, in: vm)
+            try await tapPair(vm, word: index, meaning: index)
+        }
+        let last = try XCTUnwrap(vm.round?.tiles(of: try index(of: "νερό", in: vm)))
+        await vm.tap(last.word)
+        var rounds = 0
+        let counter = vm.$startedAt.dropFirst().sink { _ in rounds += 1 }
+        defer { counter.cancel() }
+        // The writer is busy, so the last answer's write waits.
+        let busy = Task { try await self.db.writeForTesting { _ in Thread.sleep(forTimeInterval: 0.5) } }
+        try await Task.sleep(nanoseconds: 50_000_000)
+        let lastTap = Task { await vm.tap(last.meaning) }
+        while vm.phase != .finished {
+            await Task.yield()
+        }
+        async let first: Void = vm.nextRound()
+        async let second: Void = vm.nextRound()
+        _ = await (first, second)
+        await lastTap.value
+        try await busy.value
+        XCTAssertEqual(rounds, 1, "one new round")
+        XCTAssertEqual(vm.phase, .playing)
+    }
+
     /// `-learningFixture due`: one wrong pair, then all five right. Five log
     /// rows, exercise `match`, one `wrong`; the recognition cards move as
     /// the ladder says, the production cards stay. Each answer's time runs
@@ -28583,6 +28859,20 @@ final class StatisticsViewModelTests: ExerciseTestCase {
                         "\(vm.blocks.today)", "\(vm.blocks.accuracy)", "\(vm.blocks.lists)", "\(vm.blocks.tenses)"]
     }
 
+    /// CodeRabbit, PR #271: a switch's blocks that arrive after a later
+    /// switch are dropped: the screen shows the language selected last.
+    func testALateSwitchIsIgnored() async throws {
+        try await writeStatsFixture(chosen: "eng")
+        let vm = statistics()
+        await vm.load()
+        let english = vm.blocks
+        async let greek: Void = vm.select("ell")
+        async let back: Void = vm.select("eng")
+        _ = await (greek, back)
+        XCTAssertEqual(vm.language, "eng")
+        XCTAssertEqual(vm.blocks, english, "English's blocks, not Greek's, which finished later")
+    }
+
     /// Every block equals #163's aggregates over the `stats` fixture.
     func testBlocksEqualTheAggregates() async throws {
         try await writeStatsFixture()
@@ -29232,6 +29522,28 @@ final class NotDownloadedLookupTests: XCTestCase {
         XCTAssertEqual(after.compactMap(\.entry).count, 2, "both My words resolve")
         let listedAfter = try await db.myWordsEntries()
         XCTAssertEqual(listedAfter.compactMap(\.entry).count, 2, "both rows of the list resolve")
+    }
+
+    /// #245 follow-up: the Learn home's My words count is the list's, so a
+    /// word waiting for its pack counts, as the list shows it.
+    func testLearnHomeCountsMyWordsWaitingForAPack() async throws {
+        try await db.setup(userPath: userPath, dictionaryURL: try TestDictionary.bundledURL())
+        try await db.addToMyWords(EntryKey(source: "freedict-ell-eng", word: "γράφω"))
+        try await db.addToMyWords(EntryKey(source: "wordnet", word: "dog"))
+        let resolved = try await db.fetchMyWords()
+        XCTAssertEqual(resolved.count, 1, "γράφω has no entry until Greek is installed")
+
+        let settings = SettingsService(store: InMemoryKeyValueStore())
+        settings.learningLanguages = ["eng"]
+        let languages = LearningLanguageService(settings: settings, packs: FakePairPacks(languagesWithLists: ["eng"]),
+                                                uiLanguage: { "en" })
+        let home = LearnViewModel(settings: settings, languages: languages)
+        await home.load(locale: Locale(identifier: "en"))
+        XCTAssertNil(home.errorMessage)
+        let screen = WordListViewModel(list: .myWordsForTests, settings: settings, languages: languages)
+        await screen.load()
+        XCTAssertEqual(screen.count, 2, "the list shows the word waiting for Greek")
+        XCTAssertEqual(home.myWordsCount, screen.count, "the home counts as the list shows")
     }
 
     /// Equal counts keep the file order, then each file's own; imported-only

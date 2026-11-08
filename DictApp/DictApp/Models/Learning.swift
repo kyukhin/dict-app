@@ -281,20 +281,24 @@ struct LearningPair: Hashable, Sendable {
 }
 
 /// The pairs the data offers and the via of each learned language
-/// (`learning_via`). Pure: the offered pairs come from the dictionaries
-/// (`DatabaseService.learningPairs`). A `uiLanguage` is the in-app
-/// language's code, `en` or `el`.
+/// (`learning_via`). Pure: the offered pairs come from the dictionaries and
+/// the catalog's limited pairs (`DatabaseService.learningPairs`). A
+/// `uiLanguage` is the in-app language's code, `en` or `el`.
 enum LearningPairs {
-    /// The limited pairs (Kirill, 2026-11-04). Greek via Russian has no
-    /// Greek–Russian dictionary: its meanings are English. Each is offered
-    /// while its meanings pair is, with that pair's dictionaries, until a
-    /// dictionary makes it a full pair.
-    static let limitedPairs = [LearningPair(lang: "ell", via: "rus", meaningsLang: "eng")]
+    /// The dictionaries whose senses come first among their pair's when
+    /// learning (Kirill, 2026-11-07): El–En · FD before El–En · WN, whose
+    /// first senses (κάνω "befriend", βλέπω "date") mislead learners.
+    /// Search's Dictionary Order is not changed.
+    static let preferredMeaningSources: Set<String> = ["freedict-ell-eng"]
 
     /// The pairs `dictionaries` give, each with its sources in the order
     /// given: every distinct (`from`, `to`) with both languages known, `und`
-    /// left out; then the limited pairs.
-    static func offered(_ dictionaries: [(source: String, from: String?, to: String?)]) -> [LearningPair: [String]] {
+    /// left out; then each of `limited` (the catalog's `catalog_pair`, Kirill
+    /// 2026-11-04: Greek via Russian, meanings in English) while its
+    /// meanings pair is offered, with that pair's dictionaries, and no
+    /// dictionary makes it a full pair.
+    static func offered(_ dictionaries: [(source: String, from: String?, to: String?)],
+                        limited: [LearningPair]) -> [LearningPair: [String]] {
         var pairs: [LearningPair: [String]] = [:]
         for dictionary in dictionaries {
             guard let from = dictionary.from, let to = dictionary.to,
@@ -304,8 +308,9 @@ enum LearningPairs {
                 pairs[pair, default: []].append(dictionary.source)
             }
         }
-        for limited in limitedPairs where pairs[LearningPair(lang: limited.lang, via: limited.via)] == nil {
-            pairs[limited] = pairs[LearningPair(lang: limited.lang, via: limited.meaningsLang)]
+        for pair in limited where pair.isLimited && pair.via != "und"
+            && pairs[LearningPair(lang: pair.lang, via: pair.via)] == nil {
+            pairs[pair] = pairs[LearningPair(lang: pair.lang, via: pair.meaningsLang)]
         }
         return pairs
     }
@@ -365,16 +370,23 @@ enum LearningPairs {
 
     /// Where a word's entry and meaning are looked up: the pair's
     /// dictionaries in Dictionary Order, then the rest of Dictionary Order,
-    /// enabled sources first in each part (`enabled` nil: all enabled). A
-    /// pair dictionary missing from the order follows the pair's others.
+    /// enabled sources first in each part (`enabled` nil: all enabled), and
+    /// among the pair's enabled or disabled ones `preferredMeaningSources`
+    /// first. A pair dictionary missing from the order follows the pair's
+    /// others.
     static func sourceOrder(pair: LearningPair, pairSources: [LearningPair: [String]], dictionaryOrder: [String],
                             enabled: Set<String>? = nil) -> [String] {
         let own = pairSources[pair] ?? []
         let order = dictionaryOrder + own.filter { !dictionaryOrder.contains($0) }
         let isOwn = Set(own)
         func isOn(_ source: String) -> Bool { enabled?.contains(source) ?? true }
+        func isPreferred(_ source: String) -> Bool { isOwn.contains(source) && preferredMeaningSources.contains(source) }
         return [true, false].flatMap { own in
-            [true, false].flatMap { on in order.filter { isOwn.contains($0) == own && isOn($0) == on } }
+            [true, false].flatMap { on in
+                [true, false].flatMap { preferred in
+                    order.filter { isOwn.contains($0) == own && isOn($0) == on && isPreferred($0) == preferred }
+                }
+            }
         }
     }
 
@@ -1456,6 +1468,25 @@ enum Gloss {
     /// A meaning is cut at this many characters.
     static let maxLength = 80
 
+    /// English WordNet, which defines nouns, verbs, adjectives and adverbs
+    /// only.
+    static let partOfSpeechSources: Set<String> = ["wordnet"]
+
+    /// Whether `source` may give a meaning to a word of `partOfSpeech` (the
+    /// list's, comma-separated; `""` = unknown). English WordNet does not,
+    /// to a list word none of whose parts of speech it defines: its sense
+    /// would belong to another word (he → He "helium", us → US, or → OR;
+    /// Kirill, 2026-11-07). Such a word has no meaning in English via
+    /// English and is skipped (rule 4).
+    static func gives(_ source: String, partOfSpeech: String) -> Bool {
+        guard partOfSpeechSources.contains(source), !partOfSpeech.isEmpty else { return true }
+        return partOfSpeech.split(separator: ",").contains { label in
+            let label = label.trimmingCharacters(in: .whitespaces).lowercased()
+            // be-verb, do-verb and have-verb are verbs.
+            return ["noun", "verb", "adjective", "adverb"].contains(label) || label.hasSuffix("-verb")
+        }
+    }
+
     /// Rule 1: the stored `translation` when it is not empty and in
     /// `meaningsLang`, or an import's (`translationLang` `""`), which shows
     /// in every pair. With no pair (`meaningsLang` nil: Other, rule 3), any
@@ -1618,18 +1649,22 @@ struct MeaningQuery: Hashable, Sendable {
     let translationLang: String
     /// The word's own entry: its meaning without a pair (Other, rule 3).
     var entry: EntryKey?
+    /// The list's part of speech ("pronoun", "noun, verb"); `""` = unknown.
+    var partOfSpeech: String
 
-    init(key: WordKey, lookup: String, translation: String = "", translationLang: String = "", entry: EntryKey? = nil) {
+    init(key: WordKey, lookup: String, translation: String = "", translationLang: String = "", entry: EntryKey? = nil,
+         partOfSpeech: String = "") {
         self.key = key
         self.lookup = lookup
         self.translation = translation
         self.translationLang = translationLang
         self.entry = entry
+        self.partOfSpeech = partOfSpeech
     }
 
     init(_ word: LearnWord) {
         self.init(key: word.key, lookup: word.entry?.word ?? word.term, translation: word.translation,
-                  translationLang: word.translationLang, entry: word.entry)
+                  translationLang: word.translationLang, entry: word.entry, partOfSpeech: word.partOfSpeech)
     }
 }
 
@@ -1885,15 +1920,20 @@ enum SessionPlanner {
 
     /// From `start` on, a card of the same word as the one before it swaps
     /// with the next card of another word, so the two cards of a word are
-    /// never back to back while other cards remain. Items before `start`
-    /// (asked or showing) stay.
+    /// never back to back while other cards remain. A new card never moves
+    /// ahead of a card already answered (due cards come first): such a
+    /// card stays next to its word's other card instead. Items before
+    /// `start` (asked or showing) stay.
     static func separatingWords(_ plan: [PlannedItem], from start: Int = 0) -> [PlannedItem] {
         var plan = plan
         var index = max(start, 1)
         while index < plan.count {
             let previous = plan[index - 1].card.key.word
-            if plan[index].card.key.word == previous,
-               let other = plan.indices.dropFirst(index + 1).first(where: { plan[$0].card.key.word != previous }) {
+            let current = plan[index].card
+            if current.key.word == previous,
+               let other = plan.indices.dropFirst(index + 1).first(where: { candidate in
+                   plan[candidate].card.key.word != previous && (current.isNew || !plan[candidate].card.isNew)
+               }) {
                 plan.swapAt(index, other)
             }
             index += 1
