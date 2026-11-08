@@ -9,14 +9,14 @@ topics: ell-noun-endings, ell-se-prepositions
 ---
 # Articles and gender
 
-Every Greek noun is masculine, feminine or neuter, and its article shows which: *ο δρόμος*, *η πόρτα*, *το σπίτι*. Learn each noun with its article.
+Every Greek noun is masculine, feminine or neuter, and its article in the singular shows which: *ο δρόμος*, *η πόρτα*, *το σπίτι*. Learn each noun with its article.
 
 The ending is a good guide:
 - masculine: -ος, -ας, -ης: *ο φίλος*, *ο πατέρας*, *ο μαθητής*;
 - feminine: -α, -η: *η μητέρα*, *η κόρη*;
 - neuter: -ο, -ι, -μα: *το βιβλίο*, *το παιδί*, *το όνομα*.
 
-The article changes with the noun. Use the nominative for the subject and after *είμαι*: *Η Άννα είναι γιατρός*. Use the accusative for the object and after prepositions: *Ο Νίκος ξέρει τον Πέτρο*, Nikos knows Petros.
+The article changes with the noun. Use the nominative for the subject and after *είμαι*: *Η Άννα είναι γιατρός*. Use the accusative for the object and after most prepositions: *Ο Νίκος ξέρει τον Πέτρο*, Nikos knows Petros.
 
 *ένας*, *μία*, *ένα* means both "a" and "one". In the plural there is no "a": *Έχω φίλους*, I have friends.
 

@@ -28,7 +28,7 @@ Some of the most common verbs have an aorist stem you learn by heart. The ending
 - *ξέρω*, know: *ήξερα* (past)
 - *θέλω*, want: *ήθελα* (past)
 
-*έρχομαι* ends in -μαι in the present, but its aorist *ήρθα* has the same endings as the others. *ξέρω* and *θέλω* have no everyday aorist, so learn *ήξερα* and *ήθελα* as their past.
+*έρχομαι* ends in -μαι in the present, but its aorist *ήρθα* has the same endings as the others. *ξέρω* has no aorist and *θέλω* only a rare one, *θέλησα*, so learn *ήξερα* and *ήθελα*, the imperfect, as their past.
 
 **The stem changes**
 

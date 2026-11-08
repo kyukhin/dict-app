@@ -84,5 +84,5 @@ For dates, the month is in the genitive and the number takes the article, as wit
 
 ## Watch out
 
-- *τρεις* and *τέσσερις* go with masculine and feminine nouns, *τρία* and *τέσσερα* with neuter ones: *τρεις ώρες*, but *τρία λεπτά*.
+- *τρεις* and *τέσσερις* go with masculine and feminine nouns, *τρία* and *τέσσερα* with neuter ones: *τρεις ώρες*, but *τρία λεπτά*. But *έντεκα*, 11, never changes: *έντεκα ώρες*.
 - One o'clock is feminine: *στη μία*, not ~~στις ένα~~.

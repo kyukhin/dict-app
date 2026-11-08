@@ -15,7 +15,7 @@ The diaeresis, *διαλυτικά*, shows that two vowels are said apart, not a
 
 **Letters**
 
-| Letter | Name | Sound |
+| | Name | Sound |
 |---|---|---|
 | Α α | άλφα | a, as in father |
 | Β β | βήτα | v |
@@ -44,7 +44,7 @@ The diaeresis, *διαλυτικά*, shows that two vowels are said apart, not a
 
 **Letter pairs**
 
-| Pair | Sound | Example |
+| | Sound | Example |
 |---|---|---|
 | ου | u, as in food | μουσική |
 | αι | e, as in pet | και |

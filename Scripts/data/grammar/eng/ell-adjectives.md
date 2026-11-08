@@ -11,7 +11,7 @@ topics: ell-noun-endings
 
 An adjective takes the gender, case and number of its noun: *ο καλός φίλος*, *η καλή φίλη*, *το καλό παιδί*, *τα καλά παιδιά*.
 
-Most adjectives end like *καλός*: -ος, -η, -ο. When a vowel comes before the ending, the feminine ends in -α: *ωραίος*, *ωραία*, *ωραίο*; *νέος*, *νέα*, *νέο*.
+Most adjectives end like *καλός*: -ος, -η, -ο. When a vowel comes before the ending, the feminine usually ends in -α: *ωραίος*, *ωραία*, *ωραίο*; *νέος*, *νέα*, *νέο*.
 
 The adjective usually stands between the article and the noun: *το μεγάλο σπίτι*, the big house. After *είμαι* it agrees too: *Η πόλη είναι μεγάλη*, The city is big.
 

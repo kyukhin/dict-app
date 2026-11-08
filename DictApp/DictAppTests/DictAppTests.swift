@@ -20935,6 +20935,55 @@ final class GrammarFileTests: XCTestCase {
     }
 }
 
+// MARK: - Issue #173: the grammar content (0133-grammar.md, Test plan)
+
+/// The shipped grammar texts against Kirill's review: `reviewed.tsv`, read
+/// through `#filePath`, holds the hash of every text a file ships.
+final class GrammarContentTests: XCTestCase {
+
+    /// "<topic id>\t<sha256>" of each line of `Scripts/data/grammar/reviewed.tsv`,
+    /// read as `build_grammar.py` reads it: blank lines, '#' comments and the
+    /// header skipped.
+    private static func reviewed() throws -> Set<String> {
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()  // DictAppTests
+            .deletingLastPathComponent()  // DictApp
+            .deletingLastPathComponent()
+            .appendingPathComponent("Scripts/data/grammar/reviewed.tsv")
+        return Set(try String(contentsOf: url, encoding: .utf8).components(separatedBy: "\n")
+            .filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty && !$0.hasPrefix("#") && !$0.hasPrefix("topic") }
+            .map { $0.split(separator: "\t", omittingEmptySubsequences: false).prefix(2).joined(separator: "\t") })
+    }
+
+    /// #133, #173 (CodeRabbit, PR #264): every English and Russian text a file
+    /// ships is the one Kirill reviewed: the sha256 of its stored
+    /// `title + "\n" + body` (UTF-8, as `build_grammar.py` hashes it) has its
+    /// `(topic id, sha256)` line in `reviewed.tsv`.
+    func testEveryTopicIsReviewed() throws {
+        let reviewed = try Self.reviewed()
+        let packs = try PackFixtures.all()
+        var texts = 0
+        for url in [try TestDictionary.bundledURL()] + PackID.all.compactMap({ packs[$0] }) {
+            let rows = try BundledDictionary(url: url).read { db in
+                try Row.fetchAll(db, sql: """
+                    SELECT topic_id, explain_lang, title, body FROM grammar_text
+                    WHERE explain_lang IN ('eng', 'rus') ORDER BY topic_id, explain_lang
+                    """)
+            }
+            for row in rows {
+                let topic: String = row["topic_id"], explain: String = row["explain_lang"]
+                let title: String = row["title"], body: String = row["body"]
+                let sha256 = SHA256.hash(data: Data((title + "\n" + body).utf8))
+                    .map { String(format: "%02x", $0) }.joined()
+                XCTAssertTrue(reviewed.contains("\(topic)\t\(sha256)"),
+                              "\(url.lastPathComponent): \(explain)/\(topic).md (sha256 \(sha256)) is not in reviewed.tsv")
+                texts += 1
+            }
+        }
+        XCTAssertGreaterThan(texts, 0, "the files ship grammar texts")
+    }
+}
+
 // MARK: - Issue #153: the built English lists
 //
 // 0130-word-lists.md, Test plan: CEFR-J 1.5 (A1–B2) and Octanove C1/C2 1.0
