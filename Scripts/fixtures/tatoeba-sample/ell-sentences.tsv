@@ -1,8 +1,6 @@
 101	ell	Το σπίτι είναι μεγάλο.	zeus
 102	ell	Το σπίτι είναι μικρό.	\N
 103	ell	Ένα δύο τρία τέσσερα πέντε έξι επτά οκτώ εννέα δέκα έντεκα δώδεκα δεκατρία δεκατέσσερα δεκαπέντε δεκαέξι.	zeus
-104	ell	Είσαι μαλάκα.	zeus
-105	ell	Τι κάνεις εκεί;	zeus
 106	ell	Καλημέρα σε όλους.	zeus
 107	ell	Έγραψε ένα γράμμα.	zeus
 108	ell	Έγραψα ένα τραγούδι.	zeus
@@ -19,9 +17,6 @@
 201	eng	The house is big.	ck
 202	eng	The house is small.	ck
 203	eng	One two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen.	ck
-204	eng	You are an idiot.	ck
-205	eng	What the shit are you doing?	ck
-206	eng	What are you doing there?	ck
 207	eng	She wrote a letter.	ck
 208	eng	I wrote a song.	ck
 209	eng	She wrote a letter again.	ck
@@ -39,8 +34,6 @@
 308	rus	Я написал песню.	olga
 309	rus	Она снова написала письмо.	olga
 310	rus	Я напишу письмо.	\N
-311	rus	Напиши своё имя, сука.	olga
-313	rus	Он пишет книгу, су́ка.	olga
 317	rus	День прекрасный.	ivan
 318	rus	День прекрасен.	olga
 417	ara	اليوم جميل.	ahmed

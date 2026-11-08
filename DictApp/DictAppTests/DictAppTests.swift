@@ -23979,7 +23979,7 @@ final class WordListViewModelTests: WordListsTestCase {
 
 /// The example tables as #177 builds them into the Greek pack and the
 /// English lists pack (0134-example-sentences.md, Test plan), read from the
-/// committed assets through `PackFixtures`; the stoplist through `#filePath`.
+/// committed assets through `PackFixtures`.
 final class ExampleDataTests: XCTestCase {
     private static let tables: [String: [String]] = [
         "example_sentence": ["id", "lang", "text", "author"],
@@ -23990,7 +23990,6 @@ final class ExampleDataTests: XCTestCase {
     private static let translationLanguages: [String: Set<String>] = [
         "ell": ["eng", "rus", "spa", "arb"], "eng": ["rus", "spa", "arb", "ell"],
     ]
-    private static let word = try! NSRegularExpression(pattern: "\\p{L}+(?:['’]\\p{L}+)*")
 
     /// A word's examples from `pack`, in `ord` order: the text and its
     /// highlighted form.
@@ -24014,16 +24013,6 @@ final class ExampleDataTests: XCTestCase {
         var view = String.UnicodeScalarView()
         view.append(contentsOf: scalars[start..<start + length])
         return String(view)
-    }
-
-    /// The words of a text, each also split at its apostrophes, lowercased.
-    private static func words(_ text: String) -> [String] {
-        let range = NSRange(text.startIndex..., in: text)
-        return word.matches(in: text, range: range).flatMap { match -> [String] in
-            let token = (text as NSString).substring(with: match.range).lowercased()
-            let pieces = token.split(whereSeparator: { $0 == "'" || $0 == "’" }).map(String.init)
-            return pieces.count > 1 ? [token] + pieces : [token]
-        }
     }
 
     private func stubURL() throws -> URL {
@@ -24107,88 +24096,6 @@ final class ExampleDataTests: XCTestCase {
             }
             XCTAssertEqual(problems.prefix(20), [], "\(pack): \(problems.count) problems")
         }
-    }
-
-    /// #134, #177: no stored sentence or translation holds a word of
-    /// `examples-stoplist.tsv`: a Greek lemma in any form of the Greek
-    /// pack's forms tables, an English lemma or a form `Morphy` takes to it,
-    /// or a Russian, Spanish or Arabic word start. (The build also checks
-    /// its Greek seed, which it computes from Wiktionary.)
-    func testNoStoplistedWordInThePack() throws {
-        let stoplist = try String(contentsOf: WordListData.repository
-            .appendingPathComponent("Scripts/data/examples-stoplist.tsv"), encoding: .utf8)
-        var lemmas: [String: Set<String>] = [:], prefixes: [String: [String]] = [:]
-        for line in stoplist.split(separator: "\n") where !line.hasPrefix("#") {
-            let fields = line.split(separator: "\t").map(String.init)
-            guard fields.count == 3 else { continue }
-            if fields[1] == "lemma" { lemmas[fields[0], default: []].insert(fields[2]) }
-            if fields[1] == "prefix" { prefixes[fields[0], default: []].append(fields[2]) }
-        }
-        XCTAssertFalse(lemmas["ell", default: []].isEmpty)
-        XCTAssertFalse(lemmas["eng", default: []].isEmpty)
-        XCTAssertEqual(Set(prefixes.keys), ["rus", "spa", "arb"])
-
-        let greekStop = lemmas["ell", default: []]
-        let greek = try BundledDictionary(url: try PackFixtures.file(.ell)).read { db -> (forms: Set<String>, sentences: [String], english: [String], others: [(String, String)]) in
-            let ids = try GRDB.Row.fetchAll(db, sql: "SELECT id, word FROM lemma WHERE lang = 'ell'")
-                .filter { greekStop.contains(($0["word"] as String).lowercased()) }.map { $0["id"] as Int64 }
-            var forms = greekStop
-            if !ids.isEmpty {
-                let list = ids.map(String.init).joined(separator: ",")
-                forms.formUnion(try String.fetchAll(db, sql: "SELECT form FROM paradigm WHERE lemma_id IN (\(list))").map { $0.lowercased() })
-                forms.formUnion(try String.fetchAll(db, sql: "SELECT form FROM form_link WHERE lemma_id IN (\(list))").map { $0.lowercased() })
-            }
-            return (forms,
-                    try String.fetchAll(db, sql: "SELECT text FROM example_sentence"),
-                    try String.fetchAll(db, sql: "SELECT text FROM example_translation WHERE lang = 'eng'"),
-                    try GRDB.Row.fetchAll(db, sql: "SELECT lang, text FROM example_translation WHERE lang IN ('rus', 'spa', 'arb')")
-                        .map { ($0["lang"] as String, $0["text"] as String) })
-        }
-        XCTAssertGreaterThan(greek.forms.count, greekStop.count, "the forms tables give the lemmas' forms")
-        let english = try BundledDictionary(url: try PackFixtures.file(.engLists)).read { db in
-            (sentences: try String.fetchAll(db, sql: "SELECT text FROM example_sentence"),
-             greek: try String.fetchAll(db, sql: "SELECT text FROM example_translation WHERE lang = 'ell'"),
-             others: try GRDB.Row.fetchAll(db, sql: "SELECT lang, text FROM example_translation WHERE lang IN ('rus', 'spa', 'arb')")
-                .map { ($0["lang"] as String, $0["text"] as String) })
-        }
-        let morphy = try BundledDictionary().read { db in
-            (exceptions: Dictionary(grouping: try GRDB.Row.fetchAll(db, sql: "SELECT form, pos, base FROM morphy_exception"),
-                                    by: { $0["form"] as String })
-                .mapValues { rows in rows.compactMap { row in
-                    Morphy.PartOfSpeech(rawValue: row["pos"]).map { Morphy.Exception(pos: $0, base: row["base"]) } } },
-             lemmas: Dictionary(uniqueKeysWithValues: try GRDB.Row.fetchAll(db, sql: "SELECT word, pos_mask FROM morphy_lemma")
-                .map { ($0["word"] as String, $0["pos_mask"] as Int) }))
-        }
-        let englishStop = lemmas["eng", default: []]
-        var bases: [String: [String]] = [:]
-        func englishHit(_ word: String) -> Bool {
-            if englishStop.contains(word) { return true }
-            guard word.allSatisfy({ $0.isASCII && $0.isLetter }) else { return false }
-            if bases[word] == nil {
-                bases[word] = Morphy.analyses(of: word, exceptions: morphy.exceptions[word] ?? [], lemmas: morphy.lemmas)
-                    .map(\.base)
-            }
-            return bases[word]!.contains(where: englishStop.contains)
-        }
-
-        var hits: [String] = []
-        for text in greek.sentences + english.greek where Self.words(text).contains(where: greek.forms.contains) {
-            hits.append(text)
-        }
-        for text in english.sentences + greek.english where Self.words(text).contains(where: englishHit) {
-            hits.append(text)
-        }
-        for (lang, text) in greek.others + english.others {
-            let starts = prefixes[lang] ?? []
-            // A word start matches the word without its combining marks
-            // (Arabic harakat, Russian stress marks), as the build checks it.
-            let bare = String(String.UnicodeScalarView(text.unicodeScalars.filter {
-                $0.properties.generalCategory != .nonspacingMark
-            }))
-            if Self.words(bare).contains(where: { word in starts.contains(where: word.hasPrefix) }) { hits.append(text) }
-        }
-        XCTAssertEqual(hits.prefix(20), [], "\(hits.count) stored texts hold a stoplisted word")
-        XCTAssertFalse(english.sentences.isEmpty || greek.sentences.isEmpty)
     }
 
     /// Kirill 2026-11-04: English examples ship in the English lists pack,

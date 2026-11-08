@@ -2,23 +2,19 @@
 502	eng	We went to London.	alice
 503	eng	What are you going to do?	alice
 504	eng	He has gone mad.	alice
-505	eng	What the fucking hell.	alice
 506	eng	I like to walk.	alice
 507	eng	She lives in a house.	bob
 508	eng	Good evening.	alice
 509	eng	I walked home.	alice
 510	eng	She was here.	alice
-511	eng	For fuck's sake, go home.	alice
 512	eng	She hopes so.	alice
 601	ell	Πάω σπίτι.	zeus
 701	rus	Я иду домой.	olga
 702	rus	Мы поехали в Лондон.	olga
 704	rus	Он сошёл с ума.	olga
-705	rus	Что за чёрт.	olga
 707	rus	Она живёт в доме.	olga
 708	rus	Добрый вечер.	olga
 709	rus	Я пошёл домой пешком.	olga
 710	rus	Она была здесь.	olga
-711	rus	Ради бога, иди домой.	olga
 712	rus	Она на это надеется.	olga
 803	spa	¿Qué vas a hacer?	maria
