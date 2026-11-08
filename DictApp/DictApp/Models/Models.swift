@@ -602,7 +602,12 @@ struct ParadigmCell: Equatable, Sendable {
 
     /// `tags` as `ell.tagset.tags` stores them: space-separated.
     init(form: String, tags: String) {
-        self.init(form: form, tags: Set(tags.split(separator: " ").map(String.init)))
+        self.init(form: form, tags: Self.tags(tags))
+    }
+
+    /// The tags of a stored `ell.tagset.tags`: space-separated.
+    static func tags(_ stored: String) -> Set<String> {
+        Set(stored.split(separator: " ").map(String.init))
     }
 }
 
@@ -2136,7 +2141,9 @@ enum ListText {
         var columns: [Int: Column]?
         // The fields a record has: Anki's #columns, the header's, or the
         // first good row's. A broken multiline field ends at the first line
-        // that parses on its own as a complete record of this many fields.
+        // that parses on its own as a complete record of this many fields;
+        // each line before it is listed as a broken row, so none is lost
+        // unseen (a short row of a ragged file, a one-column list).
         var expected = ankiNames?.count
         var records: [(line: Int, text: String, fields: [String])] = []
         var broken: [BrokenRow] = []
@@ -2154,11 +2161,15 @@ enum ListText {
                 broken.append(BrokenRow(line: index + 1, text: shown(line, in: scalars), problem: .openQuote))
                 var next = index + 1
                 while next < lines.count {
-                    let candidate = Self.record(at: next, in: scalars, lines: lines, delimiter: delimiter.scalar,
-                                                singleLine: true)
-                    if !candidate.openQuote, !isBlank(lines[next], in: scalars),
-                       expected.map({ candidate.fields.count == $0 }) ?? (candidate.fields.count >= 2) {
-                        break
+                    if !isBlank(lines[next], in: scalars) {
+                        let candidate = Self.record(at: next, in: scalars, lines: lines, delimiter: delimiter.scalar,
+                                                    singleLine: true)
+                        if !candidate.openQuote,
+                           expected.map({ candidate.fields.count == $0 }) ?? (candidate.fields.count >= 2) {
+                            break
+                        }
+                        broken.append(BrokenRow(line: next + 1, text: shown(lines[next], in: scalars),
+                                                problem: .openQuote))
                     }
                     next += 1
                 }

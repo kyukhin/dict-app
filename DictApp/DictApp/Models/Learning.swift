@@ -1428,33 +1428,34 @@ enum ConjugationQuestionBuilder {
     /// which #159 adds; until then the drill folds on its own):
     /// lowercased, NFD without nonspacing marks, ς as σ; for Greek forms the
     /// same key as `Search.foldGreek`. A form of Greek letters and spaces is
-    /// folded letter by letter from a table, three times faster: every verb
-    /// folds all its forms once (`DrillVerb.cells`).
+    /// folded letter by letter from a table of UTF-8 bytes indexed by code
+    /// point, many times faster: every verb folds all its forms once
+    /// (`DrillVerb.cells`), about 90,000 forms for the three Greek lists.
     static func fold(_ form: String) -> String {
-        var scalars = String.UnicodeScalarView()
+        var bytes: [UInt8] = []
+        bytes.reserveCapacity(form.utf8.count)
         for scalar in form.unicodeScalars {
-            if let folded = foldedGreekLetters[scalar] {
-                scalars.append(contentsOf: folded)
+            let value = scalar.value
+            if greekLetters.contains(value) {
+                bytes.append(contentsOf: foldedGreekLetters[Int(value - greekLetters.lowerBound)])
+            } else if greekExtended.contains(value) {
+                bytes.append(contentsOf: foldedGreekLetters[greekLetters.count + Int(value - greekExtended.lowerBound)])
             } else if scalar == " " {
-                scalars.append(scalar)
+                bytes.append(0x20)
             } else {
                 return fullFold(form)
             }
         }
-        return String(scalars)
+        return String(decoding: bytes, as: UTF8.self)
     }
 
-    /// `fullFold` of each Greek and Greek Extended code point.
-    private static let foldedGreekLetters: [Unicode.Scalar: String.UnicodeScalarView] = {
-        var table: [Unicode.Scalar: String.UnicodeScalarView] = [:]
-        for value in UInt32(0x0370)...0x03FF {
-            if let scalar = Unicode.Scalar(value) { table[scalar] = fullFold(String(scalar)).unicodeScalars }
-        }
-        for value in UInt32(0x1F00)...0x1FFF {
-            if let scalar = Unicode.Scalar(value) { table[scalar] = fullFold(String(scalar)).unicodeScalars }
-        }
-        return table
-    }()
+    private static let greekLetters: ClosedRange<UInt32> = 0x0370...0x03FF
+    private static let greekExtended: ClosedRange<UInt32> = 0x1F00...0x1FFF
+
+    /// The UTF-8 of `fullFold` of each Greek, then Greek Extended, code point.
+    private static let foldedGreekLetters: [[UInt8]] = (Array(greekLetters) + Array(greekExtended)).map { value in
+        Unicode.Scalar(value).map { Array(fullFold(String($0)).utf8) } ?? []
+    }
 
     private static func fullFold(_ form: String) -> String {
         var scalars = String.UnicodeScalarView()
@@ -3105,14 +3106,19 @@ enum GrammarLinks {
 
     /// The topic of a drill question (0133, "Rule in the drill"): the first
     /// topic of the facet's tense that the rules give the drilled verb, with
-    /// the classes and tenses of the asked voice. Nil for a passive facet,
-    /// which has no Rule, and for a tense without a topic.
+    /// the classes and tenses of the asked voice. A passive facet has a
+    /// topic only for a verb with passive forms only, from a topic that
+    /// lists it. Nil for a tense without a topic.
     static func ruleTopic(verb: DrillVerb, facet: ConjugationFacet, topics: [GrammarTopicSummary],
                           links: [GrammarLink]) -> GrammarTopicSummary? {
-        guard facet.voice == .active, verb.voices[.active] != nil else { return nil }
+        // A passive facet: only a verb with passive forms only, and only from
+        // a topic that lists it (Kirill, 2026-11-08: έρχομαι's aorist →
+        // Irregular aorists). Listed topics teach the active forms, so
+        // γράφομαι gets no Rule from the first conjugation.
+        guard facet.voice == .active || verb.mainVoice == .passive else { return nil }
         let subject = GrammarSubject(
             words: [verb.word, verb.citation],
-            classes: GrammarClass.verbClasses(verb.voices),
+            classes: facet.voice == .active ? GrammarClass.verbClasses(verb.voices) : [],
             tenses: Set(verb.cells.keys.filter { $0.voice == facet.voice }.map(\.tense)))
         let byTopic = gather(links)
         return Self.topics(for: subject, topics: topics, links: links)

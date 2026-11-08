@@ -1459,10 +1459,11 @@ actor DatabaseService {
     }
 
     /// The cells of `count` lemmas of the forms schema `schema` in table
-    /// order, by the `paradigm` primary key.
+    /// order, by the `paradigm` primary key: `lemma_id`, `form`, `tags` and
+    /// `tagset_id`, which a few hundred tag sets share.
     static func drillCellsSQL(schema: String, count: Int) -> String {
         """
-        SELECT p.lemma_id, p.form, t.tags FROM \(schema).paradigm p
+        SELECT p.lemma_id, p.form, t.tags, p.tagset_id FROM \(schema).paradigm p
         JOIN \(schema).tagset t ON t.id = p.tagset_id
         WHERE p.lemma_id IN (\(placeholders(count))) ORDER BY p.lemma_id, p.ord
         """
@@ -1557,14 +1558,24 @@ actor DatabaseService {
             if let linked = InflectionLookup.chooseLink(links) { tables[item.word] = (linked, true) }
         }
 
-        // 3. The cells of every table.
+        // 3. The cells of every table, each tag set parsed once (about
+        // 40,000 cells share a few hundred), the columns read by index.
         var cells: [Int64: [ParadigmCell]] = [:]
+        var tagSets: [Int64: Set<String>] = [:]
         let ids = Array(Set(tables.values.map(\.lemma.id))).sorted()
         for start in stride(from: 0, to: ids.count, by: 500) {
             let chunk = Array(ids[start..<min(start + 500, ids.count)])
             for row in try Row.fetchAll(db, sql: drillCellsSQL(schema: formsSchema, count: chunk.count),
                                         arguments: StatementArguments(chunk)) {
-                cells[row["lemma_id"], default: []].append(ParadigmCell(form: row["form"], tags: row["tags"] as String))
+                let tagsetID: Int64 = row[3]
+                let tags: Set<String>
+                if let known = tagSets[tagsetID] {
+                    tags = known
+                } else {
+                    tags = ParadigmCell.tags(row[2])
+                    tagSets[tagsetID] = tags
+                }
+                cells[row[0], default: []].append(ParadigmCell(form: row[1], tags: tags))
             }
         }
 

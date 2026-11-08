@@ -22,6 +22,12 @@ final class LearnTabTests: XCTestCase {
         if name.contains("testLanguageSwitch") { return ["-learningFixture", "bilingual"] }
         if name.contains("testNoSwitchWithOneLanguage") { return ["-learningFixture", "myWords5"] }
         if name.contains("testChooseListsWhenNothingToLearn") { return ["-learningLanguages", "ell"] }
+        if name.contains("testTrainersOnKeepTheConjugationRow") {
+            return ["-learningLanguages", "ell", "-learningLists", "ky-ell-a1"]
+        }
+        if name.contains("testTrainersOffConjugationRowRightToLeft") {
+            return ["-learningLanguages", "ell", "-AppleLanguages", "(ar)", "-AppleLocale", "ar"]
+        }
         if name.contains("testLimitedPairShowsItsWarning") { return ["-AppleLanguages", "(ru)", "-AppleLocale", "ru"] }
         if name.contains("testSpanishUILearnsEnglishViaSpanish") {
             return ["-AppleLanguages", "(es)", "-AppleLocale", "es"]
@@ -193,8 +199,9 @@ final class LearnTabTests: XCTestCase {
     }
 
     /// Choosing Greek via English, Greek having lists: the home, "Choose
-    /// lists or tap Learn on a word", no switch, the trainers off; "Choose
-    /// lists" opens New words from with Greek A1, A2 and B1 only.
+    /// lists or tap Learn on a word", no switch, the trainers off with their
+    /// footer above the Conjugation row; "Choose lists" opens New words from
+    /// with Greek A1, A2 and B1 only.
     func testChooseGreekOffersItsLists() throws {
         let learnPage = tabBarPage.tapLearnTab()
         XCTAssertTrue(learnPage.waitForPicker())
@@ -206,11 +213,25 @@ final class LearnTabTests: XCTestCase {
         XCTAssertTrue(learnPage.trainerRecognition.waitForExistence(timeout: TestData.Timeouts.medium))
         XCTAssertFalse(learnPage.trainerRecognition.isEnabled, "Recognition is off")
         XCTAssertFalse(learnPage.trainerProduction.isEnabled, "Production is off")
-        XCTAssertTrue(app.staticTexts["Learn a few words first"].exists)
+        let footer = app.staticTexts["Learn a few words first"]
+        XCTAssertTrue(footer.exists)
+        // 0132: the footer is the other trainers'; the enabled Conjugation row follows it.
+        XCTAssertTrue(app.scrollToElement(learnPage.trainerConjugation), "the Conjugation row")
+        XCTAssertTrue(learnPage.trainerConjugation.isEnabled)
+        XCTAssertTrue(footer.exists)
+        XCTAssertLessThan(footer.frame.maxY, learnPage.trainerConjugation.frame.minY, "the footer is above the row")
         // Below the Lists and Grammar sections (0133, #172): the lazy List
         // builds it once scrolled to.
         XCTAssertTrue(app.scrollToElement(learnPage.myWordsRow), "My words")
-        XCTAssertTrue(app.scrollToElement(learnPage.chooseLists), "back to Today")
+        // Back to Today: `scrollToElement` counts Choose lists as reached while
+        // it is still under the navigation bar, where a tap misses it.
+        let chooseLists = learnPage.chooseLists
+        for _ in 0..<6 where !(chooseLists.exists && chooseLists.frame.minY >= app.navigationBars.firstMatch.frame.maxY) {
+            app.collectionViews.firstMatch.swipeDown()
+        }
+        XCTAssertTrue(chooseLists.exists, "back to Today")
+        XCTAssertGreaterThanOrEqual(chooseLists.frame.minY, app.navigationBars.firstMatch.frame.maxY,
+                                    "Choose lists clear of the navigation bar")
 
         let newWordsFrom = learnPage.tapChooseLists()
         for id in ["ky-ell-a1", "ky-ell-a2", "ky-ell-b1"] {
@@ -292,5 +313,50 @@ final class LearnTabTests: XCTestCase {
         for word in ["γράφω", "σπίτι", "νερό", "καλός", "είμαι"] {
             XCTAssertTrue(myWords.waitForWord(word), "My words lists \(word)")
         }
+    }
+
+    /// QA, PR #281 (0132): with words to learn the trainers are on, there
+    /// is no "Learn a few words first", and the Conjugation row is the last
+    /// row of the Trainers section, right below Match the pairs.
+    func testTrainersOnKeepTheConjugationRow() throws {
+        let learnPage = tabBarPage.tapLearnTab()
+        XCTAssertTrue(learnPage.waitForHome(timeout: TestData.Timeouts.long), "the Learn home")
+        XCTAssertTrue(learnPage.trainerRecognition.waitForExistence(timeout: TestData.Timeouts.medium))
+        let enabled = XCTNSPredicateExpectation(predicate: NSPredicate(format: "isEnabled == true"),
+                                                object: learnPage.trainerRecognition)
+        XCTAssertEqual(XCTWaiter.wait(for: [enabled], timeout: TestData.Timeouts.medium), .completed, "Recognition is on")
+        XCTAssertTrue(app.scrollToElement(learnPage.trainerConjugation), "the Conjugation row")
+        XCTAssertTrue(learnPage.trainerConjugation.isEnabled)
+        XCTAssertTrue(learnPage.trainerMatch.exists, "Match the pairs")
+        XCTAssertEqual(learnPage.trainerConjugation.frame.minY, learnPage.trainerMatch.frame.maxY, accuracy: 2,
+                       "the next row of the same section")
+        XCTAssertFalse(app.staticTexts["Learn a few words first"].exists, "no footer while the trainers are on")
+    }
+
+    /// QA, PR #281 (0132): the trainers off in Arabic: their footer, read
+    /// from the right, sits between Match the pairs and the Conjugation
+    /// row, which is enabled and reads "تصريف الأفعال".
+    func testTrainersOffConjugationRowRightToLeft() throws {
+        let learnTab = app.tabButton(labeled: "تعلّم")
+        XCTAssertTrue(learnTab.waitForExistence(timeout: TestData.Timeouts.long), "the Learn tab in Arabic")
+        learnTab.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        let learnPage = LearnPage(app: app)
+        XCTAssertTrue(learnPage.waitForHome(timeout: TestData.Timeouts.long), "the Learn home")
+        XCTAssertTrue(learnPage.trainerRecognition.waitForExistence(timeout: TestData.Timeouts.medium))
+        XCTAssertFalse(learnPage.trainerRecognition.isEnabled, "Recognition is off")
+        XCTAssertTrue(app.scrollToElement(learnPage.trainerConjugation), "the Conjugation row")
+        let row = learnPage.trainerConjugation
+        XCTAssertTrue(row.isEnabled, "Conjugation works without learned words")
+        XCTAssertEqual(row.label, "تصريف الأفعال")
+        let footer = app.staticTexts["ابدأ بتعلّم بضع كلمات أولًا"]
+        XCTAssertTrue(footer.exists, "the trainers' footer")
+        // The footer's frame starts where the section's last row ends.
+        XCTAssertLessThanOrEqual(learnPage.trainerMatch.frame.maxY, footer.frame.minY, "below Match the pairs")
+        XCTAssertLessThan(footer.frame.maxY, row.frame.minY, "above the Conjugation row")
+        // RTL, read from the row's pixels (its frame is full width): the
+        // title, the primary ink, on the right; the level and chevron left.
+        let rowInk = try XCTUnwrap(ConjugationPage(app: app).inkColumns(of: row), "the row's text")
+        XCTAssertGreaterThan(rowInk.strong.lowerBound, row.frame.width / 2, "RTL: the title on the right: \(rowInk)")
+        XCTAssertLessThan(rowInk.ink.lowerBound, row.frame.width / 4, "the level and chevron on the left: \(rowInk)")
     }
 }
