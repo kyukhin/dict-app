@@ -5,6 +5,7 @@
 // the daily reminder and the tab router (#162).
 
 import AVFoundation
+import Combine
 import Foundation
 import SwiftUI
 import UserNotifications
@@ -49,22 +50,47 @@ struct LearningClock: Sendable {
 protocol PairPacksInstalling: Sendable {
     /// The languages with built-in lists (`PackCatalog.languages`, `hasBuiltInLists`).
     var languagesWithLists: Set<String> { get }
+    /// The packs the pair needs, in install order (`CatalogPair.packs`);
+    /// empty for a pair the catalog lacks (an import's, #208).
+    func packs(of pair: LearningPair) async -> [PackID]
     /// The bytes of the pair's packs not installed yet
     /// (`CatalogPair.downloadSize(installed:)`); 0 when none is missing.
     func downloadSize(of pair: LearningPair) async -> Int64
     /// Installs the pair's missing packs (a limited pair's are its
     /// (lang, meanings) pair's); returns at once when none is missing.
+    /// Throws the first pack's `PackError`; each pack's progress and
+    /// failure show in `PackStatusModel`.
     func installPair(lang: String, via: String) async throws
 }
 
-// ponytail: wired to PackService in #241/#242
-/// Until #241: the catalogue's two languages with lists (the Greek lists
-/// come in the Greek pack, the English lists in `eng-lists`); every
-/// dictionary is in the bundle, so nothing to download or install.
-struct PendingPairPacks: PairPacksInstalling {
-    let languagesWithLists: Set<String> = ["ell", "eng"]
-    func downloadSize(of pair: LearningPair) async -> Int64 { 0 }
-    func installPair(lang: String, via: String) async throws {}
+/// 0237's catalog and `PackService`: the pairs' packs and sizes come from
+/// the catalog the service read at launch, and their install is the
+/// service's, the only network the app uses (a download the user started
+/// by choosing a pair).
+struct CatalogPairPacks: PairPacksInstalling {
+    var service: PackService = .shared
+
+    var languagesWithLists: Set<String> {
+        Set(PackCatalog.languages.filter(\.hasBuiltInLists).map(\.lang))
+    }
+
+    func packs(of pair: LearningPair) async -> [PackID] {
+        await catalogPair(pair)?.packs ?? []
+    }
+
+    func downloadSize(of pair: LearningPair) async -> Int64 {
+        guard let catalogPair = await catalogPair(pair) else { return 0 }
+        let installed = await service.installedPacks().filter(\.usable).map(\.id)
+        return catalogPair.downloadSize(installed: Set(installed))
+    }
+
+    func installPair(lang: String, via: String) async throws {
+        try await service.installPair(lang: lang, via: via)
+    }
+
+    private func catalogPair(_ pair: LearningPair) async -> CatalogPair? {
+        await service.catalog.pairs.first { $0.lang == pair.lang && $0.via == pair.via }
+    }
 }
 
 /// The learned languages (`learning_languages`) and their vias
@@ -84,7 +110,7 @@ final class LearningLanguageService {
     private let clock: LearningClock
 
     init(db: DatabaseService = .shared, settings: SettingsService = .shared,
-         packs: any PairPacksInstalling = PendingPairPacks(), clock: LearningClock = LearningClock(),
+         packs: any PairPacksInstalling = CatalogPairPacks(), clock: LearningClock = LearningClock(),
          uiLanguage: @escaping @MainActor () -> String = { LocalizationManager.shared.currentLanguage.code }) {
         self.db = db
         self.settings = settings
@@ -145,7 +171,7 @@ final class LearningLanguageService {
     func learn(_ pair: LearningPair) async throws -> Task<Void, any Error> {
         settings.learningVia[pair.lang] = pair.via
         try await add(pair.lang)
-        return install(pair.lang, via: pair.via)
+        return install(pair)
     }
 
     /// Learn on a word, E3's import, E5's and E6's Practise, after their
@@ -165,7 +191,7 @@ final class LearningLanguageService {
     @discardableResult
     func setVia(_ via: String, for lang: String) -> Task<Void, any Error> {
         settings.learningVia[lang] = via
-        return install(lang, via: via)
+        return install(LearningPair(lang: lang, via: via))
     }
 
     /// Stop learning `lang`: it leaves the learned languages. Its cards, log,
@@ -182,10 +208,13 @@ final class LearningLanguageService {
         try await db.enrolMyWords(lang: lang, today: clock.today)
     }
 
-    private func install(_ lang: String, via: String) -> Task<Void, any Error> {
+    /// Installs the missing packs of `pair` (0237), in the background: the
+    /// Learn home shows their progress, or the failure with Try again,
+    /// which calls this again.
+    @discardableResult
+    func install(_ pair: LearningPair) -> Task<Void, any Error> {
         let packs = packs
-        // ponytail: #241 shows the install's progress and Try again
-        return Task { try await packs.installPair(lang: lang, via: via) }
+        return Task { try await packs.installPair(lang: pair.lang, via: pair.via) }
     }
 }
 
@@ -277,7 +306,8 @@ struct NewWordPicker {
                 entry = try await db.entry(for: item, sourceOrder: sourceOrder).map(EntryKey.init)
             }
             queries.append(MeaningQuery(key: item.key, lookup: item.headword ?? item.term, translation: item.translation,
-                                        translationLang: item.translationLang, entry: entry))
+                                        translationLang: item.translationLang, entry: entry,
+                                        partOfSpeech: item.partOfSpeech))
         }
         return try await db.meanings(of: queries, lang: lang, meaningsLang: meaningsLang, sourceOrder: sourceOrder)
     }
@@ -438,7 +468,13 @@ extension UNUserNotificationCenter: NotificationScheduling {
 /// it on is the only place the app asks for the notification permission.
 @MainActor
 final class LearningReminder {
-    static let shared = LearningReminder()
+    /// The app's reminder, in the in-app language, rescheduled when it
+    /// changes.
+    static let shared: LearningReminder = {
+        let reminder = LearningReminder()
+        reminder.observeLanguage(of: .shared)
+        return reminder
+    }()
 
     /// A request's identifier is this prefix and its learning day.
     nonisolated static let identifierPrefix = "learning.reminder."
@@ -453,6 +489,7 @@ final class LearningReminder {
     private let clock: LearningClock
     /// The in-app language, which the reminder's text is in.
     private let locale: @MainActor () -> Locale
+    private var languageChanges: AnyCancellable?
 
     init(center: (any NotificationScheduling)? = nil, settings: SettingsService = .shared,
          db: DatabaseService = .shared, clock: LearningClock = LearningClock(),
@@ -462,6 +499,15 @@ final class LearningReminder {
         self.db = db
         self.clock = clock
         self.locale = locale
+    }
+
+    /// A change of `localization`'s language reschedules the reminders,
+    /// whose text is in it (#267), once the change is complete.
+    func observeLanguage(of localization: LocalizationManager) {
+        languageChanges = localization.$currentLanguage.map(\.code).removeDuplicates().dropFirst()
+            .sink { [weak self] _ in
+                Task { @MainActor in await self?.reschedule() }
+            }
     }
 
     /// Turns the reminder on at `minutes` after midnight, asking iOS for

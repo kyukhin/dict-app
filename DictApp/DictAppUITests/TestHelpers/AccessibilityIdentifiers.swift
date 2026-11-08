@@ -173,6 +173,11 @@ struct AccessibilityIdentifiers {
         static let goalRing = "learn_goal_ring"
         static let streak = "learn_streak"
         static let statisticsRow = "learn_statistics_row"
+        /// 0237: the chosen pair's pack on its way or failed: its language
+        /// name, the failure and Try again.
+        static let installRow = "learn_install_row"
+        static let installError = "learn_install_error"
+        static let installRetry = "learn_install_retry"
     }
 
     // MARK: - Statistics (0166, #164)

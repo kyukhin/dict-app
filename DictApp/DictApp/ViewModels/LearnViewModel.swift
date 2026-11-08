@@ -31,6 +31,9 @@ final class LearnViewModel: ObservableObject {
     @Published private(set) var pickerRows: [LearningPair] = []
     /// What each picker row still has to download, in bytes; 0 or absent: nothing.
     @Published private(set) var downloadSizes: [LearningPair: Int64] = [:]
+    /// The chosen pair's packs, in install order (0237): the home shows the
+    /// first one on its way, with its progress, or failed, with Try again.
+    @Published private(set) var pairPacks: [PackID] = []
     @Published private(set) var today: Today?
     /// Words of the chosen language with a card in mistakes practice: wrong
     /// in the last 7 days and not right since. 0 hides the row.
@@ -53,6 +56,8 @@ final class LearnViewModel: ObservableObject {
     @Published private(set) var goal: GoalProgress?
     /// The streak, every language (0166, #164).
     @Published private(set) var streak: StreakState?
+    /// A failed choice or load, shown in an alert until dismissed; a reload
+    /// does not clear it.
     @Published var errorMessage: String?
 
     private let db: DatabaseService
@@ -108,14 +113,20 @@ final class LearnViewModel: ObservableObject {
                     sizes[row] = await languages.packs.downloadSize(of: row)
                 }
                 downloadSizes = sizes
+                pairPacks = []
             } else {
                 try await loadHome()
             }
-            errorMessage = nil
         } catch {
             errorMessage = error.localizedDescription
         }
         isLoaded = true
+    }
+
+    /// Try again on the home's install row: the chosen pair's missing packs.
+    func retryInstall() {
+        guard let pair else { return }
+        languages.install(pair)
     }
 
     /// The picker: learns `pair`, then shows its language's home.
@@ -153,7 +164,14 @@ final class LearnViewModel: ObservableObject {
         let day = clock.today
         try await loadGoal(today: day)
         pair = try await languages.pair(for: language)
-        myWordsCount = try await db.fetchMyWords().count
+        if let pair {
+            pairPacks = await languages.packs.packs(of: pair)
+        } else {
+            pairPacks = []
+        }
+        // As the My words screen counts: one per word, those waiting for a
+        // pack too (#245).
+        myWordsCount = try await db.myWordsEntries().count
         // The language's lists in the Lists screen's order; a built-in list
         // whose pack is missing is not among them (0237).
         let lists = WordListsViewModel.sections(try await db.wordLists(), learned: [language], uiLanguage: "")
@@ -772,8 +790,10 @@ final class MatchPairsViewModel: ObservableObject {
     /// after the answers so far are written (they count toward the daily
     /// limit and move the cards).
     private func newRound() async {
-        await writes?.value
+        // Loading before the wait, so a second "Next round" meanwhile finds
+        // no finished round to replace (#268).
         phase = .loading
+        await writes?.value
         round = nil
         flashing = []
         finishedAt = nil
@@ -950,9 +970,13 @@ final class StatisticsViewModel: ObservableObject {
         languages.chosen = lang
         language = lang
         do {
-            blocks = try await languageBlocks(lang, today: today)
+            let loaded = try await languageBlocks(lang, today: today)
+            // A later switch won meanwhile: its blocks, not these (#271).
+            guard language == lang else { return }
+            blocks = loaded
             errorMessage = nil
         } catch {
+            guard language == lang else { return }
             errorMessage = error.localizedDescription
         }
     }

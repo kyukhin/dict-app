@@ -341,6 +341,10 @@ struct LearningLanguagesView: View {
                         LimitedPairNote(pair: pair)
                             .accessibilityIdentifier("learning_language_limited_\(row.lang)")
                     }
+                    // 0237: the pair's packs on their way, or Try again.
+                    PairInstallRow(packs: row.packs) {
+                        vm.retryInstall(of: row)
+                    }
                     Button("settings.learning.stopLanguage", role: .destructive) {
                         stopping = row.lang
                     }

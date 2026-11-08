@@ -1814,21 +1814,24 @@ actor DatabaseService {
 
     /// My words as their list screen shows them (#154): `wordListItems(.myWords)`,
     /// newest first, each with the entry of the row that stands for the word,
-    /// which its snippet and its Definition show. A word of a pack that is
-    /// not installed comes with no entry and waits for it (#245, as
-    /// `fetchMyWordRows`); one whose entry no longer resolves otherwise
-    /// stays stored and is skipped, as in `fetchMyWords` (#138).
+    /// which its snippet and its Definition show; when that entry no longer
+    /// resolves (its pack removed), the entry of the word's next row. A word
+    /// none of whose entries resolves waits for its pack with no entry when
+    /// one of its rows is a pack's that is not installed (#245, as
+    /// `fetchMyWordRows`); otherwise it stays stored and is skipped, as in
+    /// `fetchMyWords` (#138). The Learn home counts these.
     func myWordsEntries() async throws -> [MyWordsEntry] {
         let pool = try await userPool()
         let schemas = schemas
         return try await read(pool) { db in
             try Self.myWordsRows(db).compactMap { row in
-                let key = EntryKey(source: row.source, word: row.item.term)
-                if let entry = try Self.entry(for: key, in: db, schemas: schemas) {
-                    return MyWordsEntry(item: row.item, key: key, entry: entry)
+                for key in row.entries {
+                    if let entry = try Self.entry(for: key, in: db, schemas: schemas) {
+                        return MyWordsEntry(item: row.item, key: key, entry: entry)
+                    }
                 }
-                return schemas.schema(ofSource: key.source) == nil
-                    ? MyWordsEntry(item: row.item, key: key, entry: nil) : nil
+                return row.entries.first { schemas.schema(ofSource: $0.source) == nil }
+                    .map { MyWordsEntry(item: row.item, key: $0, entry: nil) }
             }
         }
     }
@@ -1984,19 +1987,24 @@ actor DatabaseService {
         try myWordsRows(db).map(\.item)
     }
 
-    /// `myWordsItems` with the source of the row that stands for each word.
-    private static func myWordsRows(_ db: Database) throws -> [(item: WordListItem, source: String)] {
+    /// `myWordsItems` with the entry keys of each word's rows, the row that
+    /// stands for it first, then the others in the same order.
+    private static func myWordsRows(_ db: Database) throws -> [(item: WordListItem, entries: [EntryKey])] {
         let languages = try sourceLanguages(db)
-        var keys = Set<WordKey>()
-        var rows: [(item: WordListItem, source: String)] = []
+        var index: [WordKey: Int] = [:]
+        var rows: [(item: WordListItem, entries: [EntryKey])] = []
         for row in try Row.fetchAll(db, sql: "SELECT source, word FROM my_words ORDER BY added_at, source, word") {
             let word: String = row["word"], source: String = row["source"]
             let key = WordKey(lang: languages[source] ?? "und", word: word)
-            guard keys.insert(key).inserted else { continue }
+            if let existing = index[key] {
+                rows[existing].entries.append(EntryKey(source: source, word: word))
+                continue
+            }
+            index[key] = rows.count
             rows.append((WordListItem(
                 listID: .myWords, key: key, term: word, headword: word, translation: "", endings: "",
                 partOfSpeech: "", tags: "", level: "", levelOrder: 0, rank: nil, seq: rows.count,
-                sortKey: WordListItem.sortKey(of: word)), source))
+                sortKey: WordListItem.sortKey(of: word)), [EntryKey(source: source, word: word)]))
         }
         return rows.reversed()
     }
@@ -2088,26 +2096,25 @@ actor DatabaseService {
     // (`LearningSQL.wordKinds`), never E5's conjugation cards.
 
     /// The pairs the dictionaries offer (0131, "Languages and pairs"), each
-    /// with its sources in order: the directions of the bundle's
-    /// `dict_metadata`, then the catalog's packs, installed or not (0237),
-    /// then imports with both languages (#208), and the limited pairs.
+    /// with its sources in order: the catalog's (0237, `PackCatalog`): the
+    /// directions of the bundle's `dict_metadata` and of its packs,
+    /// installed or not, then imports with both languages (#208), and the
+    /// limited pairs of `catalog_pair`.
     func learningPairs() async throws -> [LearningPair: [String]] {
         let pool = try await userPool()
         return try await read(pool) { db in
-            LearningPairs.offered(try Row.fetchAll(db, sql: """
-                SELECT source, from_lang, to_lang FROM (
-                    SELECT 0 AS file, m.rowid IS NULL AS late, COALESCE(m.rowid, c.rowid) AS n,
-                           l.source, l.from_lang, l.to_lang
-                    FROM (\(DictionarySchemas.sourceLanguageSQL)) AS l
-                    LEFT JOIN dict.dict_metadata AS m ON m.source = l.source
-                    LEFT JOIN dict.catalog_source AS c ON c.source = l.source
-                    UNION ALL
-                    SELECT 1, 0, rowid, source, from_lang, to_lang FROM imported_sources
-                    WHERE source NOT IN (SELECT source FROM (\(DictionarySchemas.sourceLanguageSQL))))
-                ORDER BY file, late, n
+            let catalog = try PackCatalog.read(db)
+            let imports = try Row.fetchAll(db, sql: """
+                SELECT source, from_lang, to_lang FROM imported_sources
+                WHERE source NOT IN (SELECT source FROM (\(DictionarySchemas.sourceLanguageSQL)))
+                ORDER BY rowid
                 """).map { row -> (source: String, from: String?, to: String?) in
                     (row["source"], row["from_lang"], row["to_lang"])
-                })
+                }
+            return LearningPairs.offered(catalog.directions.map { ($0.source, $0.fromLang, $0.toLang) } + imports,
+                                         limited: catalog.limitedPairs.map {
+                                             LearningPair(lang: $0.lang, via: $0.via, meaningsLang: $0.meaningsLang)
+                                         })
         }
     }
 
@@ -2502,58 +2509,63 @@ actor DatabaseService {
             guard let source = chosen else { return [] }
             let isImported = try Bool.fetchOne(db, sql: "SELECT EXISTS (SELECT 1 FROM imported_sources WHERE source = ?)",
                                                arguments: [source]) ?? false
-            // #237: a dictionary's rows are in the file of its source.
-            let file: String?
-            if isImported {
-                file = nil
-            } else {
-                guard let schema = schemas.schema(ofSource: source) else { return [] }
-                file = schema
+            // #237: a dictionary's rows are in the file of its source; an
+            // imported source a pack also has, in both (0237, step 7).
+            var files: [String?] = []
+            if let schema = isImported ? schemas.claimedSchema(ofSource: source) : schemas.schema(ofSource: source) {
+                files.append(schema)
             }
-            let table = file.map { "\($0).entries" } ?? "imported_entries"
-            guard let anchor = try Int64.fetchOne(db, sql: """
-                    SELECT id FROM \(table) WHERE word >= ? COLLATE NOCASE AND source = ?
-                    ORDER BY word COLLATE NOCASE LIMIT 1
-                    """, arguments: [near, source])
-                    ?? Int64.fetchOne(db, sql: """
-                    SELECT id FROM \(table) WHERE word < ? COLLATE NOCASE AND source = ?
-                    ORDER BY word COLLATE NOCASE DESC LIMIT 1
-                    """, arguments: [near, source]) else { return [] }
-            let range: ClosedRange<Int64>
-            if let file {
-                let size = try Int64.fetchOne(db, sql: "SELECT word_count FROM \(file).dict_metadata WHERE source = ?",
-                                              arguments: [source]) ?? 0
-                let half = max(size, 1_000)
-                range = max(1, anchor - half)...(anchor + half)
-            } else {
-                let bounds = try Row.fetchOne(db, sql: "SELECT MIN(id) AS lo, MAX(id) AS hi FROM imported_entries WHERE source = ?",
-                                              arguments: [source])
-                let lo: Int64? = bounds?["lo"], hi: Int64? = bounds?["hi"]
-                range = (lo ?? anchor)...max(hi ?? anchor, lo ?? anchor)
+            if isImported {
+                files.append(nil)
             }
             var rng = SplitMix64(seed: seed)
-            var ids: [Int64] = []
-            var drawn = Set<Int64>()
-            for _ in 0..<(count * 20) {
-                let id = Int64.random(in: range, using: &rng)
-                if drawn.insert(id).inserted { ids.append(id) }
-            }
-            let rows = try Row.fetchAll(db, sql: """
-                SELECT id, word, pos, definition FROM \(table)
-                WHERE source = ? AND id IN (\(ids.map { _ in "?" }.joined(separator: ", ")))
-                """, arguments: [source] + StatementArguments(ids))
-            let byID = Dictionary(rows.map { row -> (Int64, Row) in (row["id"], row) }, uniquingKeysWith: { a, _ in a })
             let wanted = DistractorPicker.primaryPOS(pos)
             var sample: [WordChoice] = []
-            for id in ids {
-                guard sample.count < count, let row = byID[id] else { continue }
-                let word: String = row["word"], rowPOS: String = row["pos"]
-                guard wanted.isEmpty || DistractorPicker.primaryPOS(rowPOS) == wanted else { continue }
-                let meaning = Gloss.short(definition: row["definition"])
-                guard !meaning.isEmpty else { continue }
-                sample.append(WordChoice(key: WordKey(lang: lang, word: word), term: word, meaning: meaning,
-                                         partOfSpeech: rowPOS, entry: EntryKey(source: source, word: word),
-                                         isEnrolled: false, meaningSource: source))
+            var taken = Set<String>()
+            for file in files where sample.count < count {
+                let table = file.map { "\($0).entries" } ?? "imported_entries"
+                guard let anchor = try Int64.fetchOne(db, sql: """
+                        SELECT id FROM \(table) WHERE word >= ? COLLATE NOCASE AND source = ?
+                        ORDER BY word COLLATE NOCASE LIMIT 1
+                        """, arguments: [near, source])
+                        ?? Int64.fetchOne(db, sql: """
+                        SELECT id FROM \(table) WHERE word < ? COLLATE NOCASE AND source = ?
+                        ORDER BY word COLLATE NOCASE DESC LIMIT 1
+                        """, arguments: [near, source]) else { continue }
+                let range: ClosedRange<Int64>
+                if let file {
+                    let size = try Int64.fetchOne(db, sql: "SELECT word_count FROM \(file).dict_metadata WHERE source = ?",
+                                                  arguments: [source]) ?? 0
+                    let half = max(size, 1_000)
+                    range = max(1, anchor - half)...(anchor + half)
+                } else {
+                    let bounds = try Row.fetchOne(db, sql: "SELECT MIN(id) AS lo, MAX(id) AS hi FROM imported_entries WHERE source = ?",
+                                                  arguments: [source])
+                    let lo: Int64? = bounds?["lo"], hi: Int64? = bounds?["hi"]
+                    range = (lo ?? anchor)...max(hi ?? anchor, lo ?? anchor)
+                }
+                var ids: [Int64] = []
+                var drawn = Set<Int64>()
+                for _ in 0..<(count * 20) {
+                    let id = Int64.random(in: range, using: &rng)
+                    if drawn.insert(id).inserted { ids.append(id) }
+                }
+                let rows = try Row.fetchAll(db, sql: """
+                    SELECT id, word, pos, definition FROM \(table)
+                    WHERE source = ? AND id IN (\(ids.map { _ in "?" }.joined(separator: ", ")))
+                    """, arguments: [source] + StatementArguments(ids))
+                let byID = Dictionary(rows.map { row -> (Int64, Row) in (row["id"], row) }, uniquingKeysWith: { a, _ in a })
+                for id in ids {
+                    guard sample.count < count, let row = byID[id] else { continue }
+                    let word: String = row["word"], rowPOS: String = row["pos"]
+                    guard wanted.isEmpty || DistractorPicker.primaryPOS(rowPOS) == wanted,
+                          taken.insert(Self.foldedWord(word)).inserted else { continue }
+                    let meaning = Gloss.short(definition: row["definition"])
+                    guard !meaning.isEmpty else { continue }
+                    sample.append(WordChoice(key: WordKey(lang: lang, word: word), term: word, meaning: meaning,
+                                             partOfSpeech: rowPOS, entry: EntryKey(source: source, word: word),
+                                             isEnrolled: false, meaningSource: source))
+                }
             }
             return sample
         }
@@ -2601,8 +2613,9 @@ actor DatabaseService {
                 rest.append(word)
             }
         }
-        func first(_ definitions: [String: String], in sources: [String]) -> (text: String, source: String?)? {
-            for source in sources {
+        func first(_ definitions: [String: String], in sources: [String],
+                   partOfSpeech: String = "") -> (text: String, source: String?)? {
+            for source in sources where Gloss.gives(source, partOfSpeech: partOfSpeech) {
                 if let definition = definitions[source] {
                     let text = Gloss.short(definition: definition)
                     if !text.isEmpty { return (text, source) }
@@ -2614,7 +2627,8 @@ actor DatabaseService {
             let sources = try pairSources(lang: lang, meaningsLang: meaningsLang, order: sourceOrder, in: db)
             let byWord = try Self.definitions(of: Set(rest.map(\.lookup)), in: sources, schemas: schemas, db: db)
             for word in rest {
-                found[word.key] = first(byWord[foldedWord(word.lookup)] ?? [:], in: sources)
+                found[word.key] = first(byWord[foldedWord(word.lookup)] ?? [:], in: sources,
+                                        partOfSpeech: word.partOfSpeech)
             }
         } else {
             // Other: each word's own entry.
@@ -2635,15 +2649,18 @@ actor DatabaseService {
     /// entries' word index, in chunks of 500, per file that holds one of
     /// `sources`: the bundle or a pack (#237, the file of each source
     /// through `DictionarySchemas`; a source whose pack is not installed is
-    /// read nowhere), and the imports.
+    /// read nowhere), and the imports. A source both imported and a pack's
+    /// is read in both; the pack's row wins.
     private static func definitions(of words: Set<String>, in sources: [String], schemas: DictionarySchemas,
                                     db: Database) throws -> [String: [String: String]] {
         var found: [String: [String: String]] = [:]
         guard !words.isEmpty, !sources.isEmpty else { return found }
         let imported = Set(try String.fetchAll(db, sql: "SELECT source FROM imported_sources"))
         var inFiles: [String: [String]] = [:]
-        for source in sources where !imported.contains(source) {
-            if let schema = schemas.schema(ofSource: source) { inFiles[schema, default: []].append(source) }
+        for source in sources {
+            let schema = imported.contains(source) ? schemas.claimedSchema(ofSource: source)
+                : schemas.schema(ofSource: source)
+            if let schema { inFiles[schema, default: []].append(source) }
         }
         let tables = DictionarySchemas.all.compactMap { schema in inFiles[schema].map { ("\(schema).entries", $0) } }
             + [("imported_entries", sources.filter(imported.contains))].filter { !$0.1.isEmpty }
@@ -2657,7 +2674,10 @@ actor DatabaseService {
                       AND source IN (\(tableSources.map { _ in "?" }.joined(separator: ", ")))
                     """, arguments: StatementArguments(chunk) + StatementArguments(tableSources))
                 for row in rows {
-                    found[foldedWord(row["word"]), default: [:]][row["source"]] = row["definition"]
+                    let word = foldedWord(row["word"]), source: String = row["source"]
+                    if found[word]?[source] == nil {
+                        found[word, default: [:]][source] = row["definition"]
+                    }
                 }
             }
         }

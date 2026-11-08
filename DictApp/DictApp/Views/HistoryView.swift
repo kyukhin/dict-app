@@ -89,6 +89,9 @@ struct HistoryDestination: View {
 struct EntryDestination: View {
     let key: EntryKey
     @State private var lookup: Lookup?
+    /// Bumped by each pack change: a new lookup, which cancels the one
+    /// before it.
+    @State private var revision = 0
 
     /// What a key opens.
     enum Lookup: Equatable {
@@ -115,12 +118,19 @@ struct EntryDestination: View {
                 ProgressView()
             }
         }
-        .task {
-            lookup = await Self.lookup(key)
+        // One lookup at a time (CodeRabbit, PR #274): a newer one cancels
+        // the one before, whose result is dropped, so an older result (not
+        // downloaded) never overwrites a newer one (the entry, once the pack
+        // installed). Not unit-tested: the ordering is SwiftUI's `.task(id:)`
+        // cancellation, which needs a rendered view; `lookup` itself is.
+        .task(id: revision) {
+            let result = await Self.lookup(key)
+            guard !Task.isCancelled else { return }
+            lookup = result
         }
         // A pack installed meanwhile (the view's own Download, or Settings).
         .onReceive(NotificationCenter.default.publisher(for: PackService.didChange, object: PackService.shared)) { _ in
-            Task { lookup = await Self.lookup(key) }
+            revision += 1
         }
     }
 

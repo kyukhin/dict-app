@@ -537,6 +537,9 @@ final class LearningSettingsViewModel: ObservableObject {
         let pair: LearningPair?
         /// The pairs its via menu offers, the default first; a menu with two or more.
         let vias: [LearningPair]
+        /// Its pair's packs, in install order (0237): their install shows
+        /// under the row.
+        var packs: [PackID] = []
 
         var id: String { lang }
     }
@@ -557,9 +560,13 @@ final class LearningSettingsViewModel: ObservableObject {
             guard dailyGoal != oldValue else { return }
             settings.learningDailyGoal = dailyGoal
             let goal = dailyGoal
-            Task { await goalChanged(goal) }
+            let previous = goalWrites
+            goalWrites = Task { await previous?.value; await goalChanged(goal) }
         }
     }
+    /// The goal changes' writes, one after another, so the last change is
+    /// the goal stored, whatever order the writes would finish in.
+    private(set) var goalWrites: Task<Void, Never>?
     @Published var newOrder: NewWordOrder {
         didSet { if newOrder != oldValue { settings.learningNewOrder = newOrder } }
     }
@@ -628,13 +635,19 @@ final class LearningSettingsViewModel: ObservableObject {
             let ui = languageService.uiLanguage()
             func name(_ code: String) -> String { LearnViewModel.languageName(code, locale: locale) }
             let learned = languageService.learned
-            languages = learned.map { lang in
+            var rows = learned.map { lang in
                 LanguageRow(lang: lang,
                             pair: LearningPairs.pair(for: lang, stored: settings.learningVia, offered: offered,
                                                      uiLanguage: ui),
                             vias: LearningPairs.vias(for: lang, offered: offered, uiLanguage: ui, name: name)
                                 .compactMap { via in offered.first { $0.lang == lang && $0.via == via } })
             }
+            for index in rows.indices {
+                if let pair = rows[index].pair {
+                    rows[index].packs = await languageService.packs.packs(of: pair)
+                }
+            }
+            languages = rows
             addable = LearningPairs.pickerRows(offered: offered, withLists: languagesWithLists, learned: learned,
                                                uiLanguage: ui, name: name)
             var sizes: [LearningPair: Int64] = [:]
@@ -661,9 +674,14 @@ final class LearningSettingsViewModel: ObservableObject {
     /// new pair's missing packs. Cards, log, progress and lists stay.
     func setVia(_ via: String, for lang: String, locale: Locale) async {
         guard languages.first(where: { $0.lang == lang })?.pair?.via != via else { return }
-        // ponytail: #241 shows the install's progress row and Try again
         languageService.setVia(via, for: lang)
         await load(locale: locale)
+    }
+
+    /// Try again under a language whose pair's install failed.
+    func retryInstall(of row: LanguageRow) {
+        guard let pair = row.pair else { return }
+        languageService.install(pair)
     }
 
     /// Stop learning `lang`, after "Stop learning Greek?": it leaves the
