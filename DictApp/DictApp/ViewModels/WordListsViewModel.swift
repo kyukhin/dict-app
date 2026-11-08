@@ -4,8 +4,8 @@
 // Built-in lists are those of the installed packs: a pack that is not
 // installed reads as empty, and its lists come back, still checked, when it
 // is installed again (0237). The checked lists are
-// `SettingsService.learningListIDs`. The SQL is in `DatabaseService`; #155
-// adds `ListImportViewModel` here.
+// `SettingsService.learningListIDs`. The SQL is in `DatabaseService`.
+// Import (#155): `ListImportViewModel`, over the pure `ListText` parser.
 
 import Combine
 import Foundation
@@ -397,5 +397,282 @@ extension MeaningQuery {
     init(_ item: WordListItem) {
         self.init(key: item.key, lookup: item.headword ?? item.term, translation: item.translation,
                   translationLang: item.translationLang, partOfSpeech: item.partOfSpeech)
+    }
+}
+
+// MARK: - Import (#155)
+
+/// Import (0130, "Import"): a file (CSV, TSV or TXT) or pasted text parsed
+/// by `ListText` into a preview (its name, language, delimiter and columns,
+/// "1,457 words · 39 merged · 0 rows with errors", the first words and the
+/// broken rows), then saved as a user list linked like the built-in lists.
+/// A list of a language not learned asks "Learn %@ via %@?" first (0131).
+@MainActor
+final class ListImportViewModel: ObservableObject {
+    /// What Import asks for a language not learned (0131, as Learn on a word).
+    enum Question: Equatable {
+        /// "Learn Spanish via English?": the language's pair.
+        case pair(LearningPair)
+        /// "Learn lists in other languages?": Other (`und`), without a pair.
+        case other
+    }
+
+    /// Why a file or a paste gives no preview.
+    enum Failure: Equatable {
+        /// "Save the file as UTF-8 and try again".
+        case encoding
+        /// Over 20,000 rows or 10 MB.
+        case tooBig
+        /// A file that could not be read.
+        case unreadable(String)
+    }
+
+    /// The saved list's numbers: "Imported %d words, %d found in the dictionaries".
+    struct Outcome: Equatable {
+        let id: WordListID
+        let words: Int
+        let linked: Int
+    }
+
+    /// The languages the preview offers, Other last.
+    static let languages = ["ell", "eng", "spa", "rus", "arb", "und"]
+
+    #if DEBUG
+    /// `-importListFixture <path>` (UI tests): "Import a file" reads this
+    /// file instead of opening the file picker.
+    static var fixtureURL: URL?
+    #endif
+
+    @Published private(set) var preview: ListImportPreview?
+    /// The list's name: the file's name, or "Pasted list"; editable.
+    @Published var name = ""
+    @Published private(set) var language = "und"
+    @Published private(set) var delimiter = ListText.Delimiter.comma
+    /// The paste box.
+    @Published var pastedText = ""
+    /// The alert Import shows; nil when none is shown.
+    @Published var question: Question?
+    @Published private(set) var failure: Failure?
+    @Published private(set) var outcome: Outcome?
+    @Published private(set) var isWorking = false
+    @Published var errorMessage: String?
+
+    private let db: DatabaseService
+    private let languages: LearningLanguageService
+    /// The text the preview was parsed from, and where it came from.
+    private var text = ""
+    private var origin = ListText.Origin.file
+    /// Drops a preview a later change of language or delimiter replaced.
+    private var generation = 0
+
+    init(db: DatabaseService = .shared, languages: LearningLanguageService? = nil) {
+        self.db = db
+        self.languages = languages ?? .shared
+    }
+
+    /// The delimiter picker's choices: tab, semicolon, comma, and an Anki
+    /// file's own.
+    var delimiterChoices: [ListText.Delimiter] {
+        ListText.Delimiter.choices.contains(delimiter) ? ListText.Delimiter.choices
+            : ListText.Delimiter.choices + [delimiter]
+    }
+
+    /// Import is enabled with words to save and a name.
+    var canImport: Bool {
+        guard let preview, outcome == nil, !isWorking else { return false }
+        return !preview.words.isEmpty && !trimmedName.isEmpty
+    }
+
+    private var trimmedName: String { name.trimmingCharacters(in: .whitespacesAndNewlines) }
+
+    /// Reads the file at `url` (a file picker's security-scoped URL) and
+    /// opens its preview, named after the file. False, with `failure`, when
+    /// it is too big, not UTF-8 or UTF-16 with a BOM, or unreadable.
+    func open(fileAt url: URL) async -> Bool {
+        let text: String
+        do {
+            let scoped = url.startAccessingSecurityScopedResource()
+            defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+            if let size = try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize, size > ListText.maxBytes {
+                throw ListText.Failure.tooBig
+            }
+            text = try ListText.text(of: Data(contentsOf: url))
+        } catch {
+            failure = Self.failure(error)
+            return false
+        }
+        return await open(text: text, origin: .file, name: url.deletingPathExtension().lastPathComponent)
+    }
+
+    /// Opens the preview of the paste box, named `name` ("Pasted list").
+    func openPasted(name: String) async -> Bool {
+        // 0130, Limits: 10 MB per import, as for a file.
+        guard pastedText.utf8.count <= ListText.maxBytes else {
+            failure = .tooBig
+            return false
+        }
+        return await open(text: pastedText, origin: .paste, name: name)
+    }
+
+    /// A delimiter chosen in the preview: the text is parsed again.
+    func setDelimiter(_ delimiter: ListText.Delimiter) async {
+        guard delimiter != self.delimiter else { return }
+        self.delimiter = delimiter
+        do {
+            try await prepare(try await Self.parsed(text, delimiter: delimiter, origin: origin))
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    /// A language chosen in the preview: the words are linked again.
+    func setLanguage(_ language: String) async {
+        guard language != self.language, let parse = preview?.parse else { return }
+        self.language = language
+        do {
+            try await prepare(parse)
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    /// Import: saves the list when its language is learned; otherwise asks
+    /// `question` first (0130, Kirill 2026-11-04).
+    func confirm() async {
+        guard canImport, let preview else { return }
+        guard !languages.isLearned(preview.lang) else {
+            await save()
+            return
+        }
+        do {
+            question = try await languages.pair(for: preview.lang).map(Question.pair) ?? .other
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    /// The answer to `question`: Yes learns the pair (or Other alone), as
+    /// the picker does, then saves; No saves the list, hidden until its
+    /// language is learned.
+    func answer(_ question: Question, yes: Bool) async {
+        self.question = nil
+        guard let preview else { return }
+        if yes {
+            do {
+                switch question {
+                case let .pair(pair): try await languages.learn(pair)
+                case .other: try await languages.learn(language: preview.lang)
+                }
+            } catch {
+                errorMessage = error.localizedDescription
+                return
+            }
+        }
+        await save()
+    }
+
+    private func save() async {
+        guard let preview, outcome == nil else { return }
+        isWorking = true
+        defer { isWorking = false }
+        do {
+            let id = try await db.saveUserList(preview, title: trimmedName)
+            outcome = Outcome(id: id, words: preview.words.count, linked: preview.linkedCount)
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    /// Parses `text` with its delimiter detected, guesses its language from
+    /// its terms' script and links its words.
+    private func open(text: String, origin: ListText.Origin, name: String) async -> Bool {
+        isWorking = true
+        defer { isWorking = false }
+        do {
+            let parse = try await Self.parsed(text, delimiter: nil, origin: origin)
+            self.text = text
+            self.origin = origin
+            self.name = name
+            delimiter = parse.delimiter
+            language = ListText.guessLanguage(parse.words)
+            preview = nil
+            outcome = nil
+            failure = nil
+            try await prepare(parse)
+            return true
+        } catch {
+            failure = Self.failure(error)
+            return false
+        }
+    }
+
+    /// The preview of `parse` in the current language.
+    private func prepare(_ parse: ListText.Result) async throws {
+        generation += 1
+        let current = generation
+        let preview = try await db.prepareListImport(parse, lang: language)
+        if current == generation { self.preview = preview }
+    }
+
+    /// `ListText.parse` off the main actor.
+    private nonisolated static func parsed(_ text: String, delimiter: ListText.Delimiter?,
+                                           origin: ListText.Origin) async throws -> ListText.Result {
+        try await Task.detached(priority: .userInitiated) {
+            try ListText.parse(text, delimiter: delimiter, origin: origin)
+        }.value
+    }
+
+    private static func failure(_ error: any Error) -> Failure {
+        switch error as? ListText.Failure {
+        case .encoding?: return .encoding
+        case .tooBig?: return .tooBig
+        case nil: return .unreadable(error.localizedDescription)
+        }
+    }
+
+    // MARK: Texts
+
+    /// "1,457 words · 39 merged · 0 rows with errors", in the in-app language.
+    nonisolated static func summary(_ preview: ListImportPreview, locale: Locale) -> String {
+        let bundle = SettingsViewModel.localizedBundle(for: locale)
+        return mark(locale) + [
+            String(localized: "wordLists.count \(preview.words.count)", bundle: bundle, locale: locale),
+            String(localized: "listImport.merged \(preview.parse.merged)", bundle: bundle, locale: locale),
+            String(localized: "listImport.errors \(preview.parse.broken.count)", bundle: bundle, locale: locale),
+        ].joined(separator: " · ")
+    }
+
+    /// The columns found: "Term · Translation · Level · Endings".
+    nonisolated static func columnsText(_ columns: [ListText.Column], locale: Locale) -> String {
+        mark(locale) + columns.map { WordListsViewModel.localized("listImport.column." + $0.rawValue, locale: locale) }
+            .joined(separator: " · ")
+    }
+
+    /// "Imported 1,457 words, 1,371 found in the dictionaries".
+    nonisolated static func outcomeText(_ outcome: Outcome, locale: Locale) -> String {
+        let bundle = SettingsViewModel.localizedBundle(for: locale)
+        let linked = outcome.linked.formatted(.number.locale(locale))
+        return String(localized: "listImport.result \(outcome.words) \(linked)", bundle: bundle, locale: locale)
+    }
+
+    /// A delimiter's name: Tab, Semicolon, Comma, Space, or the character.
+    nonisolated static func delimiterName(_ delimiter: ListText.Delimiter, locale: Locale) -> String {
+        switch delimiter {
+        case .tab: return WordListsViewModel.localized("listImport.delimiter.tab", locale: locale)
+        case .semicolon: return WordListsViewModel.localized("listImport.delimiter.semicolon", locale: locale)
+        case .comma: return WordListsViewModel.localized("listImport.delimiter.comma", locale: locale)
+        case .space: return WordListsViewModel.localized("listImport.delimiter.space", locale: locale)
+        default: return "\u{201C}" + String(Character(delimiter.scalar)) + "\u{201D}"
+        }
+    }
+
+    /// Why a row is skipped, as the preview reads it.
+    nonisolated static func problemText(_ problem: ListText.Problem, locale: Locale) -> String {
+        WordListsViewModel.localized("listImport.error." + problem.rawValue, locale: locale)
+    }
+
+    /// U+200F before a composed text in a right-to-left language (#119).
+    private nonisolated static func mark(_ locale: Locale) -> String {
+        locale.language.characterDirection == .rightToLeft ? "\u{200F}" : ""
     }
 }

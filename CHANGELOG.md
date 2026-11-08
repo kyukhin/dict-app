@@ -34,6 +34,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - [#165] A word in learning shows its status under the part of speech on the Definition screen: new, learning or learned with the next review, each card's stage and the mistakes so far.
 - [#243] Settings → Dictionaries → Languages downloads, updates and removes each language with its size and progress, and Dictionary Order links to it; removing a language warns when learning needs it.
 - [#245] The first launch offers the other languages in one sheet, with the UI and device languages checked (after an update from 1.x, those that were on), their progress, Not now and a link to import one's own dictionary. A History or My words word, or a Greek, Cyrillic or Arabic query, whose language is not downloaded offers its download.
+- [#155] Word lists import from a CSV, TSV or TXT file (Kirill's lists and Anki's "Notes in Plain Text" too) or from text pasted from Quizlet, with a preview of the words, the merged duplicates and every broken row before anything is saved. Imported words link to the dictionaries like the built-in lists, a list of a language not learned yet asks "Learn … via …?" first, and a Formats screen shows the three formats.
 
 ### Changed
 - [#138] Every dictionary is searchable right after install, with no "Preparing dictionaries" bar: the app reads the bundled dictionaries in place and keeps your history, saved words and imports in a small database of their own.

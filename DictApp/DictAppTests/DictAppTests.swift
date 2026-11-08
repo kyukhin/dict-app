@@ -29571,3 +29571,760 @@ final class NotDownloadedLookupTests: XCTestCase {
         XCTAssertEqual(stats.map(\.count), [5, 3, 3, 3, 3, 3])
     }
 }
+
+// MARK: - 0130: list import (#155)
+//
+// 0130-word-lists.md, Test plan, the #155 rows: the pure parser (`ListText`),
+// the preview and save on the real packs (`ListImportTests`), and the
+// import screens' view model (`ListImportViewModelTests`). Fixtures:
+// Kirill's committed CSVs, and `broken-list.csv`, `quizlet-paste.txt` and
+// `anki-notes-plain-text.txt` next to this file (a hand-made Anki export in
+// the documented format until Kirill exports a real one).
+
+enum ImportFixture {
+    static let directory = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+
+    static func url(_ name: String) -> URL { directory.appendingPathComponent(name) }
+
+    static func text(_ name: String) throws -> String {
+        try String(contentsOf: url(name), encoding: .utf8)
+    }
+
+    /// Kirill's committed CSV of `level` (`A1`, `A2`, `B1`).
+    static func kirill(_ level: String) -> URL {
+        WordListData.repository.appendingPathComponent("Scripts/data/wordlists/ky-ell-\(level.lowercased()).csv")
+    }
+
+    /// Kirill's file of `level`, decoded and parsed as Import reads it.
+    static func parseKirill(_ level: String) throws -> ListText.Result {
+        try ListText.parse(ListText.text(of: Data(contentsOf: kirill(level))))
+    }
+}
+
+/// `ListText` (pure): encodings, delimiters, RFC 4180 quotes, headers, Anki
+/// and Quizlet, broken rows, merging and the limits.
+final class ListTextTests: XCTestCase {
+    private func terms(_ result: ListText.Result) -> [String] { result.words.map(\.term) }
+
+    /// #130, #155: an Anki "Notes in Plain Text" export imports without
+    /// edits (Anki quotes a field that holds the separator, as `&nbsp;`
+    /// does here): `#separator` by name or as a character, `#html`, the guid,
+    /// note type and deck columns ignored, the tags column kept, `#columns`
+    /// naming the fields, HTML and `[sound:]` stripped, entities decoded.
+    func testAnkiHeaders() throws {
+        let semicolons = """
+            #separator:Semicolon
+            #html:true
+            #guid column:1
+            #notetype column:2
+            #deck column:3
+            #tags column:6
+            #columns:GUID;Note type;Deck;Front;Back;Tags
+            abc;Basic;Greek;<b>σπίτι</b>;house<br>home;noun  place
+            def;Basic;Greek;γράφω;"to write&nbsp;[sound:grafo.mp3]";verb
+            """
+        let result = try ListText.parse(semicolons)
+        XCTAssertEqual(result.origin, .anki)
+        XCTAssertEqual(result.delimiter, .semicolon)
+        XCTAssertEqual(result.columns, [.term, .translation, .tags])
+        XCTAssertEqual(result.broken, [])
+        XCTAssertEqual(terms(result), ["σπίτι", "γράφω"])
+        XCTAssertEqual(result.words.map(\.translation), ["house; home", "to write"])
+        XCTAssertEqual(result.words.map(\.tags), ["noun place", "verb"])
+
+        // Back first in #columns: the names place the fields.
+        let named = try ListText.parse("#separator:|\n#columns:Back|Front\nhouse|σπίτι\n")
+        XCTAssertEqual(named.delimiter, ListText.Delimiter(scalar: "|"))
+        XCTAssertEqual(terms(named), ["σπίτι"])
+        XCTAssertEqual(named.words.first?.translation, "house")
+
+        // No #columns: the first field is the term, the next the
+        // translation; #notetype and #deck are ignored; HTML in a field is
+        // stripped without #html, entities decoded.
+        let plain = try ListText.parse("""
+            #separator:Pipe
+            #notetype:Basic
+            #deck:Greek
+            #tags column:3
+            νερό|water &amp; <i>drink</i>|drink noun
+            """)
+        XCTAssertEqual(plain.delimiter, ListText.Delimiter(scalar: "|"))
+        XCTAssertEqual(plain.columns, [.term, .translation, .tags])
+        XCTAssertEqual(plain.words.first?.translation, "water & drink")
+        XCTAssertEqual(plain.words.first?.tags, "drink noun")
+
+        for (name, delimiter) in [("tab", ListText.Delimiter.tab), ("Comma", .comma), ("space", .space),
+                                  ("colon", ListText.Delimiter(scalar: ":"))] {
+            XCTAssertEqual(try ListText.parse("#separator:\(name)\n").delimiter, delimiter, name)
+        }
+
+        // The fixture: guid, note type and deck ignored, tags kept.
+        let fixture = try ListText.parse(ImportFixture.text("anki-notes-plain-text.txt"))
+        XCTAssertEqual(fixture.origin, .anki)
+        XCTAssertEqual(terms(fixture), ["cat", "dog", "house", "water", "to go"])
+        XCTAssertEqual(fixture.words.map(\.translation),
+                       ["γάτα", "σκύλος; σκυλί", "σπίτι", "νερό; \"υγρό\"", "πηγαίνω / πάω"])
+        XCTAssertEqual(fixture.words.first?.tags, "noun animals")
+    }
+
+    /// #130, #155: a Quizlet paste imports without edits: a tab between the
+    /// term and the definition, one card per line; commas and semicolons
+    /// in a definition stay in it.
+    func testQuizletPaste() throws {
+        let result = try ListText.parse("σπίτι\thouse, home; residence\nγράφω\tto write\n\nθάλασσα\tsea\n",
+                                        origin: .paste)
+        XCTAssertEqual(result.delimiter, .tab)
+        XCTAssertEqual(result.origin, .paste)
+        XCTAssertEqual(result.columns, [.term, .translation])
+        XCTAssertEqual(terms(result), ["σπίτι", "γράφω", "θάλασσα"])
+        XCTAssertEqual(result.words.first?.translation, "house, home; residence")
+        XCTAssertEqual(result.broken, [])
+
+        let fixture = try ListText.parse(ImportFixture.text("quizlet-paste.txt"), origin: .paste)
+        XCTAssertEqual(fixture.words.count, 5)
+        XCTAssertEqual(fixture.words.first?.translation, "house, home")
+        XCTAssertEqual(ListText.guessLanguage(fixture.words), "ell")
+    }
+
+    /// #130, #155: an empty term, an unclosed quote in the middle and at the
+    /// end, a 1,001-character field: each broken row with its line number,
+    /// its text and the reason; the other rows parse.
+    func testBrokenRowsAreReportedAndSkipped() throws {
+        let long = String(repeating: "α", count: 1_001)
+        let text = #"""
+            term,translation
+            σπίτι,house
+            ,no term here
+            νερό,"water
+            θάλασσα,sea
+            \#(long),too long
+            γράφω,"to ""write"""
+            ήλιος,"sun
+            """#
+        let result = try ListText.parse(text)
+        XCTAssertEqual(terms(result), ["σπίτι", "θάλασσα", "γράφω"])
+        XCTAssertEqual(result.words.map(\.translation), ["house", "sea", "to \"write\""])
+        XCTAssertEqual(result.broken.map(\.line), [3, 4, 6, 8])
+        XCTAssertEqual(result.broken.map(\.problem), [.noTerm, .openQuote, .tooLong, .openQuote])
+        XCTAssertEqual(result.broken[0].text, ",no term here")
+        XCTAssertEqual(result.broken[1].text, "νερό,\"water")
+        XCTAssertTrue(result.broken[2].text.hasSuffix("…"), "a long row is cut for the preview")
+        XCTAssertEqual(result.merged, 0)
+
+        let fixture = try ListText.parse(ImportFixture.text("broken-list.csv"))
+        XCTAssertEqual(terms(fixture), ["σπίτι", "γράφω", "θάλασσα", "ήλιος"])
+        XCTAssertEqual(fixture.broken.map(\.line), [4, 5])
+        XCTAssertEqual(fixture.broken.map(\.problem), [.noTerm, .openQuote])
+        XCTAssertEqual(fixture.words.last?.translation, "sun, star")
+
+        // 1,000 characters are fine; a row of empty fields is a blank line.
+        let fine = try ListText.parse("σπίτι,\(String(repeating: "β", count: 1_000))\n,,\n")
+        XCTAssertEqual(fine.words.count, 1)
+        XCTAssertEqual(fine.broken, [])
+    }
+
+    /// A two-column file whose row 5 opens a quote that never closes,
+    /// followed by two one-field continuation lines, then good rows: one
+    /// broken row at line 5, no word from the continuation lines, the good
+    /// rows after them import.
+    func testUnclosedMultilineQuote() throws {
+        let text = """
+            term,translation
+            α,1
+            β,2
+            γ,3
+            δ,"four
+            continued
+            still continued
+            ε,5
+            ζ,6
+            """
+        let result = try ListText.parse(text)
+        XCTAssertEqual(terms(result), ["α", "β", "γ", "ε", "ζ"])
+        XCTAssertEqual(result.broken, [ListText.BrokenRow(line: 5, text: "δ,\"four", problem: .openQuote)])
+
+        // Without a header, the first good row's two fields are expected.
+        let headerless = try ListText.parse("α,1\nβ,\"2\nx\nγ,3\n")
+        XCTAssertEqual(terms(headerless), ["α", "γ"])
+        XCTAssertEqual(headerless.broken.map(\.line), [2])
+
+        // Nothing parses after it: nothing follows.
+        let tail = try ListText.parse("α,1\nβ,\"2\nx\ny\n")
+        XCTAssertEqual(terms(tail), ["α"])
+        XCTAssertEqual(tail.broken.map(\.line), [2])
+
+        // A closed multiline field is a field.
+        let closed = try ListText.parse("α,\"one\ntwo\"\nβ,2\n")
+        XCTAssertEqual(closed.words.map(\.translation), ["one\ntwo", "2"])
+        XCTAssertEqual(closed.broken, [])
+    }
+
+    /// Tab, then semicolon, then comma; a manual choice overrides; a comma
+    /// CSV with a quoted semicolon on every line stays comma.
+    func testDelimiterDetection() throws {
+        XCTAssertEqual(ListText.detectDelimiter("a\tb\nc\td\n"), .tab)
+        XCTAssertEqual(ListText.detectDelimiter("a;b\nc;d\n"), .semicolon)
+        XCTAssertEqual(ListText.detectDelimiter("a,b\nc,d\n"), .comma)
+        XCTAssertEqual(ListText.detectDelimiter("a;b\nc,d\n"), .comma, "a semicolon on every line, else comma")
+        XCTAssertEqual(ListText.detectDelimiter("a,\"x;y\"\nb,\"z;w\"\n"), .comma, "quoted semicolons do not count")
+        XCTAssertEqual(ListText.detectDelimiter("a,\"x\ty\"\n"), .comma, "a quoted tab does not count")
+        XCTAssertEqual(ListText.detectDelimiter("a;b,c\nd;e,f\n"), .semicolon)
+        let lines = (1...30).map { "w\($0),t\($0)" }
+        var late = lines
+        late[14] = "w15\tt15"
+        XCTAssertEqual(ListText.detectDelimiter(late.joined(separator: "\n")), .tab, "a tab in line 15 of 20")
+        late = lines
+        late[24] = "w25\tt25"
+        XCTAssertEqual(ListText.detectDelimiter(late.joined(separator: "\n")), .comma, "line 25 is not read")
+        XCTAssertEqual(ListText.detectDelimiter(""), .comma)
+
+        let override = try ListText.parse("σπίτι;house,home\n", delimiter: .comma)
+        XCTAssertEqual(override.delimiter, .comma)
+        XCTAssertEqual(override.words.first?.term, "σπίτι;house")
+        XCTAssertEqual(try ListText.parse("σπίτι;house,home\n").words.first?.translation, "house,home")
+        XCTAssertEqual(try ListText.parse("#separator:comma\nσπίτι;house,home\n").delimiter, .comma,
+                       "Anki's #separator overrides detection")
+    }
+
+    /// RFC 4180: quoted fields with the delimiter, `""` and line breaks;
+    /// CRLF, LF and CR line ends; spaces before an opening and after a
+    /// closing quote.
+    func testRFC4180Quotes() throws {
+        let text = "term,translation\r\n\"σπίτι\",\"house, home\"\r\n\"say \"\"hi\"\"\",greet\r\n"
+            + "λέξη,\"one line\r\nand another\"\r\n  \"γράφω\" ,to write\rνερό,water"
+        let result = try ListText.parse(text)
+        XCTAssertEqual(terms(result), ["σπίτι", "say \"hi\"", "λέξη", "γράφω", "νερό"])
+        XCTAssertEqual(result.words.map(\.translation),
+                       ["house, home", "greet", "one line\nand another", "to write", "water"])
+        XCTAssertEqual(result.words.map(\.line), [2, 3, 4, 6, 7])
+        XCTAssertEqual(result.broken, [])
+        // A quote inside an unquoted field is a character.
+        XCTAssertEqual(try ListText.parse("5\" screen,οθόνη\n").words.first?.term, "5\" screen")
+    }
+
+    /// UTF-8 with and without a BOM, UTF-16 with a BOM; invalid bytes,
+    /// UTF-16 without a BOM and UTF-32 fail with `.encoding`.
+    func testEncodings() throws {
+        let text = "term,translation\nσπίτι,house\n"
+        XCTAssertEqual(try ListText.text(of: Data(text.utf8)), text)
+        XCTAssertEqual(try ListText.text(of: Data([0xEF, 0xBB, 0xBF]) + Data(text.utf8)), text)
+        let le = try XCTUnwrap(text.data(using: .utf16LittleEndian))
+        XCTAssertEqual(try ListText.text(of: Data([0xFF, 0xFE]) + le), text)
+        let be = try XCTUnwrap(text.data(using: .utf16BigEndian))
+        XCTAssertEqual(try ListText.text(of: Data([0xFE, 0xFF]) + be), text)
+        let bom = try ListText.parse(ListText.text(of: Data([0xEF, 0xBB, 0xBF]) + Data(text.utf8)))
+        XCTAssertEqual(bom.columns, [.term, .translation], "the header is read after the BOM")
+        XCTAssertEqual(try ListText.parse("\u{FEFF}" + text).words.map(\.term), ["σπίτι"])
+
+        for (name, data) in [("Latin-1", Data([0x61, 0x2C, 0xE9, 0x0A])), ("UTF-16 without a BOM", le),
+                             ("UTF-32", Data([0xFF, 0xFE, 0, 0, 0x61, 0, 0, 0]))] {
+            XCTAssertThrowsError(try ListText.text(of: data), name) { error in
+                XCTAssertEqual(error as? ListText.Failure, .encoding, name)
+            }
+        }
+    }
+
+    /// Rows with the same term merge as the build merges them: a
+    /// capitalised term into its lowercase twin, the same `NOCASE` term;
+    /// the lowest level, translations with "; " and endings with " / " in
+    /// file order (a repeated one once), tags without repeats, the first
+    /// row's line, `seq` and part of speech.
+    func testDuplicatesMerge() throws {
+        let text = """
+            term,translation,level,endings,part of speech,tags
+            σπίτι,house,A2,το,noun,home
+            Σπίτι,home,A1,,proper noun,place
+            σπίτι,house,B1,το,,home noun
+            House,σπίτι,,,noun,
+            HOUSE,οίκος,,,,
+            γράφω,write,Lesson 1,-εις,verb,
+            Γράφω,writes,,,,
+            """
+        let result = try ListText.parse(text)
+        XCTAssertEqual(result.rows, 7)
+        XCTAssertEqual(result.merged, 4)
+        XCTAssertEqual(terms(result), ["σπίτι", "House", "γράφω"])
+        let spiti = result.words[0]
+        XCTAssertEqual(spiti.translation, "house; home")
+        XCTAssertEqual(spiti.endings, "το")
+        XCTAssertEqual(spiti.level, "A1")
+        XCTAssertEqual(spiti.levelOrder, 1)
+        XCTAssertEqual(spiti.partOfSpeech, "noun")
+        XCTAssertEqual(spiti.tags, "home place noun")
+        XCTAssertEqual(spiti.line, 2)
+        XCTAssertEqual(spiti.seq, 0)
+        let house = result.words[1]
+        XCTAssertEqual(house.translation, "σπίτι; οίκος", "NOCASE merges House and HOUSE")
+        XCTAssertEqual(house.levelOrder, 0)
+        let grafo = result.words[2]
+        XCTAssertEqual(grafo.level, "Lesson 1", "a level comes before none")
+        XCTAssertEqual(grafo.levelOrder, 7)
+        XCTAssertEqual(grafo.translation, "write; writes")
+        XCTAssertEqual(grafo.seq, 5)
+    }
+
+    /// Headers: Kirill's `level,greek,endings,english`, language names,
+    /// named columns in any order, localized names; no header: column 1 is
+    /// the term and column 2 the translation.
+    func testHeaderMapping() throws {
+        let kirill = try ListText.parse("level,greek,endings,english\nA1,αγαπημένος,\"-η, -ο\",favorite\n")
+        XCTAssertEqual(kirill.columns, [.term, .translation, .level, .endings])
+        XCTAssertEqual(kirill.words.first, ListText.Word(term: "αγαπημένος", translation: "favorite", endings: "-η, -ο",
+                                                         level: "A1", levelOrder: 1, line: 2, seq: 0))
+
+        let languages = try ListText.parse("English,Spanish\nhouse,casa\n")
+        XCTAssertEqual(languages.words.first?.term, "house")
+        XCTAssertEqual(languages.words.first?.translation, "casa")
+
+        let reversed = try ListText.parse("Translation\tTerm\tPart_Of_Speech\tTags\nhouse\tσπίτι\tnoun\tA\n")
+        XCTAssertEqual(reversed.columns, [.term, .translation, .partOfSpeech, .tags])
+        let rows = try ListText.parse("Translation\tTerm\tPart_Of_Speech\nhouse\tσπίτι\tnoun\n")
+        XCTAssertEqual(rows.words.first?.term, "σπίτι")
+        XCTAssertEqual(rows.words.first?.translation, "house")
+        XCTAssertEqual(rows.words.first?.partOfSpeech, "noun")
+
+        let russian = try ListText.parse("слово;перевод;уровень\nσπίτι;дом;a2\n")
+        XCTAssertEqual(russian.words.first?.translation, "дом")
+        XCTAssertEqual(russian.words.first?.level, "A2", "levels in any case")
+        XCTAssertEqual(try ListText.parse("term,level\nσπίτι,Β1\n").words.first?.level, "B1", "Greek level letters")
+
+        let none = try ListText.parse("σπίτι,house,extra\nγράφω,write,more\n")
+        XCTAssertEqual(none.columns, [.term, .translation])
+        XCTAssertEqual(terms(none), ["σπίτι", "γράφω"], "no header: the first row is a word")
+        let single = try ListText.parse("σπίτι\nγράφω\n")
+        XCTAssertEqual(single.columns, [.term])
+        XCTAssertEqual(try ListText.parse("term\nσπίτι\n").words.map(\.term), ["σπίτι"], "a header of one name")
+        XCTAssertEqual(try ListText.parse("level,дом\nσπίτι,house\n").words.count, 2,
+                       "one known name of two is not a header")
+        // A first card whose fields both name the term ("word" in two
+        // languages) is a word, not a header.
+        XCTAssertEqual(try ListText.parse("λέξη\tword\nσπίτι\thouse\n").words.map(\.term), ["λέξη", "σπίτι"])
+        XCTAssertEqual(try ListText.parse("word,слово\nhouse,дом\n").words.map(\.translation), ["слово", "дом"])
+        let twoNames = try ListText.parse("Word,Meaning,Definition\nσπίτι,house,a building\n")
+        XCTAssertEqual(twoNames.words.map(\.translation), ["house"], "two columns named: a header")
+    }
+
+    /// 20,000 rows and 10 MB per import; a field of 1,001 characters breaks
+    /// its row.
+    func testLimits() throws {
+        let rows = (0..<ListText.maxRows).map { "w\($0),t" }
+        XCTAssertEqual(try ListText.parse(rows.joined(separator: "\n")).words.count, 20_000)
+        XCTAssertThrowsError(try ListText.parse((rows + ["one,more"]).joined(separator: "\n"))) { error in
+            XCTAssertEqual(error as? ListText.Failure, .tooBig)
+        }
+        XCTAssertEqual(try ListText.parse("term,translation\n" + rows.joined(separator: "\n")).words.count, 20_000,
+                       "the header row is not counted")
+        XCTAssertThrowsError(try ListText.text(of: Data(count: ListText.maxBytes + 1))) { error in
+            XCTAssertEqual(error as? ListText.Failure, .tooBig)
+        }
+        let long = try ListText.parse("σπίτι,\(String(repeating: "x", count: 1_001))\n")
+        XCTAssertEqual(long.broken.map(\.problem), [.tooLong])
+    }
+
+    /// The language guess from the terms' script: Greek, Cyrillic as
+    /// Russian, Arabic, Latin as English; none as Other.
+    func testLanguageGuess() throws {
+        func guess(_ terms: [String]) -> String {
+            ListText.guessLanguage(terms.enumerated().map { ListText.Word(term: $1, line: $0 + 1, seq: $0) })
+        }
+        XCTAssertEqual(guess(["σπίτι", "γράφω"]), "ell")
+        XCTAssertEqual(guess(["дом", "вода", "house"]), "rus")
+        XCTAssertEqual(guess(["بيت", "ماء"]), "arb")
+        XCTAssertEqual(guess(["casa", "árbol"]), "eng")
+        XCTAssertEqual(guess(["123", "!"]), "und")
+    }
+
+    /// HTML: tags removed, `<br>`, `<div>` and `<p>` to "; ", entities
+    /// decoded; text without tags is left alone.
+    func testHTMLStripping() {
+        XCTAssertEqual(ListText.strippingHTML("<div>one</div><div>two<br/>three</div>"), "one; two; three")
+        XCTAssertEqual(ListText.strippingHTML("<b>bold</b> &lt;x&gt; &#233;&#x3b1;"), "bold <x> éα")
+        XCTAssertEqual(ListText.cleaned("a < b > c", html: false), "a < b > c")
+        XCTAssertEqual(ListText.cleaned("  x [sound:a.mp3] ", html: false), "x")
+        XCTAssertEqual(ListText.cleaned("<i>x</i>", html: false), "x", "a field with tags is stripped")
+        XCTAssertEqual(ListText.decodingEntities("AT&T &unknown; &amp"), "AT&T &unknown; &amp")
+    }
+}
+
+/// Import on the bundle and every pack (0237): Kirill's files, the Anki
+/// export, linking and ranking like the build, saving, and the times.
+@MainActor
+final class ListImportTests: XCTestCase {
+    private var tempDir: URL!
+    private var db: DatabaseService { .shared }
+
+    override func setUp() async throws {
+        try await super.setUp()
+        await DictAppTests.waitForHostAppLaunch()
+        tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        try await db.setup(userPath: tempDir.appendingPathComponent("user.sqlite").path,
+                           dictionaryURL: try TestDictionary.bundledURL(), packFiles: try PackFixtures.all())
+    }
+
+    override func tearDown() async throws {
+        try? FileManager.default.removeItem(at: tempDir)
+        try await super.tearDown()
+    }
+
+    /// #130, #155: each of Kirill's committed CSVs imports alone without
+    /// edits: 0 broken rows, 1,457 / 758 / 2,436 words (A1 with 39 merged),
+    /// levels kept. Alone, the A2 and B1 files keep the words the built
+    /// lists merge into a lower level.
+    func testKirillsFilesImport() async throws {
+        var builtLower = Set<String>()
+        for (index, (level, count)) in [("A1", 1_457), ("A2", 758), ("B1", 2_436)].enumerated() {
+            let parse = try ImportFixture.parseKirill(level)
+            XCTAssertEqual(parse.broken, [], level)
+            XCTAssertEqual(parse.words.count, count, level)
+            XCTAssertEqual(parse.columns, [.term, .translation, .level, .endings], level)
+            XCTAssertEqual(parse.delimiter, .comma, level)
+            XCTAssertEqual(ListText.guessLanguage(parse.words), "ell", level)
+            if level == "A1" { XCTAssertEqual(parse.merged, 39) }
+            let preview = try await db.prepareListImport(parse, lang: "ell")
+            let id = try await db.saveUserList(preview, title: "ky-ell-\(level.lowercased())")
+            let items = try await db.wordListItems(id)
+            XCTAssertEqual(items.count, count, level)
+            XCTAssertEqual(Set(items.map(\.level)), [level], level)
+            XCTAssertEqual(Set(items.map(\.levelOrder)), [index + 1], level)
+
+            let built = Set(try await db.wordListItems(WordListData.greekLists[index]).map(\.key.word))
+            let extra = Set(items.map(\.key.word)).subtracting(built)
+            XCTAssertEqual(extra.count, count - built.count, level)
+            XCTAssertTrue(extra.isSubset(of: builtLower), "\(level): \(extra.sorted())")
+            builtLower.formUnion(built)
+        }
+        let lists = try await db.wordLists().filter { $0.kind == .user }
+        XCTAssertEqual(lists.map(\.count), [2_436, 758, 1_457], "newest first, with their counts")
+    }
+
+    /// #155: Kirill's three files imported in the app link each word to the
+    /// same headword as the Greek pack's `wordlist_item`, except the terms
+    /// of `links.tsv`, and get the same frequency rank.
+    func testImportLinksLikeTheBuild() async throws {
+        let built = try await BundledDictionary(url: try PackFixtures.file(.ell)).read { db in
+            try GRDB.Row.fetchAll(db, sql: "SELECT term, headword, rank FROM wordlist_item WHERE series = 'ky-ell'")
+                .map { (term: $0["term"] as String, headword: $0["headword"] as String?, rank: $0["rank"] as Int?) }
+        }
+        let byKey = Dictionary(uniqueKeysWithValues: built.map { (WordKey(lang: "ell", word: $0.term).word, $0) })
+        let overridden = try WordListData.overriddenTerms(series: "ky-ell")
+        var compared = Set<String>()
+        var mismatches: [String] = []
+        for level in WordListData.levels {
+            let preview = try await db.prepareListImport(try ImportFixture.parseKirill(level), lang: "ell")
+            for item in preview.words {
+                let key = WordKey(lang: "ell", word: item.word.term).word
+                guard let row = byKey[key], !overridden.contains(row.term) else { continue }
+                compared.insert(key)
+                if item.headword != row.headword || item.rank != row.rank {
+                    mismatches.append("\(item.word.term): build \(row.headword ?? "-") #\(row.rank.map(String.init) ?? "-"), "
+                                      + "import \(item.headword ?? "-") #\(item.rank.map(String.init) ?? "-")")
+                }
+            }
+        }
+        XCTAssertEqual(mismatches, [])
+        let expected = Set(byKey.filter { !overridden.contains($0.value.term) }.keys)
+        XCTAssertEqual(compared, expected, "every word of the pack but the overrides is compared")
+        XCTAssertGreaterThan(compared.count, 4_600)
+    }
+
+    /// #130, #155: the Anki fixture imports: five English words, each
+    /// linked to an English dictionary ("to go" is an En–Es · FD headword),
+    /// stored with origin `anki`.
+    func testAnkiExportImports() async throws {
+        let parse = try ListText.parse(ImportFixture.text("anki-notes-plain-text.txt"))
+        XCTAssertEqual(ListText.guessLanguage(parse.words), "eng")
+        let preview = try await db.prepareListImport(parse, lang: "eng")
+        XCTAssertEqual(preview.words.map(\.headword), ["cat", "dog", "house", "water", "to go"])
+        XCTAssertEqual(preview.linkedCount, 5)
+        XCTAssertNotNil(preview.words.first?.rank, "English ranks from the English lists pack")
+        let id = try await db.saveUserList(preview, title: "Anki")
+        let items = try await db.wordListItems(id)
+        XCTAssertEqual(items.map(\.term), ["cat", "dog", "house", "to go", "water"], "alphabetical")
+        XCTAssertEqual(items.first?.tags, "noun animals")
+        let origin = try await db.writeForTesting { db in
+            try String.fetchOne(db, sql: "SELECT origin FROM user_list WHERE id = ?", arguments: [id.rawValue])
+        }
+        XCTAssertEqual(origin, "anki")
+    }
+
+    /// 0130, "Import": merged rows are stored as the build stores them
+    /// (the lowest level, "; " and " / " joins, the first row's `seq` and
+    /// part of speech, tags without repeats), linked and ranked.
+    func testImportMergesDuplicateFields() async throws {
+        let parse = try ListText.parse("""
+            term,translation,level,endings,pos,tags
+            σπίτι,house,A2,το,noun,home
+            Σπίτι,home,A1,,name,place
+            σπίτι,house,,το,,home noun
+            γράφω,write,,,verb,
+            """, origin: .paste)
+        let preview = try await db.prepareListImport(parse, lang: "ell")
+        let id = try await db.saveUserList(preview, title: "Merged")
+        let items = try await db.wordListItems(id)
+        XCTAssertEqual(items.map(\.term), ["γράφω", "σπίτι"])
+        let spiti = try XCTUnwrap(items.last)
+        XCTAssertEqual(spiti.translation, "house; home")
+        XCTAssertEqual(spiti.endings, "το")
+        XCTAssertEqual(spiti.level, "A1")
+        XCTAssertEqual(spiti.levelOrder, 1)
+        XCTAssertEqual(spiti.partOfSpeech, "noun")
+        XCTAssertEqual(spiti.tags, "home place noun")
+        XCTAssertEqual(spiti.seq, 0)
+        XCTAssertEqual(spiti.headword, "σπίτι")
+        XCTAssertNotNil(spiti.rank)
+        XCTAssertEqual(spiti.translationLang, "", "an import's translations show in every pair")
+        XCTAssertEqual(spiti.key, WordKey(lang: "ell", word: "σπίτι"))
+        XCTAssertEqual(spiti.sortKey, WordListItem.sortKey(of: "σπίτι"))
+    }
+
+    /// A saved import is a user list: newest first on `wordLists()` with
+    /// its title, language and count, its origin stored; deleting it
+    /// deletes its words.
+    func testSavedListIsAUserList() async throws {
+        let greek = try await db.prepareListImport(try ListText.parse("σπίτι\thouse\nνερό\twater\n", origin: .paste),
+                                                   lang: "ell")
+        let first = try await db.saveUserList(greek, title: "Pasted list")
+        // `created_at` keeps milliseconds; a user takes longer between imports.
+        try await Task.sleep(for: .milliseconds(5))
+        let other = try await db.prepareListImport(try ListText.parse("thing\tπράγμα\n"), lang: "und")
+        let second = try await db.saveUserList(other, title: "Other words")
+        XCTAssertTrue(first.rawValue.hasPrefix("user-"))
+        XCTAssertEqual(first.rawValue, first.rawValue.lowercased())
+        let lists = try await db.wordLists().filter { $0.kind == .user }
+        XCTAssertEqual(lists.map(\.id), [second, first], "newest first, also within one second")
+        let stamps = try await db.writeForTesting { db in
+            try String.fetchAll(db, sql: "SELECT created_at FROM user_list ORDER BY created_at")
+        }
+        XCTAssertTrue(stamps.allSatisfy { $0.count == 23 }, "with milliseconds: \(stamps)")
+        XCTAssertEqual(lists.map(\.title), ["Other words", "Pasted list"])
+        XCTAssertEqual(lists.map(\.lang), ["und", "ell"])
+        XCTAssertEqual(lists.map(\.count), [1, 2])
+        XCTAssertEqual(other.linkedCount, 0, "Other links nowhere")
+
+        try await db.deleteUserList(first)
+        let rows = try await db.writeForTesting { db in
+            try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM user_list_item WHERE list_id = ?", arguments: [first.rawValue])
+        }
+        XCTAssertEqual(rows, 0)
+    }
+
+    /// 0130, Performance targets: Kirill's B1 file (2,444 rows) parsed and
+    /// previewed in under 1 s, saved in under 3 s (median of 3).
+    func testImportPreviewAndSaveTimes() async throws {
+        let data = try Data(contentsOf: ImportFixture.kirill("B1"))
+        func milliseconds(_ duration: Duration) -> Double {
+            Double(duration.components.seconds) * 1_000 + Double(duration.components.attoseconds) / 1e15
+        }
+        var previewTimes: [Double] = [], saveTimes: [Double] = []
+        for run in 0..<3 {
+            var start = ContinuousClock.now
+            let parse = try ListText.parse(ListText.text(of: data))
+            let preview = try await db.prepareListImport(parse, lang: "ell")
+            previewTimes.append(milliseconds(ContinuousClock.now - start))
+            XCTAssertEqual(preview.words.count, 2_436)
+            start = ContinuousClock.now
+            try await db.saveUserList(preview, title: "B1 \(run)")
+            saveTimes.append(milliseconds(ContinuousClock.now - start))
+        }
+        print("QA #155: B1 parse and preview \(previewTimes) ms, save \(saveTimes) ms")
+        XCTAssertLessThan(previewTimes.sorted()[1], 1_000, "parse and preview: \(previewTimes) ms")
+        XCTAssertLessThan(saveTimes.sorted()[1], 3_000, "save: \(saveTimes) ms")
+    }
+}
+
+/// The import screens' view model on `WordListsTestCase`'s file: Greek
+/// learned through English, English via English offered.
+@MainActor
+final class ListImportViewModelTests: WordListsTestCase {
+    private func importer() -> ListImportViewModel {
+        ListImportViewModel(languages: languages)
+    }
+
+    /// The pasted text's preview, named `name`.
+    private func pasted(_ text: String, name: String = "Pasted list") async -> ListImportViewModel {
+        let vm = importer()
+        vm.pastedText = text
+        let opened = await vm.openPasted(name: name)
+        XCTAssertTrue(opened)
+        return vm
+    }
+
+    private func userLists() async throws -> [WordList] {
+        let vm = listsViewModel()
+        await vm.load()
+        return vm.sections.flatMap(\.lists).filter { $0.kind == .user }
+    }
+
+    /// #155 (Kirill, 2026-11-03): Import asks "Learn %@ via %@?" only for a
+    /// language not learned. No saves the list, hidden; Yes adds the pair
+    /// and the list shows. Other asks "Learn lists in other languages?".
+    func testAsksOnlyForANewLanguage() async throws {
+        settings.learningLanguages = ["ell"]
+        let greek = await pasted("σπίτι\thouse\nγράφω\twrite\nέχει αέρα\tit is windy\n", name: "Greek")
+        XCTAssertEqual(greek.language, "ell")
+        await greek.confirm()
+        XCTAssertNil(greek.question, "Greek is learned: no question")
+        XCTAssertEqual(greek.outcome?.words, 3)
+        XCTAssertEqual(greek.outcome?.linked, 2)
+        var titles = try await userLists().map(\.title)
+        XCTAssertEqual(titles, ["Greek"])
+
+        let english = await pasted("house\tσπίτι\ncat\tγάτα\n", name: "English")
+        XCTAssertEqual(english.language, "eng")
+        await english.confirm()
+        XCTAssertEqual(english.question, .pair(englishViaEnglish))
+        XCTAssertNil(english.outcome, "nothing is saved before the answer")
+        await english.answer(.pair(englishViaEnglish), yes: false)
+        XCTAssertEqual(english.outcome?.words, 2)
+        XCTAssertEqual(settings.learningLanguages, ["ell"])
+        titles = try await userLists().map(\.title)
+        XCTAssertEqual(titles, ["Greek"], "No: saved, hidden until English is learned")
+
+        let again = await pasted("house\tσπίτι\n", name: "English again")
+        await again.confirm()
+        XCTAssertEqual(again.question, .pair(englishViaEnglish))
+        await again.answer(.pair(englishViaEnglish), yes: true)
+        XCTAssertEqual(settings.learningLanguages, ["ell", "eng"])
+        XCTAssertEqual(settings.learningVia["eng"], "eng")
+        titles = try await userLists().map(\.title)
+        XCTAssertEqual(titles, ["English again", "English", "Greek"], "Yes: both English lists show")
+
+        let other = await pasted("thing\tπράγμα\n", name: "Other")
+        await other.setLanguage("und")
+        XCTAssertEqual(other.preview?.lang, "und")
+        await other.confirm()
+        XCTAssertEqual(other.question, .other)
+        await other.answer(.other, yes: true)
+        XCTAssertEqual(settings.learningLanguages, ["ell", "eng", "und"])
+        XCTAssertNotNil(other.outcome)
+    }
+
+    /// A file opens its preview: named after the file, its delimiter and
+    /// language detected, its broken rows listed; Import saves it.
+    func testFileOpensItsPreview() async throws {
+        settings.learningLanguages = ["ell"]
+        let vm = importer()
+        let opened = await vm.open(fileAt: ImportFixture.url("broken-list.csv"))
+        XCTAssertTrue(opened)
+        XCTAssertEqual(vm.name, "broken-list")
+        XCTAssertEqual(vm.delimiter, .comma)
+        XCTAssertEqual(vm.language, "ell")
+        let preview = try XCTUnwrap(vm.preview)
+        XCTAssertEqual(preview.words.count, 4)
+        XCTAssertEqual(preview.parse.broken.map(\.line), [4, 5])
+        XCTAssertEqual(preview.parse.origin, .file)
+        XCTAssertTrue(vm.canImport)
+        vm.name = "  "
+        XCTAssertFalse(vm.canImport, "a list needs a name")
+        vm.name = "Broken"
+        await vm.confirm()
+        XCTAssertEqual(vm.outcome?.words, 4)
+        XCTAssertFalse(vm.canImport, "saved once")
+        let titles = try await userLists().map(\.title)
+        XCTAssertEqual(titles, ["Broken"])
+    }
+
+    /// A file that is not UTF-8 shows "Save the file as UTF-8 and try
+    /// again" and no preview.
+    func testEncodingFailure() async throws {
+        let url = tempDir.appendingPathComponent("latin1.csv")
+        try Data([0x63, 0x61, 0x66, 0xE9, 0x2C, 0x63, 0x6F, 0x66, 0x66, 0x65, 0x65]).write(to: url)
+        let vm = importer()
+        let opened = await vm.open(fileAt: url)
+        XCTAssertFalse(opened)
+        XCTAssertEqual(vm.failure, .encoding)
+        XCTAssertNil(vm.preview)
+    }
+
+    /// 0130, Limits: 10 MB per import, pasted text too (here 18,000 rows,
+    /// under the row limit, of 610 bytes each).
+    func testPasteOverTenMegabytesIsTooBig() async throws {
+        let vm = importer()
+        vm.pastedText = String(repeating: "λέξη\t" + String(repeating: "x", count: 600) + "\n", count: 18_000)
+        XCTAssertGreaterThan(vm.pastedText.utf8.count, ListText.maxBytes)
+        let opened = await vm.openPasted(name: "Pasted list")
+        XCTAssertFalse(opened)
+        XCTAssertEqual(vm.failure, .tooBig)
+        XCTAssertNil(vm.preview)
+    }
+
+    /// A delimiter chosen in the preview parses the text again; a language
+    /// chosen links the words again.
+    func testDelimiterAndLanguageChanges() async throws {
+        let vm = await pasted("σπίτι;house,home\nγράφω;write,draw\n")
+        XCTAssertEqual(vm.delimiter, .semicolon)
+        XCTAssertEqual(vm.preview?.words.first?.word.translation, "house,home")
+        XCTAssertEqual(vm.delimiterChoices, [.tab, .semicolon, .comma])
+        await vm.setDelimiter(.comma)
+        XCTAssertEqual(vm.preview?.words.first?.word.term, "σπίτι;house")
+        await vm.setDelimiter(.semicolon)
+        XCTAssertEqual(vm.preview?.linkedCount, 2)
+        await vm.setLanguage("eng")
+        XCTAssertEqual(vm.preview?.lang, "eng")
+        XCTAssertEqual(vm.preview?.linkedCount, 0, "Greek words link to no English headword")
+
+        let anki = await pasted("#separator:Pipe\nσπίτι|house\n")
+        XCTAssertEqual(anki.delimiterChoices.last, ListText.Delimiter(scalar: "|"), "an Anki file's own delimiter")
+        XCTAssertEqual(anki.preview?.parse.origin, .paste, "pasted, whatever its headers")
+    }
+
+    /// The preview's texts in the in-app language: the summary, the
+    /// columns, the result; Arabic composed texts start with U+200F.
+    func testPreviewTexts() async throws {
+        let vm = await pasted("""
+            term,translation,level
+            σπίτι,house,A1
+            σπίτι,home,A1
+            ,nothing,A1
+            γράφω,write,A1
+            """)
+        let preview = try XCTUnwrap(vm.preview)
+        let en = Locale(identifier: "en")
+        XCTAssertEqual(ListImportViewModel.summary(preview, locale: en), "2 words · 1 merged · 1 row with errors")
+        XCTAssertEqual(ListImportViewModel.columnsText(preview.parse.columns, locale: en), "Term · Translation · Level")
+        let outcome = ListImportViewModel.Outcome(id: "user-x", words: 1_457, linked: 1_371)
+        XCTAssertEqual(ListImportViewModel.outcomeText(outcome, locale: en),
+                       "Imported 1,457 words, 1,371 found in the dictionaries")
+        XCTAssertEqual(ListImportViewModel.outcomeText(.init(id: "user-x", words: 1, linked: 1), locale: en),
+                       "Imported 1 word, 1 found in the dictionaries")
+        XCTAssertEqual(ListImportViewModel.problemText(.openQuote, locale: en), "A quote is never closed")
+        XCTAssertEqual(ListImportViewModel.delimiterName(.tab, locale: en), "Tab")
+        XCTAssertEqual(ListImportViewModel.summary(preview, locale: Locale(identifier: "ru")),
+                       "2 слова · объединено: 1 · строк с ошибками: 1")
+        XCTAssertEqual(ListImportViewModel.columnsText(preview.parse.columns, locale: Locale(identifier: "el")),
+                       "Λέξη · Μετάφραση · Επίπεδο")
+        let ar = ListImportViewModel.summary(preview, locale: Locale(identifier: "ar"))
+        XCTAssertEqual(ar.unicodeScalars.first, "\u{200F}", ar)
+    }
+
+    /// 0130: "Delete “Greek verbs”? Progress on its words is kept." An
+    /// imported list's words in learning keep their cards and answers once
+    /// the list is deleted.
+    func testDeletingAnImportKeepsProgress() async throws {
+        settings.learningLanguages = ["ell"]
+        let vm = await pasted("σπίτι\thouse\nνερό\twater\n", name: "Greek verbs")
+        await vm.confirm()
+        let id = try XCTUnwrap(vm.outcome?.id)
+        try await db.introduce(try await db.wordListItems(id), sourceOrder: [], today: today)
+        let spiti = WordKey(lang: "ell", word: "σπίτι")
+        try await answerRight(spiti)
+        let before = try await db.cards(lang: "ell", kinds: CardKind.wordKinds)
+        XCTAssertEqual(before.count, 4, "two words, two cards each")
+
+        let lists = listsViewModel()
+        await lists.load()
+        await lists.delete(try XCTUnwrap(lists.sections.flatMap(\.lists).first { $0.id == id }))
+        XCTAssertNil(lists.errorMessage)
+        let items = try await db.wordListItems(id)
+        XCTAssertEqual(items, [], "the list and its words are gone")
+        let after = try await db.cards(lang: "ell", kinds: CardKind.wordKinds)
+        XCTAssertEqual(after, before, "the cards and their progress stay")
+        let state = try await db.learningState(of: spiti)
+        XCTAssertEqual(state?.word.term, "σπίτι")
+        let answers = try await db.writeForTesting { db in
+            try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM learn_review WHERE word = 'σπίτι'")
+        }
+        XCTAssertEqual(answers, 1, "the answer log stays")
+    }
+}

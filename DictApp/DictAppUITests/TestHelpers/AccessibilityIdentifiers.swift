@@ -294,6 +294,34 @@ struct AccessibilityIdentifiers {
         static let newWordsFromNone = "new_words_from_none"
     }
 
+    // MARK: - List import (0130, #155)
+    struct ListImport {
+        /// The source choice and the Formats help.
+        static let file = "list_import_file"
+        static let paste = "list_import_paste"
+        static let formats = "list_import_formats"
+        static let help = "list_import_help"
+        /// An example on the help screen (CSV, Anki, Quizlet).
+        static let example = "list_import_example"
+        /// Paste text: the text box, SwiftUI's Paste button and Preview.
+        static let text = "list_import_text"
+        static let pasteButton = "list_import_paste_button"
+        static let next = "list_import_next"
+        /// The preview.
+        static let preview = "list_import_preview"
+        static let name = "list_import_name"
+        static let language = "list_import_language"
+        static let delimiter = "list_import_delimiter"
+        static let summary = "list_import_summary"
+        static let errorRow = "list_import_error_row"
+        static let confirm = "list_import_confirm"
+        /// "Save the file as UTF-8 and try again".
+        static let failure = "list_import_failure"
+        /// The result and its Done.
+        static let result = "list_import_result"
+        static let done = "list_import_done"
+    }
+
     // MARK: - Settings View
     struct Settings {
         static let manageDictionariesLink = "manage_dictionaries_link"
