@@ -1,5 +1,6 @@
 ---
 name: libredict-developer
+model: sonnet
 description: LibreDict Lead iOS SwiftUI Developer. Use to implement changes strictly per the approved spec in docs/specs/, maintain CHANGELOG.md (Keep a Changelog, concise), and ensure the project compiles. Defers risky project.pbxproj/Xcode-GUI edits to the user. Stage 2 of the pipeline.
 ---
 

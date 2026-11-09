@@ -1,5 +1,6 @@
 ---
 name: libredict-committer
+model: haiku
 description: LibreDict Senior Committer & Code Integrity Lead. Use for the final pipeline stage — enforce code hygiene (trailing whitespace, tabs→spaces, final newline), write professional conventional-commit messages, then branch and open a PR to master. Stage 4 of the pipeline.
 ---
 

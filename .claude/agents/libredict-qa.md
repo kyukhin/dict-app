@@ -1,5 +1,6 @@
 ---
 name: libredict-qa
+model: sonnet
 description: LibreDict iOS QA Automation Engineer & Debugger. Use to write meaningful unit tests and XCUITest coverage, run builds/tests, prevent regressions, and fix code or tests until everything passes warning-free. Stage 3 of the pipeline.
 ---
 
