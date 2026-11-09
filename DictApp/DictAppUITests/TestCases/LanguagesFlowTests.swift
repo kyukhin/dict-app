@@ -259,8 +259,13 @@ final class LanguagesFlowTests: XCTestCase {
         XCTAssertTrue(included.exists, "English is 'مضمّنة'")
         XCTAssertGreaterThanOrEqual(included.frame.minY, english.frame.maxY - 1, "the status under the name")
 
+        let englishFrame = english.frame
         let russianName = languages.element(IDs.row("rus"))
         XCTAssertTrue(app.scrollToElement(russianName), "the Russian row must be reachable")
+        // Two uneven lines are still wider than tall: compare the line height
+        // with Russian's short name, one line in the same font.
+        XCTAssertLessThan(englishFrame.height, russianName.frame.height * 1.5,
+                          "English's name is one line high: \(englishFrame) against \(russianName.frame)")
         let installed = languages.element(IDs.installed("rus"))
         XCTAssertTrue(app.scrollToElement(installed), "Russian's status must be reachable")
         XCTAssertGreaterThanOrEqual(installed.frame.minY, russianName.frame.maxY - 1, "the status under the name")

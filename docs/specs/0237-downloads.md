@@ -87,7 +87,7 @@ Learning is chosen as a pair, the language learned and the language it is learne
 ### Update from 1.x and from the 2.0 alpha
 
 - History, My words and imported dictionaries come through as in 0129 (#139).
-- The first launch shows the same sheet with other words: "LibreDict 2.0 downloads languages other than English once. Your History is here, and My words appear in Learn once you choose a language." Checked: the packs of the dictionaries that were enabled (`enabled_sources`; absent means all were on, so all four). One tap on "Download 22.4 MB" restores the dictionaries the user had.
+- The first launch shows the same sheet with other words: "LibreDict 2.0 downloads languages other than English once. Your History is here, and My words appear in Learn once you choose a language to learn." Checked: the packs of the dictionaries that were enabled (`enabled_sources`; absent means all were on, so all four). One tap on "Download 22.4 MB" restores the dictionaries the user had.
 - Until a language is installed, its History rows and My words open a "not downloaded" view: "This word is in the Greek dictionaries. Download Greek · 11.2 MB" with a Download button.
 - Dictionary Order and the switches come back as they were when the packs install.
 
@@ -328,7 +328,7 @@ What 0130 and 0131 call; names are this spec's:
 | Key | en |
 |---|---|
 | `welcome.title`, `welcome.body` | Welcome to LibreDict · English is included and works offline. Add other languages: each downloads once, then works offline too. |
-| `welcome.upgrade.body`, `welcome.missing.body` | LibreDict 2.0 downloads languages other than English once. Your History is here, and My words appear in Learn once you choose a language. · Your languages need to be downloaded again. |
+| `welcome.upgrade.body`, `welcome.missing.body` | LibreDict 2.0 downloads languages other than English once. Your History is here, and My words appear in Learn once you choose a language to learn. · Your languages need to be downloaded again. |
 | `welcome.download`, `welcome.continue`, `welcome.notNow`, `welcome.import`, `welcome.done` | Download %@ · Continue · Not now · Import your own dictionary · Done |
 | `languages.title`, `languages.included`, `languages.installed`, `languages.download`, `languages.update`, `languages.updateRequired`, `languages.waiting`, `languages.installing`, `languages.progress`, `languages.retry`, `languages.more` | Languages · Included · Installed · %@ · Download · %@ · Update · %@ · Update required · %@ · Waiting · Installing… · %1$@ of %2$@ · Try again · More languages |
 | `languages.contents.*` | %lld dictionaries · word forms · word lists |
@@ -469,3 +469,4 @@ QA records in History: the sizes of each asset and file, App Size and the downlo
 - 2026-11-08: E4 installs a learning pair through `installPair` and shows its own progress row on the Learn home and in Settings → Learning → Languages (0131, History), with its own keys until #243's `PackRow`.
 - 2026-11-08: #180: Credits reads no file; the "Credits data sources" row says how its static lines are kept in step with the files.
 - 2026-11-09 (Kirill): the upgrade text says My words appear in Learn once a language is chosen, since the Learn tab shows them only after that (#182 regression); "Your History and My words are here" promised what the tab did not show.
+- 2026-11-09: The upgrade text says "a language to learn", in the five languages: My words appear once a language to learn is chosen (CodeRabbit, PR #288).
