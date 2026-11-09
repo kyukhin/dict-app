@@ -1,0 +1,40 @@
+{
+ "code": "en", "locale": "en", "native": "English", "dir": "ltr",
+ "nav": {"privacy": "Privacy", "support": "Support"},
+ "open_source": "LibreDict is open source (MIT)",
+ "badge_alt": "Download on the App Store",
+ "tagline": "An offline dictionary that helps you learn words",
+ "intro": "LibreDict is a fast, lightweight dictionary for English, Greek, Spanish, Russian and Arabic. Look a word up, then learn it.",
+ "description": "LibreDict: an offline dictionary for iPhone and iPad that helps you learn words. No ads, no accounts, no tracking.",
+ "blocks": [
+  {"h": "Dictionary", "p": "English is included; other languages download once and then work offline. Search finds any inflected form (έγραψα finds γράφω), and Greek words show declension and conjugation tables."},
+  {"h": "Learn", "p": "Word lists by level (Greek A1–B1, English A1–C2) or your own from CSV, Anki or Quizlet. Daily practice with spaced repetition and real example sentences."},
+  {"h": "Grammar", "p": "A conjugation drill and short grammar topics, with Greek as the first language."},
+  {"h": "Privacy", "p": "No ads, no accounts, no tracking. Everything stays on your device."}
+ ],
+ "shots_h": "Screenshots",
+ "shots": ["The Learn tab", "An exercise", "The conjugation drill", "A word with its conjugation table", "A grammar topic"],
+ "privacy": {
+  "title": "Privacy policy",
+  "updated": "Last updated: 2026-11-09",
+  "sections": [
+   {"h": "What the app collects", "p": ["Nothing. The app has no analytics, no ads, no accounts and no identifiers. Your history, My words, learning progress and statistics stay on your device."]},
+   {"h": "Language downloads", "p": ["When you ask for a language, the app downloads public files from GitHub Releases. As for any download, GitHub receives your IP address and the system user agent, under [GitHub's privacy statement](https://docs.github.com/site-policy/privacy-policies/github-general-privacy-statement). Nothing identifies you to LibreDict."]},
+   {"h": "Report a bug", "p": ["Only when you tap it. The Mail app shows you the whole message, including the app and iOS versions, before you send it."]},
+   {"h": "Daily reminder", "p": ["The reminder is a local notification on your device. Nothing is sent to a server."]},
+   {"h": "This website", "p": ["It sets no cookies, loads nothing from other servers and counts no visits."]},
+   {"h": "Contact", "p": ["Questions: {email}."]}
+  ]
+ },
+ "support": {
+  "title": "Support",
+  "intro": "Write to {email}{telegram}. In the app you can also report a bug: Settings → Support → Report a Bug.",
+  "telegram": " or on [Telegram]({tg})",
+  "faq_h": "Questions and answers",
+  "faq": [
+   {"q": "Do I need internet?", "a": "English is included. Every other language downloads once, when you choose it, and then works offline."},
+   {"q": "Where are my old bookmarks?", "a": "In My words, in the Learn tab, once you have chosen a language to learn. They are the same words."},
+   {"q": "How do I download or remove a language?", "a": "Settings → Dictionaries → Languages."}
+  ]
+ }
+}
