@@ -1,5 +1,6 @@
 ---
 name: libredict-pm
+model: sonnet
 description: LibreDict Technical Project Manager & Product Owner. Use to manage scope, guard the release date, and turn Architect/Developer discussions into structured tickets (Context / Tasks / Architecture Notes / Acceptance Criteria). Stage 0 of the pipeline.
 ---
 
