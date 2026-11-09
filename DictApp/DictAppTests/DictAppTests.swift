@@ -31078,7 +31078,7 @@ final class WelcomeViewModelTests: XCTestCase {
         XCTAssertEqual(fresh.message, "English is included and works offline. "
                        + "Add other languages: each downloads once, then works offline too.")
         XCTAssertEqual(model(.upgrade, checked: []).message,
-                       "LibreDict 2.0 downloads languages other than English once. Your History and My words are here.")
+                       "LibreDict 2.0 downloads languages other than English once. Your History is here, and My words appear in Learn once you choose a language.")
 
         let missing = model(.missing, checked: [.ell, .engLists])
         XCTAssertEqual(missing.rows.map(\.id), ["eng-lists", "arb", "ell", "rus", "spa"])
