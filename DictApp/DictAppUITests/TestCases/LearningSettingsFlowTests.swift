@@ -260,18 +260,24 @@ final class LearningSettingsFlowTests: XCTestCase {
     /// under the title and value, so "Цель на день" keeps the row's width
     /// instead of breaking mid-word beside the control. VoiceOver still
     /// reads the control with its title and value, and it still steps.
+    ///
+    /// The check is where the − + buttons sit, at the leading edge (beside
+    /// the title they end at the trailing edge), not the stepper's frame:
+    /// on iOS 17 that frame is the whole row in both layouts.
     func testStepperRowsStackAtTheLargestTextSize() throws {
         let page = openSettings()
         let window = app.windows.firstMatch.frame
         page.reveal(page.goal)
         XCTAssertTrue(page.goal.label.contains("Цель на день"), page.goal.label)
         XCTAssertTrue(page.goal.label.contains("20 упражнений"), page.goal.label)
-        XCTAssertLessThan(page.goal.frame.width, window.width / 2,
-                          "the control alone, not the title beside it: \(page.goal.frame) in \(window)")
+        let goalControl = controlFrame(of: page.goal)
+        XCTAssertLessThan(goalControl.maxX, window.width / 2,
+                          "the control on its own line, not beside the title: \(goalControl) in \(window)")
         page.reveal(page.newPerDay)
         XCTAssertTrue(page.newPerDay.label.contains("Новых слов в день"), page.newPerDay.label)
-        XCTAssertLessThan(page.newPerDay.frame.width, window.width / 2,
-                          "the control alone: \(page.newPerDay.frame) in \(window)")
+        let newPerDayControl = controlFrame(of: page.newPerDay)
+        XCTAssertLessThan(newPerDayControl.maxX, window.width / 2,
+                          "the control on its own line: \(newPerDayControl) in \(window)")
 
         page.reveal(page.goal)
         page.goal.buttons.element(boundBy: 1).tap()
@@ -283,5 +289,12 @@ final class LearningSettingsFlowTests: XCTestCase {
         attachment.name = "Settings (ru), largest text"
         attachment.lifetime = .keepAlways
         add(attachment)
+    }
+
+    /// The − + control: the union of the stepper's two buttons.
+    private func controlFrame(of stepper: XCUIElement) -> CGRect {
+        let buttons = stepper.buttons.allElementsBoundByIndex
+        XCTAssertEqual(buttons.count, 2, "the stepper's − and + buttons")
+        return buttons.map(\.frame).reduce(CGRect.null) { $0.union($1) }
     }
 }

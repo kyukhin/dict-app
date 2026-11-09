@@ -249,9 +249,12 @@ final class LanguagesFlowTests: XCTestCase {
         let english = languages.element(IDs.row("eng"))
         XCTAssertTrue(english.waitForExistence(timeout: TestData.Timeouts.medium), "English is listed")
         XCTAssertEqual(english.label, "الإنجليزية")
+        // Squeezed beside the status, the name broke letter by letter (#181):
+        // far taller than wide. Its frame is the word's own width, so a share
+        // of the window would not hold on an iPad.
         let window = app.windows.firstMatch.frame
-        XCTAssertGreaterThan(english.frame.width, window.width / 3,
-                             "the name keeps the row's width: \(english.frame) in \(window)")
+        XCTAssertGreaterThan(english.frame.width, english.frame.height,
+                             "the name stays on one line: \(english.frame) in \(window)")
         let included = app.cells.containing(.staticText, identifier: IDs.row("eng")).staticTexts["مضمّنة"]
         XCTAssertTrue(included.exists, "English is 'مضمّنة'")
         XCTAssertGreaterThanOrEqual(included.frame.minY, english.frame.maxY - 1, "the status under the name")
