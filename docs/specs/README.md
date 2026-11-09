@@ -53,4 +53,5 @@ Data, modules, APIs, migrations, constraints. Links to the code.
 | `0136-word-forms.md`: word forms (search by any inflected form, inflection tables) | Implemented | #136 |
 | `0146-quick-switch.md`: dictionary chips on Search, one setting with Dictionary Order | Implemented | #146 |
 | `0166-learning-statistics.md`: learning statistics (daily goal and streak, today, a 30-day chart, list progress and forecast, hardest words, accuracy by direction and tense, a word's status on Definition) | Implemented | #166 |
+| `0194-website.md`: the libredict.app website (five languages, privacy policy and support pages, GitHub Pages from `site/`) | Approved | #194 |
 | `0237-downloads.md`: language packs downloaded at setup (the English-only bundle, packs on GitHub Releases, first launch, Settings → Languages, the 1.x and alpha upgrade, the install API for learning) | Approved | #237 |

@@ -1,0 +1,40 @@
+{
+ "code": "es", "locale": "es", "native": "Español", "dir": "ltr",
+ "nav": {"privacy": "Privacidad", "support": "Soporte"},
+ "open_source": "LibreDict es de código abierto (MIT)",
+ "badge_alt": "Descargar en la App Store",
+ "tagline": "Un diccionario sin conexión que te ayuda a aprender palabras",
+ "intro": "LibreDict es un diccionario rápido y ligero de inglés, griego, español, ruso y árabe. Busca una palabra y apréndela.",
+ "description": "LibreDict: un diccionario sin conexión para iPhone y iPad que te ayuda a aprender palabras. Sin anuncios, sin cuentas, sin rastreo.",
+ "blocks": [
+  {"h": "Diccionario", "p": "El inglés viene incluido; los demás idiomas se descargan una vez y después funcionan sin conexión. La búsqueda encuentra cualquier forma flexionada (έγραψα encuentra γράφω) y las palabras griegas muestran tablas de declinación y conjugación."},
+  {"h": "Aprender", "p": "Listas de palabras por nivel (griego A1–B1, inglés A1–C2) o las tuyas desde CSV, Anki o Quizlet. Práctica diaria con repetición espaciada y frases de ejemplo reales."},
+  {"h": "Gramática", "p": "Un entrenador de conjugación y temas breves de gramática, con el griego como primer idioma."},
+  {"h": "Privacidad", "p": "Sin anuncios, sin cuentas, sin rastreo. Todo se queda en tu dispositivo."}
+ ],
+ "shots_h": "Capturas de pantalla",
+ "shots": ["La pestaña Aprender", "Un ejercicio", "El entrenador de conjugación", "Una palabra con su tabla de conjugación", "Un tema de gramática"],
+ "privacy": {
+  "title": "Política de privacidad",
+  "updated": "Última actualización: 2026-11-09",
+  "sections": [
+   {"h": "Qué recoge la app", "p": ["Nada. La app no tiene analíticas, anuncios, cuentas ni identificadores. Tu historial, Mis palabras, tu progreso y tus estadísticas se quedan en tu dispositivo."]},
+   {"h": "Descarga de idiomas", "p": ["Cuando pides un idioma, la app descarga archivos públicos de GitHub Releases. Como en cualquier descarga, GitHub recibe tu dirección IP y el user agent del sistema, según la [declaración de privacidad de GitHub](https://docs.github.com/site-policy/privacy-policies/github-general-privacy-statement). Nada te identifica ante LibreDict."]},
+   {"h": "Informar de un error", "p": ["Solo cuando lo pulsas. La app Mail te muestra el mensaje completo, con las versiones de la app y de iOS, antes de enviarlo."]},
+   {"h": "Recordatorio diario", "p": ["El recordatorio es una notificación local en tu dispositivo. No se envía nada a ningún servidor."]},
+   {"h": "Este sitio web", "p": ["No instala cookies, no carga nada de otros servidores y no cuenta las visitas."]},
+   {"h": "Contacto", "p": ["Preguntas: {email}."]}
+  ]
+ },
+ "support": {
+  "title": "Soporte",
+  "intro": "Escribe a {email}{telegram}. En la app también puedes informar de un error: Ajustes → Soporte → Informar de un error.",
+  "telegram": " o por [Telegram]({tg})",
+  "faq_h": "Preguntas frecuentes",
+  "faq": [
+   {"q": "¿Necesito internet?", "a": "El inglés viene incluido. Los demás idiomas se descargan una vez, cuando los eliges, y después funcionan sin conexión."},
+   {"q": "¿Dónde están mis marcadores antiguos?", "a": "En Mis palabras, en la pestaña Aprender, cuando ya has elegido un idioma para aprender. Son las mismas palabras."},
+   {"q": "¿Cómo descargo o elimino un idioma?", "a": "Ajustes → Diccionarios → Idiomas."}
+  ]
+ }
+}
