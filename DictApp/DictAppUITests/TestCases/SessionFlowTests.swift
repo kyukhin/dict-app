@@ -189,7 +189,8 @@ final class SessionFlowTests: XCTestCase {
     }
 
     /// At the largest accessibility text size the sheet opens at full
-    /// height, its examples scroll, and Continue stays on screen.
+    /// height on iPhone (on iPad it is a form sheet, 0134), its examples
+    /// scroll, and Continue stays on screen.
     func testExampleSheetAtTheLargestTextSize() throws {
         let run = learnPage.startSession()
         XCTAssertNotNil(nextQuestion(run, after: nil), "the first question")
@@ -198,10 +199,13 @@ final class SessionFlowTests: XCTestCase {
         XCTAssertTrue(run.waitForExampleSheet(), "the sheet")
         let window = app.windows.firstMatch.frame
         let sheet = run.exampleSheet
-        // Let the presentation settle at its detent.
-        let settled = NSPredicate { _, _ in sheet.exists && sheet.frame.height > window.height * 0.8 }
-        _ = XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: settled, object: nil)], timeout: TestData.Timeouts.medium)
-        XCTAssertGreaterThan(sheet.frame.height, window.height * 0.8, "full height: \(sheet.frame) in \(window)")
+        if UIDevice.current.userInterfaceIdiom == .phone {
+            // Let the presentation settle at its detent.
+            let settled = NSPredicate { _, _ in sheet.exists && sheet.frame.height > window.height * 0.8 }
+            _ = XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: settled, object: nil)],
+                               timeout: TestData.Timeouts.medium)
+            XCTAssertGreaterThan(sheet.frame.height, window.height * 0.8, "full height: \(sheet.frame) in \(window)")
+        }
         let continueButton = run.exampleSheetContinue
         XCTAssertTrue(continueButton.exists)
         XCTAssertTrue(window.contains(CGPoint(x: continueButton.frame.midX, y: continueButton.frame.midY)),
