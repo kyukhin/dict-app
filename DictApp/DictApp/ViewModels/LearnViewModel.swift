@@ -757,8 +757,10 @@ final class ConjugationDrillViewModel: ObservableObject {
             // Greek's pair, which Settings can change while the screen is open.
             let lang = try await languages.pair(for: ConjugationPlanner.lang)?.meaningsLang ?? "eng"
             if poolLists != greek || lang != meaningsLang {
-                meaningsLang = lang
+                // The language is kept only once the read succeeded, so a failed
+                // read is tried again on the next load.
                 pool = try await db.drillVerbs(lists: greek, meaningsLang: lang)
+                meaningsLang = lang
                 poolLists = greek
             }
             offeredLevels = DrillScope.offeredLevels(checked: checked)

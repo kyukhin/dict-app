@@ -38,7 +38,7 @@ final class UpgradeOfferTests: XCTestCase {
         // Matched by prefix: XCUITest rejects string identifiers over 128 characters.
         let upgradeText = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "LibreDict 2.0 downloads")).firstMatch
         XCTAssertEqual(upgradeText.label, "LibreDict 2.0 downloads languages other than English once. "
-                       + "Your History is here, and My words appear in Learn once you choose a language.", "the upgrade text")
+                       + "Your History is here, and My words appear in Learn once you choose a language to learn.", "the upgrade text")
         for id in ["arb", "ell", "rus", "spa"] {
             XCTAssertTrue(welcome.isChecked(id), "every dictionary was on: \(id) is checked")
         }

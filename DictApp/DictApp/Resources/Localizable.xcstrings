@@ -6888,31 +6888,31 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "LibreDict 2.0 downloads languages other than English once. Your History is here, and My words appear in Learn once you choose a language."
+            "value": "LibreDict 2.0 downloads languages other than English once. Your History is here, and My words appear in Learn once you choose a language to learn."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "LibreDict 2.0 один раз скачивает языки, кроме английского. Ваша история на месте, а «Мои слова» появятся в разделе «Учить», когда вы выберете язык."
+            "value": "LibreDict 2.0 один раз скачивает языки, кроме английского. Ваша история на месте, а «Мои слова» появятся в разделе «Учить», когда вы выберете язык для изучения."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "LibreDict 2.0 descarga una vez los idiomas distintos del inglés. Tu historial sigue aquí, y Mis palabras aparecerán en Aprender cuando elijas un idioma."
+            "value": "LibreDict 2.0 descarga una vez los idiomas distintos del inglés. Tu historial sigue aquí, y Mis palabras aparecerán en Aprender cuando elijas un idioma para aprender."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يُنزّل LibreDict 2.0 اللغات غير الإنجليزية مرة واحدة. سجلك هنا، وستظهر كلماتي في تعلّم عندما تختار لغة."
+            "value": "يُنزّل LibreDict 2.0 اللغات غير الإنجليزية مرة واحدة. سجلك هنا، وستظهر كلماتي في تعلّم عندما تختار لغة لتتعلّمها."
           }
         },
         "el": {
           "stringUnit": {
             "state": "translated",
-            "value": "Το LibreDict 2.0 κατεβάζει μία φορά τις γλώσσες εκτός από τα αγγλικά. Το Ιστορικό είναι εδώ, και οι λέξεις μου θα εμφανιστούν στη Μάθηση μόλις διαλέξετε γλώσσα."
+            "value": "Το LibreDict 2.0 κατεβάζει μία φορά τις γλώσσες εκτός από τα αγγλικά. Το Ιστορικό είναι εδώ, και οι λέξεις μου θα εμφανιστούν στη Μάθηση μόλις διαλέξετε γλώσσα για εκμάθηση."
           }
         }
       }

@@ -23934,6 +23934,48 @@ final class DrillVerbPoolTests: XCTestCase {
         XCTAssertEqual(Set(vm.pool.map(\.translation)), [""])
     }
 
+    /// CodeRabbit, PR #281: a failed read of the verbs leaves the meanings
+    /// language as it was, so the next load reads them again.
+    @MainActor
+    func testFailedReadIsRetriedOnTheNextLoad() async throws {
+        let bundle = tempDir.appendingPathComponent("bundle.sqlite")
+        try FileManager.default.copyItem(at: try TestDictionary.bundledURL(), to: bundle)
+        try await DatabaseQueue(path: bundle.path).write { db in
+            try db.execute(sql: """
+                INSERT INTO catalog_source(pack_id, source, display_name, word_count, from_lang, to_lang)
+                VALUES ('rus', 'test-ell-rus', 'El–Ru · Test', 1, 'ell', 'rus')
+                """)
+        }
+        let good = try XCTUnwrap(Self.listsURL)
+        let broken = tempDir.appendingPathComponent("broken-lists.sqlite")
+        try FileManager.default.copyItem(at: good, to: broken)
+        try await DatabaseQueue(path: broken.path).write { try $0.execute(sql: "DROP TABLE wordlist_item; DROP TABLE wordlist") }
+        let userPath = tempDir.appendingPathComponent("retry.sqlite").path
+
+        try await Fixture.open(userPath: userPath, greek: good, bundle: bundle)
+        let settings = SettingsService(store: InMemoryKeyValueStore())
+        settings.learningListIDs = ["ky-ell-a1"]
+        settings.learningVia = ["ell": "eng"]
+        let languages = LearningLanguageService(settings: settings, packs: FakePairPacks(languagesWithLists: ["ell"]),
+                                                uiLanguage: { "en" })
+        let vm = ConjugationDrillViewModel(db: db, settings: settings, languages: languages,
+                                           isGreekUsable: { true }, installGreek: {})
+        await vm.load()
+        XCTAssertEqual(vm.meaningsLang, "eng")
+
+        settings.learningVia = ["ell": "rus"]
+        try await Fixture.open(userPath: userPath, greek: broken, bundle: bundle)
+        await vm.load()
+        XCTAssertNotNil(vm.errorMessage, "the read failed")
+        XCTAssertEqual(vm.meaningsLang, "eng", "not moved on by a read that failed")
+
+        try await Fixture.open(userPath: userPath, greek: good, bundle: bundle)
+        await vm.load()
+        XCTAssertNil(vm.errorMessage)
+        XCTAssertEqual(vm.meaningsLang, "rus")
+        XCTAssertEqual(Set(vm.pool.map(\.translation)), [""], "read again for Russian")
+    }
+
     /// The reads go through primary keys and the lemma index, never a scan.
     func testDrillQueriesUseIndexes() throws {
         let url = try XCTUnwrap(Self.listsURL)
@@ -31078,7 +31120,7 @@ final class WelcomeViewModelTests: XCTestCase {
         XCTAssertEqual(fresh.message, "English is included and works offline. "
                        + "Add other languages: each downloads once, then works offline too.")
         XCTAssertEqual(model(.upgrade, checked: []).message,
-                       "LibreDict 2.0 downloads languages other than English once. Your History is here, and My words appear in Learn once you choose a language.")
+                       "LibreDict 2.0 downloads languages other than English once. Your History is here, and My words appear in Learn once you choose a language to learn.")
 
         let missing = model(.missing, checked: [.ell, .engLists])
         XCTAssertEqual(missing.rows.map(\.id), ["eng-lists", "arb", "ell", "rus", "spa"])
@@ -31647,6 +31689,15 @@ final class ListTextTests: XCTestCase {
         let closed = try ListText.parse("α,\"one\ntwo\"\nβ,2\n")
         XCTAssertEqual(closed.words.map(\.translation), ["one\ntwo", "2"])
         XCTAssertEqual(closed.broken, [])
+    }
+
+    /// CodeRabbit, PR #281: the limit of the recovery, pinned (0130). With
+    /// a good one-column row before the open quote, one field is expected,
+    /// so the next line parses as a complete record: it imports as a word.
+    func testOneColumnRecoveryStopsAtTheNextLine() throws {
+        let result = try ListText.parse("first\n\"broken\ncontinued\n")
+        XCTAssertEqual(terms(result), ["first", "continued"])
+        XCTAssertEqual(result.broken, [ListText.BrokenRow(line: 2, text: "\"broken", problem: .openQuote)])
     }
 
     /// QA, PR #281: the lines an unclosed quote swallows are listed with
@@ -32273,7 +32324,9 @@ final class ListImportViewModelTests: WordListsTestCase {
 
         // English is linking (no parse: the delimiter is the preview's).
         let english = Task { await vm.setLanguage("eng") }
-        while vm.language != "eng" { await Task.yield() }
+        let englishDeadline = Date().addingTimeInterval(10)
+        while vm.language != "eng", Date() < englishDeadline { await Task.yield() }
+        XCTAssertEqual(vm.language, "eng", "English was chosen")
         await vm.setLanguage("und")
         XCTAssertEqual(vm.preview?.lang, "und", "the later choice's preview, at once")
         await english.value
@@ -32283,7 +32336,9 @@ final class ListImportViewModelTests: WordListsTestCase {
 
         // Comma is parsing when Greek is chosen: one preview, both choices.
         let comma = Task { await vm.setDelimiter(.comma) }
-        while vm.delimiter != .comma { await Task.yield() }
+        let commaDeadline = Date().addingTimeInterval(10)
+        while vm.delimiter != .comma, Date() < commaDeadline { await Task.yield() }
+        XCTAssertEqual(vm.delimiter, .comma, "Comma was chosen")
         await vm.setLanguage("ell")
         await comma.value
         XCTAssertEqual(vm.preview?.parse.delimiter, .comma)
@@ -33791,6 +33846,10 @@ final class CreditsTests: XCTestCase {
         let grdb = try XCTUnwrap(pins?.first { $0["identity"] as? String == "grdb.swift" }?["state"] as? [String: Any])
         XCTAssertEqual(grdb["version"] as? String, "6.29.3",
                        "a new GRDB: copy its LICENSE into Credits.software again")
+        // The revision names the LICENSE that was resolved, not only the tag
+        // (CodeRabbit, PR #283): the digest below is that file's.
+        XCTAssertEqual(grdb["revision"] as? String, "2cf6c756e1e5ef6901ebae16576a7e4e4b834622",
+                       "a new GRDB revision: check its LICENSE against Credits.software again")
 
         let software = try XCTUnwrap(Credits.software.first { $0.package == "grdb.swift" })
         XCTAssertEqual(software.license, "mit")
