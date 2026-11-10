@@ -34,7 +34,7 @@ final class ExerciseFlowTests: XCTestCase {
 
     override func setUpWithError() throws {
         continueAfterFailure = false
-        app = XCUIApplication()
+        app = LibreDictApp()
         // Issue #237: no first-launch sheet; the Greek and Spanish packs,
         // which hold the meanings, installed from the committed assets.
         app.launchArguments = ["-disableReviewPrompt", "-resetData", "-learningAnswerHints", "-learningSeed", "159"]
@@ -193,6 +193,25 @@ final class ExerciseFlowTests: XCTestCase {
         XCTAssertEqual(app.buttons[tappedID].value as? String, "Your answer: wrong")
         XCTAssertTrue(run.feedbackText.contains("Right answer:"), run.feedbackText)
         XCTAssertTrue(run.feedbackText.contains(meaning), run.feedbackText)
+    }
+
+    /// #299: a wrong choice shows "You chose: <meaning> · <word>" under the
+    /// right answer; a right one and a typed wrong answer show none.
+    func testWrongChoiceShowsWhatYouChose() throws {
+        let run = learnPage.openTrainer()
+        guard nextPrompt(run, after: nil) != nil else { return }
+        let rightID = try XCTUnwrap(run.rightOption, "the answer hint").identifier
+        try XCTUnwrap(run.options.first { $0.identifier != rightID }).tap()
+        XCTAssertEqual(run.waitForFeedback(timeout: TestData.Timeouts.short), "wrong")
+        XCTAssertTrue(run.youChose.waitForExistence(timeout: TestData.Timeouts.short), "the You chose line")
+        XCTAssertTrue(run.youChose.label.hasPrefix("You chose:"), run.youChose.label)
+        let words = Set(Self.greekMeanings.keys)
+        XCTAssertTrue(words.contains { run.youChose.label.contains($0) }, "the chosen meaning's word: \(run.youChose.label)")
+        run.tapContinue()
+        guard nextPrompt(run, after: nil) != nil else { return }
+        XCTAssertNotNil(run.choose(right: true))
+        XCTAssertEqual(run.waitForFeedback(), "right")
+        XCTAssertFalse(run.youChose.exists, "a right answer shows none")
     }
 
     /// English via Spanish (`-learningLanguages ell,eng:spa`): house and

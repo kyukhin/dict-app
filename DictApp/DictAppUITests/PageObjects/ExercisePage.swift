@@ -20,6 +20,7 @@ class ExercisePage: BasePage {
     var checkButton: XCUIElement { app.buttons[IDs.check].firstMatch }
     var dontKnowButton: XCUIElement { app.buttons[IDs.dontKnow].firstMatch }
     var feedback: XCUIElement { element(IDs.feedback) }
+    var youChose: XCUIElement { element(IDs.youChose) }
     var continueButton: XCUIElement { app.buttons[IDs.continueButton].firstMatch }
     var summary: XCUIElement { element(IDs.summary) }
     var summaryDone: XCUIElement { app.buttons[IDs.summaryDone].firstMatch }

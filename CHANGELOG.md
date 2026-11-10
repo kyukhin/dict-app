@@ -41,6 +41,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - [#172] Learn → Grammar lists the 17 Greek A1 topics by level, explained in the language Greek is learned through (Russian for Greek via Russian, else English). A topic shows its rule, tables, examples and typical mistakes, its words with their meanings and related topics, with Reading Mode, a 700 pt column on iPad and left-to-right text in Arabic. Practise on a tense topic runs the conjugation drill for those tenses, asking to learn Greek or to pick lists first when needed.
 - [#174] A Greek word's Definition screen lists the grammar topics that apply to it, by the word or by its table (a verb's conjugation and tenses, a noun, an adjective). In the conjugation drill, Rule after each answer opens the topic of the question's tense in a sheet without Practise.
 - [#29] The libredict.app website: a home page, the privacy policy and support in five languages, published from `site/` by GitHub Pages, with no scripts, cookies or trackers.
+- [#299] A wrong choice also shows what the chosen option means, in the feedback bar ("You chose: water · νερό"), under the pairs in match the pairs and with its tense and person in the conjugation drill.
+- [#300] Learning has its own playful sounds, synthesized in code: right, wrong, pairs right and wrong, and a chime when a daily lesson ends or the daily goal is reached; Sounds in Settings still turns them all off.
 
 ### Changed
 - [#138] Every dictionary is searchable right after install, with no "Preparing dictionaries" bar: the app reads the bundled dictionaries in place and keeps your history, saved words and imports in a small database of their own.

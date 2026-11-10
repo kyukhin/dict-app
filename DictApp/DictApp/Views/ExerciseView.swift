@@ -57,7 +57,8 @@ struct ExerciseRunView: View {
         .onChange(of: vm.feedback) { _, feedback in
             guard let feedback else { return }
             let lines = FeedbackBar.lines(feedback, locale: locale)
-            AccessibilityNotification.Announcement([lines.title, lines.detail].compactMap { $0 }.joined(separator: ". ")).post()
+            AccessibilityNotification.Announcement([lines.title, lines.detail, lines.chosen].compactMap { $0 }
+                .joined(separator: ". ")).post()
         }
         .task {
             await vm.start()
@@ -614,7 +615,7 @@ struct FeedbackBar: View {
 
     /// The bar's text, also announced by VoiceOver. The word or meaning is
     /// isolated (FSI…PDI), so a Greek word keeps left to right in Arabic.
-    static func lines(_ feedback: AnswerFeedback, locale: Locale) -> (title: String, detail: String?) {
+    static func lines(_ feedback: AnswerFeedback, locale: Locale) -> (title: String, detail: String?, chosen: String?) {
         let bundle = SettingsViewModel.localizedBundle(for: locale)
         let mark = locale.language.characterDirection == .rightToLeft ? "\u{200F}" : ""
         func text(_ key: String, _ argument: String? = nil) -> String {
@@ -624,13 +625,35 @@ struct FeedbackBar: View {
         }
         switch feedback.outcome {
         case .right:
-            return (text("exercise.right"), nil)
+            return (text("exercise.right"), nil, nil)
         case .accent:
-            return (text("exercise.right"), text("exercise.mindAccent %@", feedback.rightAnswer))
+            return (text("exercise.right"), text("exercise.mindAccent %@", feedback.rightAnswer), nil)
         case .wrong:
-            return (text(feedback.mindTheAccent ? "exercise.mindAccent %@" : "exercise.rightAnswer %@", feedback.rightAnswer), nil)
+            return (text(feedback.mindTheAccent ? "exercise.mindAccent %@" : "exercise.rightAnswer %@", feedback.rightAnswer),
+                    nil, feedback.chosen.map { youChose($0, locale: locale) })
         }
     }
+
+    /// "You chose: water · νερό" (`exercise.youChose`): the text and what it
+    /// stands for, each isolated. A drill form's counterpart is its tense
+    /// line, "Aorist · εμείς" (#299).
+    static func youChose(_ chosen: ChosenOption, locale: Locale) -> String {
+        let bundle = SettingsViewModel.localizedBundle(for: locale)
+        let isRightToLeft = locale.language.characterDirection == .rightToLeft
+        let counterpart = chosen.slot.map { DrillText.tenseLine($0, showsVoice: chosen.showsVoice, locale: locale) }
+            ?? chosen.counterpart
+        let format = bundle.localizedString(forKey: "exercise.youChose", value: "exercise.youChose", table: nil)
+        return (isRightToLeft ? "\u{200F}" : "") + String(format: format, locale: locale, isolate(chosen.text),
+                                                           isolate(counterpart))
+    }
+
+    /// "νερό · water": a word and its own meaning, for the pairs line (#299).
+    static func pairLine(_ pair: (term: String, meaning: String), locale: Locale) -> String {
+        let isRightToLeft = locale.language.characterDirection == .rightToLeft
+        return (isRightToLeft ? "\u{200F}" : "") + "\(isolate(pair.term)) · \(isolate(pair.meaning))"
+    }
+
+    private static func isolate(_ text: String) -> String { "\u{2068}\(text)\u{2069}" }
 }
 
 /// The result line, as the bar and the example sheet show it: a check
@@ -654,6 +677,12 @@ private struct FeedbackResultLine: View {
                 if let detail = lines.detail {
                     Text(verbatim: detail)
                         .font(.subheadline)
+                }
+                if let chosen = lines.chosen {
+                    Text(verbatim: chosen)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .accessibilityIdentifier("exercise_you_chose")
                 }
             }
             .fixedSize(horizontal: false, vertical: true)
@@ -879,7 +908,8 @@ struct ConjugationRunView: View {
         .onChange(of: vm.feedback) { _, feedback in
             guard let feedback else { return }
             let lines = FeedbackBar.lines(feedback, locale: locale)
-            AccessibilityNotification.Announcement([lines.title, lines.detail].compactMap { $0 }.joined(separator: ". ")).post()
+            AccessibilityNotification.Announcement([lines.title, lines.detail, lines.chosen].compactMap { $0 }
+                .joined(separator: ". ")).post()
         }
         .task {
             await vm.start()
@@ -1111,7 +1141,10 @@ struct MatchPairsView: View {
             guard let feedback else { return }
             let key = feedback.outcome.isRight ? "match.a11y.matched" : "match.a11y.notAPair"
             let bundle = SettingsViewModel.localizedBundle(for: locale)
-            AccessibilityNotification.Announcement(bundle.localizedString(forKey: key, value: key, table: nil)).post()
+            // #299: a wrong pair's own pairs are read after "Not a pair".
+            let pairs = feedback.outcome.isRight ? [] : vm.mismatchPairs.map { FeedbackBar.pairLine($0, locale: locale) }
+            AccessibilityNotification.Announcement(([bundle.localizedString(forKey: key, value: key, table: nil)] + pairs)
+                .joined(separator: ". ")).post()
         }
         .task {
             await vm.start()
@@ -1198,6 +1231,18 @@ struct MatchPairsView: View {
                 .fixedSize(horizontal: false, vertical: true)
                 .animation(.easeOut(duration: 0.2), value: round)
                 .animation(.easeOut(duration: 0.2), value: vm.flashing)
+                if !vm.mismatchPairs.isEmpty {
+                    // #299: each tapped tile's own pair, until the next tap.
+                    VStack(alignment: .leading, spacing: 4) {
+                        ForEach(Array(vm.mismatchPairs.enumerated()), id: \.offset) { _, pair in
+                            Text(verbatim: FeedbackBar.pairLine(pair, locale: locale))
+                        }
+                    }
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .accessibilityElement(children: .combine)
+                    .accessibilityIdentifier("match_mismatch")
+                }
                 if let error = vm.errorMessage {
                     Text(error)
                         .font(.footnote)

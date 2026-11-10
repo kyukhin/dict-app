@@ -58,7 +58,7 @@ final class GreekLocalizationTests: XCTestCase {
 
     override func setUpWithError() throws {
         continueAfterFailure = false
-        app = XCUIApplication()
+        app = LibreDictApp()
         app.launchArguments.append("-disableReviewPrompt")
         // Issue #237: every language pack, installed from the committed assets.
         app.launchArguments += UITestHelpers.packArguments()
@@ -136,7 +136,7 @@ final class GreekLocalizationTests: XCTestCase {
     func testLanguagePickerOffersGreek() throws {
         // This test persists a language: leave English behind for other suites.
         addTeardownBlock {
-            let cleanup = XCUIApplication()
+            let cleanup = LibreDictApp()
             cleanup.launchArguments += ["-disableReviewPrompt", "-resetData", "-AppleLanguages", "(en)"]
             cleanup.launch()
             cleanup.terminate()

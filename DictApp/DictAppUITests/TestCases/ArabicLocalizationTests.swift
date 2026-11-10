@@ -48,7 +48,7 @@ final class ArabicLocalizationTests: XCTestCase {
 
     override func setUpWithError() throws {
         continueAfterFailure = false
-        app = XCUIApplication()
+        app = LibreDictApp()
         app.launchArguments.append("-disableReviewPrompt")
         // Issue #237: every language pack, installed from the committed assets.
         app.launchArguments += UITestHelpers.packArguments()
@@ -81,7 +81,7 @@ final class ArabicLocalizationTests: XCTestCase {
         if let app, app.state == .runningForeground {
             app.terminate()
         }
-        let cleanup = XCUIApplication()
+        let cleanup = LibreDictApp()
         cleanup.launchArguments.append("-disableReviewPrompt")
         cleanup.launchArguments += ["-AppleLanguages", "(en)"]
         cleanup.launchArguments.append("-resetData")

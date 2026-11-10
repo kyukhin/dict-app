@@ -1278,6 +1278,18 @@ struct ConjugationQuestion: Sendable {
     let rightForms: [String]
     /// The whole tense by person, every form, for the feedback.
     let tenseRows: [(person: Person, forms: [String])]
+    /// For each option, the cell it was taken from (#299); the right
+    /// option's is the question's.
+    let optionSlots: [Slot]
+
+    /// A cell of a verb's tenses: a tense and voice, and a person.
+    struct Slot: Hashable, Sendable {
+        let facet: ConjugationFacet
+        let person: Person
+    }
+
+    /// The passive of a verb with both voices shows "passive" in a tense line.
+    func showsVoice(of slot: Slot) -> Bool { slot.facet.voice == .passive && verb.mainVoice == .active }
 
     /// A verb with passive forms only: the "passive" note next to the tense.
     var showsPassiveNote: Bool { verb.mainVoice == .passive }
@@ -1308,9 +1320,9 @@ enum ConjugationQuestionBuilder {
         let rightForms = asked.forms
         let levelFacets = facets(of: verb, level: level)
         let persons = Person.allCases
-        typealias Candidate = (form: String, key: String)
+        typealias Candidate = (form: String, key: String, slot: ConjugationQuestion.Slot)
         func first(_ facet: ConjugationFacet, _ person: Person) -> Candidate? {
-            verb.cell(facet, person).map { ($0.forms[0], $0.keys[0]) }
+            verb.cell(facet, person).map { ($0.forms[0], $0.keys[0], .init(facet: facet, person: person)) }
         }
         let otherFacets = levelFacets.filter { $0 != facet }
         let otherPersons = persons.filter { $0 != person }
@@ -1324,14 +1336,14 @@ enum ConjugationQuestionBuilder {
         ]
 
         var taken = Set(asked.keys)
-        var picked: [String] = []
+        var picked: [(form: String, slot: ConjugationQuestion.Slot)] = []
         /// Picks one candidate of `group` at random, if any is left.
         func pick(_ group: [Candidate]) -> Bool {
             var keys = Set<String>()
             let left = group.filter { !taken.contains($0.key) && keys.insert($0.key).inserted }
             guard !left.isEmpty else { return false }
             let candidate = left[randomIndex(left.count, using: &rng)]
-            picked.append(candidate.form)
+            picked.append((candidate.form, candidate.slot))
             taken.insert(candidate.key)
             return true
         }
@@ -1343,15 +1355,16 @@ enum ConjugationQuestionBuilder {
         }
         guard picked.count == distractorCount else { return nil }
 
-        var options = [right] + picked
-        shuffle(&options, using: &rng)
+        var choices = [(form: right, slot: ConjugationQuestion.Slot(facet: facet, person: person))] + picked
+        shuffle(&choices, using: &rng)
+        let options = choices.map(\.form)
         let tenseRows: [(person: Person, forms: [String])] = facet.tense.persons.compactMap { row in
             let forms = verb.forms(facet, row)
             return forms.isEmpty ? nil : (row, forms)
         }
         return ConjugationQuestion(verb: verb, facet: facet, person: person, options: options,
                                    rightIndex: options.firstIndex(of: right) ?? 0, rightForms: rightForms,
-                                   tenseRows: tenseRows)
+                                   tenseRows: tenseRows, optionSlots: choices.map(\.slot))
     }
 
     /// The level's facets of `verb` with the persons that build a question:
@@ -1473,7 +1486,7 @@ enum ConjugationQuestionBuilder {
     }
 
     /// Fisher–Yates.
-    private static func shuffle<G: RandomNumberGenerator>(_ items: inout [String], using rng: inout G) {
+    private static func shuffle<T, G: RandomNumberGenerator>(_ items: inout [T], using rng: inout G) {
         guard items.count > 1 else { return }
         for i in stride(from: items.count - 1, to: 0, by: -1) {
             items.swapAt(i, randomIndex(i + 1, using: &rng))
@@ -1803,6 +1816,8 @@ struct Question: Hashable, Sendable {
         let text: String
         /// A word's endings, shown in the secondary colour.
         var endings = ""
+        /// What the option means (#299): a meaning option's word, a word option's meaning.
+        var counterpart = ""
     }
 
     /// The card asked, as it was when the question was built.
@@ -1837,6 +1852,15 @@ struct Question: Hashable, Sendable {
     }
 }
 
+/// Which sound ends a run (0131, Sounds; #300). Pure.
+enum RunEndSound {
+    /// `goalReached` when the run took today's answers from below `goal` to
+    /// `goal` or more, else `lessonComplete`.
+    static func of(answeredBefore: Int, answeredAfter: Int, goal: Int) -> FeedbackSound {
+        answeredBefore < goal && goal <= answeredAfter ? .goalReached : .lessonComplete
+    }
+}
+
 /// Builds a question from a card (0131, "Questions and answers").
 enum QuestionBuilder {
     /// Recognition is always a choice. Production on rung 0 (new or
@@ -1859,7 +1883,8 @@ enum QuestionBuilder {
             let others = DistractorPicker.pick(for: word, candidates: candidates, rng: &rng)
             if !others.isEmpty {
                 func option(_ choice: WordChoice) -> Question.Option {
-                    isRecognition ? Question.Option(text: choice.meaning) : Question.Option(text: choice.term, endings: choice.endings)
+                    isRecognition ? Question.Option(text: choice.meaning, counterpart: choice.term)
+                        : Question.Option(text: choice.term, endings: choice.endings, counterpart: choice.meaning)
                 }
                 var options = others.map(option)
                 let rightIndex = Int.random(in: 0...options.count, using: &rng)
@@ -2374,9 +2399,15 @@ enum DrillText {
     /// with both voices. A verb with passive forms only shows its note on
     /// its own (`drill.passiveNote`), not here.
     static func tenseLine(_ question: ConjugationQuestion, locale: Locale) -> String {
-        let labels = tenseLabels(question, locale: locale)
-        guard isRightToLeft(locale) else { return (labels + [question.person.pronoun]).joined(separator: " · ") }
-        return "\u{200F}" + (labels + [isolated(question.person.pronoun)]).joined(separator: " · ")
+        tenseLine(ConjugationQuestion.Slot(facet: question.facet, person: question.person),
+                  showsVoice: question.showsVoice, locale: locale)
+    }
+
+    /// The same line for any cell of the question's verb (#299).
+    static func tenseLine(_ slot: ConjugationQuestion.Slot, showsVoice: Bool, locale: Locale) -> String {
+        let labels = tenseLabels(slot.facet, showsVoice: showsVoice, locale: locale)
+        guard isRightToLeft(locale) else { return (labels + [slot.person.pronoun]).joined(separator: " · ") }
+        return "\u{200F}" + (labels + [isolated(slot.person.pronoun)]).joined(separator: " · ")
     }
 
     /// The tense line as VoiceOver reads it: "Aorist, εγώ".
@@ -2426,8 +2457,12 @@ enum DrillText {
 
     /// The tense, then "passive" for the passive of a verb with both voices.
     private static func tenseLabels(_ question: ConjugationQuestion, locale: Locale) -> [String] {
-        var labels = [question.facet.tense.title(locale: locale)]
-        if question.showsVoice { labels.append(FormLabel.passive.text(locale: locale)) }
+        tenseLabels(question.facet, showsVoice: question.showsVoice, locale: locale)
+    }
+
+    private static func tenseLabels(_ facet: ConjugationFacet, showsVoice: Bool, locale: Locale) -> [String] {
+        var labels = [facet.tense.title(locale: locale)]
+        if showsVoice { labels.append(FormLabel.passive.text(locale: locale)) }
         return labels
     }
 

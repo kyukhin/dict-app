@@ -300,6 +300,21 @@ struct AnswerFeedback: Equatable {
     let mindTheAccent: Bool
     /// The right option's text, or the word.
     let rightAnswer: String
+    /// What a wrong choice means (#299); nil for a right answer, a typed
+    /// answer and "Don't know".
+    var chosen: ChosenOption?
+}
+
+/// The option a wrong answer chose and what it stands for (#299).
+struct ChosenOption: Equatable {
+    /// The option's text.
+    let text: String
+    /// A meaning's word, or a word's meaning. Empty for a drill's form.
+    let counterpart: String
+    /// A drill form's cell, whose tense and person the line shows instead.
+    var slot: ConjugationQuestion.Slot?
+    /// The drill's "passive" note for `slot`.
+    var showsVoice = false
 }
 
 /// What the example sheet shows (0134, #178): the result line, the word and
@@ -410,6 +425,8 @@ final class ExerciseRunViewModel: ObservableObject {
     private var samples: [String: [WordChoice]] = [:]
     private var pendingWrite: Task<Void, Never>?
     private var isStarted = false
+    /// Today's answers when the run started (#300: the end sound).
+    private var answeredBefore = 0
     /// The pair's via, the language of the examples' translations; nil
     /// without a pair (Other).
     private var via: String?
@@ -444,6 +461,7 @@ final class ExerciseRunViewModel: ObservableObject {
     func start() async {
         guard !isStarted else { return }
         isStarted = true
+        answeredBefore = (try? await db.answeredCount(on: clock.today)) ?? 0
         do {
             let today = clock.today
             sourceOrder = try await languages.sourceOrder(lang: lang, meaningsLang: meaningsLang)
@@ -615,8 +633,13 @@ final class ExerciseRunViewModel: ObservableObject {
     private func loadSummary() async {
         do {
             summary = ReviewSummary.of(try await db.reviewRows(run: runID))
-            goalProgress = GoalProgress(answered: try await db.answeredCount(on: clock.today),
+            let progress = GoalProgress(answered: try await db.answeredCount(on: clock.today),
                                         goal: settings.learningDailyGoal)
+            goalProgress = progress
+            var isLesson = false
+            if case .session = run { isLesson = true }
+            player.playRunEnd(answeredBefore: answeredBefore, answeredAfter: progress.answered,
+                              goal: progress.goal, isDailyLesson: isLesson)
         } catch {
             summary = summary ?? ReviewSummary()
             errorMessage = error.localizedDescription
@@ -682,8 +705,13 @@ final class ExerciseRunViewModel: ObservableObject {
     private func answer(_ outcome: Outcome, chosen: Int?, mindTheAccent: Bool) async {
         guard let question else { return }
         let today = clock.today
+        var chosenOption: ChosenOption?
+        if !outcome.isRight, let chosen, question.options.indices.contains(chosen) {
+            let option = question.options[chosen]
+            chosenOption = ChosenOption(text: option.text, counterpart: option.counterpart)
+        }
         feedback = AnswerFeedback(outcome: outcome, chosenIndex: chosen, mindTheAccent: mindTheAccent,
-                                  rightAnswer: question.rightAnswer)
+                                  rightAnswer: question.rightAnswer, chosen: chosenOption)
         player.play(outcome)
         // 0134, #178: a new word's first question opens its examples.
         if question.isNew, introducedWords.insert(question.word.key).inserted {
@@ -927,6 +955,7 @@ final class ConjugationRunViewModel: ObservableObject {
     private var shownAt = Date()
     private var pendingWrite: Task<Void, Never>?
     private var isStarted = false
+    private var answeredBefore = 0
     /// Greek's grammar topics and links, read once per run (#174).
     private var grammarTopics: [GrammarTopicSummary] = []
     private var grammarLinks: [GrammarLink] = []
@@ -954,6 +983,7 @@ final class ConjugationRunViewModel: ObservableObject {
     func start() async {
         guard !isStarted else { return }
         isStarted = true
+        answeredBefore = (try? await db.answeredCount(on: clock.today)) ?? 0
         do {
             let today = clock.today
             let cards = try await db.cards(lang: ConjugationPlanner.lang, kinds: [.conjugation])
@@ -1004,8 +1034,14 @@ final class ConjugationRunViewModel: ObservableObject {
               plan.indices.contains(index) else { return }
         let outcome: Outcome = option == question.rightIndex ? .right : .wrong
         let today = clock.today
+        var chosenOption: ChosenOption?
+        if !outcome.isRight, question.optionSlots.indices.contains(option) {
+            let slot = question.optionSlots[option]
+            chosenOption = ChosenOption(text: question.options[option], counterpart: "", slot: slot,
+                                        showsVoice: question.showsVoice(of: slot))
+        }
         feedback = AnswerFeedback(outcome: outcome, chosenIndex: option, mindTheAccent: false,
-                                  rightAnswer: question.options[question.rightIndex])
+                                  rightAnswer: question.options[question.rightIndex], chosen: chosenOption)
         player.play(outcome)
         answered += 1
         let seconds = min(max(clock.now().timeIntervalSince(shownAt), 0), 3_600)
@@ -1068,8 +1104,11 @@ final class ConjugationRunViewModel: ObservableObject {
             let rows = try await db.reviewRows(run: runID)
             summary = ReviewSummary.of(rows)
             tenseScores = ConjugationTense.ordered(Accuracy.byTense(Accuracy.byFacet(rows)))
-            goalProgress = GoalProgress(answered: try await db.answeredCount(on: clock.today),
+            let progress = GoalProgress(answered: try await db.answeredCount(on: clock.today),
                                         goal: settings.learningDailyGoal)
+            goalProgress = progress
+            player.playRunEnd(answeredBefore: answeredBefore, answeredAfter: progress.answered,
+                              goal: progress.goal, isDailyLesson: false)
         } catch {
             summary = summary ?? ReviewSummary()
             errorMessage = error.localizedDescription
@@ -1164,6 +1203,9 @@ final class MatchPairsViewModel: ObservableObject {
     /// The tiles of the wrong pair flashing red.
     @Published private(set) var flashing: Set<MatchRound.Tile> = []
     @Published private(set) var feedback: PairFeedback?
+    /// The words of the last wrong pair, by index into the round's words,
+    /// until the next tap (#299).
+    @Published private(set) var mismatch: (word: Int, meaning: Int)?
     /// When the round showed.
     @Published private(set) var startedAt = Date()
     /// When its last pair was matched; nil while it runs.
@@ -1195,6 +1237,7 @@ final class MatchPairsViewModel: ObservableObject {
     private var writes: Task<Void, Never>?
     private var feedbackCount = 0
     private var isStarted = false
+    private var answeredBefore = 0
 
     init(lang: String, meaningsLang: String?, db: DatabaseService = .shared, settings: SettingsService = .shared,
          languages: LearningLanguageService? = nil, clock: LearningClock = LearningClock(),
@@ -1211,6 +1254,14 @@ final class MatchPairsViewModel: ObservableObject {
         self.reminder = reminder ?? (settings === SettingsService.shared ? .shared : nil)
         self.rng = SplitMix64(seed: seed ?? UInt64.random(in: .min ... .max))
         self.answerHints = answerHints
+    }
+
+    /// The two words of the last wrong pair with their own meanings: the
+    /// word tapped in the word column, then the word whose meaning was
+    /// tapped (#299).
+    var mismatchPairs: [(term: String, meaning: String)] {
+        guard let round, let mismatch else { return [] }
+        return [mismatch.word, mismatch.meaning].map { (round.words[$0].term, round.words[$0].meaning) }
     }
 
     /// The round's time, m:ss on screen: from its start to its last match,
@@ -1254,8 +1305,10 @@ final class MatchPairsViewModel: ObservableObject {
             return
         case .selected:
             flashing = []
+            mismatch = nil
         case let .mismatched(word, meaning):
             flashing = Set([round.tiles(of: word)?.word, round.tiles(of: meaning)?.meaning].compactMap { $0 })
+            mismatch = (word, meaning)
             give(.wrong)
             let id = feedbackCount
             Task {
@@ -1264,6 +1317,7 @@ final class MatchPairsViewModel: ObservableObject {
             }
         case let .matched(word):
             flashing = []
+            mismatch = nil
             give(.right)
             let now = clock.now()
             let durationMs = min(max(Int(now.timeIntervalSince(lastMatchAt) * 1000), 0), ReviewSummary.durationCapMs)
@@ -1280,6 +1334,10 @@ final class MatchPairsViewModel: ObservableObject {
                 phase = .finished
             }
             await write.value
+            if round.isComplete, let after = try? await db.answeredCount(on: today) {
+                player.playRunEnd(answeredBefore: answeredBefore, answeredAfter: after,
+                                  goal: settings.learningDailyGoal, isDailyLesson: false)
+            }
         }
     }
 
@@ -1293,6 +1351,7 @@ final class MatchPairsViewModel: ObservableObject {
         await writes?.value
         round = nil
         flashing = []
+        mismatch = nil
         finishedAt = nil
         do {
             let today = clock.today
@@ -1307,6 +1366,7 @@ final class MatchPairsViewModel: ObservableObject {
                 try await db.introduce(pick.lists, sourceOrder: sourceOrder, today: today)
             }
             round = MatchRound(words: pick.words, rng: &rng)
+            answeredBefore = (try? await db.answeredCount(on: today)) ?? 0
             runID = UUID()
             startedAt = clock.now()
             lastMatchAt = startedAt
@@ -1321,7 +1381,7 @@ final class MatchPairsViewModel: ObservableObject {
     private func give(_ outcome: Outcome) {
         feedbackCount += 1
         feedback = PairFeedback(id: feedbackCount, outcome: outcome)
-        player.play(outcome)
+        player.play(outcome.isRight ? .pairRight : .pairWrong)
     }
 
     /// Writes the answer with the daily goal in force (E10's `learn_day`),

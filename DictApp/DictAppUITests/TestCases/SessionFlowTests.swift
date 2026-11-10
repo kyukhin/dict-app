@@ -42,7 +42,7 @@ final class SessionFlowTests: XCTestCase {
 
     override func setUpWithError() throws {
         continueAfterFailure = false
-        app = XCUIApplication()
+        app = LibreDictApp()
         // Issue #237: no first-launch sheet; the Greek pack, which holds the
         // meanings, and the others installed from the committed assets.
         app.launchArguments = ["-disableReviewPrompt", "-resetData", "-learningAnswerHints", "-learningSeed", "161",

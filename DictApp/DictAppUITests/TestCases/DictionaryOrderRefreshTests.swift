@@ -15,7 +15,7 @@ final class DictionaryOrderRefreshTests: XCTestCase {
 
     override func setUpWithError() throws {
         continueAfterFailure = false
-        app = XCUIApplication()
+        app = LibreDictApp()
         // `-clearFixtureImports` scrubs any leftover fixture rows at launch;
         // `-importFixtureViaCallback:json` makes the Import button feed the
         // bundled fixture to `handleImport` without the document picker.

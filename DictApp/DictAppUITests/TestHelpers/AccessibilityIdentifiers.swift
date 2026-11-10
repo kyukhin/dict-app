@@ -298,6 +298,8 @@ struct AccessibilityIdentifiers {
         static let dontKnow = "exercise_dont_know"
         /// Its value is the outcome: `right`, `accent` or `wrong`.
         static let feedback = "exercise_feedback"
+        /// "You chose: …" under the right answer after a wrong choice (#299).
+        static let youChose = "exercise_you_chose"
         static let continueButton = "exercise_continue"
         static let summary = "run_summary"
         static let summaryDone = "run_summary_done"
@@ -357,6 +359,8 @@ struct AccessibilityIdentifiers {
         static let view = "match_view"
         /// Its value is the elapsed time, `m:ss`.
         static let timer = "match_timer"
+        /// The two tapped tiles' own pairs after a wrong pair (#299).
+        static let mismatch = "match_mismatch"
         /// The word column's tiles from the top, `match_word_0` … `match_word_4`.
         static func word(_ position: Int) -> String {
             return "match_word_\(position)"

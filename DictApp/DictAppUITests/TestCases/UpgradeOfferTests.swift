@@ -16,7 +16,7 @@ final class UpgradeOfferTests: XCTestCase {
 
     override func setUpWithError() throws {
         continueAfterFailure = false
-        app = XCUIApplication()
+        app = LibreDictApp()
         app.launchArguments += ["-disableReviewPrompt"]
         app.launchEnvironment["OS_ACTIVITY_MODE"] = "disable"
         XCUIDevice.shared.orientation = .portrait

@@ -31,6 +31,7 @@ final class ConjugationDrillFlowTests: XCTestCase {
         if name.contains("testNoCheckedListOffersChooseLists") { return ["-learningLanguages", "ell"] }
         if name.contains("testTensesUpToIsRemembered") { return greekA1 + ["-drillLength", "4"] }
         if name.contains("testWholeTenseAfterEachAnswer") { return greekA1 + ["-drillLength", "3"] }
+        if name.contains("testWrongFormShowsItsSlot") { return greekA1 + ["-drillLength", "3"] }
         if name.contains("testSessionOfFifteen") { return greekA1 }
         if name.contains("testPassiveNote") || name.contains("testPractiseFromDefinition") {
             return ["-learningLanguages", "ell", "-drillLength", "3"]
@@ -56,7 +57,7 @@ final class ConjugationDrillFlowTests: XCTestCase {
 
     override func setUpWithError() throws {
         continueAfterFailure = false
-        app = XCUIApplication()
+        app = LibreDictApp()
         app.launchArguments = ["-disableReviewPrompt", "-resetData", "-learningAnswerHints", "-learningSeed", "168"]
             + learningArguments + packArguments
         app.launchEnvironment["OS_ACTIVITY_MODE"] = "disable"
@@ -241,6 +242,22 @@ final class ConjugationDrillFlowTests: XCTestCase {
             }
             drill.run.tapContinue()
         }
+    }
+
+    /// #299: a wrong form shows "You chose: <form> · <tense> · <pronoun>"; a right one shows none.
+    func testWrongFormShowsItsSlot() throws {
+        let drill = openConjugation()
+        drill.start()
+        XCTAssertTrue(drill.waitForQuestion(), "question 1")
+        XCTAssertEqual(drill.answer(right: false), "wrong")
+        let line = drill.run.youChose
+        XCTAssertTrue(line.waitForExistence(timeout: TestData.Timeouts.short), "the You chose line")
+        XCTAssertTrue(line.label.hasPrefix("You chose:"), line.label)
+        XCTAssertTrue(ConjugationPage.persons.keys.contains { line.label.contains($0) }, "a Greek pronoun: \(line.label)")
+        drill.run.tapContinue()
+        XCTAssertTrue(drill.waitForQuestion(), "question 2")
+        XCTAssertEqual(drill.answer(right: true), "right")
+        XCTAssertFalse(drill.run.youChose.exists, "a right answer shows none")
     }
 
     /// No `-drillLength`: 15 questions, then the summary with the run by tense.

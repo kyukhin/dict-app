@@ -18,7 +18,7 @@ final class WordFormsSearchFlowTests: XCTestCase {
 
     override func setUpWithError() throws {
         continueAfterFailure = false
-        app = XCUIApplication()
+        app = LibreDictApp()
         app.launchArguments.append("-disableReviewPrompt")
         // Issue #237: every language pack, installed from the committed assets.
         app.launchArguments += UITestHelpers.packArguments()
@@ -94,7 +94,7 @@ final class WordFormsSearchFlowTests: XCTestCase {
         let bidiControls: Set<Unicode.Scalar> = ["\u{200E}", "\u{200F}", "\u{2066}", "\u{2067}", "\u{2068}", "\u{2069}"]
         for (code, label) in spoken {
             app.terminate()
-            app = XCUIApplication()
+            app = LibreDictApp()
             app.launchArguments = ["-disableReviewPrompt", "-resetData", "-AppleLanguages", "(\(code))", "-AppleLocale", code] + UITestHelpers.packArguments()
             app.launch()
             XCTAssertTrue(app.waitForDictionariesReady(), "\(code): Search after launch")
@@ -194,7 +194,7 @@ extension WordFormsSearchFlowTests {
         let bidiControls: Set<Unicode.Scalar> = ["\u{200E}", "\u{200F}", "\u{2066}", "\u{2067}", "\u{2068}", "\u{2069}"]
         for (code, label) in spoken {
             app.terminate()
-            app = XCUIApplication()
+            app = LibreDictApp()
             app.launchArguments = ["-disableReviewPrompt", "-resetData", "-AppleLanguages", "(\(code))", "-AppleLocale", code] + UITestHelpers.packArguments()
             app.launch()
             XCTAssertTrue(app.waitForDictionariesReady(), "\(code): Search after launch")

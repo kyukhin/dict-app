@@ -31,7 +31,7 @@ final class GrammarFlowTests: XCTestCase {
 
     override func setUpWithError() throws {
         continueAfterFailure = false
-        app = XCUIApplication()
+        app = LibreDictApp()
         app.launchArguments = ["-disableReviewPrompt", "-resetData"] + learningArguments
             + UITestHelpers.packArguments("ell")
         // The pack install and the topics' long texts make the app log

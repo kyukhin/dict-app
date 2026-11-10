@@ -39,7 +39,7 @@ final class ExampleSentencesTests: XCTestCase {
 
     override func setUpWithError() throws {
         continueAfterFailure = false
-        app = XCUIApplication()
+        app = LibreDictApp()
         // A subset of the packs starts from none (`-resetPacks`): an earlier
         // test's packs stay installed otherwise.
         app.launchArguments = ["-disableReviewPrompt", "-resetData"] + (packs == "all" ? [] : ["-resetPacks"])

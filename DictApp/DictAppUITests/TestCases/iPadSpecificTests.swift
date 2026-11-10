@@ -48,7 +48,7 @@ final class iPadSpecificTests: XCTestCase {
         try XCTSkipUnless(UIDevice.current.userInterfaceIdiom == .pad,
                           "iPad-only tests; current destination is not iPad")
 
-        app = XCUIApplication()
+        app = LibreDictApp()
         app.launchArguments.append("-disableReviewPrompt")
         // Issue #237: no first-launch sheet.
         app.launchArguments += [UITestHelpers.skipWelcome]

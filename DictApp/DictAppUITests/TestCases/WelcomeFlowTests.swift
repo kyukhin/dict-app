@@ -18,7 +18,7 @@ final class WelcomeFlowTests: XCTestCase {
 
     override func setUpWithError() throws {
         continueAfterFailure = false
-        app = XCUIApplication()
+        app = LibreDictApp()
         app.launchArguments += ["-disableReviewPrompt", "-resetDatabase", "-resetPacks", "-resetData"]
         app.launchEnvironment["OS_ACTIVITY_MODE"] = "disable"
         // iOS 26 "Enable Dictation?" springboard alert on the first search.

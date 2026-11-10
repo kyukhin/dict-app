@@ -20,7 +20,7 @@ final class ReadingModeTests: XCTestCase {
 
     override func setUpWithError() throws {
         continueAfterFailure = false
-        app = XCUIApplication()
+        app = LibreDictApp()
         app.launchArguments = ["-resetData", "-disableReviewPrompt"]
         // Issue #237: no first-launch sheet.
         app.launchArguments += [UITestHelpers.skipWelcome]

@@ -319,3 +319,13 @@ extension XCUIApplication {
         return reachable(element)
     }
 }
+
+/// The app under test. Every launch passes `-muteSounds`, so a suite never
+/// plays the learning sounds through the Mac's speakers (#300). Build the
+/// app with this, never with `XCUIApplication()`.
+final class LibreDictApp: XCUIApplication {
+    override func launch() {
+        if !launchArguments.contains("-muteSounds") { launchArguments.append("-muteSounds") }
+        super.launch()
+    }
+}

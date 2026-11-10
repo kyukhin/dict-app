@@ -19,7 +19,7 @@ final class MyWordsFlowTests: XCTestCase {
 
     override func setUpWithError() throws {
         continueAfterFailure = false
-        app = XCUIApplication()
+        app = LibreDictApp()
         // Issue #237: no first-launch sheet; the Greek pack and the others
         // installed from the committed assets.
         app.launchArguments = ["-disableReviewPrompt", "-resetData"] + testArguments + UITestHelpers.packArguments()

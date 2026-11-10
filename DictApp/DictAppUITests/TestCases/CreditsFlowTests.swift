@@ -13,7 +13,7 @@ final class CreditsFlowTests: XCTestCase {
 
     override func setUpWithError() throws {
         continueAfterFailure = false
-        app = XCUIApplication()
+        app = LibreDictApp()
         app.launchArguments += ["-disableReviewPrompt", "-resetData", UITestHelpers.skipWelcome]
         XCUIDevice.shared.orientation = .portrait
         app.launch()

@@ -26602,7 +26602,7 @@ final class QuestionBuilderTests: XCTestCase {
         for seed in UInt64(0)..<40 {
             let recognition = try XCTUnwrap(build(card(.recognition, step: 2), mode: .lenient, seed: seed))
             let right = try XCTUnwrap(recognition.rightIndex)
-            XCTAssertEqual(recognition.options[right], Question.Option(text: "write"), "seed \(seed)")
+            XCTAssertEqual(recognition.options[right], Question.Option(text: "write", counterpart: "γράφω"), "seed \(seed)")
             XCTAssertEqual(recognition.rightAnswer, "write")
             XCTAssertEqual(Set(recognition.options.map(\.text)).count, 4, "four different options")
             XCTAssertTrue(recognition.options.allSatisfy { $0.endings.isEmpty }, "meanings have no endings")
@@ -26610,7 +26610,7 @@ final class QuestionBuilderTests: XCTestCase {
 
             let production = try XCTUnwrap(build(card(.production, step: 0, answered: false), mode: .lenient, seed: seed))
             let index = try XCTUnwrap(production.rightIndex)
-            XCTAssertEqual(production.options[index], Question.Option(text: "γράφω", endings: "-εις"))
+            XCTAssertEqual(production.options[index], Question.Option(text: "γράφω", endings: "-εις", counterpart: "write"))
             XCTAssertEqual(production.rightAnswer, "γράφω")
             XCTAssertTrue(production.options.allSatisfy { !$0.endings.isEmpty }, "words with their endings")
         }
@@ -26715,6 +26715,18 @@ final class TrainerPlannerTests: XCTestCase {
 /// tones are valid WAV data.
 @MainActor
 final class FeedbackPlayerTests: XCTestCase {
+    /// A real player at volume 0: the tests load and "play" it silently.
+    nonisolated static let mutedPlayer: @Sendable (FeedbackSound) -> AVAudioPlayer? = { sound in
+        let player = try? AVAudioPlayer(data: ToneSynth.wav(sound))
+        player?.volume = 0
+        return player
+    }
+
+    /// Under XCTest the app's own player is silent.
+    func testTestsAreMuted() {
+        XCTAssertTrue(FeedbackPlayer.isMuted)
+    }
+
     func testSoundAndHapticsFollowTheSettings() {
         let settings = SettingsService(store: InMemoryKeyValueStore())
         let sink = RecordingFeedbackSink()
@@ -26722,42 +26734,41 @@ final class FeedbackPlayerTests: XCTestCase {
         XCTAssertTrue(settings.learningSounds, "on by default")
         XCTAssertTrue(settings.learningHaptics, "on by default")
 
-        player.play(.right)
-        player.play(.accent)
-        player.play(.wrong)
+        player.play(Outcome.right)
+        player.play(Outcome.accent)
+        player.play(Outcome.wrong)
         XCTAssertEqual(sink.played, [.right, .right, .wrong], "an accent answer sounds right")
         XCTAssertEqual(player.haptic(for: .right), .success)
         XCTAssertEqual(player.haptic(for: .accent), .success)
         XCTAssertEqual(player.haptic(for: .wrong), .error)
 
         settings.learningSounds = false
-        player.play(.right)
-        player.play(.wrong)
-        XCTAssertEqual(sink.played, [.right, .right, .wrong], "Sounds off: nothing plays")
+        player.play(Outcome.right)
+        player.play(Outcome.wrong)
+        FeedbackSound.allCases.forEach { player.play($0) }
+        player.playRunEnd(answeredBefore: 0, answeredAfter: 30, goal: 20, isDailyLesson: true)
+        XCTAssertEqual(sink.played, [.right, .right, .wrong], "Sounds off: none of the six plays")
         XCTAssertEqual(player.haptic(for: .wrong), .error, "Haptics are a separate setting")
 
         settings.learningHaptics = false
         XCTAssertNil(player.haptic(for: .right), "Haptics off")
         XCTAssertNil(player.haptic(for: .wrong))
         settings.learningSounds = true
-        player.play(.wrong)
+        player.play(Outcome.wrong)
         XCTAssertEqual(sink.played, [.right, .right, .wrong, .wrong], "Sounds on again")
     }
 
-    /// 16-bit mono PCM at 44.1 kHz, 0.2 s each: right two rising notes,
-    /// wrong one low note; no click at the start; AVAudioPlayer reads them.
+    /// Each of the six is a 16-bit mono 44.1 kHz WAV that AVAudioPlayer
+    /// reads, of its recipe's length (the candidates script's, to the sample),
+    /// peaking at 0.7, silent at both ends, the same on every call.
     func testToneIsAValidWAV() throws {
-        func zeroCrossings(_ samples: ArraySlice<Int16>) -> Int {
-            var count = 0, last: Int16 = 0
-            for sample in samples where sample != 0 {
-                if last != 0, (sample > 0) != (last > 0) { count += 1 }
-                last = sample
-            }
-            return count
-        }
-        var crossings: [FeedbackSound: [Int]] = [:]
+        let counts: [FeedbackSound: Int] = [.right: 14_994, .wrong: 20_727, .lessonComplete: 32_634, .goalReached: 41_454,
+                                            .pairRight: 6_615, .pairWrong: 6_615]
+        XCTAssertEqual(Set(counts.keys), Set(FeedbackSound.allCases))
         for sound in FeedbackSound.allCases {
-            let bytes = [UInt8](TonePlayer.wav(sound))
+            let data = ToneSynth.wav(sound)
+            XCTAssertEqual(data, ToneSynth.wav(sound), "\(sound): equal across two calls")
+            let bytes = [UInt8](data)
             func u16(_ at: Int) -> UInt16 { UInt16(bytes[at]) | UInt16(bytes[at + 1]) << 8 }
             func u32(_ at: Int) -> UInt32 { UInt32(u16(at)) | UInt32(u16(at + 2)) << 16 }
             func text(_ range: Range<Int>) -> String { String(decoding: bytes[range], as: UTF8.self) }
@@ -26775,20 +26786,41 @@ final class FeedbackPlayerTests: XCTestCase {
             XCTAssertEqual(Int(u32(40)), bytes.count - 44)
 
             let samples = stride(from: 44, to: bytes.count, by: 2).map { Int16(bitPattern: u16($0)) }
-            XCTAssertEqual(samples.count, 8_820, "\(sound): 0.2 s")
+            XCTAssertEqual(samples.count, counts[sound], "\(sound): the recipe's length")
             let peak = samples.map { abs(Int($0)) }.max() ?? 0
-            XCTAssertGreaterThan(peak, 3_000, "\(sound) is audible")
-            XCTAssertLessThanOrEqual(peak, Int(0.3 * Double(Int16.max)) + 1, "\(sound): at 30 % volume")
+            XCTAssertEqual(Double(peak), 0.7 * 32_767, accuracy: 30, "\(sound): a 0.7 peak")
             XCTAssertLessThan(abs(Int(samples[0])), 50, "\(sound) starts silent: no click")
-            crossings[sound] = [zeroCrossings(samples[..<4_410]), zeroCrossings(samples[4_410...])]
+            XCTAssertLessThan(abs(Int(samples.last ?? 0)), 50, "\(sound) fades out")
 
-            let player = try AVAudioPlayer(data: TonePlayer.wav(sound))
-            XCTAssertEqual(player.duration, 0.2, accuracy: 0.01, "\(sound)")
+            let player = try AVAudioPlayer(data: data)
+            XCTAssertEqual(player.duration, Double(samples.count) / 44_100, accuracy: 0.001, "\(sound)")
         }
-        let right = try XCTUnwrap(crossings[.right]), wrong = try XCTUnwrap(crossings[.wrong])
-        XCTAssertGreaterThan(right[1], right[0], "right: the second note is higher")
-        XCTAssertLessThan(wrong[0] + wrong[1], right[0], "wrong: one note, lower than right's first")
-        XCTAssertEqual(Double(wrong[0] + wrong[1]), 2 * 220 * 0.2, accuracy: 6, "wrong is an A3")
+    }
+
+    /// A pitch check: wrong falls, right rises (both start where the script's notes do).
+    func testNotesAreTheScriptsPitches() {
+        XCTAssertEqual(ToneSynth.frequency("A4"), 440, accuracy: 0.001)
+        XCTAssertEqual(ToneSynth.frequency("C6"), 1_046.5, accuracy: 0.1)
+        XCTAssertEqual(ToneSynth.frequency("G#6"), 1_661.2, accuracy: 0.1)
+        XCTAssertEqual(ToneSynth.frequency("Bb3"), 233.08, accuracy: 0.01)
+    }
+
+    /// #300: each case plays once at its moment: an answer, a match round
+    /// with one wrong pair, a run's end (the goal's sound in place of the
+    /// lesson's; the lesson's after a daily lesson only).
+    func testSixSoundsAtTheirMoments() {
+        let settings = SettingsService(store: InMemoryKeyValueStore())
+        let sink = RecordingFeedbackSink()
+        let player = FeedbackPlayer(settings: settings, sink: sink)
+        player.play(Outcome.right)
+        player.play(Outcome.wrong)
+        player.playRunEnd(answeredBefore: 5, answeredAfter: 15, goal: 20, isDailyLesson: true)
+        player.playRunEnd(answeredBefore: 15, answeredAfter: 25, goal: 20, isDailyLesson: false)
+        player.playRunEnd(answeredBefore: 25, answeredAfter: 35, goal: 20, isDailyLesson: false)
+        player.playRunEnd(answeredBefore: 25, answeredAfter: 35, goal: 20, isDailyLesson: true)
+        player.play(.pairRight)
+        player.play(.pairWrong)
+        XCTAssertEqual(sink.played, [.right, .wrong, .lessonComplete, .goalReached, .lessonComplete, .pairRight, .pairWrong])
     }
 
     /// The tones load and play on the player's queue: `play` returns at
@@ -26796,7 +26828,7 @@ final class FeedbackPlayerTests: XCTestCase {
     /// it 15 s), so an answer never blocks the main thread.
     func testTonesPlayOffTheMainThread() {
         let queue = DispatchQueue(label: "FeedbackPlayerTests.tones")
-        let tones = TonePlayer(queue: queue)
+        let tones = TonePlayer(queue: queue, makePlayer: Self.mutedPlayer)
         XCTAssertEqual(tones.loadedSounds, [], "nothing loads before a play")
 
         queue.suspend()
@@ -26807,6 +26839,10 @@ final class FeedbackPlayerTests: XCTestCase {
         queue.resume()
 
         XCTAssertEqual(tones.loadedSounds, [.wrong], "the queue loaded the sound asked, and only it")
+
+        let all = TonePlayer(queue: queue, makePlayer: Self.mutedPlayer)
+        FeedbackSound.allCases.forEach { all.play($0) }
+        XCTAssertEqual(all.loadedSounds, Set(FeedbackSound.allCases), "all six, on the queue")
     }
 
     /// QA, PR #281: a player is made on the tones' queue, never on the
@@ -26830,7 +26866,7 @@ final class FeedbackPlayerTests: XCTestCase {
         let tones = TonePlayer(queue: queue) { sound in
             made.append((sound, Thread.isMainThread, DispatchQueue.getSpecific(key: key) == true))
             // Right has no player, as when its data fails; wrong has one.
-            return sound == .right ? nil : try? AVAudioPlayer(data: TonePlayer.wav(sound))
+            return sound == .right ? nil : Self.mutedPlayer(sound)
         }
 
         queue.suspend()
@@ -27706,7 +27742,9 @@ final class ExerciseRunViewModelTests: ExerciseTestCase {
         let tapped = (right + 1) % second.options.count
         await vm.choose(tapped)
         XCTAssertEqual(vm.feedback, AnswerFeedback(outcome: .wrong, chosenIndex: tapped, mindTheAccent: false,
-                                                   rightAnswer: second.word.meaning))
+                                                   rightAnswer: second.word.meaning,
+                                                   chosen: ChosenOption(text: second.options[tapped].text,
+                                                                        counterpart: second.options[tapped].counterpart)))
         XCTAssertEqual(sink.played, [.right, .wrong])
         XCTAssertEqual(vm.total, 7, "the wrong card comes back at the end")
         let both = try await rows("SELECT word, outcome, duration_ms, step_after FROM learn_review ORDER BY id")
@@ -29401,7 +29439,7 @@ final class MatchPairsViewModelTests: ExerciseTestCase {
         XCTAssertEqual(goal, ["2026-11-04|20"], "the answers write the day's goal")
         let answered = try await db.answeredCount(on: today)
         XCTAssertEqual(answered, 5, "a round is 5 items toward the goal")
-        XCTAssertEqual(sink.played, [.wrong, .right, .right, .right, .right, .right])
+        XCTAssertEqual(sink.played, [.pairWrong, .pairRight, .pairRight, .pairRight, .pairRight, .pairRight])
 
         let firstRun = vm.runID
         await vm.nextRound()
@@ -34470,5 +34508,290 @@ final class KeptLessonTests: ExerciseTestCase {
         XCTAssertEqual(run.total, 10, "a new lesson replaces the damaged row")
         let kept = try await db.keptLesson(lang: "ell", today: today)
         XCTAssertEqual(kept?.items.count, 10)
+    }
+}
+
+// MARK: - #299 What you chose, #300 sounds
+
+/// `RunEndSound` (pure): which sound ends a run.
+final class RunEndSoundTests: XCTestCase {
+    func testTheGoalsSoundReplacesTheLessonsOnTheRunThatFillsTheRing() {
+        XCTAssertEqual(RunEndSound.of(answeredBefore: 18, answeredAfter: 22, goal: 20), .goalReached)
+        XCTAssertEqual(RunEndSound.of(answeredBefore: 0, answeredAfter: 20, goal: 20), .goalReached, "exactly the goal")
+        XCTAssertEqual(RunEndSound.of(answeredBefore: 20, answeredAfter: 25, goal: 20), .lessonComplete, "already met")
+        XCTAssertEqual(RunEndSound.of(answeredBefore: 5, answeredAfter: 12, goal: 20), .lessonComplete, "not met yet")
+    }
+}
+
+extension QuestionBuilderTests {
+    /// #299: each option knows what it means: a meaning's word, a word's meaning.
+    func testOptionsCarryTheirCounterpart() throws {
+        let meanings = Dictionary(uniqueKeysWithValues: ([word] + candidates).map { ($0.meaning, $0.term) })
+        let terms = Dictionary(uniqueKeysWithValues: ([word] + candidates).map { ($0.term, $0.meaning) })
+        let recognition = try XCTUnwrap(build(card(.recognition, step: 0), mode: .choice))
+        XCTAssertEqual(recognition.options.map(\.counterpart), recognition.options.map { meanings[$0.text] })
+        let production = try XCTUnwrap(build(card(.production, step: 0), mode: .choice))
+        XCTAssertEqual(production.options.map(\.counterpart), production.options.map { terms[$0.text] })
+        XCTAssertTrue((recognition.options + production.options).allSatisfy { !$0.counterpart.isEmpty })
+    }
+}
+
+extension ExerciseRunViewModelTests {
+    /// #299: a wrong option keeps its text and counterpart; right, typed
+    /// and "Don't know" keep none.
+    func testWrongChoiceKeepsTheChosenOption() async throws {
+        _ = try await db.writeLearningFixture("due", today: today)
+        let vm = run(.recognition)
+        await vm.start()
+        var question = try XCTUnwrap(vm.question)
+        var right = try XCTUnwrap(question.rightIndex)
+        XCTAssertEqual(question.options[right].counterpart, question.word.term)
+        let wrong = (right + 1) % question.options.count
+        await vm.choose(wrong)
+        XCTAssertEqual(vm.feedback?.chosen, ChosenOption(text: question.options[wrong].text,
+                                                         counterpart: question.options[wrong].counterpart))
+        XCTAssertFalse(try XCTUnwrap(vm.feedback?.chosen).counterpart.isEmpty)
+        await vm.next()
+        question = try XCTUnwrap(vm.question)
+        right = try XCTUnwrap(question.rightIndex)
+        await vm.choose(right)
+        XCTAssertNil(vm.feedback?.chosen, "right")
+        await vm.next()
+        await vm.dontKnow()
+        XCTAssertEqual(vm.feedback?.outcome, .wrong)
+        XCTAssertNil(vm.feedback?.chosen, "Don't know")
+
+        let typed = run(.production)
+        await typed.start()
+        var guardCount = 0
+        while typed.question?.input == .choice, guardCount < 10 {
+            guardCount += 1
+            await typed.choose(try XCTUnwrap(typed.question?.rightIndex))
+            await typed.next()
+        }
+        if typed.question?.input == .typed {
+            typed.typed = "λάθος"
+            await typed.check()
+            XCTAssertEqual(typed.feedback?.outcome, .wrong)
+            XCTAssertNil(typed.feedback?.chosen, "typed")
+        }
+    }
+}
+
+extension ExerciseRunViewModelTests {
+    /// #300 (QA): the end sound of each kind of run. A daily session ends
+    /// with Lesson complete, or Daily goal reached when it fills the ring;
+    /// a trainer plays only the goal's sound; a run left early plays none.
+    func testRunEndSounds() async throws {
+        func make(_ run: ExerciseRunViewModel.Run, _ sink: RecordingFeedbackSink) -> ExerciseRunViewModel {
+            ExerciseRunViewModel(run: run, lang: "ell", meaningsLang: "eng", db: db, settings: settings,
+                                 languages: languages, clock: TestClock("2026-11-04T12:00:00Z").clock,
+                                 player: FeedbackPlayer(settings: settings, sink: sink), seed: 159, answerHints: true)
+        }
+        func finish(_ vm: ExerciseRunViewModel) async throws -> Int {
+            var answers = 0
+            await vm.start()
+            while vm.phase == .question, let question = vm.question {
+                guard answers < 30 else { XCTFail("the run does not end"); break }
+                answers += 1
+                if question.input == .choice {
+                    await vm.choose(try XCTUnwrap(question.rightIndex))
+                } else {
+                    vm.typed = question.word.term
+                    await vm.check()
+                }
+                await vm.next()
+            }
+            XCTAssertEqual(vm.phase, .summary)
+            return answers
+        }
+        _ = try await db.writeLearningFixture("due", today: today)
+
+        settings.learningDailyGoal = 500
+        let lesson = RecordingFeedbackSink()
+        let answers = try await finish(make(.session, lesson))
+        XCTAssertEqual(lesson.played, Array(repeating: FeedbackSound.right, count: answers) + [.lessonComplete])
+
+        let trainer = RecordingFeedbackSink()
+        let trained = try await finish(make(.trainer(.recognition), trainer))
+        XCTAssertEqual(trainer.played, Array(repeating: FeedbackSound.right, count: trained), "a trainer: no Lesson complete")
+
+        settings.learningDailyGoal = try await db.answeredCount(on: today) + 1
+        let met = RecordingFeedbackSink()
+        _ = try await finish(make(.trainer(.recognition), met))
+        XCTAssertEqual(met.played.last, .goalReached, "the first run that fills the goal")
+        XCTAssertEqual(met.played.filter { $0 == .goalReached }.count, 1)
+        let after = RecordingFeedbackSink()
+        let trained2 = try await finish(make(.trainer(.recognition), after))
+        XCTAssertEqual(after.played, Array(repeating: FeedbackSound.right, count: trained2), "the goal was met before this run")
+
+        let early = RecordingFeedbackSink()
+        let vm = make(.trainer(.recognition), early)
+        await vm.start()
+        let question = try XCTUnwrap(vm.question)
+        await vm.choose(try XCTUnwrap(question.rightIndex))
+        XCTAssertEqual(early.played, [.right], "closed before the summary: no end sound")
+    }
+}
+
+extension MatchPairsViewModelTests {
+    /// #299: a wrong pair keeps both tiles' own pairs until the next tap;
+    /// the sounds are the pairs' own, and a round that fills the goal ends
+    /// with the goal's sound (a match round is no daily lesson).
+    func testMismatchShowsBothPairs() async throws {
+        _ = try await db.writeLearningFixture("due", today: today)
+        settings.learningDailyGoal = 5
+        let sink = RecordingFeedbackSink()
+        let vm = matchPairs(sink: sink)
+        await vm.start()
+        XCTAssertTrue(vm.mismatchPairs.isEmpty)
+        let grafo = try index(of: "γράφω", in: vm), kalos = try index(of: "καλός", in: vm)
+        try await tapPair(vm, word: grafo, meaning: kalos)
+        XCTAssertEqual(vm.mismatchPairs.map { "\($0.term) · \($0.meaning)" }, ["γράφω · write", "καλός · good"])
+        XCTAssertEqual(sink.played, [.pairWrong])
+        await vm.tap(try XCTUnwrap(vm.round?.tiles(of: grafo)).word)
+        XCTAssertTrue(vm.mismatchPairs.isEmpty, "cleared by the next tap")
+        await vm.tap(try XCTUnwrap(vm.round?.tiles(of: grafo)).word)
+        for index in 0..<5 {
+            try await tapPair(vm, word: index, meaning: index)
+        }
+        XCTAssertEqual(vm.phase, .finished)
+        XCTAssertEqual(sink.played, [.pairWrong] + Array(repeating: .pairRight, count: 5) + [.goalReached])
+    }
+}
+
+extension ConjugationQuestionTests {
+    /// #299: each option's slot is a cell holding that form; the right
+    /// option's is the question's.
+    func testOptionSlots() async throws {
+        let verb = try await Fixture.verb("γράφω")
+        for seed in UInt64(1)...8 {
+            let question = try XCTUnwrap(Fixture.build(verb, .aorist, .firstSingular, level: .b2, seed: seed))
+            XCTAssertEqual(question.optionSlots.count, 4)
+            for (option, slot) in zip(question.options, question.optionSlots) {
+                XCTAssertTrue(try XCTUnwrap(verb.cell(slot.facet, slot.person)).forms.contains(option), "\(option) in \(slot)")
+            }
+            XCTAssertEqual(question.optionSlots[question.rightIndex],
+                           ConjugationQuestion.Slot(facet: ConjugationFacet(.aorist, .active), person: .firstSingular))
+        }
+    }
+}
+
+extension ConjugationQuestionTests {
+    /// #299 (QA): an option taken from a passive cell of a verb with both
+    /// voices is written with "passive" in its tense line; an active one is not.
+    func testPassiveSlotNamesItsVoice() async throws {
+        let verb = try await Fixture.verb("γράφω")
+        var passive = 0, active = 0
+        for seed in UInt64(1)...30 {
+            for facet in ConjugationQuestionBuilder.questions(verb: verb, level: .b2).map(\.0) {
+                var rng = LearningOrder.SplitMix64(seed: seed)
+                guard let q = ConjugationQuestionBuilder.build(verb: verb, facet: facet, person: .firstSingular,
+                                                               level: .b2, rng: &rng) else { continue }
+                for slot in q.optionSlots {
+                    let line = DrillText.tenseLine(slot, showsVoice: q.showsVoice(of: slot), locale: Locale(identifier: "en"))
+                    if slot.facet.voice == .passive {
+                        passive += 1
+                        XCTAssertTrue(line.contains("passive"), line)
+                    } else {
+                        active += 1
+                        XCTAssertFalse(line.contains("passive"), line)
+                    }
+                }
+            }
+        }
+        XCTAssertGreaterThan(passive, 0)
+        XCTAssertGreaterThan(active, 0)
+    }
+}
+
+extension ConjugationQuestionTests {
+    /// #299: a form held by two cells (present and imperfect) is named by
+    /// the cell the option was taken from, not the first cell in tense order.
+    func testSharedFormKeepsItsOwnSlot() async throws {
+        var shared = 0
+        for word in ["γράφω", "είμαι", "τρώω", "πίνω", "κάνω"] {
+            guard let verb = try? await Fixture.verb(word) else { continue }
+            for level in [DrillLevel.a2, .b2] {
+                for (facet, persons) in ConjugationQuestionBuilder.questions(verb: verb, level: level) {
+                    for person in persons {
+                        for seed in UInt64(1)...6 {
+                            var rng = LearningOrder.SplitMix64(seed: seed)
+                            guard let q = ConjugationQuestionBuilder.build(verb: verb, facet: facet, person: person,
+                                                                           level: level, rng: &rng) else { continue }
+                            for (option, slot) in zip(q.options, q.optionSlots) {
+                                let holders = verb.cells.keys.flatMap { f in
+                                    ConjugationQuestion.Person.allCases.filter {
+                                        verb.cell(f, $0)?.forms.contains(option) == true
+                                    }.map { ConjugationQuestion.Slot(facet: f, person: $0) }
+                                }
+                                if holders.count > 1 { shared += 1 }
+                                XCTAssertTrue(holders.contains(slot), "\(option) is in its own slot")
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        XCTAssertGreaterThan(shared, 0, "some option's form fills two cells")
+    }
+}
+
+extension ConjugationRunViewModelTests {
+    /// #300 (QA): a drill that fills the ring ends with Daily goal reached,
+    /// and never with Lesson complete, which is the daily lesson's.
+    func testDrillEndsWithTheGoalsSoundOnly() async throws {
+        settings.learningDailyGoal = 3
+        let sink = RecordingFeedbackSink()
+        let vm = run(.verb(try await Fixture.verb("γράφω"), level: .a1), length: 5, sink: sink)
+        await vm.start()
+        let asked = await answerAll(vm)
+        XCTAssertEqual(sink.played, Array(repeating: FeedbackSound.right, count: asked.count) + [.goalReached])
+        XCTAssertFalse(sink.played.contains(.lessonComplete))
+    }
+}
+
+extension ConjugationRunViewModelTests {
+    /// #299: a wrong form keeps its slot, as the tense line writes it; nil when right.
+    func testWrongChoiceKeepsItsSlot() async throws {
+        let vm = run(.verb(try await Fixture.verb("γράφω"), level: .a1), length: 3)
+        await vm.start()
+        var question = try XCTUnwrap(vm.question)
+        let wrong = (question.rightIndex + 1) % 4
+        await vm.choose(wrong)
+        let chosen = try XCTUnwrap(vm.feedback?.chosen)
+        XCTAssertEqual(chosen.text, question.options[wrong])
+        XCTAssertEqual(chosen.slot, question.optionSlots[wrong])
+        let line = FeedbackBar.youChose(chosen, locale: Locale(identifier: "en"))
+        XCTAssertTrue(line.hasPrefix("You chose: \u{2068}\(question.options[wrong])\u{2069} · "), line)
+        XCTAssertTrue(line.contains(chosen.slot?.person.pronoun ?? "?"), line)
+        await vm.next()
+        question = try XCTUnwrap(vm.question)
+        await vm.choose(question.rightIndex)
+        XCTAssertNil(vm.feedback?.chosen)
+    }
+}
+
+/// The bar's "You chose" line and its announcement order (#299).
+final class FeedbackBarTests: XCTestCase {
+    private func feedback(_ chosen: ChosenOption?, outcome: Outcome = .wrong) -> AnswerFeedback {
+        AnswerFeedback(outcome: outcome, chosenIndex: 1, mindTheAccent: false, rightAnswer: "write", chosen: chosen)
+    }
+
+    func testYouChoseLine() {
+        let chosen = ChosenOption(text: "water", counterpart: "νερό")
+        XCTAssertEqual(FeedbackBar.lines(feedback(chosen), locale: Locale(identifier: "en")).chosen,
+                       "You chose: \u{2068}water\u{2069} · \u{2068}νερό\u{2069}")
+        let arabic = FeedbackBar.lines(feedback(chosen), locale: Locale(identifier: "ar")).chosen
+        XCTAssertEqual(arabic?.first, "\u{200F}", "starts with U+200F")
+        XCTAssertTrue(arabic?.contains("\u{2068}νερό\u{2069}") ?? false, "the Greek is isolated")
+        XCTAssertNil(FeedbackBar.lines(feedback(nil), locale: Locale(identifier: "en")).chosen, "typed, Don't know")
+        XCTAssertNil(FeedbackBar.lines(feedback(chosen, outcome: .right), locale: Locale(identifier: "en")).chosen)
+    }
+
+    func testAnnouncementOrder() {
+        let lines = FeedbackBar.lines(feedback(ChosenOption(text: "water", counterpart: "νερό")), locale: Locale(identifier: "en"))
+        XCTAssertTrue(lines.title.hasPrefix("Right answer:"))
+        XCTAssertNotNil(lines.chosen, "the title, then the chosen line, which the view announces last")
     }
 }
