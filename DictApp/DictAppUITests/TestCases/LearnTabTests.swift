@@ -19,13 +19,13 @@ final class LearnTabTests: XCTestCase {
 
     /// Launch arguments after `-resetData`, per test.
     private var learningArguments: [String] {
-        if name.contains("testLanguageSwitch") { return ["-learningFixture", "bilingual"] }
+        if name.contains("testLanguageTabs") { return ["-learningFixture", "bilingual"] }
         if name.contains("testNoSwitchWithOneLanguage") { return ["-learningFixture", "myWords5"] }
         if name.contains("testChooseListsWhenNothingToLearn") { return ["-learningLanguages", "ell"] }
-        if name.contains("testTrainersOnKeepTheConjugationRow") {
+        if name.contains("testConjugationSitsInGrammarWhileTrainersAreOn") {
             return ["-learningLanguages", "ell", "-learningLists", "ky-ell-a1"]
         }
-        if name.contains("testTrainersOffConjugationRowRightToLeft") {
+        if name.contains("testConjugationWhileTrainersAreOffRightToLeft") {
             return ["-learningLanguages", "ell", "-AppleLanguages", "(ar)", "-AppleLocale", "ar"]
         }
         if name.contains("testLimitedPairShowsItsWarning") { return ["-AppleLanguages", "(ru)", "-AppleLocale", "ru"] }
@@ -208,14 +208,14 @@ final class LearnTabTests: XCTestCase {
         XCTAssertTrue(learnPage.choosePair("ell", via: "eng"), "choosing Greek shows the home")
         XCTAssertTrue(app.staticTexts["Choose lists or tap Learn on a word"].waitForExistence(timeout: TestData.Timeouts.medium))
         XCTAssertFalse(learnPage.importList.exists, "Greek has lists: no Import a list")
-        XCTAssertFalse(learnPage.languageSwitch.exists, "one language: no switch")
+        XCTAssertFalse(learnPage.pairTab("eng").exists, "one language: one tab")
         // #159: nothing in learning, so the trainers are off, with the reason.
         XCTAssertTrue(learnPage.trainerRecognition.waitForExistence(timeout: TestData.Timeouts.medium))
         XCTAssertFalse(learnPage.trainerRecognition.isEnabled, "Recognition is off")
         XCTAssertFalse(learnPage.trainerProduction.isEnabled, "Production is off")
         let footer = app.staticTexts["Learn a few words first"]
         XCTAssertTrue(footer.exists)
-        // 0132: the footer is the other trainers'; the enabled Conjugation row follows it.
+        // 0132: the footer is the trainers'; the enabled Conjugation row, in Grammar (#295), follows it.
         XCTAssertTrue(app.scrollToElement(learnPage.trainerConjugation), "the Conjugation row")
         XCTAssertTrue(learnPage.trainerConjugation.isEnabled)
         XCTAssertTrue(footer.exists)
@@ -258,11 +258,14 @@ final class LearnTabTests: XCTestCase {
         XCTAssertTrue(newWordsFrom.wait(for: greekA1, selected: true), "checked")
         newWordsFrom.goBack()
 
-        XCTAssertTrue(learnPage.listRow("ky-ell-a1").waitForExistence(timeout: TestData.Timeouts.medium),
-                      "the Lists section shows Greek A1")
+        // Below the Grammar section: the lazy List builds it once scrolled to.
+        XCTAssertTrue(app.scrollToElement(learnPage.listRow("ky-ell-a1")), "the Lists section shows Greek A1")
         XCTAssertTrue(learnPage.newWordsFromRow.exists, "and New words from")
         XCTAssertFalse(learnPage.chooseLists.exists, "Choose lists has done its job")
+        // Today's count is above, off the lazy List's window.
+        XCTAssertTrue(app.scrollToElement(learnPage.newCount), "Today")
         XCTAssertTrue(learnPage.waitForLabel(of: learnPage.newCount, toBe: "10 new words left today"))
+        XCTAssertTrue(app.scrollToElement(learnPage.newWordsFromRow))
         learnPage.newWordsFromRow.tap()
         XCTAssertTrue(newWordsFrom.waitForNewWordsFrom(), "the row opens New words from")
         XCTAssertTrue(newWordsFrom.newWordsFromRow("ky-ell-a1").isSelected)
@@ -280,13 +283,15 @@ final class LearnTabTests: XCTestCase {
         XCTAssertFalse(app.staticTexts["Choose lists or tap Learn on a word"].exists)
     }
 
-    /// `-learningFixture bilingual`: the switch shows Greek | English;
-    /// English has 2 words due; the choice survives a relaunch.
-    func testLanguageSwitch() throws {
+    /// `-learningFixture bilingual`: the tabs Greek, English; English has 2
+    /// words due; the choice survives a relaunch.
+    func testLanguageTabs() throws {
         var learnPage = tabBarPage.tapLearnTab()
         XCTAssertTrue(learnPage.waitForHome())
-        XCTAssertTrue(learnPage.languageSwitch.waitForExistence(timeout: TestData.Timeouts.medium), "two languages: the switch")
-        XCTAssertTrue(learnPage.languageSwitch.buttons["Greek"].isSelected, "the first learned language first")
+        // Two tabs; on a 393 pt phone English is behind "…".
+        XCTAssertTrue(learnPage.pairTab("eng").waitForExistence(timeout: TestData.Timeouts.medium)
+                        || learnPage.pairTabMore.exists, "two languages: two tabs")
+        XCTAssertTrue(learnPage.pairTab("ell").isSelected, "the first learned language first")
         XCTAssertTrue(learnPage.waitForLabel(of: learnPage.dueCount, toBe: "2 words due"))
 
         learnPage.selectLanguage(named: "English")
@@ -298,27 +303,27 @@ final class LearnTabTests: XCTestCase {
         app.launch()
         tabBarPage = TabBarPage(app: app)
         learnPage = tabBarPage.tapLearnTab()
-        XCTAssertTrue(learnPage.languageSwitch.waitForExistence(timeout: TestData.Timeouts.medium))
-        XCTAssertTrue(learnPage.languageSwitch.buttons["English"].isSelected, "the choice is remembered")
+        XCTAssertTrue(learnPage.pairTab("eng").waitForExistence(timeout: TestData.Timeouts.medium))
+        XCTAssertTrue(learnPage.pairTab("eng").isSelected, "the choice is remembered")
     }
 
-    /// `-learningFixture myWords5`: one language, no switch; five new words.
+    /// `-learningFixture myWords5`: one language, one tab; five new words.
     func testNoSwitchWithOneLanguage() throws {
         let learnPage = tabBarPage.tapLearnTab()
         XCTAssertTrue(learnPage.waitForHome())
         XCTAssertTrue(learnPage.waitForLabel(of: learnPage.newCount, toBe: "5 new words left today"))
         XCTAssertEqual(learnPage.dueCount.label, "0 words due")
-        XCTAssertFalse(learnPage.languageSwitch.exists, "one language: no switch")
+        XCTAssertFalse(learnPage.pairTab("eng").exists, "one language: one tab")
         let myWords = learnPage.tapMyWords()
         for word in ["γράφω", "σπίτι", "νερό", "καλός", "είμαι"] {
             XCTAssertTrue(myWords.waitForWord(word), "My words lists \(word)")
         }
     }
 
-    /// QA, PR #281 (0132): with words to learn the trainers are on, there
-    /// is no "Learn a few words first", and the Conjugation row is the last
-    /// row of the Trainers section, right below Match the pairs.
-    func testTrainersOnKeepTheConjugationRow() throws {
+    /// With words to learn the trainers are on, there is no "Learn a few
+    /// words first", and the Conjugation row is in the Grammar section
+    /// (#295), below Match the pairs.
+    func testConjugationSitsInGrammarWhileTrainersAreOn() throws {
         let learnPage = tabBarPage.tapLearnTab()
         XCTAssertTrue(learnPage.waitForHome(timeout: TestData.Timeouts.long), "the Learn home")
         XCTAssertTrue(learnPage.trainerRecognition.waitForExistence(timeout: TestData.Timeouts.medium))
@@ -328,15 +333,15 @@ final class LearnTabTests: XCTestCase {
         XCTAssertTrue(app.scrollToElement(learnPage.trainerConjugation), "the Conjugation row")
         XCTAssertTrue(learnPage.trainerConjugation.isEnabled)
         XCTAssertTrue(learnPage.trainerMatch.exists, "Match the pairs")
-        XCTAssertEqual(learnPage.trainerConjugation.frame.minY, learnPage.trainerMatch.frame.maxY, accuracy: 2,
-                       "the next row of the same section")
+        XCTAssertGreaterThan(learnPage.trainerConjugation.frame.minY, learnPage.trainerMatch.frame.maxY,
+                             "in the Grammar section, after the trainers")
         XCTAssertFalse(app.staticTexts["Learn a few words first"].exists, "no footer while the trainers are on")
     }
 
-    /// QA, PR #281 (0132): the trainers off in Arabic: their footer, read
-    /// from the right, sits between Match the pairs and the Conjugation
-    /// row, which is enabled and reads "تصريف الأفعال".
-    func testTrainersOffConjugationRowRightToLeft() throws {
+    /// The trainers off in Arabic: their footer, read from the right, sits
+    /// between Match the pairs and the Grammar section's Conjugation row,
+    /// which is enabled and reads "تصريف الأفعال" (#295).
+    func testConjugationWhileTrainersAreOffRightToLeft() throws {
         let learnTab = app.tabButton(labeled: "تعلّم")
         XCTAssertTrue(learnTab.waitForExistence(timeout: TestData.Timeouts.long), "the Learn tab in Arabic")
         learnTab.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
@@ -345,6 +350,8 @@ final class LearnTabTests: XCTestCase {
         XCTAssertTrue(learnPage.trainerRecognition.waitForExistence(timeout: TestData.Timeouts.medium))
         XCTAssertFalse(learnPage.trainerRecognition.isEnabled, "Recognition is off")
         XCTAssertTrue(app.scrollToElement(learnPage.trainerConjugation), "the Conjugation row")
+        // Clear of the floating tab bar, so the row's pixels are all visible.
+        app.swipeUp()
         let row = learnPage.trainerConjugation
         XCTAssertTrue(row.isEnabled, "Conjugation works without learned words")
         XCTAssertEqual(row.label, "تصريف الأفعال")

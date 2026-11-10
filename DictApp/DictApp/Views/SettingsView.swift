@@ -228,7 +228,7 @@ private struct UILanguagePickerView: View {
 // MARK: - Learning (0131, #162)
 
 /// The Learning section: the learned languages, new words per day, E3's
-/// New words from (0130, #154), the daily goal, the new words order, typed
+/// Learning from (0130, #154, #298), the daily goal, the new words order, typed
 /// answers, sounds, haptics and the daily reminder.
 struct LearningSettingsSection: View {
     @ObservedObject var vm: LearningSettingsViewModel
@@ -259,7 +259,7 @@ struct LearningSettingsSection: View {
             }
 
             NavigationLink {
-                NewWordsFromView()
+                NewWordsFromView(lang: nil)
             } label: {
                 Text("newWordsFrom.title")
             }

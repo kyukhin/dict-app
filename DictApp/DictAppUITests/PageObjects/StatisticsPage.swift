@@ -1,7 +1,7 @@
 import XCTest
 
-/// The statistics screen (0166, #164): one list of blocks under the
-/// language switch. Values are read from the elements' labels; a calendar
+/// The statistics screen (0166, #164): one list of blocks, those of
+/// the language of the tab it opens from (#295). Values are read from the elements' labels; a calendar
 /// day's mark from its value.
 class StatisticsPage: BasePage {
     private typealias IDs = AccessibilityIdentifiers.Statistics
@@ -12,7 +12,6 @@ class StatisticsPage: BasePage {
 
     var view: XCUIElement { element(IDs.view) }
     var empty: XCUIElement { element(IDs.empty) }
-    var languageSwitch: XCUIElement { app.segmentedControls[IDs.languageSwitch].firstMatch }
     var chart: XCUIElement { element(IDs.chart30d) }
     var tenseChart: XCUIElement { element(IDs.tenseChart) }
 
@@ -44,13 +43,6 @@ class StatisticsPage: BasePage {
         let expectation = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label == %@", label),
                                                     object: element(identifier))
         return XCTWaiter.wait(for: [expectation], timeout: timeout) == .completed
-    }
-
-    /// Taps the switch's segment labelled `name` ("English").
-    func selectLanguage(named name: String) {
-        XCTAssertTrue(languageSwitch.waitForExistence(timeout: TestData.Timeouts.medium), "the language switch")
-        app.scrollToElement(languageSwitch)
-        languageSwitch.buttons[name].tap()
     }
 
     /// The calendar days whose mark is `mark` (`met`, `frozen`, `missed`, `open`).

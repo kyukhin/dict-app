@@ -256,6 +256,121 @@ enum LearningLanguages {
     }
 }
 
+/// A pair tab of the Learn tab (0131, #293): a learned language with its
+/// pair, nil for Other (`und`), which has none.
+struct PairTab: Identifiable, Equatable {
+    let lang: String
+    let pair: LearningPair?
+
+    var id: String { lang }
+
+    /// The big flag: the language learned.
+    var learnedFlag: LanguageFlag { LanguageFlag.of(lang) }
+
+    /// The small flag before it: the via language; nil when the pair is
+    /// learned via itself (English via English) or the tab has no pair.
+    var viaFlag: LanguageFlag? {
+        guard let pair, pair.via != lang else { return nil }
+        return LanguageFlag.of(pair.via)
+    }
+}
+
+/// What stands for a language on a pair tab (0131, "Pair tabs", #293): a
+/// flag, or for a language without one a letter or its code in a circle.
+/// The only place that maps languages (ISO 639-3) to flags.
+enum LanguageFlag: Equatable {
+    /// A flag emoji.
+    case emoji(String)
+    /// A letter in a circle, for a language that has no flag (Arabic).
+    case letter(String)
+    /// The language code in a circle: any other language.
+    case code(String)
+
+    static let table: [String: LanguageFlag] = [
+        "ell": .emoji("\u{1F1EC}\u{1F1F7}"),
+        "eng": .emoji("\u{1F1EC}\u{1F1E7}"),
+        "spa": .emoji("\u{1F1EA}\u{1F1F8}"),
+        "rus": .emoji("\u{1F1F7}\u{1F1FA}"),
+        "arb": .letter("\u{0639}"),
+    ]
+
+    static func of(_ lang: String) -> LanguageFlag {
+        table[lang] ?? .code(lang.uppercased())
+    }
+}
+
+/// What the pair-tab strip shows (0131, "Pair tabs", #293): which tabs, in
+/// which places, and whether "+" or "…" ends the strip. Pure; the strip's
+/// layout measures the widths.
+struct PairTabFit: Equatable {
+    /// Indexes of the tabs shown, left to right. A selected tab that would
+    /// be hidden takes the last place, for display only.
+    let visible: [Int]
+    /// Indexes of the tabs the "…" sheet lists, in order.
+    let hidden: [Int]
+    /// "+" ends the strip: every tab fits with it.
+    let showsAdd: Bool
+
+    /// "…" ends the strip: some tab did not fit.
+    var showsMore: Bool { !hidden.isEmpty }
+
+    /// Every tab and "+" when they fit `available`; else the most tabs that
+    /// fit before "…" (no "+"), the selected one in the last visible place
+    /// when it would be hidden; else the selected tab alone, which the
+    /// layout cuts (as it cuts a single tab wider than the strip). `spacing` is the gap between two items.
+    static func fit(tabWidths: [CGFloat], addWidth: CGFloat, moreWidth: CGFloat, available: CGFloat,
+                    selected: Int?, spacing: CGFloat = 0) -> PairTabFit {
+        let count = tabWidths.count
+        let all = Array(0..<count)
+        func width(_ items: [Int], plus extra: CGFloat) -> CGFloat {
+            items.reduce(extra) { $0 + tabWidths[$1] } + spacing * CGFloat(items.count)
+        }
+        if width(all, plus: addWidth) <= available {
+            return PairTabFit(visible: all, hidden: [], showsAdd: true)
+        }
+        // One tab wider than the strip: it is cut, "+" stays.
+        if count <= 1 {
+            return PairTabFit(visible: all, hidden: [], showsAdd: true)
+        }
+        let selected = selected.flatMap { all.contains($0) ? $0 : nil }
+        func result(_ visible: [Int]) -> PairTabFit {
+            PairTabFit(visible: visible, hidden: all.filter { !visible.contains($0) }, showsAdd: false)
+        }
+        for shown in stride(from: count - 1, through: 1, by: -1) {
+            var visible = Array(0..<shown)
+            if let selected, selected >= shown {
+                visible = Array(0..<(shown - 1)) + [selected]
+            }
+            if width(visible, plus: moreWidth) <= available {
+                return result(visible)
+            }
+        }
+        return result(selected.map { [$0] } ?? (count > 0 ? [0] : []))
+    }
+}
+
+/// The order of the pair tabs after a drag (#293).
+enum PairTabOrder {
+    /// The place `dragged` takes in the order once dropped on the leading or
+    /// trailing half of `target`; nil when either is not in `order` or they
+    /// are the same.
+    static func index(of dragged: String, droppedOn target: String, after: Bool, in order: [String]) -> Int? {
+        guard dragged != target, order.contains(dragged), order.contains(target) else { return nil }
+        let rest = order.filter { $0 != dragged }
+        guard let place = rest.firstIndex(of: target) else { return nil }
+        return after ? place + 1 : place
+    }
+
+    /// `order` with `lang` moved to `index` (clamped); unchanged when
+    /// `lang` is not in it.
+    static func moving(_ lang: String, to index: Int, in order: [String]) -> [String] {
+        guard order.contains(lang) else { return order }
+        var rest = order.filter { $0 != lang }
+        rest.insert(lang, at: min(max(index, 0), rest.count))
+        return rest
+    }
+}
+
 /// A language learned through another one, its via (0131, "Languages and
 /// pairs"): Greek via English is (`ell`, `eng`). A pair exists when a
 /// dictionary goes from `lang` into `via`, or it is limited. Cards belong to

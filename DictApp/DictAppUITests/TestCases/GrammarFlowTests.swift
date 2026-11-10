@@ -66,14 +66,16 @@ final class GrammarFlowTests: XCTestCase {
     // MARK: - Tests
 
     /// The Learn home's row reads 17 topics; the Grammar screen has one
-    /// level, A1, from the alphabet to the imperative, in English with no
-    /// note; a row opens its topic.
+    /// level, A1, shown in the subtitle and not as a header (#297), from the
+    /// alphabet to the imperative, in English with no note; "A2 · Coming
+    /// soon" ends the list; a row opens its topic.
     func testTopicsByLevel() throws {
         openGrammar()
         XCTAssertFalse(page.englishNote.exists, "Greek via English: no note")
-        let header = page.levelHeader("A1")
-        XCTAssertTrue(header.waitForExistence(timeout: TestData.Timeouts.medium), "the A1 section")
-        XCTAssertFalse(page.levelHeader("A2").exists, "2.0 has A1 only")
+        let subtitle = page.element(IDs.subtitle)
+        XCTAssertTrue(subtitle.waitForExistence(timeout: TestData.Timeouts.medium), "the subtitle")
+        XCTAssertEqual(subtitle.label, "17 topics · A1")
+        XCTAssertFalse(page.levelHeader("A1").exists, "one level: no header")
         let first = page.topicRow("ell-alphabet")
         XCTAssertTrue(first.waitForExistence(timeout: TestData.Timeouts.medium), "the alphabet's row")
         XCTAssertTrue(first.label.contains("The alphabet"), "titled in English; got '\(first.label)'")
@@ -83,9 +85,26 @@ final class GrammarFlowTests: XCTestCase {
         let beforeLast = page.topicRow("ell-na-perfective")
         XCTAssertTrue(beforeLast.exists)
         XCTAssertGreaterThan(last.frame.minY, beforeLast.frame.minY, "the imperative last")
+        let soon = page.element(IDs.comingSoon)
+        XCTAssertTrue(app.scrollToElement(soon), "the Coming soon row")
+        XCTAssertEqual(soon.label, "A2, Coming soon")
+        XCTAssertGreaterThan(soon.frame.minY, last.frame.minY, "after the topics")
         XCTAssertTrue(page.openTopic("ell-imperative"), "a tap opens the topic")
         XCTAssertTrue(page.topicView.exists)
         XCTAssertEqual(page.title.label, "The imperative")
+    }
+
+    /// #297: "A2 · Coming soon" is static text, not a button, and a tap
+    /// pushes nothing.
+    func testComingSoonIsNotAButton() throws {
+        openGrammar()
+        let soon = page.element(IDs.comingSoon)
+        XCTAssertTrue(app.scrollToElement(soon), "the Coming soon row")
+        XCTAssertFalse(app.buttons[IDs.comingSoon].exists, "not a button")
+        XCTAssertTrue(app.staticTexts[IDs.comingSoon].exists, "static text")
+        soon.tap()
+        XCTAssertTrue(page.topicList.exists, "still on the Grammar screen")
+        XCTAssertFalse(page.topicView.exists, "nothing pushed")
     }
 
     /// The aorist topic: rule, a forms table whose first cell is έγραψα,

@@ -18,7 +18,15 @@ class LearnPage: BasePage {
     var importList: XCUIElement { app.buttons[IDs.importList].firstMatch }
     var addWordsHint: XCUIElement { app.staticTexts[IDs.addWordsHint].firstMatch }
     var myWordsRow: XCUIElement { element(IDs.myWordsRow) }
-    var languageSwitch: XCUIElement { app.segmentedControls[IDs.languageSwitch].firstMatch }
+    /// Pair tabs (0131, #293): the strip, a tab by language code, "+", "…" and its sheet.
+    var pairTabs: XCUIElement { element(IDs.pairTabs) }
+    func pairTab(_ lang: String) -> XCUIElement { app.buttons[IDs.pairTab(lang)].firstMatch }
+    var pairTabAdd: XCUIElement { app.buttons[IDs.pairTabAdd].firstMatch }
+    var pairTabMore: XCUIElement { app.buttons[IDs.pairTabMore].firstMatch }
+    var overflow: XCUIElement { element(IDs.pairOverflow) }
+    func overflowRow(_ lang: String) -> XCUIElement { app.buttons[IDs.pairOverflowRow(lang)].firstMatch }
+    var overflowAdd: XCUIElement { app.buttons[IDs.pairOverflowAdd].firstMatch }
+    var grammarRow: XCUIElement { element(AccessibilityIdentifiers.Grammar.learnRow) }
     var trainerRecognition: XCUIElement { app.buttons[IDs.trainerRecognition].firstMatch }
     var trainerProduction: XCUIElement { app.buttons[IDs.trainerProduction].firstMatch }
     var trainerMatch: XCUIElement { app.buttons[IDs.trainerMatch].firstMatch }
@@ -88,10 +96,28 @@ class LearnPage: BasePage {
         return waitForHome()
     }
 
-    /// Taps the switch's segment labelled `name` ("English").
+    /// Taps the pair tab of the language named `name` ("English", "Greek").
     func selectLanguage(named name: String) {
-        XCTAssertTrue(languageSwitch.waitForExistence(timeout: TestData.Timeouts.medium), "the language switch")
-        languageSwitch.buttons[name].tap()
+        let codes = ["Greek": "ell", "English": "eng", "Spanish": "spa", "Russian": "rus", "Arabic": "arb"]
+        guard let code = codes[name] else { return XCTFail("no tab for \(name)") }
+        selectTab(code)
+    }
+
+    /// Taps the pair tab `lang` and waits until it is selected.
+    func selectTab(_ lang: String) {
+        let tab = pairTab(lang)
+        XCTAssertTrue(tab.waitForExistence(timeout: TestData.Timeouts.medium) || pairTabMore.exists, "the \(lang) tab")
+        if !tab.exists {
+            // Behind "…" (a narrow phone): choose it in the sheet.
+            pairTabMore.tap()
+            XCTAssertTrue(overflowRow(lang).waitForExistence(timeout: TestData.Timeouts.medium), "\(lang) in the sheet")
+            overflowRow(lang).tap()
+            XCTAssertTrue(tab.waitForExistence(timeout: TestData.Timeouts.medium), "the \(lang) tab, shown")
+        }
+        if !tab.isSelected { tab.tap() }
+        let selected = NSPredicate(format: "isSelected == true")
+        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: selected, object: tab)],
+                                      timeout: TestData.Timeouts.medium), .completed, "the \(lang) tab is selected")
     }
 
     /// Opens the Recognition or Production trainer (#159).

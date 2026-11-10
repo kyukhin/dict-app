@@ -200,6 +200,14 @@ final class LearningLanguageService {
         settings.learningLanguages = learned.filter { $0 != lang }
     }
 
+    /// #293: a drag on the pair tabs writes the order, when `languages` are
+    /// the learned ones (a drag begun before another window added or
+    /// stopped one changes nothing).
+    func reorder(_ languages: [String]) {
+        guard languages.count == learned.count, Set(languages) == Set(learned) else { return }
+        settings.learningLanguages = languages
+    }
+
     private func add(_ lang: String) async throws {
         if !isLearned(lang) {
             settings.learningLanguages = learned + [lang]

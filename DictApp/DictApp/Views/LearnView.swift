@@ -1,7 +1,8 @@
 // LearnView.swift
 // The Learn tab (0131-learning.md, #158): the pair picker while no
-// language is learned, else the Learn home. E3's list screens (#154) open
-// from its Lists section and its My words row. Later tickets add their
+// language is learned, else a strip of pair tabs (#293) over the selected
+// language's home (#295). E3's list screens (#154) open from its Lists
+// section and its My words row. Later tickets add their
 // sections to the home: the daily goal ring, the streak and Statistics
 // (0166, #164); the Conjugation trainer and its screen (0132, #168). The
 // Grammar section, the Grammar screen and a grammar topic (0133, #172).
@@ -19,15 +20,23 @@ struct LearnView: View {
     @State private var path = NavigationPath()
     /// E3's Import (#155), for a language without lists.
     @State private var showsImport = false
+    /// The tabs "…" lists; set when it is tapped (an item, so the sheet is
+    /// built with them).
+    @State private var overflow: PairOverflow?
+    /// The language "Stop learning %@?" asks about (#293).
+    @State private var stopping: String?
 
     /// The screens the home pushes besides E3's (`WordListRoute`).
     enum Route: Hashable {
-        /// 0166, #164: from the ring, the streak or the Statistics row.
-        case statistics
-        /// 0132, #168: the Conjugation screen, from its Trainers row.
+        /// 0166, #164: from the ring, the streak or the Statistics row; the
+        /// numbers of the tab's language (#295).
+        case statistics(String)
+        /// 0132, #168: the Conjugation screen, from its Grammar row.
         case conjugation
         /// 0133, #172: the Grammar screen of a language.
         case grammar(String)
+        /// #293: "+" and the overflow sheet's "Add a language": the pair picker.
+        case addPair
     }
 
     /// A run in `lang`, the chosen language, with its pair's meanings
@@ -64,9 +73,13 @@ struct LearnView: View {
             .wordListDestinations()
             .navigationDestination(for: Route.self) { route in
                 switch route {
-                case .statistics: StatisticsView()
+                case let .statistics(lang): StatisticsView(lang: lang)
                 case .conjugation: ConjugationStartView()
                 case let .grammar(lang): GrammarTopicsView(lang: lang)
+                case .addPair:
+                    AddPairView(vm: vm) {
+                        if !path.isEmpty { path.removeLast() }
+                    }
                 }
             }
             .navigationDestination(for: DictionaryEntry.self) { entry in
@@ -80,8 +93,7 @@ struct LearnView: View {
             .onReceive(NotificationCenter.default.publisher(for: PackService.didChange, object: PackService.shared)) { _ in
                 Task { await vm.load(locale: locale) }
             }
-            // Back on the home: Statistics may have switched the language,
-            // a Definition may have changed what is learned.
+            // Back on the home: a Definition may have changed what is learned.
             .onChange(of: path.count) { old, new in
                 if new < old { Task { await vm.load(locale: locale) } }
             }
@@ -106,6 +118,29 @@ struct LearnView: View {
                 .environment(\.locale, locale)
                 .environment(\.layoutDirection, layoutDirection)
             }
+            .sheet(item: $overflow) { overflow in
+                PairOverflowSheet(tabs: overflow.tabs, onSelect: { lang in
+                    self.overflow = nil
+                    Task { await vm.select(lang) }
+                }, onAdd: {
+                    self.overflow = nil
+                    path.append(Route.addPair)
+                })
+                .environment(\.locale, locale)
+                .environment(\.layoutDirection, layoutDirection)
+            }
+            // "Stop learning Greek? Your progress is kept." (#293), as Settings asks it.
+            .alert(Text(verbatim: stopTitle),
+                   isPresented: Binding(get: { stopping != nil }, set: { if !$0 { stopping = nil } }),
+                   presenting: stopping) { lang in
+                Button("settings.learning.stopLanguage", role: .destructive) {
+                    Task { await vm.stop(lang, locale: locale) }
+                }
+                .accessibilityIdentifier("learn_pair_tab_stop_confirm")
+                Button("common.cancel", role: .cancel) {}
+            } message: { _ in
+                Text("settings.learning.stopLanguage.message")
+            }
             // A failed choice or load (#260): shown until dismissed.
             .alert(Text(verbatim: vm.errorMessage ?? ""), isPresented: Binding(
                 get: { vm.errorMessage != nil },
@@ -114,15 +149,27 @@ struct LearnView: View {
         }
     }
 
+    /// "Stop learning Greek?"
+    private var stopTitle: String {
+        guard let stopping else { return "" }
+        return String(format: SettingsViewModel.localizedString("settings.learning.stopLanguage.title %@", locale: locale),
+                      LearnViewModel.languageNameInSentence(stopping, locale: locale))
+    }
+
+    /// The selected tab's language; the home shows only with one.
+    private var lang: String { vm.language ?? "" }
+
     private var home: some View {
         List {
-            if vm.learned.count > 1, let language = vm.language {
-                Section {
-                    LearningLanguagePicker(languages: vm.learned, selection: Binding(
-                        get: { language },
-                        set: { lang in Task { await vm.select(lang) } }
-                    ))
-                }
+            // The strip is the header of the first section, under the large
+            // title, and scrolls with the home (an inset above the List
+            // blanked the title on iOS 26; a List row merges the tabs' long
+            // press and drag into one).
+            Section {
+            } header: {
+                strip
+                    .textCase(nil)
+                    .listRowInsets(EdgeInsets())
             }
             PairInstallSection(packs: vm.pairPacks) {
                 vm.retryInstall()
@@ -170,9 +217,6 @@ struct LearnView: View {
                 trainerRow(.production, title: "learn.trainer.production", symbol: "pencil",
                            id: "learn_trainer_production")
                 matchRow
-                if vm.canTrain, let level = vm.drillLevel {
-                    conjugationRow(level)
-                }
             } header: {
                 Text("learn.trainers")
             } footer: {
@@ -180,17 +224,10 @@ struct LearnView: View {
                     Text("learn.trainers.disabled")
                 }
             }
-            // 0132: "Learn a few words first" is not the drill's. While the
-            // other trainers are off, its row follows their footer.
-            if !vm.canTrain, let level = vm.drillLevel {
-                Section {
-                    conjugationRow(level)
-                }
-            }
-            lists
             grammar
+            lists
             Section {
-                NavigationLink(value: WordListRoute.list(vm.myWordsList)) {
+                NavigationLink(value: WordListRoute.list(vm.myWordsList, lang)) {
                     LabeledContent("learn.myWords") {
                         Text(vm.myWordsCount, format: .number)
                     }
@@ -198,13 +235,27 @@ struct LearnView: View {
                 .accessibilityIdentifier("learn_my_words_row")
             }
             Section {
-                NavigationLink(value: Route.statistics) {
+                NavigationLink(value: Route.statistics(lang)) {
                     Label("stats.title", systemImage: "chart.bar.xaxis")
                 }
                 .accessibilityIdentifier("learn_statistics_row")
             }
         }
         .accessibilityIdentifier("learn_view")
+    }
+
+    private var strip: PairTabStrip {
+        PairTabStrip(tabs: vm.tabs, selected: vm.language, onSelect: { lang in
+            Task { await vm.select(lang) }
+        }, onAdd: {
+            path.append(Route.addPair)
+        }, onMore: { hidden in
+            overflow = PairOverflow(tabs: hidden)
+        }, onMove: { lang, index in
+            vm.move(lang, to: index)
+        }, onStop: { lang in
+            stopping = lang
+        })
     }
 
     /// The daily goal ring and the streak (0166, #164): every language.
@@ -214,7 +265,7 @@ struct LearnView: View {
         if let goal = vm.goal, let streak = vm.streak {
             HStack(spacing: 16) {
                 Button {
-                    path.append(Route.statistics)
+                    path.append(Route.statistics(lang))
                 } label: {
                     GoalRingView(progress: goal)
                 }
@@ -224,7 +275,7 @@ struct LearnView: View {
                 .accessibilityIdentifier("learn_goal_ring")
                 Spacer()
                 Button {
-                    path.append(Route.statistics)
+                    path.append(Route.statistics(lang))
                 } label: {
                     StreakBadge(streak: streak, isGoalMet: goal.isMet)
                 }
@@ -263,7 +314,7 @@ struct LearnView: View {
             }
         case .chooseLists?:
             Text("learn.empty.withLists")
-            NavigationLink(value: WordListRoute.newWordsFrom) {
+            NavigationLink(value: WordListRoute.newWordsFrom(lang)) {
                 Text("learn.chooseLists")
             }
             .accessibilityIdentifier("learn_choose_lists")
@@ -314,9 +365,9 @@ struct LearnView: View {
         .accessibilityIdentifier("learn_trainer_match")
     }
 
-    /// 0132, #168: "Conjugation · A2", with the drill's tense level; shown
-    /// while Greek is chosen, with or without words in learning. It opens
-    /// the Conjugation screen.
+    /// 0132, #168: "Conjugation · A2", with the drill's tense level, in
+    /// Greek's Grammar section (#295), with or without words in learning.
+    /// It opens the Conjugation screen.
     private func conjugationRow(_ level: DrillLevel) -> some View {
         NavigationLink(value: Route.conjugation) {
             LabeledContent {
@@ -341,13 +392,13 @@ struct LearnView: View {
         .accessibilityIdentifier(id)
     }
 
-    /// E3's lists (0130, #154): the chosen language's checked lists with
-    /// their progress (0166), "New words from" once Today no longer offers
-    /// "Choose lists", and "All lists".
+    /// E3's lists (0130, #154): the tab language's checked lists with their
+    /// progress (0166), "Learning from" with the checked lists as its value
+    /// (#298) once Today no longer offers "Choose lists", and "All lists".
     private var lists: some View {
         Section("wordLists.title") {
             ForEach(vm.checkedLists) { list in
-                NavigationLink(value: WordListRoute.list(list)) {
+                NavigationLink(value: WordListRoute.list(list, lang)) {
                     VStack(alignment: .leading, spacing: 6) {
                         Text(WordListsViewModel.title(of: list, locale: locale))
                         if let progress = vm.listProgress[list.id] {
@@ -358,35 +409,63 @@ struct LearnView: View {
                 .accessibilityIdentifier("learn_list_row_\(list.id.rawValue)")
             }
             if vm.showsNewWordsFrom {
-                NavigationLink(value: WordListRoute.newWordsFrom) {
-                    Text("newWordsFrom.title")
-                }
-                .accessibilityIdentifier("learn_new_words_from_row")
+                learningFromRow
             }
-            NavigationLink(value: WordListRoute.allLists) {
+            NavigationLink(value: WordListRoute.allLists(lang)) {
                 Text("learn.allLists")
             }
             .accessibilityIdentifier("learn_all_lists_row")
         }
     }
 
-    /// 0133, #172: "Grammar · 17 topics", while the chosen language has
-    /// topics (Greek, with the Greek pack). VoiceOver reads the count as
-    /// the row's value.
+    /// "Learning from · Greek A1, A2" (0130, #298): the tab's checked lists
+    /// as the value, on one line cut with "…"; "Choose lists" with none.
+    private var learningFromRow: some View {
+        let value = WordListsViewModel.learningFromValue(vm.checkedLists, locale: locale)
+        return NavigationLink(value: WordListRoute.newWordsFrom(lang)) {
+            LabeledContent {
+                if let value {
+                    Text(verbatim: value)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                } else {
+                    Text("learn.chooseLists")
+                }
+            } label: {
+                Text("newWordsFrom.title")
+            }
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text("newWordsFrom.title"))
+        .accessibilityValue(value.map { Text(verbatim: $0) } ?? Text("learn.chooseLists"))
+        .accessibilityAddTraits(.isButton)
+        .accessibilityIdentifier("learn_new_words_from_row")
+    }
+
+    /// The Grammar section (0133, #172; #295): "Topics · 17" while the tab's
+    /// language has topics (Greek, with the Greek pack), VoiceOver reading
+    /// the count as "17 topics", and for Greek the Conjugation row. Hidden
+    /// when the language has neither (English).
     @ViewBuilder
     private var grammar: some View {
-        if vm.grammarTopicCount > 0, let language = vm.language {
+        let hasTopics = vm.grammarTopicCount > 0
+        if hasTopics || vm.drillLevel != nil {
             Section("grammar.title") {
-                NavigationLink(value: Route.grammar(language)) {
-                    LabeledContent {
-                        Text("grammar.topicCount \(vm.grammarTopicCount)")
-                            .accessibilityHidden(true)
-                    } label: {
-                        Text("grammar.title")
+                if hasTopics {
+                    NavigationLink(value: Route.grammar(lang)) {
+                        LabeledContent {
+                            Text(vm.grammarTopicCount, format: .number)
+                                .accessibilityHidden(true)
+                        } label: {
+                            Text("grammar.topics")
+                        }
                     }
+                    .accessibilityValue(Text("grammar.topicCount \(vm.grammarTopicCount)"))
+                    .accessibilityIdentifier("learn_grammar_row")
                 }
-                .accessibilityValue(Text("grammar.topicCount \(vm.grammarTopicCount)"))
-                .accessibilityIdentifier("learn_grammar_row")
+                if let level = vm.drillLevel {
+                    conjugationRow(level)
+                }
             }
         }
     }
@@ -540,7 +619,7 @@ struct ConjugationStartView: View {
         Section {
             Text("drill.noLists")
                 .accessibilityIdentifier("drill_no_lists")
-            NavigationLink(value: WordListRoute.newWordsFrom) {
+            NavigationLink(value: WordListRoute.newWordsFrom(ConjugationPlanner.lang)) {
                 Text("learn.chooseLists")
             }
             .accessibilityIdentifier("drill_choose_lists")
@@ -771,24 +850,379 @@ struct LimitedPairNote: View {
     }
 }
 
-// MARK: - Language switch
+// MARK: - Pair tabs (0131, #293)
 
-/// The Learn home's switch between the learned languages, shown with two or
-/// more; E10's statistics screen reuses it with its own identifier.
-struct LearningLanguagePicker: View {
-    let languages: [String]
-    @Binding var selection: String
-    var identifier = "learn_language_switch"
+/// The strip of pair tabs at the top of the Learn tab: "Greek · via
+/// Russian", "English · via Spanish", then "+" (the pair picker). When they
+/// do not fit, the last visible item is "…", which lists the pairs that
+/// did not fit (`PairTabFit`). A tab is dragged to reorder; a long press
+/// offers Stop learning; VoiceOver has the same as actions. It measures the
+/// items' natural widths in a hidden copy and lays out what `PairTabFit`
+/// returns.
+struct PairTabStrip: View {
+    let tabs: [PairTab]
+    /// The selected tab's language.
+    let selected: String?
+    let onSelect: (String) -> Void
+    let onAdd: () -> Void
+    /// "…": the tabs that did not fit.
+    let onMore: ([PairTab]) -> Void
+    /// A tab takes place `index` among the tabs.
+    let onMove: (String, Int) -> Void
+    let onStop: (String) -> Void
+
+    @Environment(\.locale) private var locale
+    @Environment(\.layoutDirection) private var layoutDirection
+    @State private var widths: [String: CGFloat] = [:]
+    @State private var available: CGFloat = 0
+    @State private var frames: [String: CGRect] = [:]
+    @State private var menuFor: String?
+    private static let space = "pairTabStrip"
+
+    private static let spacing: CGFloat = 6
+    private static let height: CGFloat = 36
+    private static let addKey = "add"
+    private static let moreKey = "more"
+
+    private func key(_ tab: PairTab) -> String { "tab-" + tab.lang }
+
+    /// nil until every item is measured.
+    private var fit: PairTabFit? {
+        guard available > 0, let add = widths[Self.addKey], let more = widths[Self.moreKey],
+              tabs.allSatisfy({ widths[key($0)] != nil }) else { return nil }
+        return PairTabFit.fit(tabWidths: tabs.map { widths[key($0)] ?? 0 }, addWidth: add, moreWidth: more,
+                              available: available, selected: tabs.firstIndex { $0.lang == selected },
+                              spacing: Self.spacing)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            tabRow
+            if let caption = LearnViewModel.pairCaption(tabs, selected: selected, locale: locale) {
+                // The selected tab already reads its name: not twice.
+                Text(verbatim: caption)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .accessibilityHidden(true)
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 4)
+    }
+
+    private var tabRow: some View {
+        HStack(spacing: Self.spacing) {
+            if let fit {
+                // A lone tab wider than the strip is cut, with "…".
+                let cap: CGFloat? = fit.visible.count == 1
+                    ? max(available - (fit.showsAdd ? widths[Self.addKey] ?? 0 : widths[Self.moreKey] ?? 0) - Self.spacing, 0)
+                    : nil
+                ForEach(fit.visible, id: \.self) { index in
+                    tabButton(tabs[index], index: index, cap: cap)
+                }
+                if fit.showsAdd {
+                    addButton
+                }
+                if fit.showsMore {
+                    moreButton(hidden: fit.hidden.map { tabs[$0] })
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, minHeight: Self.height, alignment: .leading)
+        .background(GeometryReader { geometry in
+            Color.clear.preference(key: PairTabStripWidthKey.self, value: geometry.size.width)
+        })
+        .overlay(alignment: .leading) { measuring }
+        .onPreferenceChange(PairTabStripWidthKey.self) { available = $0 }
+        .onPreferenceChange(PairTabWidthsKey.self) { widths = $0 }
+        .onPreferenceChange(PairTabFramesKey.self) { frames = $0 }
+        .coordinateSpace(name: Self.space)
+        .confirmationDialog(Text("settings.learning.languages"), isPresented: Binding(
+            get: { menuFor != nil }, set: { if !$0 { menuFor = nil } }), titleVisibility: .hidden) {
+            Button("settings.learning.stopLanguage", role: .destructive) {
+                if let lang = menuFor { onStop(lang) }
+            }
+            .accessibilityIdentifier("learn_pair_tab_stop")
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityAddTraits(.isTabBar)
+        .accessibilityIdentifier("learn_pair_tabs")
+    }
+
+    // MARK: Items
+
+    private func tabButton(_ tab: PairTab, index: Int, cap: CGFloat?) -> some View {
+        let name = LearnViewModel.pairTabName(tab, locale: locale)
+        let isSelected = tab.lang == selected
+        return Button {
+            onSelect(tab.lang)
+        } label: {
+            capsule(isSelected: isSelected) {
+                PairFlags(tab: tab)
+            }
+            // No wider than the tab itself, or the frame centres it.
+            .frame(maxWidth: cap.map { min($0, widths[key(tab)] ?? $0) })
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(Text(verbatim: name))
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+        .accessibilityActions {
+            if index > 0 {
+                Button("learn.tabs.moveEarlier") { onMove(tab.lang, index - 1) }
+            }
+            if index < tabs.count - 1 {
+                Button("learn.tabs.moveLater") { onMove(tab.lang, index + 1) }
+            }
+            Button("settings.learning.stopLanguage") { onStop(tab.lang) }
+        }
+        .accessibilityIdentifier("learn_pair_tab_\(tab.lang)")
+        .background(GeometryReader { geometry in
+            Color.clear.preference(key: PairTabFramesKey.self,
+                                   value: [tab.lang: geometry.frame(in: .named(Self.space))])
+        })
+        // A long press, then a lift: Stop learning; then a move: drag to
+        // reorder. Custom gestures, because a List merges the tabs' context
+        // menus and drags into one (the strip is in a List header).
+        .simultaneousGesture(
+            LongPressGesture(minimumDuration: 0.5)
+                .sequenced(before: DragGesture(minimumDistance: 0, coordinateSpace: .named(Self.space)))
+                .onEnded { value in
+                    guard case .second(true, let drag?) = value else { return }
+                    if abs(drag.translation.width) < 12 {
+                        menuFor = tab.lang
+                    } else {
+                        drop(tab.lang, at: drag.location)
+                    }
+                }
+        )
+    }
+
+    /// A drop at `location` (the strip's space) on a tab's leading half puts
+    /// the dragged language before it, on its trailing half after it
+    /// (mirrored in Arabic).
+    private func drop(_ dragged: String, at location: CGPoint) {
+        guard let (lang, frame) = frames.first(where: { $0.value.minX <= location.x && location.x <= $0.value.maxX }) else {
+            return
+        }
+        let trailing = location.x >= frame.midX
+        let after = layoutDirection == .rightToLeft ? !trailing : trailing
+        guard let index = PairTabOrder.index(of: dragged, droppedOn: lang, after: after, in: tabs.map(\.lang)) else {
+            return
+        }
+        onMove(dragged, index)
+    }
+
+    private var addButton: some View {
+        Button(action: onAdd) {
+            addLabel
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(Text("settings.learning.addLanguage"))
+        .accessibilityIdentifier("learn_pair_tab_add")
+    }
+
+    private func moreButton(hidden: [PairTab]) -> some View {
+        Button {
+            onMore(hidden)
+        } label: {
+            moreLabel
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(Text("learn.tabs.more"))
+        .accessibilityIdentifier("learn_pair_tab_more")
+    }
+
+    private var addLabel: some View {
+        capsule(isSelected: false) { Image(systemName: "plus") }
+    }
+
+    private var moreLabel: some View {
+        capsule(isSelected: false) { Image(systemName: "ellipsis") }
+    }
+
+    private func capsule<Content: View>(isSelected: Bool, @ViewBuilder _ content: () -> Content) -> some View {
+        content()
+            .font(.subheadline.weight(.medium))
+            .foregroundStyle(isSelected ? Color.white : Color.primary)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(Capsule().fill(isSelected ? Color.accentColor : Color.secondary.opacity(0.15)))
+    }
+
+    /// Every item at its natural width, invisible: their widths feed `fit`.
+    private var measuring: some View {
+        HStack(spacing: 0) {
+            ForEach(tabs) { tab in
+                capsule(isSelected: false) {
+                    PairFlags(tab: tab)
+                }
+                .fixedSize()
+                .measured(key(tab))
+            }
+            addLabel.fixedSize().measured(Self.addKey)
+            moreLabel.fixedSize().measured(Self.moreKey)
+        }
+        .hidden()
+    }
+}
+
+private struct PairTabStripWidthKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        // Only the strip's own background reports; the others leave 0.
+        value = max(value, nextValue())
+    }
+}
+
+private struct PairTabFramesKey: PreferenceKey {
+    static let defaultValue: [String: CGRect] = [:]
+
+    static func reduce(value: inout [String: CGRect], nextValue: () -> [String: CGRect]) {
+        value.merge(nextValue()) { _, new in new }
+    }
+}
+
+private struct PairTabWidthsKey: PreferenceKey {
+    static let defaultValue: [String: CGFloat] = [:]
+
+    static func reduce(value: inout [String: CGFloat], nextValue: () -> [String: CGFloat]) {
+        value.merge(nextValue()) { _, new in new }
+    }
+}
+
+private extension View {
+    /// Reports this view's width under `key` (`PairTabWidthsKey`).
+    func measured(_ key: String) -> some View {
+        background(GeometryReader { geometry in
+            Color.clear.preference(key: PairTabWidthsKey.self, value: [key: geometry.size.width])
+        })
+        // The hidden copies are not for VoiceOver (the container's own
+        // `accessibilityHidden` does not reach them).
+        .accessibilityHidden(true)
+    }
+}
+
+/// A pair tab's face (0131, #293): a small flag for the via language, then
+/// a big one for the language learned, in reading order (so on the right
+/// in Arabic). Only the big one when the pair is learned via itself. Not
+/// for VoiceOver: the tab's label is its full name.
+struct PairFlags: View {
+    let tab: PairTab
+
+    var body: some View {
+        HStack(spacing: 4) {
+            if let via = tab.viaFlag {
+                FlagView(flag: via, size: 13)
+            }
+            FlagView(flag: tab.learnedFlag, size: 22)
+        }
+        .accessibilityHidden(true)
+    }
+}
+
+/// A flag emoji, or a letter or code in a circle sized to sit like one.
+struct FlagView: View {
+    let flag: LanguageFlag
+    /// The flag's height.
+    let size: CGFloat
+
+    var body: some View {
+        switch flag {
+        case .emoji(let emoji):
+            Text(verbatim: emoji).font(.system(size: size)).lineLimit(1)
+        case .letter(let letter):
+            circle(letter, fontSize: size * 0.7)
+        case .code(let code):
+            circle(code, fontSize: size * (code.count > 2 ? 0.34 : 0.5))
+        }
+    }
+
+    private func circle(_ text: String, fontSize: CGFloat) -> some View {
+        Text(verbatim: text)
+            .font(.system(size: fontSize, weight: .semibold))
+            .lineLimit(1)
+            .minimumScaleFactor(0.5)
+            .padding(1)
+            .frame(width: size * 1.1, height: size * 1.1)
+            .overlay(Circle().stroke(lineWidth: max(size / 14, 1)))
+    }
+}
+
+/// The tabs behind "…", as the sheet's item.
+struct PairOverflow: Identifiable {
+    let id = UUID()
+    let tabs: [PairTab]
+}
+
+/// "…": the pairs the strip did not fit, then "Add a language" (0131, Open
+/// question 11). Choosing a pair selects its tab.
+struct PairOverflowSheet: View {
+    let tabs: [PairTab]
+    let onSelect: (String) -> Void
+    let onAdd: () -> Void
+    @Environment(\.locale) private var locale
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section {
+                    ForEach(tabs) { tab in
+                        Button {
+                            onSelect(tab.lang)
+                        } label: {
+                            HStack(spacing: 10) {
+                                PairFlags(tab: tab)
+                                Text(verbatim: LearnViewModel.pairTabName(tab, locale: locale))
+                                    .foregroundStyle(.primary)
+                            }
+                        }
+                        .accessibilityIdentifier("learn_pair_overflow_row_\(tab.lang)")
+                    }
+                }
+                Section {
+                    Button(action: onAdd) {
+                        Label("settings.learning.addLanguage", systemImage: "plus")
+                    }
+                    .accessibilityIdentifier("learn_pair_overflow_add")
+                }
+            }
+            .accessibilityIdentifier("learn_pair_overflow")
+            .navigationTitle("settings.learning.languages")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("common.cancel") { dismiss() }
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
+    }
+}
+
+/// "+": the pair picker without the languages already learned, the same as
+/// Settings → Learning → Languages → Add a language. Choosing a pair adds
+/// its tab, last, selects it and starts its download, then returns home.
+struct AddPairView: View {
+    @ObservedObject var vm: LearnViewModel
+    let onDone: () -> Void
     @Environment(\.locale) private var locale
 
     var body: some View {
-        Picker("learn.language", selection: $selection) {
-            ForEach(languages, id: \.self) { lang in
-                Text(LearnViewModel.languageName(lang, locale: locale)).tag(lang)
+        LanguagePickerView(pairs: vm.pickerRows, withLists: vm.languagesWithLists,
+                           downloadSizes: vm.downloadSizes) { pair in
+            Task {
+                await vm.choose(pair, locale: locale)
+                onDone()
             }
         }
-        .pickerStyle(.segmented)
-        .accessibilityIdentifier(identifier)
+        .navigationTitle("settings.learning.addLanguage")
+        .navigationBarTitleDisplayMode(.inline)
+        .task {
+            await vm.loadAddRows(locale: locale)
+        }
     }
 }
 
@@ -864,6 +1298,52 @@ struct GrammarTopicsView: View {
         _vm = StateObject(wrappedValue: GrammarTopicsViewModel(lang: lang))
     }
 
+    /// The topics (#297): with one level no header, the subtitle ("17
+    /// topics · A1") on top and "A2 · Coming soon" last; with more, a
+    /// header per level.
+    @ViewBuilder
+    private var topics: some View {
+        let layout = GrammarTopicsViewModel.layout(levels: vm.levels)
+        let subtitle = Text(verbatim: GrammarTopicsViewModel.subtitle(layout, locale: locale))
+            .font(.subheadline)
+            .foregroundStyle(.secondary)
+            .textCase(nil)
+            .accessibilityRemoveTraits(.isHeader)
+            .accessibilityIdentifier("grammar_subtitle")
+        if layout.headers {
+            Section {} header: { subtitle }
+        }
+        ForEach(vm.levels) { level in
+            Section {
+                ForEach(level.topics) { topic in
+                    NavigationLink {
+                        GrammarTopicView(id: topic.id)
+                    } label: {
+                        Text(GrammarDocument.taggingGreek(AttributedString(topic.title)))
+                    }
+                    .accessibilityIdentifier("grammar_topic_row_\(topic.id)")
+                }
+            } header: {
+                if layout.headers {
+                    Text(verbatim: WordListsViewModel.levelName(level.level, locale: locale))
+                        .accessibilityAddTraits(.isHeader)
+                        .accessibilityIdentifier("grammar_level_\(level.level)")
+                } else {
+                    subtitle
+                }
+            }
+        }
+        if let next = layout.comingSoon {
+            Section {
+                // Text, not a button: nothing opens (#297).
+                Text(verbatim: GrammarTopicsViewModel.comingSoonText(next, locale: locale))
+                    .foregroundStyle(.secondary)
+                    .accessibilityLabel(Text(verbatim: GrammarTopicsViewModel.comingSoonLabel(next, locale: locale)))
+                    .accessibilityIdentifier("grammar_coming_soon")
+            }
+        }
+    }
+
     var body: some View {
         List {
             if vm.showsEnglishNote {
@@ -871,21 +1351,8 @@ struct GrammarTopicsView: View {
                     GrammarEnglishNote()
                 }
             }
-            ForEach(vm.levels) { level in
-                Section {
-                    ForEach(level.topics) { topic in
-                        NavigationLink {
-                            GrammarTopicView(id: topic.id)
-                        } label: {
-                            Text(GrammarDocument.taggingGreek(AttributedString(topic.title)))
-                        }
-                        .accessibilityIdentifier("grammar_topic_row_\(topic.id)")
-                    }
-                } header: {
-                    Text(verbatim: WordListsViewModel.levelName(level.level, locale: locale))
-                        .accessibilityAddTraits(.isHeader)
-                        .accessibilityIdentifier("grammar_level_\(level.level)")
-                }
+            if vm.isLoaded {
+                topics
             }
         }
         .overlay {
@@ -986,7 +1453,7 @@ struct GrammarTopicView: View {
             }
         }
         .navigationDestination(isPresented: $vm.showsNewWordsFrom) {
-            NewWordsFromView()
+            NewWordsFromView(lang: ConjugationPlanner.lang)
         }
         // E5's drill of the topic's tenses covers the screen.
         .fullScreenCover(item: $vm.practiseRun) { run in

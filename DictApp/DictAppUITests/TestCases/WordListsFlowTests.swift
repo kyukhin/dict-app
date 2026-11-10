@@ -22,6 +22,9 @@ final class WordListsFlowTests: XCTestCase {
         if name.contains("testListsFollowLearnedLanguages") || name.contains("testChooseListsOpensNewWordsFrom") {
             return ["-learningLanguages", "ell", "-wordListFixture", "lists"]
         }
+        if name.contains("testLearningFromRow") {
+            return ["-learningLanguages", "ell", "-learningLists", "ky-ell-a1,ky-ell-a2"]
+        }
         if name.contains("testEnglishListMeaningsFollowTheVia") { return ["-learningLanguages", "eng:spa"] }
         if name.contains("testListRowsShowProgress") { return ["-learningFixture", "due"] }
         if name.contains("testNewWordsFromCheckedLists") {
@@ -52,10 +55,13 @@ final class WordListsFlowTests: XCTestCase {
 
     // MARK: - Helpers
 
-    /// Learn tab → home → All lists.
-    private func openLists() -> WordListsPage {
+    /// Learn tab → (the pair tab of `lang`, Greek's by default) → home → All
+    /// lists. The Lists screen shows the tab's language only (#295).
+    private func openLists(tab lang: String? = nil) -> WordListsPage {
         let learnPage = tabBarPage.tapLearnTab()
         XCTAssertTrue(learnPage.waitForHome(timeout: TestData.Timeouts.long), "the Learn home")
+        learnPage.popToRoot()
+        if let lang { learnPage.selectTab(lang) }
         return learnPage.tapAllLists()
     }
 
@@ -68,25 +74,36 @@ final class WordListsFlowTests: XCTestCase {
 
     // MARK: - Built-in lists
 
-    /// Greek and English learned, English UI: the Greek section, then the
-    /// English one, then My lists, each built-in list with its word count.
+    /// Greek and English learned, English UI: Greek's tab shows the Greek
+    /// section, then My lists; English's the English one, then My lists:
+    /// each built-in list with its word count, and each tab's import only.
     func testBuiltInListsShowTheirCounts() throws {
-        let page = openLists()
-        let counts = [("ky-ell-a1", "1,457 words"), ("ky-ell-a2", "756 words"), ("ky-ell-b1", "2,435 words"),
-                      ("cefr-eng-a1", "1,063 words"), ("cefr-eng-a2", "1,241 words"), ("cefr-eng-b1", "2,138 words"),
-                      ("cefr-eng-b2", "2,417 words"), ("cefr-eng-c1", "913 words"), ("cefr-eng-c2", "875 words")]
+        var page = openLists()
         XCTAssertTrue(page.row("ky-ell-a1").waitForExistence(timeout: TestData.Timeouts.medium), "Greek A1")
         XCTAssertTrue(app.staticTexts["Greek A1"].exists, "titled by language and level")
+        for (id, count) in [("ky-ell-a1", "1,457 words"), ("ky-ell-a2", "756 words"), ("ky-ell-b1", "2,435 words")] {
+            XCTAssertTrue(app.scrollToElement(page.row(id)), id)
+            XCTAssertEqual(page.count(id).label, count, id)
+        }
+        XCTAssertFalse(page.row("cefr-eng-a1").exists, "no English list on Greek's tab")
+        XCTAssertTrue(app.scrollToElement(page.row("my-words")), "My lists follow")
+        XCTAssertTrue(app.scrollToElement(page.row(greekFixture)), "the Greek import")
+        XCTAssertFalse(page.row(englishFixture).exists, "the English import is on English's tab")
+
+        page.goBack()
+        page = openLists(tab: "eng")
+        XCTAssertTrue(page.row("cefr-eng-a1").waitForExistence(timeout: TestData.Timeouts.medium), "English A1")
+        let counts = [("cefr-eng-a1", "1,063 words"), ("cefr-eng-a2", "1,241 words"), ("cefr-eng-b1", "2,138 words"),
+                      ("cefr-eng-b2", "2,417 words"), ("cefr-eng-c1", "913 words"), ("cefr-eng-c2", "875 words")]
         for (id, count) in counts {
-            let row = page.row(id)
-            XCTAssertTrue(app.scrollToElement(row), id)
+            XCTAssertTrue(app.scrollToElement(page.row(id)), id)
             XCTAssertEqual(page.count(id).label, count, id)
         }
         XCTAssertTrue(app.staticTexts["English C2"].exists)
+        XCTAssertFalse(page.row("ky-ell-a1").exists, "no Greek list on English's tab")
         XCTAssertTrue(app.scrollToElement(page.row("my-words")), "My lists follow")
-        // iPad: the imports may sit below the window once My words shows.
-        XCTAssertTrue(app.scrollToElement(page.row(englishFixture)), "the newer import")
-        XCTAssertTrue(app.scrollToElement(page.row(greekFixture)), "the older import")
+        XCTAssertTrue(app.scrollToElement(page.row(englishFixture)), "the English import")
+        XCTAssertFalse(page.row(greekFixture).exists, "the Greek import is on Greek's tab")
     }
 
     /// Greek B1 is one section of its own 2,435 words, alphabetical from
@@ -187,30 +204,32 @@ final class WordListsFlowTests: XCTestCase {
         XCTAssertTrue(page.badge("ky-ell-a1").waitForExistence(timeout: TestData.Timeouts.medium), "Greek A1's badge")
         XCTAssertEqual(page.badge("ky-ell-a1").label, "Learning")
 
-        page.openList("cefr-eng-b1")
-        page.learnButton.tap()
-        XCTAssertTrue(page.wait(for: page.learnButton, toBe: "Learning this list"))
+        // English's list, on English's tab (#295).
         page.goBack()
-        XCTAssertTrue(page.badge("cefr-eng-b1").waitForExistence(timeout: TestData.Timeouts.medium), "English B1's badge")
-        XCTAssertTrue(app.scrollToElement(page.row("ky-ell-a1")))
-        XCTAssertTrue(page.badge("ky-ell-a1").exists)
+        let english = openLists(tab: "eng")
+        english.openList("cefr-eng-b1")
+        english.learnButton.tap()
+        XCTAssertTrue(english.wait(for: english.learnButton, toBe: "Learning this list"))
+        english.goBack()
+        XCTAssertTrue(english.badge("cefr-eng-b1").waitForExistence(timeout: TestData.Timeouts.medium), "English B1's badge")
 
-        page.openList("cefr-eng-b1")
-        XCTAssertTrue(page.wait(for: page.learnButton, toBe: "Learning this list"))
-        page.learnButton.tap()
-        XCTAssertTrue(page.wait(for: page.learnButton, toBe: "Learn this list"), "a second tap unchecks")
-        page.goBack()
-        XCTAssertTrue(page.badge("cefr-eng-b1").waitForNonExistence(timeout: TestData.Timeouts.medium),
+        english.openList("cefr-eng-b1")
+        XCTAssertTrue(english.wait(for: english.learnButton, toBe: "Learning this list"))
+        english.learnButton.tap()
+        XCTAssertTrue(english.wait(for: english.learnButton, toBe: "Learn this list"), "a second tap unchecks")
+        english.goBack()
+        XCTAssertTrue(english.badge("cefr-eng-b1").waitForNonExistence(timeout: TestData.Timeouts.medium),
                       "English B1's badge goes")
 
         app.terminate()
         app.launchArguments = ["-disableReviewPrompt"] + UITestHelpers.packArguments()
         app.launch()
         tabBarPage = TabBarPage(app: app)
-        let relaunched = openLists()
+        // The chosen tab is kept too: English's, after the steps above.
+        let relaunched = openLists(tab: "ell")
         XCTAssertTrue(relaunched.badge("ky-ell-a1").waitForExistence(timeout: TestData.Timeouts.medium),
                       "kept after a relaunch")
-        XCTAssertFalse(relaunched.badge("cefr-eng-b1").exists)
+        XCTAssertFalse(relaunched.badge("cefr-eng-b1").exists, "no English list on Greek's tab")
     }
 
     /// Greek only: "Choose lists" opens New words from with Greek A1, A2,
@@ -238,15 +257,17 @@ final class WordListsFlowTests: XCTestCase {
         XCTAssertTrue(page.noneChecked.waitForNonExistence(timeout: TestData.Timeouts.medium))
         page.goBack()
 
-        XCTAssertTrue(learnPage.listRow("ky-ell-a1").waitForExistence(timeout: TestData.Timeouts.medium),
-                      "the Lists section shows the checked list")
+        // Below the Grammar section: the lazy List builds it once scrolled to.
+        XCTAssertTrue(app.scrollToElement(learnPage.listRow("ky-ell-a1")), "the Lists section shows the checked list")
         XCTAssertTrue(learnPage.newWordsFromRow.exists, "and New words from")
         XCTAssertFalse(learnPage.chooseLists.exists)
+        // Today's count is above, off the lazy List's window.
+        XCTAssertTrue(app.scrollToElement(learnPage.newCount), "Today")
         XCTAssertTrue(learnPage.waitForLabel(of: learnPage.newCount, toBe: "10 new words left today"))
     }
 
     /// Greek and English learned: "Choose lists" checks Greek A1 and English
-    /// C2; the language switch shows. With English chosen, Start's new
+    /// C2, each on its own tab. With English chosen, Start's new
     /// words, with the "New word" badge, are English; closed, then with
     /// Greek chosen, Start's are Greek: new words come from the checked
     /// lists of the chosen language only (0130, #161's Start).
@@ -258,14 +279,18 @@ final class WordListsFlowTests: XCTestCase {
         XCTAssertTrue(greekA1.waitForExistence(timeout: TestData.Timeouts.medium), "Greek A1")
         greekA1.tap()
         XCTAssertTrue(page.wait(for: greekA1, selected: true))
-        let englishC2 = page.newWordsFromRow("cefr-eng-c2")
-        XCTAssertTrue(app.scrollToElement(englishC2), "English C2")
-        englishC2.tap()
-        XCTAssertTrue(page.wait(for: englishC2, selected: true))
+        XCTAssertFalse(page.newWordsFromRow("cefr-eng-c2").exists, "English's lists are on its own tab (#295)")
         page.goBack()
 
-        XCTAssertTrue(learnPage.languageSwitch.waitForExistence(timeout: TestData.Timeouts.medium), "Greek | English")
+        XCTAssertTrue(learnPage.pairTab("eng").waitForExistence(timeout: TestData.Timeouts.medium), "Greek, English")
         learnPage.selectLanguage(named: "English")
+        let englishPage = learnPage.tapChooseLists()
+        let englishC2 = englishPage.newWordsFromRow("cefr-eng-c2")
+        XCTAssertTrue(app.scrollToElement(englishC2), "English C2")
+        XCTAssertFalse(englishPage.newWordsFromRow("ky-ell-a1").exists, "Greek's lists are on its tab")
+        englishC2.tap()
+        XCTAssertTrue(englishPage.wait(for: englishC2, selected: true))
+        englishPage.goBack()
         XCTAssertTrue(learnPage.waitForLabel(of: learnPage.newCount, toBe: "10 new words left today"), "English C2")
         assertNewWords(greek: false, learnPage: learnPage)
 
@@ -307,24 +332,38 @@ final class WordListsFlowTests: XCTestCase {
         text.unicodeScalars.contains { (0x0370...0x03FF).contains($0.value) || (0x1F00...0x1FFF).contains($0.value) }
     }
 
-    /// New words from lists both languages' lists; a second tap unchecks;
-    /// the Lists screen's badges follow.
+    /// #298: with Greek A1 and A2 checked the row reads "Learning from",
+    /// its value "Greek A1, A2"; it opens the screen titled "Learning from",
+    /// and Settings' row has the same name.
+    func testLearningFromRow() throws {
+        let learnPage = tabBarPage.tapLearnTab()
+        XCTAssertTrue(learnPage.waitForHome(timeout: TestData.Timeouts.long))
+        let row = learnPage.newWordsFromRow
+        XCTAssertTrue(app.scrollToElement(row), "the Learning from row")
+        XCTAssertEqual(row.label, "Learning from")
+        XCTAssertEqual(row.value as? String, "Greek A1, A2")
+        row.tap()
+        let page = WordListsPage(app: app)
+        XCTAssertTrue(page.waitForNewWordsFrom(), "the row opens Learning from")
+        XCTAssertTrue(app.navigationBars["Learning from"].exists, "titled Learning from")
+        XCTAssertFalse(app.staticTexts["New words from"].exists)
+    }
+
+    /// Learning from lists the tab's language's lists only; a second tap
+    /// unchecks; the Lists screen's badges follow.
     func testNewWordsFromChecksAndUnchecks() throws {
         let learnPage = tabBarPage.tapLearnTab()
         XCTAssertTrue(learnPage.waitForHome(timeout: TestData.Timeouts.long))
         let page = learnPage.tapChooseLists()
         let greekRow = page.newWordsFromRow("ky-ell-a2")
-        let englishRow = page.newWordsFromRow("cefr-eng-c2")
         XCTAssertTrue(greekRow.waitForExistence(timeout: TestData.Timeouts.medium))
-        XCTAssertTrue(app.scrollToElement(englishRow))
-        englishRow.tap()
-        XCTAssertTrue(page.wait(for: englishRow, selected: true))
-        XCTAssertTrue(app.scrollToElement(greekRow))
+        XCTAssertFalse(page.newWordsFromRow("cefr-eng-c2").exists, "English's lists are on its tab")
         greekRow.tap()
         XCTAssertTrue(page.wait(for: greekRow, selected: true))
-        XCTAssertTrue(app.scrollToElement(englishRow))
-        englishRow.tap()
-        XCTAssertTrue(page.wait(for: englishRow, selected: false), "a second tap unchecks")
+        greekRow.tap()
+        XCTAssertTrue(page.wait(for: greekRow, selected: false), "a second tap unchecks")
+        greekRow.tap()
+        XCTAssertTrue(page.wait(for: greekRow, selected: true))
         page.goBack()
         let lists = learnPage.tapAllLists()
         XCTAssertTrue(lists.badge("ky-ell-a2").waitForExistence(timeout: TestData.Timeouts.medium))
@@ -358,14 +397,18 @@ final class WordListsFlowTests: XCTestCase {
 
     // MARK: - Imported lists and My words
 
-    /// Greek and English learned: both imports, newest first, with counts.
+    /// Greek and English learned: each import on its own language's tab,
+    /// with its count.
     func testImportedListsShowTheirCounts() throws {
-        let page = openLists()
-        XCTAssertTrue(app.scrollToElement(page.row(englishFixture), maxSwipes: 12))
-        XCTAssertTrue(app.scrollToElement(page.row(greekFixture)))
-        XCTAssertEqual(page.count(englishFixture).label, "2 words")
+        var page = openLists()
+        XCTAssertTrue(app.scrollToElement(page.row(greekFixture), maxSwipes: 12))
         XCTAssertEqual(page.count(greekFixture).label, "5 words")
-        XCTAssertLessThan(page.row(englishFixture).frame.minY, page.row(greekFixture).frame.minY, "the newer import first")
+        XCTAssertFalse(page.row(englishFixture).exists, "the English import is on English's tab")
+        page.goBack()
+        page = openLists(tab: "eng")
+        XCTAssertTrue(app.scrollToElement(page.row(englishFixture), maxSwipes: 12))
+        XCTAssertEqual(page.count(englishFixture).label, "2 words")
+        XCTAssertFalse(page.row(greekFixture).exists, "the Greek import is on Greek's tab")
     }
 
     /// An imported list's screen: the words alphabetical in a section per
@@ -404,7 +447,9 @@ final class WordListsFlowTests: XCTestCase {
         XCTAssertTrue(alert.waitForExistence(timeout: TestData.Timeouts.medium))
         alert.buttons["Delete"].tap()
         XCTAssertTrue(page.row(greekFixture).waitForNonExistence(timeout: TestData.Timeouts.medium), "Delete removes it")
-        XCTAssertTrue(page.row(englishFixture).exists)
+        page.goBack()
+        let english = openLists(tab: "eng")
+        XCTAssertTrue(app.scrollToElement(english.row(englishFixture), maxSwipes: 12), "English's import stays")
     }
 
     /// My words opens its list screen: no Learn this list, its words with

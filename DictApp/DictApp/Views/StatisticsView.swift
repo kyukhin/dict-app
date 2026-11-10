@@ -1,15 +1,19 @@
 // StatisticsView.swift
 // Learning statistics (0166-learning-statistics.md, #164): one scrolling
-// list, one section per block. The language switch on top; the goal, the
-// streak and the 30-day chart count every language, the other blocks the
-// chosen one. One column, at most 700 pt wide on iPad; mirrored in Arabic.
+// list, one section per block. The goal, the streak and the 30-day chart
+// count every language, the other blocks the language of the tab it opens
+// from (#295). One column, at most 700 pt wide on iPad; mirrored in Arabic.
 
 import Charts
 import SwiftUI
 
 struct StatisticsView: View {
-    @StateObject private var vm = StatisticsViewModel()
+    @StateObject private var vm: StatisticsViewModel
     @Environment(\.locale) private var locale
+
+    init(lang: String?) {
+        _vm = StateObject(wrappedValue: StatisticsViewModel(lang: lang))
+    }
 
     /// The column's width on iPad.
     static let maxWidth: CGFloat = 700
@@ -25,14 +29,6 @@ struct StatisticsView: View {
                         .foregroundStyle(.secondary)
                         .accessibilityIdentifier("stats_empty")
                 } else {
-                    if vm.learned.count > 1, let language = vm.language {
-                        Section {
-                            LearningLanguagePicker(languages: vm.learned, selection: Binding(
-                                get: { language },
-                                set: { lang in Task { await vm.select(lang) } }
-                            ), identifier: "stats_language_switch")
-                        }
-                    }
                     todaySection
                     streakSection
                     Section("stats.last30") {

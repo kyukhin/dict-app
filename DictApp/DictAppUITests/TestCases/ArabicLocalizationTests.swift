@@ -564,6 +564,28 @@ final class ArabicLocalizationTests: XCTestCase {
         attachScreenshot("learn home (ar)")
     }
 
+    /// 0131, #293: the pair tabs in Arabic. The first tab is on the right;
+    /// each tab's label is its full name (the flags are not read) and the
+    /// strip ends with "+" on the left.
+    func testPairTabsRightToLeft() throws {
+        app.terminate()
+        app.launchArguments += ["-learningLanguages", "ell,eng"]
+        app.launch()
+        XCTAssertTrue(app.waitForDictionariesReady(), "Search screen after launch")
+        tapTab(ArabicTab.learn)
+        let learnPage = LearnPage(app: app)
+        XCTAssertTrue(learnPage.waitForHome(timeout: TestData.Timeouts.long), "the Learn home")
+        let greek = learnPage.pairTab("ell"), english = learnPage.pairTab("eng")
+        XCTAssertTrue(greek.waitForExistence(timeout: TestData.Timeouts.medium))
+        XCTAssertTrue(english.waitForExistence(timeout: TestData.Timeouts.medium))
+        XCTAssertGreaterThan(greek.frame.minX, english.frame.minX, "RTL: the first tab on the right")
+        XCTAssertTrue(learnPage.pairTabAdd.waitForExistence(timeout: TestData.Timeouts.medium))
+        XCTAssertLessThan(learnPage.pairTabAdd.frame.minX, english.frame.minX, "RTL: + at the left end")
+        XCTAssertEqual(Self.visible(greek.label), "اليونانية · عبر الإنجليزية", "the name, not the flags")
+        XCTAssertTrue(greek.isSelected)
+        attachScreenshot("pair tabs (ar)")
+    }
+
     /// 0131, #161: Start and mistakes practice in Arabic, mirrored. The home
     /// reads "ابدأ" and "تدرّب على الأخطاء · …"; after the two mistakes, the
     /// summary's titles sit right of their values. Bare `ar` formats numbers
@@ -638,7 +660,7 @@ final class ArabicLocalizationTests: XCTestCase {
     /// 0130, #154: the list screens in Arabic, mirrored. "كل القوائم" opens
     /// "القوائم"; Greek A1's title and count sit on the right; its screen
     /// reads "تعلّم هذه القائمة" with its words on the right; New words from
-    /// reads "كلمات جديدة من".
+    /// reads "التعلّم من".
     func testWordListsAreRightToLeft() throws {
         tapTab(ArabicTab.learn)
         let learnPage = LearnPage(app: app)
@@ -671,7 +693,7 @@ final class ArabicLocalizationTests: XCTestCase {
         page.goBack()
 
         learnPage.tapChooseLists()
-        XCTAssertTrue(app.navigationBars["كلمات جديدة من"].waitForExistence(timeout: TestData.Timeouts.medium))
+        XCTAssertTrue(app.navigationBars["التعلّم من"].waitForExistence(timeout: TestData.Timeouts.medium))
         attachScreenshot("new words from (ar)")
     }
 
@@ -684,7 +706,7 @@ final class ArabicLocalizationTests: XCTestCase {
         XCTAssertTrue(learnPage.waitForHome(timeout: TestData.Timeouts.long), "Greek learned: the home")
         let page = GrammarPage(app: app)
         XCTAssertTrue(app.scrollToElement(page.learnRow), "the Grammar row")
-        XCTAssertTrue(page.learnRow.label.contains("القواعد"), "the row in Arabic; got '\(page.learnRow.label)'")
+        XCTAssertTrue(page.learnRow.label.contains("المواضيع"), "the row in Arabic; got '\(page.learnRow.label)'")
         XCTAssertTrue((page.learnRowValue ?? "").contains("17") || (page.learnRowValue ?? "").contains("١٧"),
                       "the count; got '\(page.learnRowValue ?? "")'")
         XCTAssertTrue(page.openGrammar(), "the Grammar screen")

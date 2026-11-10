@@ -7169,38 +7169,110 @@
         }
       }
     },
-    "learn.language": {
-      "comment": "VoiceOver label of the Learn home's language switch.",
+    "learn.tabs.more": {
+      "comment": "Pair tabs (#293): VoiceOver label of the \"…\" item.",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Learning language"
+            "value": "More languages"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Изучаемый язык"
+            "value": "Другие языки"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Idioma de aprendizaje"
+            "value": "Más idiomas"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "لغة التعلّم"
+            "value": "المزيد من اللغات"
           }
         },
         "el": {
           "stringUnit": {
             "state": "translated",
-            "value": "Γλώσσα εκμάθησης"
+            "value": "Περισσότερες γλώσσες"
+          }
+        }
+      }
+    },
+    "learn.tabs.moveEarlier": {
+      "comment": "Pair tabs (#293): VoiceOver action that moves a tab one place earlier.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Move earlier"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сдвинуть раньше"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mover antes"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "نقل إلى الأمام"
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Μετακίνηση νωρίτερα"
+          }
+        }
+      }
+    },
+    "learn.tabs.moveLater": {
+      "comment": "Pair tabs (#293): VoiceOver action that moves a tab one place later.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Move later"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сдвинуть позже"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mover después"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "نقل إلى الخلف"
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Μετακίνηση αργότερα"
           }
         }
       }
@@ -10914,37 +10986,37 @@
       }
     },
     "newWordsFrom.title": {
-      "comment": "The screen of the lists new words come from, and its rows on the Learn home and in Settings.",
+      "comment": "Learning from (\"New words from\" until #298): the screen of the lists new words come from, and its rows on the Learn home and in Settings.",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "New words from"
+            "value": "Learning from"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Новые слова из"
+            "value": "Учу из"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Palabras nuevas de"
+            "value": "Aprendiendo de"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "كلمات جديدة من"
+            "value": "التعلّم من"
           }
         },
         "el": {
           "stringUnit": {
             "state": "translated",
-            "value": "Νέες λέξεις από"
+            "value": "Μάθηση από"
           }
         }
       }
@@ -17401,6 +17473,78 @@
           "stringUnit": {
             "state": "translated",
             "value": "Γραμματική"
+          }
+        }
+      }
+    },
+    "grammar.topics": {
+      "comment": "Learn home, Grammar section: the row that opens the topics; its value is their number.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Topics"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Темы"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Temas"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "المواضيع"
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Θέματα"
+          }
+        }
+      }
+    },
+    "grammar.comingSoon": {
+      "comment": "Grammar screen: the row of the next level, after its name (\"A2 · Coming soon\").",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Coming soon"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Скоро"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Próximamente"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "قريبًا"
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Σύντομα"
           }
         }
       }

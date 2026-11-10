@@ -121,7 +121,7 @@ final class LearningSettingsFlowTests: XCTestCase {
     func testNewWordsFromOpensTheScreen() throws {
         let page = openSettings()
         page.reveal(page.newWordsFromRow)
-        XCTAssertEqual(page.newWordsFromRow.label, "New words from")
+        XCTAssertEqual(page.newWordsFromRow.label, "Learning from")
         page.newWordsFromRow.tap()
         let lists = WordListsPage(app: app)
         XCTAssertTrue(lists.waitForNewWordsFrom(), "New words from")
@@ -133,8 +133,8 @@ final class LearningSettingsFlowTests: XCTestCase {
 
         let learnPage = tabBarPage.tapLearnTab()
         XCTAssertTrue(learnPage.waitForHome(), "the Learn home")
-        XCTAssertTrue(learnPage.listRow("ky-ell-a1").waitForExistence(timeout: TestData.Timeouts.medium),
-                      "the Lists section shows Greek A1")
+        // Below the Grammar section: the lazy List builds it once scrolled to.
+        XCTAssertTrue(app.scrollToElement(learnPage.listRow("ky-ell-a1")), "the Lists section shows Greek A1")
     }
 
     /// Fresh install: a session and the Settings screen ask nothing; turning
@@ -192,8 +192,8 @@ final class LearningSettingsFlowTests: XCTestCase {
         XCTAssertFalse(page.limited("eng").exists, "a full pair has no warning")
 
         learnPage = tabBarPage.tapLearnTab()
-        XCTAssertTrue(learnPage.languageSwitch.waitForExistence(timeout: TestData.Timeouts.medium))
-        XCTAssertTrue(learnPage.languageSwitch.buttons["English"].isSelected, "English stays chosen")
+        XCTAssertTrue(learnPage.pairTab("eng").waitForExistence(timeout: TestData.Timeouts.medium))
+        XCTAssertTrue(learnPage.pairTab("eng").isSelected, "English stays chosen")
         XCTAssertTrue(learnPage.waitForLabel(of: learnPage.dueCount, toBe: "2 words due"), "no card changed")
         let run = learnPage.openTrainer()
         let spanish = ["house": "casalicio, casa", "water": "agua, aguacha, linfa, wata"]
@@ -226,7 +226,7 @@ final class LearningSettingsFlowTests: XCTestCase {
     /// due words back, its progress kept.
     func testStopAndResumeALanguage() throws {
         var learnPage = tabBarPage.tapLearnTab()
-        XCTAssertTrue(learnPage.languageSwitch.waitForExistence(timeout: TestData.Timeouts.medium), "Greek | English")
+        XCTAssertTrue(learnPage.pairTab("eng").waitForExistence(timeout: TestData.Timeouts.medium), "Greek, English")
 
         let page = openSettings()
         XCTAssertTrue(page.waitForLabel(of: page.reveal(page.languagesRow), containing: "Greek, English"))
@@ -238,7 +238,8 @@ final class LearningSettingsFlowTests: XCTestCase {
         learnPage = tabBarPage.tapLearnTab()
         XCTAssertTrue(learnPage.waitForHome())
         XCTAssertTrue(learnPage.waitForLabel(of: learnPage.dueCount, toBe: "2 words due"), "Greek's words")
-        XCTAssertFalse(learnPage.languageSwitch.exists, "one language: no switch")
+        XCTAssertTrue(learnPage.pairTab("ell").exists, "Greek stays")
+        XCTAssertFalse(learnPage.pairTab("eng").exists, "English: its tab is gone")
 
         tabBarPage.tapSettingsTab()
         XCTAssertTrue(page.languagesView.waitForExistence(timeout: TestData.Timeouts.medium), "still on Languages")
@@ -250,8 +251,8 @@ final class LearningSettingsFlowTests: XCTestCase {
         XCTAssertTrue(page.languageRow("eng").waitForExistence(timeout: TestData.Timeouts.medium), "English is back")
 
         learnPage = tabBarPage.tapLearnTab()
-        XCTAssertTrue(learnPage.languageSwitch.waitForExistence(timeout: TestData.Timeouts.medium), "the switch returns")
-        XCTAssertTrue(learnPage.languageSwitch.buttons["English"].isSelected, "the language just added")
+        XCTAssertTrue(learnPage.pairTab("eng").waitForExistence(timeout: TestData.Timeouts.medium), "its tab returns")
+        XCTAssertTrue(learnPage.pairTab("eng").isSelected, "the language just added, last")
         XCTAssertTrue(learnPage.waitForLabel(of: learnPage.dueCount, toBe: "2 words due"), "house and water, still due")
     }
 

@@ -43,6 +43,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - [#29] The libredict.app website: a home page, the privacy policy and support in five languages, published from `site/` by GitHub Pages, with no scripts, cookies or trackers.
 - [#299] A wrong choice also shows what the chosen option means, in the feedback bar ("You chose: water · νερό"), under the pairs in match the pairs and with its tense and person in the conjugation drill.
 - [#300] Learning has its own playful sounds, synthesized in code: right, wrong, pairs right and wrong, and a chime when a daily lesson ends or the daily goal is reached; Sounds in Settings still turns them all off.
+- [#293] The Learn tab has one flag tab per learned pair (a big flag for the language, a small one for its via; the full name under the strip), added with "+", reordered by dragging, hidden behind "…" when they do not fit, and stopped with a long press on the tab, then Stop learning; the streak and the goal are the same on every tab.
+- [#295] Each pair tab holds only its language: Today, mistakes, the trainers, a Grammar section with the topics and the Greek conjugation drill, its lists, its My words and its Statistics.
+- [#297] The Grammar list shows no level header while only A1 exists, gives the level in its subtitle ("17 topics · A1") and ends with an "A2 · Coming soon" row that opens nothing.
+- [#298] "New words from" is now "Learning from" in five languages, and its row on the Learn tab shows the checked lists ("Greek A1, A2").
 
 ### Changed
 - [#138] Every dictionary is searchable right after install, with no "Preparing dictionaries" bar: the app reads the bundled dictionaries in place and keeps your history, saved words and imports in a small database of their own.
