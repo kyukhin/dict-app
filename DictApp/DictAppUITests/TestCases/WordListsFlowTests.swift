@@ -34,7 +34,7 @@ final class WordListsFlowTests: XCTestCase {
 
     override func setUpWithError() throws {
         continueAfterFailure = false
-        app = XCUIApplication()
+        app = LibreDictApp()
         app.launchArguments = ["-disableReviewPrompt", "-resetData"] + testArguments + UITestHelpers.packArguments()
         // Lists of thousands of rows: silence the app's os_log so XCTest's
         // log volume cannot crash it while it scrolls (iOS 17.5, #125).

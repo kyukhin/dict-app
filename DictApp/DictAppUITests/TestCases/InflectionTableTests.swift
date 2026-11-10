@@ -18,7 +18,7 @@ final class InflectionTableTests: XCTestCase {
 
     override func setUpWithError() throws {
         continueAfterFailure = false
-        app = XCUIApplication()
+        app = LibreDictApp()
         app.launchArguments += ["-disableReviewPrompt", "-resetData"]
         // Issue #237: every language pack, installed from the committed assets.
         app.launchArguments += UITestHelpers.packArguments()

@@ -17,7 +17,7 @@ final class MatchPairsFlowTests: XCTestCase {
 
     override func setUpWithError() throws {
         continueAfterFailure = false
-        app = XCUIApplication()
+        app = LibreDictApp()
         // `bilingual`: two Greek words, too few for a round.
         let fixture = name.contains("testDisabledWithFewerThanFiveWords") ? "bilingual" : "due"
         // Issue #237: no first-launch sheet; the Greek pack, which holds the
@@ -98,6 +98,19 @@ final class MatchPairsFlowTests: XCTestCase {
         attachScreenshot("the result")
         match.doneButton.tap()
         XCTAssertTrue(learnPage.waitForHome(), "Done closes match the pairs")
+    }
+
+    /// #299: a wrong pair shows each tapped tile's own pair until the next tap.
+    func testWrongPairShowsBothPairs() throws {
+        let match = learnPage.openMatch()
+        XCTAssertTrue(match.waitForBoard(), "the board")
+        XCTAssertFalse(match.mismatch.exists, "nothing before a wrong pair")
+        XCTAssertNotNil(match.pair(match.word(0), right: false), "a wrong pair")
+        XCTAssertTrue(match.mismatch.waitForExistence(timeout: TestData.Timeouts.short), "the pairs line")
+        XCTAssertEqual(match.mismatch.label.components(separatedBy: " · ").count, 3,
+                       "two pairs, each 'word · meaning': \(match.mismatch.label)")
+        match.word(1).tap()
+        XCTAssertFalse(match.mismatch.exists, "cleared by the next tap")
     }
 
     /// Next round: five tiles again, the timer from 0, the word answered

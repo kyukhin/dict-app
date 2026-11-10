@@ -6,7 +6,7 @@ final class DictAppUITests: XCTestCase {
 
     override func setUpWithError() throws {
         continueAfterFailure = false
-        app = XCUIApplication()
+        app = LibreDictApp()
         // Force portrait — sim orientation persists across sessions on Intel x86_64,
         // and landscape no-ops swipeUp against SwiftUI Form/List scroll views.
         // See project memory project_xcuitest_orientation_landscape_swipe.
@@ -18,6 +18,11 @@ final class DictAppUITests: XCTestCase {
 
     override func tearDownWithError() throws {
         app = nil
+    }
+
+    /// #300: every launch of the app under test is muted.
+    func testLaunchIsMuted() throws {
+        XCTAssertTrue(app.launchArguments.contains("-muteSounds"))
     }
 
     func testAppLaunches() throws {

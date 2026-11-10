@@ -49,7 +49,7 @@ final class LearnTabTests: XCTestCase {
 
     override func setUpWithError() throws {
         continueAfterFailure = false
-        app = XCUIApplication()
+        app = LibreDictApp()
         // Issue #237: no first-launch sheet; the Greek, Spanish and other
         // packs installed from the committed assets.
         app.launchArguments = ["-disableReviewPrompt", "-resetData"] + learningArguments + packArguments

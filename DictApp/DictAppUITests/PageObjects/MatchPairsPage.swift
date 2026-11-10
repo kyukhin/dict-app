@@ -14,6 +14,7 @@ class MatchPairsPage: BasePage {
 
     var view: XCUIElement { element(IDs.view) }
     var timer: XCUIElement { element(IDs.timer) }
+    var mismatch: XCUIElement { element(IDs.mismatch) }
     var closeButton: XCUIElement { app.buttons[AccessibilityIdentifiers.Exercise.close].firstMatch }
     var result: XCUIElement { element(IDs.result) }
     var resultTime: XCUIElement { element(IDs.resultTime) }

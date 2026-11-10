@@ -45,7 +45,7 @@ final class FreshInstallTests: XCTestCase {
 
     override func setUpWithError() throws {
         continueAfterFailure = true
-        app = XCUIApplication()
+        app = LibreDictApp()
         // No `-skipWelcome` here: `testEnglishWorksOffline` sees the sheet;
         // `packArguments()` adds it for the other test.
         app.launchArguments += ["-disableReviewPrompt", "-resetDatabase", "-resetPacks", "-resetData"]

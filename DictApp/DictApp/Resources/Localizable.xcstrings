@@ -9701,6 +9701,42 @@
         }
       }
     },
+    "exercise.youChose": {
+      "comment": "Feedback bar after a wrong choice: the option chosen and what it means (a word, or its meaning; a drill form with its tense and person). %1$@ is the option, %2$@ its counterpart.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "You chose: %1$@ · %2$@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вы выбрали: %1$@ · %2$@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Elegiste: %1$@ · %2$@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اخترت: %1$@ · %2$@"
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Επιλέξατε: %1$@ · %2$@"
+          }
+        }
+      }
+    },
     "exercise.nothing": {
       "comment": "Exercise: a trainer with nothing to ask.",
       "extractionState": "manual",

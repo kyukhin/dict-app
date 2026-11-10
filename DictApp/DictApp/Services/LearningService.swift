@@ -315,12 +315,20 @@ struct NewWordPicker {
 
 // MARK: - Feedback (#159)
 
-/// The two feedback sounds.
+/// The learning sounds (0131, Sounds; #300).
 enum FeedbackSound: String, CaseIterable, Sendable {
-    /// Two rising notes.
+    /// A right or accent answer.
     case right
-    /// One low note.
+    /// A wrong answer or "Don't know".
     case wrong
+    /// A daily lesson's summary appears.
+    case lessonComplete
+    /// A run's summary appears, and today's exercises reached the goal.
+    case goalReached
+    /// A pair matched in match the pairs.
+    case pairRight
+    /// A wrong pair.
+    case pairWrong
 }
 
 /// Where the feedback sounds go: `TonePlayer` in the app, a recorder in
@@ -328,6 +336,12 @@ enum FeedbackSound: String, CaseIterable, Sendable {
 @MainActor
 protocol FeedbackSink: AnyObject {
     func play(_ sound: FeedbackSound)
+}
+
+/// A sink that plays nothing (see `FeedbackPlayer.isMuted`).
+@MainActor
+final class SilentFeedbackSink: FeedbackSink {
+    func play(_ sound: FeedbackSound) {}
 }
 
 /// Plays the feedback sounds and decides on the haptics, from the Sounds
@@ -339,15 +353,35 @@ final class FeedbackPlayer {
     private let settings: SettingsService
     private let sink: any FeedbackSink
 
-    init(settings: SettingsService = .shared, sink: (any FeedbackSink)? = nil) {
-        self.settings = settings
-        self.sink = sink ?? TonePlayer()
+    /// Tests never make a sound: the app under XCTest, or launched with
+    /// `-muteSounds`, plays through a silent sink (the simulator routes
+    /// the app's audio to the Mac's speakers).
+    static var isMuted: Bool {
+        ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
+            || CommandLine.arguments.contains("-muteSounds")
     }
 
-    /// The sound of an answer, unless Sounds is off. `accent` counts as right.
-    func play(_ outcome: Outcome) {
+    init(settings: SettingsService = .shared, sink: (any FeedbackSink)? = nil) {
+        self.settings = settings
+        self.sink = sink ?? (Self.isMuted ? SilentFeedbackSink() : TonePlayer())
+    }
+
+    /// A sound, unless Sounds is off.
+    func play(_ sound: FeedbackSound) {
         guard settings.learningSounds else { return }
-        sink.play(outcome.isRight ? .right : .wrong)
+        sink.play(sound)
+    }
+
+    /// The sound of an answer. `accent` counts as right.
+    func play(_ outcome: Outcome) {
+        play(outcome.isRight ? FeedbackSound.right : FeedbackSound.wrong)
+    }
+
+    /// The end of a run: `goalReached` when it filled today's goal, else
+    /// `lessonComplete` for a daily lesson, else nothing (0131, Sounds).
+    func playRunEnd(answeredBefore: Int, answeredAfter: Int, goal: Int, isDailyLesson: Bool) {
+        let sound = RunEndSound.of(answeredBefore: answeredBefore, answeredAfter: answeredAfter, goal: goal)
+        if sound == .goalReached || isDailyLesson { play(sound) }
     }
 
     /// The haptic of an answer for `.sensoryFeedback`; nil when Haptics is off.
@@ -357,12 +391,12 @@ final class FeedbackPlayer {
     }
 }
 
-/// Plays two short tones generated in code as WAV data, so there is no
-/// sound file to license. The audio session is `.ambient`, set once: the
-/// silent switch mutes the tones and the user's music keeps playing. The
-/// players work on `queue`, never the main thread: acquiring the audio
-/// output blocks until it runs, 15 s at a time when a simulator's audio
-/// stalls, and the run must not freeze meanwhile.
+/// Plays the learning sounds, generated in code as WAV data (`ToneSynth`),
+/// so there is no sound file to license. The audio session is `.ambient`,
+/// set once: the silent switch mutes them and the user's music keeps
+/// playing. The players work on `queue`, never the main thread: acquiring
+/// the audio output blocks until it runs, 15 s at a time when a
+/// simulator's audio stalls, and the run must not freeze meanwhile.
 @MainActor
 final class TonePlayer: FeedbackSink {
     private let queue: DispatchQueue
@@ -375,7 +409,7 @@ final class TonePlayer: FeedbackSink {
 
     init(queue: DispatchQueue = DispatchQueue(label: "com.kyukhin.DictApp.TonePlayer", qos: .userInitiated),
          makePlayer: @escaping @Sendable (FeedbackSound) -> AVAudioPlayer? = {
-             try? AVAudioPlayer(data: TonePlayer.wav($0))
+             try? AVAudioPlayer(data: ToneSynth.wav($0))
          }) {
         self.queue = queue
         self.makePlayer = makePlayer
@@ -402,40 +436,127 @@ final class TonePlayer: FeedbackSink {
     nonisolated var loadedSounds: Set<FeedbackSound> {
         queue.sync { Set(players.keys) }
     }
+}
 
-    /// Right: two rising notes, G5 then C6, 0.1 s each. Wrong: one low
-    /// note, A3, 0.2 s.
+// MARK: - The sounds (#300)
+
+/// Synthesizes the learning sounds (0131, Sounds): a port of the voices of
+/// kyukhin's candidates script, with one recipe per sound. 44.1 kHz 16-bit
+/// mono, scaled to a 0.7 peak with a 10 ms fade-out. Pure.
+enum ToneSynth {
+    static let sampleRate = 44_100
+    /// The voices of a note.
+    enum Voice { case bell, marimba, soft, fm }
+
+    /// The WAV file of a sound.
     nonisolated static func wav(_ sound: FeedbackSound) -> Data {
+        wav(samples(sound))
+    }
+
+    /// The recipes: variant 1 of each case (kyukhin, 2026-11-10).
+    nonisolated static func samples(_ sound: FeedbackSound) -> [Double] {
         switch sound {
-        case .right: return wav(notes: [(783.99, 0.1), (1046.5, 0.1)])
-        case .wrong: return wav(notes: [(220, 0.2)])
+        case .right:
+            return sequence(tone("E6", 0.09, .fm, 9), tone("A6", 0.25, .fm, 7))
+        case .wrong:
+            return sequence(tone("G4", 0.13, .soft, 6, bend: -0.03), tone("D4", 0.28, .soft, 5, bend: -0.08), gap: 0.03)
+        case .lessonComplete:
+            return mix(["C5", "E5", "G5", "C6"].map { tone($0, 0.5, .bell, 5) }, offsets: [0, 0.08, 0.16, 0.24])
+        case .goalReached:
+            return mix([tone("E6", 0.7, .bell, 3), tone("G#6", 0.7, .bell, 3), tone("B6", 0.8, .bell, 2.5)],
+                       offsets: [0, 0.07, 0.14])
+        case .pairRight:
+            return tone("A6", 0.15, .fm, 14)
+        case .pairWrong:
+            return tone("D4", 0.15, .soft, 14, bend: -0.1)
         }
     }
 
-    /// 16-bit mono PCM at 44.1 kHz: sine notes, each with a 5 ms attack
-    /// and an exponential decay, so they do not click.
-    nonisolated static func wav(notes: [(frequency: Double, seconds: Double)], volume: Double = 0.3) -> Data {
-        let rate = 44_100
-        var samples: [Int16] = []
-        for note in notes {
-            let count = Int(note.seconds * Double(rate))
-            for n in 0..<count {
-                let t = Double(n) / Double(rate)
-                let envelope = min(t / 0.005, 1) * exp(-4 * t / note.seconds)
-                samples.append(Int16(sin(2 * .pi * note.frequency * t) * envelope * volume * Double(Int16.max)))
+    /// The frequency of a note name like "G#6" or "Bb3".
+    nonisolated static func frequency(_ name: String) -> Double {
+        let letters: [Character: Int] = ["C": -9, "D": -7, "E": -5, "F": -4, "G": -2, "A": 0, "B": 2]
+        let chars = Array(name)
+        var semitones = letters[chars[0]] ?? 0
+        if chars.contains("#") { semitones += 1 } else if chars.count > 1, chars[1] == "b" { semitones -= 1 }
+        let octave = Int(String(chars[chars.count - 1])) ?? 4
+        return 440 * pow(2, Double(semitones + 12 * (octave - 4)) / 12)
+    }
+
+    /// One voice: `decay` is the envelope's rate, `bend` the relative pitch
+    /// change over the note.
+    nonisolated static func tone(_ name: String, _ seconds: Double, _ voice: Voice, _ decay: Double,
+                                 bend: Double = 0, vibrato: Double = 0) -> [Double] {
+        let freq = frequency(name)
+        let rate = Double(sampleRate)
+        var phase = 0.0
+        return (0..<Int(rate * seconds)).map { i in
+            let t = Double(i) / rate
+            let f = freq * (1 + bend * t / seconds) * (1 + vibrato * sin(2 * .pi * 7 * t))
+            phase += 2 * .pi * f / rate
+            let attack = min(1, t / 0.004)
+            let s: Double
+            switch voice {
+            case .bell:
+                s = sin(phase) * exp(-decay * t) + 0.5 * sin(2.76 * phase) * exp(-decay * 1.6 * t)
+                    + 0.25 * sin(5.4 * phase) * exp(-decay * 2.5 * t)
+            case .marimba:
+                s = sin(phase) * exp(-decay * t) + 0.35 * sin(4 * phase) * exp(-decay * 3 * t)
+            case .fm:
+                s = sin(phase + sin(1.5 * phase) * 2.2 * exp(-8 * t)) * exp(-decay * t)
+            case .soft:
+                s = (sin(phase) + 0.3 * sin(2 * phase)) * exp(-decay * t)
             }
+            return attack * s
+        }
+    }
+
+    /// A short falling click.
+    nonisolated static func pop(_ seconds: Double = 0.03) -> [Double] {
+        let n = Int(Double(sampleRate) * seconds)
+        return (0..<n).map { i in
+            sin(2 * .pi * (900 - 600 * Double(i) / Double(n)) * Double(i) / Double(sampleRate)) * (1 - Double(i) / Double(n))
+        }
+    }
+
+    /// The parts one after another, each followed by `gap` seconds of silence.
+    nonisolated static func sequence(_ parts: [Double]..., gap: Double = 0) -> [Double] {
+        parts.flatMap { $0 + [Double](repeating: 0, count: Int(Double(sampleRate) * gap)) }
+    }
+
+    /// The voices added together, each starting at its offset in seconds.
+    nonisolated static func mix(_ voices: [[Double]], offsets: [Double]) -> [Double] {
+        let starts = offsets.map { Int($0 * Double(sampleRate)) }
+        var out = [Double](repeating: 0, count: zip(voices, starts).map { $0.count + $1 }.max() ?? 0)
+        for (voice, start) in zip(voices, starts) {
+            for (i, s) in voice.enumerated() { out[start + i] += s }
+        }
+        return out
+    }
+
+    /// 16-bit mono PCM: scaled to a 0.7 peak, the last 10 ms faded out.
+    nonisolated static func wav(_ samples: [Double]) -> Data {
+        let rate = sampleRate
+        let peak = samples.map(abs).max() ?? 1
+        let gain = 0.7 / (peak == 0 ? 1 : peak)
+        let fade = rate / 100
+        var pcm: [Int16] = []
+        pcm.reserveCapacity(samples.count)
+        for (i, sample) in samples.enumerated() {
+            var s = sample
+            if i > samples.count - fade { s *= Double(samples.count - i) / Double(fade) }
+            pcm.append(Int16(max(-1, min(1, s * gain)) * 32767))
         }
         var data = Data()
         func append<T: FixedWidthInteger>(_ value: T) {
             withUnsafeBytes(of: value.littleEndian) { data.append(contentsOf: $0) }
         }
-        let bytes = samples.count * 2
+        let bytes = pcm.count * 2
         data.append(contentsOf: Array("RIFF".utf8)); append(UInt32(36 + bytes))
         data.append(contentsOf: Array("WAVEfmt ".utf8)); append(UInt32(16))
         append(UInt16(1)); append(UInt16(1)); append(UInt32(rate)); append(UInt32(rate * 2))
         append(UInt16(2)); append(UInt16(16))
         data.append(contentsOf: Array("data".utf8)); append(UInt32(bytes))
-        samples.forEach { append($0) }
+        pcm.forEach { append($0) }
         return data
     }
 }

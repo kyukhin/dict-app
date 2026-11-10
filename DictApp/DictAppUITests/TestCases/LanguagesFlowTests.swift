@@ -22,7 +22,7 @@ final class LanguagesFlowTests: XCTestCase {
 
     override func setUpWithError() throws {
         continueAfterFailure = false
-        app = XCUIApplication()
+        app = LibreDictApp()
         app.launchArguments += ["-disableReviewPrompt", "-resetData", "-resetPacks"]
         // `-skipWelcome`, and Russian from the committed assets.
         app.launchArguments += UITestHelpers.packArguments("rus")
