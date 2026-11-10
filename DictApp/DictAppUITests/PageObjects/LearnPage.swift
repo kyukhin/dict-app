@@ -23,6 +23,7 @@ class LearnPage: BasePage {
     var trainerProduction: XCUIElement { app.buttons[IDs.trainerProduction].firstMatch }
     var trainerMatch: XCUIElement { app.buttons[IDs.trainerMatch].firstMatch }
     var startButton: XCUIElement { app.buttons[IDs.startButton].firstMatch }
+    var continueButton: XCUIElement { app.buttons[IDs.continueButton].firstMatch }
     var mistakesRow: XCUIElement { app.buttons[IDs.mistakesRow].firstMatch }
     /// 0166, #164: the ring's value is `12/20`, the streak's `5`.
     var goalRing: XCUIElement { app.buttons[IDs.goalRing].firstMatch }
@@ -137,6 +138,12 @@ class LearnPage: BasePage {
     @discardableResult
     func startSession() -> ExercisePage {
         open(startButton, "Start")
+    }
+
+    /// Continue lesson (#296).
+    @discardableResult
+    func continueLesson() -> ExercisePage {
+        open(continueButton, "Continue lesson")
     }
 
     /// Practise mistakes (#161).

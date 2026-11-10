@@ -130,7 +130,19 @@ struct LearnView: View {
             Section("learn.today") {
                 goalAndStreak
                 today
-                if case .counts? = vm.today {
+                if let left = vm.lessonLeft {
+                    // #296: a lesson closed early; its value is the items left.
+                    Button {
+                        start(.session)
+                    } label: {
+                        Text("learn.continueLesson \(left)")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.large)
+                    .accessibilityValue(Text(verbatim: "\(left)"))
+                    .accessibilityIdentifier("learn_continue_button")
+                } else if case .counts? = vm.today {
                     Button {
                         start(.session)
                     } label: {
@@ -244,8 +256,11 @@ struct LearnView: View {
                 }
             }
         case .allDone?:
-            Text("learn.allDone")
-                .accessibilityIdentifier("learn_all_done")
+            // A lesson to continue is not "all done" (#296).
+            if vm.lessonLeft == nil {
+                Text("learn.allDone")
+                    .accessibilityIdentifier("learn_all_done")
+            }
         case .chooseLists?:
             Text("learn.empty.withLists")
             NavigationLink(value: WordListRoute.newWordsFrom) {

@@ -192,6 +192,8 @@ struct AccessibilityIdentifiers {
         static let trainerMatch = "learn_trainer_match"
         /// Today's Start, the daily session (#161); hidden when all is done.
         static let startButton = "learn_start_button"
+        /// "Continue lesson · 7 left" (#296), instead of Start; its value is the items left.
+        static let continueButton = "learn_continue_button"
         /// "Practise mistakes · 2 words" (#161); hidden at 0.
         static let mistakesRow = "learn_mistakes_row"
         /// 0166, #164: the daily goal ring (value `12/20`), the streak

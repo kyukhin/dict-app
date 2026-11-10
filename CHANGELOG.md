@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- [#296] A lesson closed early is kept for the day: the Today button reads "Continue lesson · 7 left" and resumes at the next unanswered question with its progress bar, and each answer still counts once. The next day starts a new lesson.
 - [#141] The dictionary file now carries Greek word forms and inflection tables from a pinned Wiktionary snapshot, checked by a QA report on every build.
 - [#142] Search finds a Greek word from any of its inflected forms, with or without accents: έγραψα shows γράφω right after the exact matches, captioned "aorist 1sg of γράφω". About 89% of the 5,000 most frequent Greek words are now findable, up from 39%.
 - [#144] A Greek word's Definition screen shows its conjugation or declension table, with "All forms" for the rest of a verb's forms; Credits names Wiktionary as their source.
