@@ -1,5 +1,5 @@
 // WordListsViewModel.swift
-// Word lists (0130-word-lists.md, #154): the Lists screen, New words from
+// Word lists (0130-word-lists.md, #154): the Lists screen, Learning from
 // and a list's screen. Only the lists of learned languages show (0131).
 // Built-in lists are those of the installed packs: a pack that is not
 // installed reads as empty, and its lists come back, still checked, when it
@@ -39,12 +39,13 @@ struct ListProgressReader: Sendable {
     }
 }
 
-// MARK: - Lists screen and New words from
+// MARK: - Lists screen and Learning from
 
-/// The Lists screen and New words from: the lists of the learned languages
-/// in sections, each with its progress, and the checked set, whose
-/// checkmarks and "Learning" badges they show. A tap on New words from
-/// checks or unchecks a list; the next new word picked follows (E4).
+/// The Lists screen and Learning from: the lists of the learned languages
+/// (of one language, from a pair tab, #295) in sections, each with its
+/// progress, and the checked set, whose checkmarks and "Learning" badges
+/// they show. A tap on Learning from checks or unchecks a list; the next
+/// new word picked follows (E4).
 @MainActor
 final class WordListsViewModel: ObservableObject {
     @Published private(set) var sections: [WordListSection] = []
@@ -58,10 +59,14 @@ final class WordListsViewModel: ObservableObject {
     private let db: DatabaseService
     private let settings: SettingsService
     private let languages: LearningLanguageService
+    /// The pair tab's language, whose lists show (#295); nil: every learned
+    /// language's, from Settings.
+    private let lang: String?
     private var packChanges: AnyCancellable?
 
-    init(db: DatabaseService = .shared, settings: SettingsService = .shared,
+    init(lang: String? = nil, db: DatabaseService = .shared, settings: SettingsService = .shared,
          languages: LearningLanguageService? = nil) {
+        self.lang = lang
         self.db = db
         self.settings = settings
         self.languages = languages ?? .shared
@@ -92,7 +97,18 @@ final class WordListsViewModel: ObservableObject {
     /// The lists, then their progress bars, which take a read per list.
     func load() async {
         do {
-            sections = Self.sections(try await db.wordLists(), learned: languages.learned,
+            var lists = try await db.wordLists()
+            // The My words row counts the tab's language only (#295).
+            if let lang {
+                let mine = try await db.myWordsEntries().filter { $0.item.key.lang == lang }.count
+                lists = lists.map { list in
+                    list.kind == .myWords
+                        ? WordList(id: list.id, kind: list.kind, lang: list.lang, level: list.level,
+                                   title: list.title, count: mine)
+                        : list
+                }
+            }
+            sections = Self.sections(lists, learned: lang.map { [$0] } ?? languages.learned,
                                      uiLanguage: LearningPairs.code(ofUILanguage: languages.uiLanguage()))
             errorMessage = nil
         } catch {
@@ -101,7 +117,8 @@ final class WordListsViewModel: ObservableObject {
         checked = settings.learningListIDs
         isLoaded = true
         do {
-            progress = try await Self.progress(of: sections.flatMap(\.lists), myWordsLanguage: languages.chosen, db: db)
+            progress = try await Self.progress(of: sections.flatMap(\.lists), myWordsLanguage: lang ?? languages.chosen,
+                                               db: db)
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -228,6 +245,26 @@ final class WordListsViewModel: ObservableObject {
         ].joined(separator: " · ")
     }
 
+    /// The Learning from row's value (0130, #298): the checked built-in
+    /// lists of a language as its name and their levels, "Greek A1, A2"
+    /// (`wordLists.listTitle`, then `wordLists.level.*`), then the imported
+    /// lists' titles. `lists` are in the Lists screen's order. nil with
+    /// none checked.
+    nonisolated static func learningFromValue(_ lists: [WordList], locale: Locale) -> String? {
+        var parts: [String] = []
+        var lastLanguage: String?
+        for list in lists where list.kind == .builtIn {
+            if list.lang == lastLanguage {
+                parts.append(levelName(list.level, locale: locale))
+            } else {
+                parts.append(title(of: list, locale: locale))
+                lastLanguage = list.lang
+            }
+        }
+        parts += lists.filter { $0.kind == .user }.map(\.title)
+        return parts.isEmpty ? nil : parts.joined(separator: ", ")
+    }
+
     /// `key` from the in-app language's table (`locale`), not the device's.
     nonisolated static func localized(_ key: String, locale: Locale) -> String {
         SettingsViewModel.localizedBundle(for: locale).localizedString(forKey: key, value: key, table: nil)
@@ -263,10 +300,13 @@ final class WordListViewModel: ObservableObject {
     }
 
     let list: WordList
+    /// My words shows the words of this language only (the pair tab's, #295,
+    /// by `WordKey.lang`); nil: every language's.
+    let lang: String?
     @Published private(set) var sections: [LevelSection] = []
     /// My words' rows, newest first.
     @Published private(set) var myWords: [MyWordsEntry] = []
-    /// The list is checked in New words from.
+    /// The list is checked in Learning from.
     @Published private(set) var isChecked = false
     @Published private(set) var isLoaded = false
     @Published var errorMessage: String?
@@ -281,9 +321,10 @@ final class WordListViewModel: ObservableObject {
     private var sourceOrder: [String]?
     private var cancellables: Set<AnyCancellable> = []
 
-    init(list: WordList, db: DatabaseService = .shared, settings: SettingsService = .shared,
+    init(list: WordList, lang: String? = nil, db: DatabaseService = .shared, settings: SettingsService = .shared,
          languages: LearningLanguageService? = nil) {
         self.list = list
+        self.lang = lang
         self.db = db
         self.settings = settings
         self.languages = languages ?? .shared
@@ -318,7 +359,7 @@ final class WordListViewModel: ObservableObject {
         isChecked = settings.learningListIDs.contains(list.id)
         do {
             if list.kind == .myWords {
-                myWords = try await db.myWordsEntries()
+                myWords = try await myWordsOfTheTab()
                 isLoaded = true
             } else {
                 let items = try await db.wordListItems(list.id)
@@ -341,7 +382,14 @@ final class WordListViewModel: ObservableObject {
         isLoaded = true
     }
 
-    /// "Learn this list": checks the list in New words from, or unchecks it.
+    /// My words' entries, those of the tab's language only (#295).
+    private func myWordsOfTheTab() async throws -> [MyWordsEntry] {
+        let entries = try await db.myWordsEntries()
+        guard let lang else { return entries }
+        return entries.filter { $0.item.key.lang == lang }
+    }
+
+    /// "Learn this list": checks the list in Learning from, or unchecks it.
     func toggleLearning() {
         isChecked = WordListsViewModel.toggle(list.id, in: settings).contains(list.id)
     }
@@ -370,7 +418,7 @@ final class WordListViewModel: ObservableObject {
     func stopLearning(_ row: MyWordsEntry) async {
         do {
             try await db.stopLearning(row.entry.map { EntryKey($0) } ?? row.key)
-            myWords = try await db.myWordsEntries()
+            myWords = try await myWordsOfTheTab()
             errorMessage = nil
         } catch {
             errorMessage = error.localizedDescription

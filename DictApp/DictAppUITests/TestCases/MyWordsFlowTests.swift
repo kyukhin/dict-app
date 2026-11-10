@@ -165,7 +165,7 @@ final class MyWordsFlowTests: XCTestCase {
 
         var learnPage = tabBarPage.tapLearnTab()
         XCTAssertTrue(learnPage.waitForHome())
-        XCTAssertFalse(learnPage.languageSwitch.exists, "No learns no language: no switch")
+        XCTAssertFalse(learnPage.pairTab("eng").exists, "No learns no language: no English tab")
         let myWords = learnPage.tapMyWords()
         XCTAssertTrue(myWords.waitForWord("house"), "No still adds the word to My words")
 
@@ -177,10 +177,9 @@ final class MyWordsFlowTests: XCTestCase {
 
         learnPage = tabBarPage.tapLearnTab()
         XCTAssertTrue(learnPage.waitForHome())
-        XCTAssertTrue(learnPage.languageSwitch.waitForExistence(timeout: TestData.Timeouts.medium),
-                      "Yes adds English: the switch shows")
-        XCTAssertTrue(learnPage.languageSwitch.buttons["Greek"].exists)
-        XCTAssertTrue(learnPage.languageSwitch.buttons["English"].exists)
+        XCTAssertTrue(learnPage.pairTab("eng").waitForExistence(timeout: TestData.Timeouts.medium),
+                      "Yes adds English: its tab shows")
+        XCTAssertTrue(learnPage.pairTab("ell").exists)
     }
 
     /// Russian UI, nothing learned: Learn on γράφω asks for Greek via

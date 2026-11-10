@@ -25072,6 +25072,29 @@ final class LearnViewModelTests: LearnTabTestCase {
         XCTAssertEqual(vm.grammarTopicCount, 0, "the stub has no topics")
     }
 
+    /// #293 (CodeRabbit, PR #305): leaving a tab while its home loads never
+    /// lets that load overwrite the tab selected after it.
+    func testStaleLoadDoesNotOverwriteTheSelectedTab() async throws {
+        let userPath = tempDir.appendingPathComponent("stale-user.sqlite").path
+        try await db.setup(userPath: userPath, dictionaryURL: try TestDictionary.bundledURL(),
+                           packFiles: try PackFixtures.all())
+        settings.learningLanguages = ["eng", "ell"]
+        settings.learningLanguage = "eng"
+        let vm = home()
+        await vm.load(locale: Locale(identifier: "en"))
+        for _ in 0..<5 {
+            let greek = Task { await vm.select("ell") }
+            // Greek's load has started (and is suspended) before English is chosen.
+            for _ in 0..<100 where vm.language != "ell" { await Task.yield() }
+            XCTAssertEqual(vm.language, "ell", "Greek's selection started")
+            await vm.select("eng")
+            await greek.value
+            XCTAssertEqual(vm.language, "eng")
+            XCTAssertEqual(vm.grammarTopicCount, 0, "English's home, not Greek's 17 topics")
+        }
+        XCTAssertNil(vm.errorMessage)
+    }
+
     /// No learned language: the picker's pairs, languages with lists first,
     /// each language's default via first, with the sizes to download;
     /// choosing a pair shows its home with its My words enrolled.
@@ -25173,9 +25196,10 @@ final class LearnViewModelTests: LearnTabTestCase {
         await vm.load(locale: Locale(identifier: "en"))
         XCTAssertEqual(vm.language, "ell")
         XCTAssertEqual(vm.today, .counts(due: 0, newLeft: 1))
-        XCTAssertEqual(vm.myWordsCount, 2, "My words counts every language")
+        XCTAssertEqual(vm.myWordsCount, 1, "My words counts the tab's language only (#295)")
 
         await vm.select("eng")
+        XCTAssertEqual(vm.myWordsCount, 1)
         XCTAssertEqual(vm.today, .counts(due: 1, newLeft: 0), "one word due, both its cards")
         XCTAssertEqual(settings.learningLanguage, "eng")
         let reopened = home()
@@ -25259,9 +25283,9 @@ final class LearnViewModelTests: LearnTabTestCase {
         let vm = home()
         settings.learningLanguages = ["ell"]
         await vm.load(locale: Locale(identifier: "en"))
-        let screen = WordListViewModel(list: .myWordsForTests, settings: settings, languages: languages)
+        let screen = WordListViewModel(list: .myWordsForTests, lang: "ell", settings: settings, languages: languages)
         await screen.load()
-        XCTAssertEqual(screen.count, 2)
+        XCTAssertEqual(screen.count, 1, "γράφω only, on Greek's tab")
         XCTAssertEqual(vm.myWordsCount, screen.count, "the home counts as the My words screen does")
     }
 
@@ -25378,8 +25402,8 @@ class WordListsTestCase: LearnTabTestCase {
                                         at: directory.appendingPathComponent("lists-\(UUID().uuidString).sqlite"))
     }
 
-    func listsViewModel() -> WordListsViewModel {
-        WordListsViewModel(settings: settings, languages: languages)
+    func listsViewModel(lang: String? = nil) -> WordListsViewModel {
+        WordListsViewModel(lang: lang, settings: settings, languages: languages)
     }
 
     func listViewModel(_ id: WordListID) async throws -> WordListViewModel {
@@ -30805,8 +30829,9 @@ final class StatisticsViewModelTests: ExerciseTestCase {
     private let house = WordKey(lang: "eng", word: "house"), water = WordKey(lang: "eng", word: "water")
     private let grafo = WordKey(lang: "ell", word: "γράφω")
 
-    private func statistics() -> StatisticsViewModel {
-        StatisticsViewModel(settings: settings, languages: languages, clock: clock.clock)
+    /// The screen of the tab of `lang` (#295); by default the selected tab's.
+    private func statistics(_ lang: String? = nil) -> StatisticsViewModel {
+        StatisticsViewModel(lang: lang ?? languages.chosen, settings: settings, languages: languages, clock: clock.clock)
     }
 
     /// `-learningFixture stats` on `today`, Greek and English learned.
@@ -30832,20 +30857,6 @@ final class StatisticsViewModelTests: ExerciseTestCase {
                         "\(vm.blocks.today)", "\(vm.blocks.accuracy)", "\(vm.blocks.lists)", "\(vm.blocks.tenses)"]
     }
 
-    /// CodeRabbit, PR #271: a switch's blocks that arrive after a later
-    /// switch are dropped: the screen shows the language selected last.
-    func testALateSwitchIsIgnored() async throws {
-        try await writeStatsFixture(chosen: "eng")
-        let vm = statistics()
-        await vm.load()
-        let english = vm.blocks
-        async let greek: Void = vm.select("ell")
-        async let back: Void = vm.select("eng")
-        _ = await (greek, back)
-        XCTAssertEqual(vm.language, "eng")
-        XCTAssertEqual(vm.blocks, english, "English's blocks, not Greek's, which finished later")
-    }
-
     /// Every block equals #163's aggregates over the `stats` fixture.
     func testBlocksEqualTheAggregates() async throws {
         try await writeStatsFixture()
@@ -30854,7 +30865,6 @@ final class StatisticsViewModelTests: ExerciseTestCase {
         XCTAssertNil(vm.errorMessage)
         XCTAssertTrue(vm.isLoaded)
         XCTAssertFalse(vm.isEmpty)
-        XCTAssertEqual(vm.learned, ["ell", "eng"])
         XCTAssertEqual(vm.language, "ell")
         XCTAssertEqual(vm.today, today)
 
@@ -30907,44 +30917,39 @@ final class StatisticsViewModelTests: ExerciseTestCase {
     }
 
     /// The goal, the streak and the chart count every language; the other
-    /// blocks follow the switch, which the Learn home remembers.
-    func testBlocksFollowTheChosenLanguage() async throws {
+    /// blocks are the language of the tab the screen opens from (#295).
+    func testBlocksFollowTheTab() async throws {
         try await writeStatsFixture()
-        let vm = statistics()
+        let vm = statistics("ell")
         await vm.load()
         let greek = vm.blocks
         let shared = (vm.goal, vm.streak, vm.series)
 
-        await vm.select("eng")
-        XCTAssertNil(vm.errorMessage)
-        XCTAssertEqual(vm.language, "eng")
-        XCTAssertEqual(settings.learningLanguage, "eng", "the Learn home's preference")
-        let english = vm.blocks
-        XCTAssertEqual([english.today.exercises, english.today.newWords, english.today.reviewedWords], [2, 0, 2])
-        XCTAssertNotEqual(english.today, greek.today)
-        XCTAssertEqual(english.accuracy.recognition, Tally(answers: 6, right: 6))
-        XCTAssertNotEqual(english.accuracy, greek.accuracy)
-        XCTAssertEqual(english.hardestWords, [])
-        XCTAssertEqual(english.tenses, [], "no drill rows in English: no Conjugation block")
-        XCTAssertEqual(english.lists.map(\.id), [.myWords])
-        XCTAssertEqual(Set(english.lists.first?.progress.words ?? []), [house, water])
-        XCTAssertEqual(vm.goal, shared.0)
-        XCTAssertEqual(vm.streak, shared.1)
-        XCTAssertEqual(vm.series, shared.2)
-
-        await vm.select("spa")
-        XCTAssertEqual(vm.language, "eng", "a language not learned is no choice")
+        let english = statistics("eng")
+        await english.load()
+        XCTAssertNil(english.errorMessage)
+        XCTAssertEqual(english.language, "eng")
+        XCTAssertEqual(settings.learningLanguage, "ell", "the screen does not change the selected tab")
+        let blocks = english.blocks
+        XCTAssertEqual([blocks.today.exercises, blocks.today.newWords, blocks.today.reviewedWords], [2, 0, 2])
+        XCTAssertNotEqual(blocks.today, greek.today)
+        XCTAssertEqual(blocks.accuracy.recognition, Tally(answers: 6, right: 6))
+        XCTAssertNotEqual(blocks.accuracy, greek.accuracy)
+        XCTAssertEqual(blocks.hardestWords, [])
+        XCTAssertEqual(blocks.tenses, [], "no drill rows in English: no Conjugation block")
+        XCTAssertEqual(blocks.lists.map(\.id), [.myWords])
+        XCTAssertEqual(Set(blocks.lists.first?.progress.words ?? []), [house, water])
+        XCTAssertEqual(english.goal, shared.0)
+        XCTAssertEqual(english.streak, shared.1)
+        XCTAssertEqual(english.series, shared.2)
     }
 
-    /// A stopped language leaves the switch and its numbers are hidden; its
-    /// past answers still count for the goal and the streak.
+    /// A stopped language has no tab, so no numbers of its own show; its past
+    /// answers still count for the goal and the streak.
     func testOnlyLearnedLanguages() async throws {
         try await writeStatsFixture(learned: ["ell"], chosen: "eng")
-        let vm = statistics()
+        let vm = statistics("ell")
         await vm.load()
-        XCTAssertEqual(vm.learned, ["ell"], "one language: no switch")
-        XCTAssertEqual(vm.language, "ell")
-        await vm.select("eng")
         XCTAssertEqual(vm.language, "ell")
         XCTAssertEqual(vm.blocks.today.newWords, 1, "Greek's")
         XCTAssertEqual(vm.goal.answered, 22, "today's English answers count")
@@ -31507,15 +31512,15 @@ final class NotDownloadedLookupTests: XCTestCase {
         XCTAssertEqual(resolved.count, 1, "γράφω has no entry until Greek is installed")
 
         let settings = SettingsService(store: InMemoryKeyValueStore())
-        settings.learningLanguages = ["eng"]
-        let languages = LearningLanguageService(settings: settings, packs: FakePairPacks(languagesWithLists: ["eng"]),
+        settings.learningLanguages = ["ell"]
+        let languages = LearningLanguageService(settings: settings, packs: FakePairPacks(languagesWithLists: ["ell"]),
                                                 uiLanguage: { "en" })
         let home = LearnViewModel(settings: settings, languages: languages)
         await home.load(locale: Locale(identifier: "en"))
         XCTAssertNil(home.errorMessage)
-        let screen = WordListViewModel(list: .myWordsForTests, settings: settings, languages: languages)
+        let screen = WordListViewModel(list: .myWordsForTests, lang: "ell", settings: settings, languages: languages)
         await screen.load()
-        XCTAssertEqual(screen.count, 2, "the list shows the word waiting for Greek")
+        XCTAssertEqual(screen.count, 1, "the list shows the word waiting for Greek")
         XCTAssertEqual(home.myWordsCount, screen.count, "the home counts as the list shows")
     }
 
@@ -34578,6 +34583,354 @@ extension ExerciseRunViewModelTests {
     }
 }
 
+// MARK: - Pair tabs (0131, #293, #295), Learning from (0130, #298), Grammar levels (0133, #297)
+
+/// `PairTabFit` (pure): which tabs the strip shows, in which places, and
+/// what ends it.
+final class PairTabFitTests: XCTestCase {
+    private func fit(_ widths: [CGFloat], available: CGFloat, selected: Int? = 0, spacing: CGFloat = 0) -> PairTabFit {
+        PairTabFit.fit(tabWidths: widths, addWidth: 40, moreWidth: 40, available: available, selected: selected,
+                       spacing: spacing)
+    }
+
+    /// Two flag tabs and "+" fit: no "…".
+    func testAllFit() {
+        let result = fit([70, 70], available: 361)
+        XCTAssertEqual(result, PairTabFit(visible: [0, 1], hidden: [], showsAdd: true))
+        XCTAssertFalse(result.showsMore)
+        // The gaps count: 70 + 70 + 40 and two gaps of 6 is 192.
+        XCTAssertTrue(fit([70, 70], available: 192, spacing: 6).showsAdd)
+        XCTAssertFalse(fit([70, 70], available: 191, spacing: 6).showsAdd)
+        // Flags are narrow: four tabs and "+" fit a 361 pt strip, which
+        // three word tabs of 120 pt did not.
+        XCTAssertTrue(fit([70, 70, 70, 70], available: 361).showsAdd)
+    }
+
+    /// Six flag tabs on a 361 pt strip: a prefix of the tabs, then "…", no
+    /// "+"; the hidden ones in order.
+    func testOverflowEndsWithMore() {
+        let result = fit([70, 70, 70, 70, 70, 70], available: 361)
+        XCTAssertEqual(result, PairTabFit(visible: [0, 1, 2, 3], hidden: [4, 5], showsAdd: false))
+        XCTAssertTrue(result.showsMore)
+    }
+
+    /// A selected tab that would be hidden takes the last place before "…".
+    func testSelectedHiddenTakesTheLastPlace() {
+        let result = fit([70, 70, 70, 70, 70, 70], available: 361, selected: 5)
+        XCTAssertEqual(result, PairTabFit(visible: [0, 1, 2, 5], hidden: [3, 4], showsAdd: false))
+        XCTAssertEqual(fit([70, 70, 70, 70, 70, 70], available: 361, selected: 4).visible, [0, 1, 2, 4])
+    }
+
+    /// Nothing fits beside the selected tab: it shows alone, before "…".
+    func testSelectedAloneIsCut() {
+        let result = fit([300, 300, 300], available: 200, selected: 2)
+        XCTAssertEqual(result, PairTabFit(visible: [2], hidden: [0, 1], showsAdd: false))
+        // One tab wider than the strip is cut and keeps "+".
+        XCTAssertEqual(fit([300], available: 200), PairTabFit(visible: [0], hidden: [], showsAdd: true))
+    }
+
+    /// A visible selected tab changes no order.
+    func testNothingReordered() {
+        XCTAssertEqual(fit([70, 70, 70, 70, 70, 70], available: 361, selected: 1).visible, [0, 1, 2, 3])
+        XCTAssertEqual(fit([70, 70, 70, 70, 70, 70], available: 361, selected: nil).visible, [0, 1, 2, 3])
+        XCTAssertEqual(fit([], available: 361), PairTabFit(visible: [], hidden: [], showsAdd: true))
+    }
+}
+
+/// `LanguageFlag` (pure): what a pair tab shows for a language (#293).
+final class LanguageFlagTests: XCTestCase {
+    /// The one table, by ISO 639-3; Arabic has the letter, any other
+    /// language its code.
+    func testFlagMapping() {
+        XCTAssertEqual(LanguageFlag.of("ell"), .emoji("\u{1F1EC}\u{1F1F7}"))
+        XCTAssertEqual(LanguageFlag.of("eng"), .emoji("\u{1F1EC}\u{1F1E7}"), "British")
+        XCTAssertEqual(LanguageFlag.of("spa"), .emoji("\u{1F1EA}\u{1F1F8}"))
+        XCTAssertEqual(LanguageFlag.of("rus"), .emoji("\u{1F1F7}\u{1F1FA}"))
+        XCTAssertEqual(LanguageFlag.of("arb"), .letter("\u{0639}"))
+        XCTAssertEqual(LanguageFlag.of("deu"), .code("DEU"), "the fallback")
+    }
+
+    /// Greek via Russian: a small Russian flag and a big Greek one; a pair
+    /// learned via itself, or none, only the big flag.
+    func testViaFlag() {
+        let greekViaRussian = PairTab(lang: "ell", pair: LearningPair(lang: "ell", via: "rus", meaningsLang: "eng"))
+        XCTAssertEqual(greekViaRussian.viaFlag, LanguageFlag.of("rus"))
+        XCTAssertEqual(greekViaRussian.learnedFlag, LanguageFlag.of("ell"))
+        let englishViaEnglish = PairTab(lang: "eng", pair: LearningPair(lang: "eng", via: "eng", meaningsLang: "eng"))
+        XCTAssertNil(englishViaEnglish.viaFlag, "via itself: one flag")
+        XCTAssertEqual(englishViaEnglish.learnedFlag, LanguageFlag.of("eng"))
+        XCTAssertNil(PairTab(lang: "und", pair: nil).viaFlag)
+    }
+}
+
+/// `PairTabOrder` (pure): a drag's destination.
+final class PairTabOrderTests: XCTestCase {
+    func testDropOnAHalf() {
+        let order = ["ell", "eng", "spa"]
+        XCTAssertEqual(PairTabOrder.index(of: "spa", droppedOn: "ell", after: false, in: order), 0)
+        XCTAssertEqual(PairTabOrder.index(of: "spa", droppedOn: "ell", after: true, in: order), 1)
+        XCTAssertEqual(PairTabOrder.index(of: "ell", droppedOn: "spa", after: true, in: order), 2)
+        XCTAssertEqual(PairTabOrder.index(of: "ell", droppedOn: "eng", after: false, in: order), 0,
+                       "before English, where Greek already is")
+        XCTAssertNil(PairTabOrder.index(of: "ell", droppedOn: "ell", after: true, in: order))
+        XCTAssertNil(PairTabOrder.index(of: "rus", droppedOn: "ell", after: true, in: order))
+    }
+
+    func testMoving() {
+        let order = ["ell", "eng", "spa"]
+        XCTAssertEqual(PairTabOrder.moving("spa", to: 0, in: order), ["spa", "ell", "eng"])
+        XCTAssertEqual(PairTabOrder.moving("ell", to: 1, in: order), ["eng", "ell", "spa"])
+        XCTAssertEqual(PairTabOrder.moving("ell", to: 9, in: order), ["eng", "spa", "ell"], "clamped")
+        XCTAssertEqual(PairTabOrder.moving("ell", to: -3, in: order), order, "clamped")
+        XCTAssertEqual(PairTabOrder.moving("rus", to: 0, in: order), order)
+    }
+}
+
+extension LearningLanguageServiceTests {
+    /// #293: the same languages are written in the new order; another set
+    /// changes nothing.
+    func testReorderWritesTheOrder() {
+        settings.learningLanguages = ["ell", "eng"]
+        languages.reorder(["eng", "ell"])
+        XCTAssertEqual(settings.learningLanguages, ["eng", "ell"])
+        languages.reorder(["eng"])
+        XCTAssertEqual(settings.learningLanguages, ["eng", "ell"], "a language is missing")
+        languages.reorder(["eng", "ell", "spa"])
+        XCTAssertEqual(settings.learningLanguages, ["eng", "ell"], "a language is added")
+        languages.reorder(["eng", "spa"])
+        XCTAssertEqual(settings.learningLanguages, ["eng", "ell"], "another set")
+    }
+}
+
+extension LearnViewModelTests {
+    private func pairTabHome() -> LearnViewModel {
+        LearnViewModel(settings: settings, languages: languages)
+    }
+
+    /// One tab per learned language, in the stored order, with its pair.
+    func testTabsFollowTheStoredOrder() async throws {
+        settings.learningLanguages = ["eng", "ell"]
+        settings.learningVia = ["ell": "rus"]
+        let vm = pairTabHome()
+        await vm.load(locale: Locale(identifier: "en"))
+        XCTAssertEqual(vm.tabs.map(\.lang), ["eng", "ell"])
+        XCTAssertEqual(vm.tabs.map(\.pair), [englishViaEnglish, greekViaRussian])
+        XCTAssertEqual(vm.language, "eng", "the first tab, nothing selected yet")
+    }
+
+    /// The tab's name in the five UI languages: the language and its via,
+    /// joined by " · "; Other has none; an Arabic name starts with U+200F.
+    func testPairTabName() {
+        let tab = PairTab(lang: "ell", pair: greekViaRussian)
+        let cases: [(String, String)] = [
+            ("en", "Greek · via Russian"),
+            ("ru", "Греческий · через русский"),
+            ("es", "Griego · desde el ruso"),
+            ("el", "Ελληνικά · από τα ρωσικά"),
+            ("ar", "\u{200F}اليونانية · عبر الروسية"),
+        ]
+        for (code, name) in cases {
+            XCTAssertEqual(LearnViewModel.pairTabName(tab, locale: Locale(identifier: code)), name, code)
+        }
+        XCTAssertEqual(LearnViewModel.pairTabName(PairTab(lang: "eng", pair: englishViaEnglish),
+                                                  locale: Locale(identifier: "en")), "English · via English")
+        XCTAssertEqual(LearnViewModel.pairTabName(PairTab(lang: "und", pair: nil), locale: Locale(identifier: "en")),
+                       "Other")
+    }
+
+    /// The caption under the strip: the selected tab's full name.
+    func testPairCaption() {
+        let tabs = [PairTab(lang: "ell", pair: greekViaRussian), PairTab(lang: "eng", pair: englishViaEnglish)]
+        let en = Locale(identifier: "en")
+        XCTAssertEqual(LearnViewModel.pairCaption(tabs, selected: "ell", locale: en), "Greek · via Russian")
+        XCTAssertEqual(LearnViewModel.pairCaption(tabs, selected: "eng", locale: en), "English · via English")
+        XCTAssertNil(LearnViewModel.pairCaption(tabs, selected: nil, locale: en))
+        XCTAssertEqual(LearnViewModel.pairCaption(tabs, selected: "ell", locale: Locale(identifier: "ar")),
+                       "\u{200F}اليونانية · عبر الروسية")
+    }
+
+    /// A drag writes the order; the selected tab stays selected.
+    func testMoveKeepsTheSelection() async throws {
+        settings.learningLanguages = ["ell", "eng"]
+        settings.learningLanguage = "ell"
+        let vm = pairTabHome()
+        await vm.load(locale: Locale(identifier: "en"))
+        vm.move("ell", to: 1)
+        XCTAssertEqual(vm.learned, ["eng", "ell"])
+        XCTAssertEqual(vm.tabs.map(\.lang), ["eng", "ell"])
+        XCTAssertEqual(settings.learningLanguages, ["eng", "ell"])
+        XCTAssertEqual(vm.language, "ell")
+        XCTAssertEqual(settings.learningLanguage, "ell")
+
+        let reopened = pairTabHome()
+        await reopened.load(locale: Locale(identifier: "en"))
+        XCTAssertEqual(reopened.tabs.map(\.lang), ["eng", "ell"], "kept across launches")
+
+        vm.move("eng", to: 0)
+        XCTAssertEqual(vm.learned, ["eng", "ell"], "no change")
+    }
+
+    /// A pair added goes last, and so does one stopped and added again.
+    func testNewPairGoesLast() async throws {
+        settings.learningLanguages = ["ell"]
+        let locale = Locale(identifier: "en")
+        let vm = pairTabHome()
+        await vm.load(locale: locale)
+        await vm.choose(englishViaEnglish, locale: locale)
+        XCTAssertEqual(vm.tabs.map(\.lang), ["ell", "eng"])
+        XCTAssertEqual(vm.language, "eng", "the new tab is selected")
+
+        await vm.stop("ell", locale: locale)
+        XCTAssertEqual(vm.tabs.map(\.lang), ["eng"])
+        await vm.choose(greekViaEnglish, locale: locale)
+        XCTAssertEqual(vm.tabs.map(\.lang), ["eng", "ell"], "Greek again, last")
+        XCTAssertEqual(settings.learningLanguages, ["eng", "ell"])
+    }
+
+    /// Stop learning removes the tab and selects the first; cards, log,
+    /// checked lists and via are kept.
+    func testStopRemovesTheTab() async throws {
+        settings.learningLanguages = ["ell", "eng"]
+        settings.learningLanguage = "eng"
+        settings.learningVia = ["eng": "eng"]
+        settings.learningListIDs = ["cefr-eng-a1"]
+        try await db.learnWord(house, today: today)
+        try await answerRight(houseKey)
+        let cardsBefore = try await cards(houseKey)
+        let answersBefore = try await db.answeredCount(on: today)
+        XCTAssertEqual(answersBefore, 1)
+
+        let locale = Locale(identifier: "en")
+        let vm = pairTabHome()
+        await vm.load(locale: locale)
+        XCTAssertEqual(vm.language, "eng")
+        await vm.stop("eng", locale: locale)
+        XCTAssertNil(vm.errorMessage)
+        XCTAssertEqual(vm.tabs.map(\.lang), ["ell"])
+        XCTAssertEqual(vm.language, "ell", "the first tab")
+        XCTAssertEqual(settings.learningLanguages, ["ell"])
+        let cardsAfter = try await cards(houseKey)
+        XCTAssertEqual(cardsAfter, cardsBefore)
+        let answersAfter = try await db.answeredCount(on: today)
+        XCTAssertEqual(answersAfter, answersBefore)
+        XCTAssertEqual(settings.learningListIDs, ["cefr-eng-a1"])
+        XCTAssertEqual(settings.learningVia, ["eng": "eng"])
+    }
+
+    /// With no tab left the picker shows.
+    func testStoppingTheLastTabShowsThePicker() async throws {
+        settings.learningLanguages = ["ell"]
+        let locale = Locale(identifier: "en")
+        let vm = pairTabHome()
+        await vm.load(locale: locale)
+        await vm.stop("ell", locale: locale)
+        XCTAssertEqual(vm.tabs, [])
+        XCTAssertNil(vm.language)
+        XCTAssertEqual(vm.learned, [])
+        XCTAssertTrue(vm.pickerRows.contains(greekViaEnglish))
+    }
+
+    /// "+": the pairs of the languages not learned.
+    func testAddRowsLeaveOutLearnedLanguages() async throws {
+        settings.learningLanguages = ["ell"]
+        let locale = Locale(identifier: "en")
+        let vm = pairTabHome()
+        await vm.load(locale: locale)
+        await vm.loadAddRows(locale: locale)
+        XCTAssertEqual(vm.pickerRows, [englishViaEnglish])
+    }
+
+    /// My words on a tab are the tab's language's words (`WordKey.lang`).
+    func testMyWordsCountPerTab() async throws {
+        try await db.addToMyWords(grafoFD)
+        try await db.addToMyWords(house)
+        settings.learningLanguages = ["ell", "eng"]
+        let locale = Locale(identifier: "en")
+        let vm = pairTabHome()
+        await vm.load(locale: locale)
+        XCTAssertEqual(vm.myWordsCount, 1, "γράφω")
+        await vm.select("eng")
+        XCTAssertEqual(vm.myWordsCount, 1, "house")
+    }
+}
+
+extension WordListsViewModelTests {
+    /// #295: a tab's Lists show its language's section, and My lists with My
+    /// words and its imports; no tab (Settings): every learned language.
+    func testListsOfOneLanguage() async throws {
+        try await saveImports()
+        settings.learningLanguages = ["ell", "eng"]
+        let greek = listsViewModel(lang: "ell")
+        await greek.load()
+        XCTAssertEqual(greek.sections.map(\.kind), [.language("ell"), .myLists])
+        XCTAssertEqual(greek.sections.last?.lists.map(\.id), [.myWords, "user-greek"])
+        XCTAssertEqual(greek.newWordsFromSections.map { $0.lists.map(\.id) }, [[greekA1, greekA2], ["user-greek"]])
+
+        let english = listsViewModel(lang: "eng")
+        await english.load()
+        XCTAssertEqual(english.sections.map(\.kind), [.language("eng"), .myLists])
+        XCTAssertEqual(english.sections.last?.lists.map(\.id), [.myWords, "user-english"])
+
+        let every = listsViewModel()
+        await every.load()
+        XCTAssertEqual(every.sections.map(\.kind), [.language("ell"), .language("eng"), .myLists])
+    }
+
+    /// The My words row counts the tab's language's words only; from
+    /// Settings (no tab) every language's.
+    func testMyWordsRowCountsOneLanguage() async throws {
+        try await db.addToMyWords(grafoFD)
+        try await db.addToMyWords(house)
+        settings.learningLanguages = ["ell", "eng"]
+        func count(_ lang: String?) async -> Int? {
+            let vm = listsViewModel(lang: lang)
+            await vm.load()
+            return vm.sections.flatMap(\.lists).first { $0.kind == .myWords }?.count
+        }
+        let greek = await count("ell")
+        let every = await count(nil)
+        XCTAssertEqual(greek, 1)
+        XCTAssertEqual(every, 2)
+    }
+
+    /// #298: "Greek A1, A2", then the imports' titles; nil with none; the
+    /// five languages.
+    func testLearningFromValue() async throws {
+        try await saveImports()
+        let all = try await db.wordLists()
+        func lists(_ ids: [WordListID]) throws -> [WordList] {
+            try ids.map { id in try XCTUnwrap(all.first { $0.id == id }, id.rawValue) }
+        }
+        let en = Locale(identifier: "en")
+        XCTAssertEqual(WordListsViewModel.learningFromValue(try lists([greekA1, greekA2]), locale: en), "Greek A1, A2")
+        XCTAssertEqual(WordListsViewModel.learningFromValue(try lists([greekA1]), locale: en), "Greek A1")
+        XCTAssertEqual(WordListsViewModel.learningFromValue(try lists([greekA1, greekA2, "user-greek"]), locale: en),
+                       "Greek A1, A2, Greek lesson")
+        XCTAssertEqual(WordListsViewModel.learningFromValue(try lists(["user-greek"]), locale: en), "Greek lesson")
+        XCTAssertNil(WordListsViewModel.learningFromValue([], locale: en))
+        let two = try lists([greekA1, greekA2])
+        XCTAssertEqual(WordListsViewModel.learningFromValue(two, locale: Locale(identifier: "ru")), "Греческий A1, A2")
+        XCTAssertEqual(WordListsViewModel.learningFromValue(two, locale: Locale(identifier: "es")), "Griego A1, A2")
+        XCTAssertEqual(WordListsViewModel.learningFromValue(two, locale: Locale(identifier: "ar")),
+                       "\u{200F}اليونانية A1, A2")
+        XCTAssertEqual(WordListsViewModel.learningFromValue(two, locale: Locale(identifier: "el")),
+                       "Ελληνικά \u{0391}1, \u{0391}2")
+    }
+
+    /// #298: no screen or setting says "New words from" any more.
+    func testNoNewWordsFromLeft() {
+        let old = ["en": "New words from", "ru": "Новые слова из", "es": "Palabras nuevas de",
+                   "ar": "كلمات جديدة من", "el": "Νέες λέξεις από"]
+        let new = ["en": "Learning from", "ru": "Учу из", "es": "Aprendiendo de", "ar": "التعلّم من",
+                   "el": "Μάθηση από"]
+        for (code, text) in old {
+            let value = SettingsViewModel.localizedString("newWordsFrom.title", locale: Locale(identifier: code))
+            XCTAssertNotEqual(value, text, code)
+            XCTAssertEqual(value, new[code], code)
+        }
+    }
+}
+
 extension ExerciseRunViewModelTests {
     /// #300 (QA): the end sound of each kind of run. A daily session ends
     /// with Lesson complete, or Daily goal reached when it fills the ring;
@@ -34793,5 +35146,62 @@ final class FeedbackBarTests: XCTestCase {
         let lines = FeedbackBar.lines(feedback(ChosenOption(text: "water", counterpart: "νερό")), locale: Locale(identifier: "en"))
         XCTAssertTrue(lines.title.hasPrefix("Right answer:"))
         XCTAssertNotNil(lines.chosen, "the title, then the chosen line, which the view announces last")
+    }
+}
+
+extension WordListViewModelTests {
+    /// #295: Greek's My words screen lists γράφω only, though house is saved.
+    func testMyWordsOfOneLanguage() async throws {
+        try await db.addToMyWords(grafoFD)
+        try await db.addToMyWords(house)
+        let all = WordListViewModel(list: .myWordsForTests, settings: settings, languages: languages)
+        await all.load()
+        XCTAssertEqual(all.myWords.map(\.item.key.lang).sorted(), ["ell", "eng"])
+        let greek = WordListViewModel(list: .myWordsForTests, lang: "ell", settings: settings, languages: languages)
+        await greek.load()
+        XCTAssertEqual(greek.myWords.map(\.item.key), [LearningFixture.grafo])
+        XCTAssertEqual(greek.count, 1)
+    }
+}
+
+extension GrammarTopicsViewModelTests {
+    private func level(_ name: String, _ topics: Int, from template: [GrammarTopicSummary]) -> GrammarTopicsViewModel.Level {
+        GrammarTopicsViewModel.Level(level: name, topics: Array(template.prefix(topics)))
+    }
+
+    /// #297: one level has no header, its name in the subtitle and the next
+    /// level as "Coming soon"; two or more levels have headers.
+    func testOneLevelHasNoHeader() async throws {
+        let vm = await screen()
+        let template = vm.levels.flatMap(\.topics)
+        XCTAssertEqual(template.count, 17)
+
+        let one = GrammarTopicsViewModel.layout(levels: vm.levels)
+        XCTAssertEqual(one, .init(headers: false, count: 17, level: "A1", comingSoon: "A2"))
+
+        let two = GrammarTopicsViewModel.layout(levels: [level("A1", 17, from: template), level("A2", 3, from: template)])
+        XCTAssertEqual(two, .init(headers: true, count: 20, level: nil, comingSoon: nil))
+
+        let last = GrammarTopicsViewModel.layout(levels: [level("C2", 2, from: template)])
+        XCTAssertEqual(last, .init(headers: false, count: 2, level: "C2", comingSoon: nil), "nothing after C2")
+
+        XCTAssertEqual(GrammarTopicsViewModel.layout(levels: []), .init(headers: false, count: 0, level: nil, comingSoon: nil))
+    }
+
+    /// #297: "17 topics · A1" ("Α1" in Greek), "40 topics" with two levels,
+    /// and the row "A2 · Coming soon", read "A2, Coming soon".
+    func testSubtitleAndComingSoonText() {
+        let en = Locale(identifier: "en")
+        let one = GrammarTopicsViewModel.Layout(headers: false, count: 17, level: "A1", comingSoon: "A2")
+        XCTAssertEqual(GrammarTopicsViewModel.subtitle(one, locale: en), "17 topics · A1")
+        XCTAssertTrue(GrammarTopicsViewModel.subtitle(one, locale: Locale(identifier: "el")).hasSuffix(" · \u{0391}1"))
+        XCTAssertEqual(GrammarTopicsViewModel.subtitle(.init(headers: true, count: 40, level: nil, comingSoon: nil),
+                                                       locale: en), "40 topics")
+        XCTAssertEqual(GrammarTopicsViewModel.comingSoonText("A2", locale: en), "A2 · Coming soon")
+        XCTAssertEqual(GrammarTopicsViewModel.comingSoonLabel("A2", locale: en), "A2, Coming soon")
+        for code in ["ru", "es", "ar", "el"] {
+            let locale = Locale(identifier: code)
+            XCTAssertNotEqual(GrammarTopicsViewModel.comingSoonText("A2", locale: locale), "A2 · Coming soon", code)
+        }
     }
 }

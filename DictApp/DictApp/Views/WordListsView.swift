@@ -1,20 +1,22 @@
 // WordListsView.swift
 // Word lists (0130-word-lists.md, #154): the Lists screen, a list's screen
-// and New words from, pushed from the Learn home (E4), and Import (#155),
+// and Learning from, pushed from the Learn home (E4), and Import (#155),
 // in a sheet. Views render and call `WordListsViewModel`,
 // `WordListViewModel` and `ListImportViewModel`.
 
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// The list screens the Learn home pushes. Settings → Learning pushes
+/// The list screens the Learn home pushes, each with the language of the
+/// pair tab it comes from (#295). Settings → Learning pushes
 /// `NewWordsFromView` itself.
 enum WordListRoute: Hashable {
-    /// The Lists screen.
-    case allLists
-    /// A list's screen; My words too.
-    case list(WordList)
-    case newWordsFrom
+    /// The Lists screen of a language.
+    case allLists(String)
+    /// A list's screen; My words too, with the language's words only.
+    case list(WordList, String)
+    /// Learning from (the screen was "New words from" until #298).
+    case newWordsFrom(String)
 }
 
 extension View {
@@ -22,9 +24,9 @@ extension View {
     func wordListDestinations() -> some View {
         navigationDestination(for: WordListRoute.self) { route in
             switch route {
-            case .allLists: WordListsView()
-            case let .list(list): WordListView(list: list)
-            case .newWordsFrom: NewWordsFromView()
+            case let .allLists(lang): WordListsView(lang: lang)
+            case let .list(list, lang): WordListView(list: list, lang: lang)
+            case let .newWordsFrom(lang): NewWordsFromView(lang: lang)
             }
         }
     }
@@ -32,13 +34,14 @@ extension View {
 
 // MARK: - Lists screen
 
-/// The lists of the learned languages: a section per language with
-/// built-in lists (those of the installed packs), then My lists (My words,
-/// then the imports, newest first). A row shows the title, the word count,
+/// The lists of a pair tab's language (#295): its built-in lists (those of
+/// the installed packs), then My lists (My words, then the imports, newest
+/// first). A row shows the title, the word count,
 /// the progress bar and, while the list is checked, a "Learning" badge. An
 /// imported list can be deleted with a swipe, after an alert.
 struct WordListsView: View {
-    @StateObject private var vm = WordListsViewModel()
+    @StateObject private var vm: WordListsViewModel
+    let lang: String
     @Environment(\.locale) private var locale
     @Environment(\.layoutDirection) private var layoutDirection
     /// The imported list the delete alert asks about.
@@ -46,12 +49,17 @@ struct WordListsView: View {
     /// Import's sheet (#155).
     @State private var showsImport = false
 
+    init(lang: String) {
+        self.lang = lang
+        _vm = StateObject(wrappedValue: WordListsViewModel(lang: lang))
+    }
+
     var body: some View {
         List {
             ForEach(vm.sections) { section in
                 Section(WordListsViewModel.sectionTitle(section.kind, locale: locale)) {
                     ForEach(section.lists) { list in
-                        NavigationLink(value: WordListRoute.list(list)) {
+                        NavigationLink(value: WordListRoute.list(list, lang)) {
                             WordListRow(list: list, isChecked: vm.checked.contains(list.id),
                                         progress: vm.progress[list.id])
                         }
@@ -189,14 +197,19 @@ struct ListProgressBar: View {
     }
 }
 
-// MARK: - New words from
+// MARK: - Learning from
 
-/// The lists new words come from (0130): every list of a learned language
-/// but My words, in the Lists screen's sections and order, each with a
-/// checkmark while checked. A tap checks or unchecks it.
+/// The lists new words come from (0130; "New words from" until #298): every
+/// list of the tab's language, or of every learned language from Settings
+/// (`lang` nil), but My words, in the Lists screen's sections and order,
+/// each with a checkmark while checked. A tap checks or unchecks it.
 struct NewWordsFromView: View {
-    @StateObject private var vm = WordListsViewModel()
+    @StateObject private var vm: WordListsViewModel
     @Environment(\.locale) private var locale
+
+    init(lang: String?) {
+        _vm = StateObject(wrappedValue: WordListsViewModel(lang: lang))
+    }
 
     var body: some View {
         List {
@@ -265,8 +278,8 @@ struct WordListView: View {
     @StateObject private var vm: WordListViewModel
     @Environment(\.locale) private var locale
 
-    init(list: WordList) {
-        _vm = StateObject(wrappedValue: WordListViewModel(list: list))
+    init(list: WordList, lang: String? = nil) {
+        _vm = StateObject(wrappedValue: WordListViewModel(list: list, lang: lang))
     }
 
     var body: some View {

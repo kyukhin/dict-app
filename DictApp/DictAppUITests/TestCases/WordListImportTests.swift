@@ -178,10 +178,9 @@ final class WordListImportTests: XCTestCase {
         let learnPage = LearnPage(app: app)
         learnPage.popToRoot()
         XCTAssertTrue(learnPage.waitForHome(), "the Learn home")
-        XCTAssertTrue(learnPage.languageSwitch.waitForExistence(timeout: TestData.Timeouts.medium),
-                      "the switch: Greek | English")
-        XCTAssertTrue(learnPage.languageSwitch.buttons["English"].exists)
-        XCTAssertTrue(learnPage.languageSwitch.buttons["Greek"].exists)
+        XCTAssertTrue(learnPage.pairTab("eng").waitForExistence(timeout: TestData.Timeouts.medium),
+                      "the tabs: Greek, English")
+        XCTAssertTrue(learnPage.pairTab("ell").exists)
     }
 
     // MARK: - Paste

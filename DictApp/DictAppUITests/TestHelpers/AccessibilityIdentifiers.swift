@@ -155,8 +155,16 @@ struct AccessibilityIdentifiers {
         static let newCount = "learn_new_count"
         static let allDone = "learn_all_done"
         static let myWordsRow = "learn_my_words_row"
-        /// The segmented switch; its segments are labelled by language name.
-        static let languageSwitch = "learn_language_switch"
+        /// Pair tabs (0131, #293): the strip, a tab by language code, "+", "…" and its sheet.
+        static let pairTabs = "learn_pair_tabs"
+        static func pairTab(_ lang: String) -> String { "learn_pair_tab_\(lang)" }
+        static let pairTabAdd = "learn_pair_tab_add"
+        static let pairTabMore = "learn_pair_tab_more"
+        static let pairTabStop = "learn_pair_tab_stop"
+        static let pairTabStopConfirm = "learn_pair_tab_stop_confirm"
+        static let pairOverflow = "learn_pair_overflow"
+        static func pairOverflowRow(_ lang: String) -> String { "learn_pair_overflow_row_\(lang)" }
+        static let pairOverflowAdd = "learn_pair_overflow_add"
         static let importList = "learn_import_list"
         static let addWordsHint = "learn_add_words_hint"
         /// 0130, #154: Today's "Choose lists", which opens New words from.
@@ -211,8 +219,6 @@ struct AccessibilityIdentifiers {
     // MARK: - Statistics (0166, #164)
     struct Statistics {
         static let view = "stats_view"
-        /// The segmented switch, with two or more learned languages.
-        static let languageSwitch = "stats_language_switch"
         static let empty = "stats_empty"
         /// Today: exercises of every language, "12 of 20"; the others of the chosen language.
         static let todayExercises = "stats_today_exercises"
@@ -252,7 +258,10 @@ struct AccessibilityIdentifiers {
         static let topics = "grammar_topics"
         /// "Topics are explained in English.", on the Grammar screen and a topic.
         static let englishNote = "grammar_english_note"
-        /// A level's section header: `grammar_level_A1`.
+        /// The subtitle ("17 topics · A1") and the "A2 · Coming soon" row (#297).
+        static let subtitle = "grammar_subtitle"
+        static let comingSoon = "grammar_coming_soon"
+        /// A level's section header, with two or more levels: `grammar_level_A1`.
         static func level(_ level: String) -> String { "grammar_level_\(level)" }
         static func topicRow(_ id: String) -> String { "grammar_topic_row_\(id)" }
         /// The topic screen's scroll view.

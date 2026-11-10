@@ -417,12 +417,12 @@ final class GreekLocalizationTests: XCTestCase {
         try assertNoEnglishLeak(on: "My words", skippingCellContent: true)
     }
 
-    /// 0130, #154: the list screens in Greek. "Όλες οι λίστες" opens
-    /// "Λίστες": the English section first (the UI language's goes last),
-    /// then "Ελληνικά Α1" with "756 λέξεις" for Α2, then "Οι λίστες μου";
-    /// a list's screen reads "Μάθετε αυτή τη λίστα"; the Greek import heads
-    /// its levels Α1 and Α2 in Greek letters; "Επιλογή λιστών" opens "Νέες
-    /// λέξεις από". No English is left.
+    /// 0130, #154, #295: the list screens in Greek. "Όλες οι λίστες" opens
+    /// "Λίστες" for Greek's tab: "Ελληνικά Α1" with "756 λέξεις" for Α2, then
+    /// "Οι λίστες μου", and no English section (it is on English's tab); a
+    /// list's screen reads "Μάθετε αυτή τη λίστα"; the Greek import heads
+    /// its levels Α1 and Α2 in Greek letters; "Επιλογή λιστών" opens "Μάθηση
+    /// από". No English is left.
     func testWordListsInGreek() throws {
         openTab(.learn)
         let learnPage = LearnPage(app: app)
@@ -430,17 +430,13 @@ final class GreekLocalizationTests: XCTestCase {
         try assertNoEnglishLeak(on: "Learn (home, lists)")
         let page = learnPage.tapAllLists()
         XCTAssertTrue(app.navigationBars["Λίστες"].waitForExistence(timeout: TestData.Timeouts.medium))
-        XCTAssertTrue(page.row("cefr-eng-a1").waitForExistence(timeout: TestData.Timeouts.medium), "English first")
-        XCTAssertTrue(app.staticTexts["Αγγλικά Α1"].exists, "English A1 in Greek letters")
+        let greekA1 = page.row("ky-ell-a1")
+        XCTAssertTrue(greekA1.waitForExistence(timeout: TestData.Timeouts.medium), "Greek first")
+        XCTAssertFalse(page.row("cefr-eng-a1").exists, "English's lists are on English's tab")
+        XCTAssertFalse(app.staticTexts["Αγγλικά Α1"].exists, "no English section")
         attachScreenshot("10-lists")
         try assertNoEnglishLeak(on: "Lists", skippingCellContent: true)
-        let greekA1 = page.row("ky-ell-a1")
-        XCTAssertTrue(app.scrollToElement(greekA1), "Greek A1")
         XCTAssertTrue(app.staticTexts["Ελληνικά Α1"].exists)
-        let englishC2 = page.row("cefr-eng-c2")
-        if englishC2.exists {
-            XCTAssertLessThan(englishC2.frame.minY, greekA1.frame.minY, "the UI language's section last")
-        }
         XCTAssertTrue(app.scrollToElement(page.row("ky-ell-a2")))
         XCTAssertEqual(page.count("ky-ell-a2").label, "756 λέξεις")
         XCTAssertTrue(app.scrollToElement(page.row("user-fixture-greek")), "My lists")
@@ -465,12 +461,12 @@ final class GreekLocalizationTests: XCTestCase {
         page.goBack()
 
         let newWordsFrom = learnPage.tapChooseLists()
-        XCTAssertTrue(app.navigationBars["Νέες λέξεις από"].waitForExistence(timeout: TestData.Timeouts.medium))
+        XCTAssertTrue(app.navigationBars["Μάθηση από"].waitForExistence(timeout: TestData.Timeouts.medium))
         attachScreenshot("12-new-words-from")
-        XCTAssertTrue(app.scrollToElement(newWordsFrom.noneChecked), "the footer, under 11 lists")
+        XCTAssertTrue(app.scrollToElement(newWordsFrom.noneChecked), "the footer, under the lists")
         XCTAssertEqual(newWordsFrom.noneChecked.label,
                        "Δεν έχει επιλεγεί λίστα. Οι νέες λέξεις έρχονται μόνο από όσες προσθέτετε με το «Μάθηση».")
-        try assertNoEnglishLeak(on: "New words from", skippingCellContent: true)
+        try assertNoEnglishLeak(on: "Learning from", skippingCellContent: true)
     }
 
     /// 0133, #172: grammar in a Greek UI: the row and the screen in Greek,
@@ -486,15 +482,19 @@ final class GreekLocalizationTests: XCTestCase {
         XCTAssertTrue(learnPage.waitForHome(timeout: TestData.Timeouts.long), "Greek learned: the home")
         let page = GrammarPage(app: app)
         XCTAssertTrue(app.scrollToElement(page.learnRow), "the Grammar row")
-        XCTAssertTrue(page.learnRow.label.contains("Γραμματική"), page.learnRow.label)
+        XCTAssertTrue(page.learnRow.label.contains("Θέματα"), page.learnRow.label)
         XCTAssertEqual(page.learnRowValue, "17 θέματα")
         XCTAssertTrue(page.openGrammar())
         XCTAssertTrue(app.navigationBars["Γραμματική"].waitForExistence(timeout: TestData.Timeouts.medium))
-        let level = page.levelHeader("A1")
-        XCTAssertTrue(level.waitForExistence(timeout: TestData.Timeouts.medium))
-        XCTAssertEqual(level.label, "Α1", "Greek certificate letters")
+        let subtitle = page.element(AccessibilityIdentifiers.Grammar.subtitle)
+        XCTAssertTrue(subtitle.waitForExistence(timeout: TestData.Timeouts.medium))
+        XCTAssertTrue(subtitle.label.hasSuffix("Α1"), "Greek certificate letters; got '\(subtitle.label)'")
+        XCTAssertFalse(page.levelHeader("A1").exists, "one level: no header")
         XCTAssertFalse(page.englishNote.exists)
         XCTAssertTrue(page.topicRow("ell-alphabet").label.hasPrefix("The alphabet"), "topics in English")
+        let soon = page.element(AccessibilityIdentifiers.Grammar.comingSoon)
+        XCTAssertTrue(app.scrollToElement(soon), "the Coming soon row")
+        XCTAssertTrue(soon.label.contains("Α2"), "the next level in Greek letters; got '\(soon.label)'")
         attachScreenshot("17-grammar")
 
         XCTAssertTrue(page.openTopic("ell-aorist-regular"))

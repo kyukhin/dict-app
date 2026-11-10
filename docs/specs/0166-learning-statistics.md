@@ -1,7 +1,7 @@
 # Learning statistics
 
 > Spec written by Claude (AI) for LibreDict.
-> Status: Implemented, with a revision for epic #292 (#293: the goal and the streak on every pair tab; #295: statistics per tab, without the switch) and #300 (the goal sound), approved by kyukhin on 2026-11-10 and not built yet; the rest approved by kyukhin on 2026-11-04 · Epic: #166 · Tickets: #163, #164, #165; #293, #295, #300 · Updated: 2026-11-10
+> Status: Implemented, with a revision for epic #292 (#293: the goal and the streak on every pair tab; #295: statistics per tab, without the switch) and #300 (the goal sound), approved by kyukhin on 2026-11-10 and built (PRs #303, #304, #305); the rest approved by kyukhin on 2026-11-04 · Epic: #166 · Tickets: #163, #164, #165; #293, #295, #300 · Updated: 2026-11-10
 
 Read [0000-overview.md](0000-overview.md), [0129-dictionary-file.md](0129-dictionary-file.md) and [0131-learning.md](0131-learning.md) first. Every number here is computed on the device from 0131's answer log (`learn_review`), cards (`learn_card`) and words (`learn_word`). The conjugation drill (E5, #132) writes to the same log, which gives accuracy by tense. Lists and their words come from E3 ([0130-word-lists.md](0130-word-lists.md)). This epic adds one small table, for the daily goal.
 
@@ -345,3 +345,4 @@ A day starts at 4 AM local time (0131, Decisions), here too.
 - 2026-11-08: Epic #166 closed: Implemented. The Release performance line names each screen's target and says the runs used the `stats` fixture, not the 18k-answer one the targets are set for (CodeRabbit, PR #275).
 - 2026-11-10: Revision for epic #292 and #300 (Draft, awaiting kyukhin's approval): the ring and the streak show on every pair tab (#293); Statistics shows the language of the tab it opens from and loses its switch, `StatisticsViewModel(lang:)` (#295); the run that reaches the goal ends with the goal sound (#300). No data change.
 - 2026-11-10: The #292/#300 revision approved by kyukhin.
+- 2026-11-10: The #292/#300 revision is built (PRs #303, #304, #305).

@@ -145,7 +145,7 @@ final class SpanishLocalizationTests: XCTestCase {
     /// 0130, #154: the list screens in Spanish: "Todas las listas" opens
     /// "Listas" with "Griego A1", Greek A2's "756 palabras" and "Mis
     /// listas"; a list's screen reads "Aprender esta lista"; "Elegir listas"
-    /// opens "Palabras nuevas de" with its footer.
+    /// opens "Aprendiendo de" with its footer.
     func testWordListsInSpanish() throws {
         XCTAssertTrue(selectLanguage(code: "es"), "Must be able to switch to Spanish via the picker")
         let learnPage = TabBarPage(app: app).tapLearnTab()
@@ -170,7 +170,7 @@ final class SpanishLocalizationTests: XCTestCase {
         page.goBack()
 
         learnPage.tapChooseLists()
-        XCTAssertTrue(app.navigationBars["Palabras nuevas de"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.navigationBars["Aprendiendo de"].waitForExistence(timeout: 5))
         XCTAssertTrue(staticTextContaining("Ninguna lista marcada."), "the footer with nothing checked")
     }
 

@@ -101,7 +101,6 @@ final class StatisticsFlowTests: XCTestCase {
         XCTAssertEqual(stats.label(IDs.todayReviewed), "3")
         XCTAssertEqual(stats.label(IDs.todayAccuracy), "100%")
         XCTAssertEqual(stats.label(IDs.streakCurrent), "0 days")
-        XCTAssertFalse(stats.languageSwitch.exists, "one learned language: no switch")
     }
 
     /// `stats`: the 30-day chart with its summary; the hardest words, the
@@ -189,15 +188,20 @@ final class StatisticsFlowTests: XCTestCase {
         XCTAssertFalse(stats.element(IDs.hardestVerb(1)).exists)
     }
 
-    /// `stats`: Greek and English learned: the switch shows. English
-    /// changes the chosen language's numbers; the goal and the streak stay.
-    func testLanguageSwitch() throws {
-        let stats = learnPage.openStatistics()
-        XCTAssertTrue(stats.languageSwitch.waitForExistence(timeout: TestData.Timeouts.medium), "the switch")
+    /// `stats`: Greek and English learned: Statistics opens from the selected
+    /// tab and shows its language's numbers, with no switch; the goal and the
+    /// streak are the same from either (#295).
+    func testStatisticsFollowTheTab() throws {
+        var stats = learnPage.openStatistics()
         XCTAssertEqual(stats.label(IDs.todayNew), "1", "ψωμί, started today")
         XCTAssertEqual(stats.label(IDs.todayExercises), "22 of 20")
         XCTAssertEqual(stats.label(IDs.streakCurrent), "9 days")
-        stats.selectLanguage(named: "English")
+        XCTAssertFalse(app.segmentedControls.firstMatch.exists, "no language switch")
+        XCTAssertFalse(learnPage.pairTabs.exists, "the strip stays on the home")
+        learnPage.popToRoot()
+
+        learnPage.selectLanguage(named: "English")
+        stats = learnPage.openStatistics()
         XCTAssertTrue(stats.waitForLabel(IDs.todayNew, toBe: "0"), "English: no word started today")
         XCTAssertEqual(stats.label(IDs.todayReviewed), "2")
         XCTAssertEqual(stats.label(IDs.todayExercises), "22 of 20", "every language")

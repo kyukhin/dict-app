@@ -25,11 +25,14 @@ final class LearnViewModel: ObservableObject {
 
     /// The learned languages, in the order chosen. Empty: the picker.
     @Published private(set) var learned: [String] = []
-    /// The language of the home; nil while none is learned.
+    /// The pair tabs (#293), one per learned language in the stored order.
+    @Published private(set) var tabs: [PairTab] = []
+    /// The language of the home, the selected tab's; nil while none is learned.
     @Published private(set) var language: String?
     /// The chosen language's pair; nil for Other or while none is learned.
     @Published private(set) var pair: LearningPair?
-    /// The picker's rows while no language is learned (`LearningPairs.pickerRows`).
+    /// The picker's rows while no language is learned, and "+"'s (#293) without
+    /// the learned ones (`LearningPairs.pickerRows`).
     @Published private(set) var pickerRows: [LearningPair] = []
     /// What each picker row still has to download, in bytes; 0 or absent: nothing.
     @Published private(set) var downloadSizes: [LearningPair: Int64] = [:]
@@ -43,7 +46,7 @@ final class LearnViewModel: ObservableObject {
     /// Words of the chosen language with a card in mistakes practice: wrong
     /// in the last 7 days and not right since. 0 hides the row.
     @Published private(set) var mistakeCount = 0
-    /// My words that resolve, in every language.
+    /// My words that resolve, in the tab's language (`WordKey.lang`, #295).
     @Published private(set) var myWordsCount = 0
     /// Match the pairs has its 5 words (#160); else "Learn 5 words first".
     @Published private(set) var canMatch = false
@@ -101,16 +104,28 @@ final class LearnViewModel: ObservableObject {
         WordList(id: .myWords, kind: .myWords, lang: WordList.myWordsLanguage, level: "", title: "", count: myWordsCount)
     }
 
-    /// The Lists section's "New words from" row: once a list is checked or a
+    /// The Lists section's "Learning from" row: once a list is checked or a
     /// word is in learning, while Today no longer offers "Choose lists".
     var showsNewWordsFrom: Bool { hasLists && today != .chooseLists }
 
     /// Reads the learned languages, then the picker's rows or the home.
     /// `locale` names the languages for the picker's order.
     func load(locale: Locale) async {
+        // Set on every way out, an early return for a newer load included.
+        defer { isLoaded = true }
+        fullLoad += 1
+        let fullTicket = fullLoad
+        homeLoad += 1
+        let ticket = homeLoad
         learned = languages.learned
         language = languages.chosen
         do {
+            let tabs = try await loadTabs()
+            // The tabs belong to the latest full load; the home, to the latest
+            // load or tab selection, which then loads its own.
+            guard fullTicket == fullLoad else { return }
+            self.tabs = tabs
+            guard ticket == homeLoad else { return }
             if learned.isEmpty {
                 today = nil
                 lessonLeft = nil
@@ -118,14 +133,16 @@ final class LearnViewModel: ObservableObject {
                 canMatch = false
                 drillLevel = nil
                 grammarTopicCount = 0
-                pickerRows = LearningPairs.pickerRows(offered: try await db.learningPairs().keys,
-                                                      withLists: languagesWithLists, learned: learned,
-                                                      uiLanguage: languages.uiLanguage(),
-                                                      name: { Self.languageName($0, locale: locale) })
+                let rows = LearningPairs.pickerRows(offered: try await db.learningPairs().keys,
+                                                    withLists: languagesWithLists, learned: learned,
+                                                    uiLanguage: languages.uiLanguage(),
+                                                    name: { Self.languageName($0, locale: locale) })
                 var sizes: [LearningPair: Int64] = [:]
-                for row in pickerRows {
+                for row in rows {
                     sizes[row] = await languages.packs.downloadSize(of: row)
                 }
+                guard ticket == homeLoad else { return }
+                pickerRows = rows
                 downloadSizes = sizes
                 pairPacks = []
             } else {
@@ -134,7 +151,6 @@ final class LearnViewModel: ObservableObject {
         } catch {
             errorMessage = error.localizedDescription
         }
-        isLoaded = true
     }
 
     /// Try again on the home's install row: the chosen pair's missing packs.
@@ -153,7 +169,34 @@ final class LearnViewModel: ObservableObject {
         await load(locale: locale)
     }
 
-    /// The switch: remembers `lang` and shows its numbers.
+    /// A tab for each learned language, with its pair.
+    private func loadTabs() async throws -> [PairTab] {
+        var tabs: [PairTab] = []
+        for lang in learned {
+            tabs.append(PairTab(lang: lang, pair: try await languages.pair(for: lang)))
+        }
+        return tabs
+    }
+
+    /// "+" (#293): the pairs of the languages not learned, with their
+    /// download sizes, for the picker it pushes.
+    func loadAddRows(locale: Locale) async {
+        do {
+            pickerRows = LearningPairs.pickerRows(offered: try await db.learningPairs().keys,
+                                                  withLists: languagesWithLists, learned: languages.learned,
+                                                  uiLanguage: languages.uiLanguage(),
+                                                  name: { Self.languageName($0, locale: locale) })
+            var sizes: [LearningPair: Int64] = [:]
+            for row in pickerRows {
+                sizes[row] = await languages.packs.downloadSize(of: row)
+            }
+            downloadSizes = sizes
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    /// A tab: remembers `lang` and shows its home.
     func select(_ lang: String) async {
         guard lang != language, learned.contains(lang) else { return }
         languages.chosen = lang
@@ -165,6 +208,24 @@ final class LearnViewModel: ObservableObject {
         }
     }
 
+    /// A drag, or VoiceOver's "Move earlier" and "Move later" (#293): `lang`
+    /// takes place `index` among the tabs. The selection stays.
+    func move(_ lang: String, to index: Int) {
+        let order = PairTabOrder.moving(lang, to: index, in: learned)
+        guard order != learned else { return }
+        languages.reorder(order)
+        learned = languages.learned
+        tabs = learned.compactMap { lang in tabs.first { $0.lang == lang } }
+    }
+
+    /// Stop learning `lang`, after its alert (#293): its tab goes, its
+    /// progress stays, and the first tab shows (the picker with none left).
+    func stop(_ lang: String, locale: Locale) async {
+        languages.stop(lang)
+        languages.chosen = languages.learned.first
+        await load(locale: locale)
+    }
+
     /// Today's counts, as Start's session would ask them: the words due,
     /// and the new words left (`NewWordPicker`: My words first, then the
     /// checked lists, those with a meaning in the pair); and the mistakes.
@@ -173,57 +234,78 @@ final class LearnViewModel: ObservableObject {
     /// run. Nothing to learn yet (no word in learning, no list of the
     /// language checked): the empty state, "Choose lists" when the language
     /// has lists, built-in or imported.
+    /// Bumped by every home load. A load stages its results and commits them
+    /// only while it is still the latest for the selected tab, so a slow load
+    /// of a tab left behind never overwrites the one shown (#293).
+    private var homeLoad = 0
+    /// Bumped by every full load (`load(locale:)`), which alone reads the tabs.
+    private var fullLoad = 0
+
     private func loadHome() async throws {
         guard let language else { return }
+        homeLoad += 1
+        let ticket = homeLoad
         // E5's row needs no word in learning (0132, #168).
-        drillLevel = language == ConjugationPlanner.lang
+        let drillLevel = language == ConjugationPlanner.lang
             ? DrillScope.tenseLevel(checked: settings.learningListIDs, stored: settings.learningDrillTenses)
             : nil
         let day = clock.today
         try await loadGoal(today: day)
-        lessonLeft = try await db.keptLesson(lang: language, today: day)?.items.count
-        pair = try await languages.pair(for: language)
-        if let pair {
-            pairPacks = await languages.packs.packs(of: pair)
-        } else {
-            pairPacks = []
-        }
-        // As the My words screen counts: one per word, those waiting for a
-        // pack too (#245).
-        myWordsCount = try await db.myWordsEntries().count
+        let lessonLeft = try await db.keptLesson(lang: language, today: day)?.items.count
+        let pair = try await languages.pair(for: language)
+        var pairPacks: [PackID] = []
+        if let pair { pairPacks = await languages.packs.packs(of: pair) }
+        // As the My words screen counts: one per word of the tab's language,
+        // those waiting for a pack too (#245).
+        let myWordsCount = try await db.myWordsEntries().filter { $0.item.key.lang == language }.count
         // The language's lists in the Lists screen's order; a built-in list
         // whose pack is missing is not among them (0237).
         let lists = WordListsViewModel.sections(try await db.wordLists(), learned: [language], uiLanguage: "")
             .flatMap(\.lists)
             .filter { $0.kind != .myWords }
         let checked = settings.learningListIDs
-        checkedLists = lists.filter { checked.contains($0.id) }
-        hasLists = languagesWithLists.contains(language) || !lists.isEmpty
-        listProgress = try await WordListsViewModel.progress(of: checkedLists, myWordsLanguage: language, db: db)
+        let checkedLists = lists.filter { checked.contains($0.id) }
+        let hasLists = languagesWithLists.contains(language) || !lists.isEmpty
+        let listProgress = try await WordListsViewModel.progress(of: checkedLists, myWordsLanguage: language, db: db)
         // 0133, #172: the topics explained in the pair's via.
-        grammarTopicCount = try await db.grammarTopics(lang: language, explainLang: pair?.via ?? "eng").count
+        let grammarTopicCount = try await db.grammarTopics(lang: language, explainLang: pair?.via ?? "eng").count
         let hasWordsInLearning = try await db.learningWordCount(lang: language) > 0
-        guard hasWordsInLearning || !checkedLists.isEmpty else {
+        var today: Today
+        var mistakeCount = 0
+        var canMatch = false
+        if hasWordsInLearning || !checkedLists.isEmpty {
+            let meaningsLang = pair?.meaningsLang
+            let sourceOrder = try await languages.sourceOrder(lang: language, meaningsLang: meaningsLang)
+            let dueWords = Set(try await db.dueCards(lang: language, today: day).map(\.key.word))
+            let mistakeWords = Set(try await db.mistakeCards(since: SessionPlanner.mistakesSince(today: day), lang: language)
+                .map(\.key.word))
+            let asked = try await db.wordsWithMeaning(dueWords.union(mistakeWords), lang: language,
+                                                      meaningsLang: meaningsLang, sourceOrder: sourceOrder)
+            let due = dueWords.intersection(asked).count
+            let newWords = try await NewWordPicker(db: db, settings: settings)
+                .pick(lang: language, meaningsLang: meaningsLang, sourceOrder: sourceOrder, today: day)
+            let newLeft = newWords.count
+            today = due == 0 && newLeft == 0 ? .allDone : .counts(due: due, newLeft: newLeft)
+            mistakeCount = mistakeWords.intersection(asked).count
+            canMatch = try await MatchWordPicker(db: db).pick(lang: language, meaningsLang: meaningsLang,
+                                                              sourceOrder: sourceOrder, newWords: newWords) != nil
+        } else {
             today = hasLists ? .chooseLists : .addWords
-            mistakeCount = 0
-            canMatch = false
-            return
         }
-        let meaningsLang = pair?.meaningsLang
-        let sourceOrder = try await languages.sourceOrder(lang: language, meaningsLang: meaningsLang)
-        let dueWords = Set(try await db.dueCards(lang: language, today: day).map(\.key.word))
-        let mistakeWords = Set(try await db.mistakeCards(since: SessionPlanner.mistakesSince(today: day), lang: language)
-            .map(\.key.word))
-        let asked = try await db.wordsWithMeaning(dueWords.union(mistakeWords), lang: language,
-                                                  meaningsLang: meaningsLang, sourceOrder: sourceOrder)
-        let due = dueWords.intersection(asked).count
-        let newWords = try await NewWordPicker(db: db, settings: settings)
-            .pick(lang: language, meaningsLang: meaningsLang, sourceOrder: sourceOrder, today: day)
-        let newLeft = newWords.count
-        today = due == 0 && newLeft == 0 ? .allDone : .counts(due: due, newLeft: newLeft)
-        mistakeCount = mistakeWords.intersection(asked).count
-        canMatch = try await MatchWordPicker(db: db).pick(lang: language, meaningsLang: meaningsLang,
-                                                          sourceOrder: sourceOrder, newWords: newWords) != nil
+        // A later load, or another tab, owns the screen now.
+        guard ticket == homeLoad, self.language == language else { return }
+        self.drillLevel = drillLevel
+        self.lessonLeft = lessonLeft
+        self.pair = pair
+        self.pairPacks = pairPacks
+        self.myWordsCount = myWordsCount
+        self.checkedLists = checkedLists
+        self.hasLists = hasLists
+        self.listProgress = listProgress
+        self.grammarTopicCount = grammarTopicCount
+        self.today = today
+        self.mistakeCount = mistakeCount
+        self.canMatch = canMatch
     }
 
     /// The ring and the flame (0166): today's exercises of every language
@@ -256,6 +338,24 @@ final class LearnViewModel: ObservableObject {
     nonisolated static func pairName(_ pair: LearningPair, locale: Locale) -> String {
         String(format: localized("learn.pair %@ %@", locale: locale),
                languageName(pair.lang, locale: locale), languageNameInSentence(pair.via, locale: locale))
+    }
+
+    /// A pair tab's name, "Greek · via Russian" (#293): the language's name
+    /// and `learn.viaLanguage`, joined by " · " (not translated); "Other" for
+    /// a tab without a pair. In Arabic it starts with U+200F (#119).
+    nonisolated static func pairTabName(_ tab: PairTab, locale: Locale) -> String {
+        let name = languageName(tab.lang, locale: locale)
+        guard let pair = tab.pair else { return name }
+        let via = String(format: localized("learn.viaLanguage %@", locale: locale),
+                         languageNameInSentence(pair.via, locale: locale))
+        let text = name + " · " + via
+        return (locale.language.characterDirection == .rightToLeft ? "\u{200F}" : "") + text
+    }
+
+    /// The small caption under the strip: the selected tab's full name; nil
+    /// when no tab is selected (#293).
+    nonisolated static func pairCaption(_ tabs: [PairTab], selected: String?, locale: Locale) -> String? {
+        tabs.first { $0.lang == selected }.map { pairTabName($0, locale: locale) }
     }
 
     /// "Learn Greek via Russian?" (`learn.learnLanguage.title`): Learn on a
@@ -1463,10 +1563,9 @@ final class StatisticsViewModel: ObservableObject {
         var hardestVerbs: [WordRow] = []
     }
 
-    /// The learned languages: the switch shows with two or more.
-    @Published private(set) var learned: [String] = []
-    /// The chosen language; nil while none is learned.
-    @Published private(set) var language: String?
+    /// The tab's language, whose numbers the screen shows (#295); nil while
+    /// none is learned.
+    let language: String?
     @Published private(set) var isLoaded = false
     /// No answer yet in any language: "Your statistics appear after your
     /// first exercise."
@@ -1487,8 +1586,9 @@ final class StatisticsViewModel: ObservableObject {
     private let languages: LearningLanguageService
     private let clock: LearningClock
 
-    init(db: DatabaseService = .shared, settings: SettingsService = .shared,
+    init(lang: String?, db: DatabaseService = .shared, settings: SettingsService = .shared,
          languages: LearningLanguageService? = nil, clock: LearningClock = LearningClock()) {
+        language = lang
         self.db = db
         self.settings = settings
         self.languages = languages ?? .shared
@@ -1498,8 +1598,6 @@ final class StatisticsViewModel: ObservableObject {
 
     /// Every block.
     func load() async {
-        learned = languages.learned
-        language = languages.chosen
         let day = clock.today
         today = day
         do {
@@ -1518,24 +1616,6 @@ final class StatisticsViewModel: ObservableObject {
             errorMessage = error.localizedDescription
         }
         isLoaded = true
-    }
-
-    /// The switch: remembers `lang`, as the Learn home's does, and reloads
-    /// the chosen language's blocks.
-    func select(_ lang: String) async {
-        guard lang != language, learned.contains(lang) else { return }
-        languages.chosen = lang
-        language = lang
-        do {
-            let loaded = try await languageBlocks(lang, today: today)
-            // A later switch won meanwhile: its blocks, not these (#271).
-            guard language == lang else { return }
-            blocks = loaded
-            errorMessage = nil
-        } catch {
-            guard language == lang else { return }
-            errorMessage = error.localizedDescription
-        }
     }
 
     /// Today, the lists, the accuracy, the hardest words and the Conjugation
@@ -1637,6 +1717,51 @@ final class GrammarTopicsViewModel: ObservableObject {
         let level: String
         let topics: [GrammarTopicSummary]
         var id: String { level }
+    }
+
+    /// How the screen lays the levels out (0133, #297).
+    struct Layout: Equatable {
+        /// A header per level: two or more levels have topics.
+        let headers: Bool
+        let count: Int
+        /// The subtitle's level ("17 topics · A1"): only while one level has topics.
+        let level: String?
+        /// The next level, for the "A2 · Coming soon" row: only while one
+        /// level has topics, and never after C2.
+        let comingSoon: String?
+    }
+
+    /// While only one level has topics (A1 in 2.0): no headers, the level in
+    /// the subtitle and the next level as "Coming soon". With two or more:
+    /// a header per level, the count alone, no "Coming soon".
+    nonisolated static func layout(levels: [Level]) -> Layout {
+        let count = levels.reduce(0) { $0 + $1.topics.count }
+        guard levels.count == 1, let only = levels.first?.level else {
+            return Layout(headers: levels.count > 1, count: count, level: nil, comingSoon: nil)
+        }
+        let all = WordListsViewModel.cefrLevels
+        let next = all.firstIndex(of: only).flatMap { $0 + 1 < all.count ? all[$0 + 1] : nil }
+        return Layout(headers: false, count: count, level: only, comingSoon: next)
+    }
+
+    /// "17 topics · A1", or "40 topics" (#297).
+    nonisolated static func subtitle(_ layout: Layout, locale: Locale) -> String {
+        let bundle = SettingsViewModel.localizedBundle(for: locale)
+        let count = String(localized: "grammar.topicCount \(layout.count)", bundle: bundle, locale: locale)
+        guard let level = layout.level else { return count }
+        return count + " · " + WordListsViewModel.levelName(level, locale: locale)
+    }
+
+    /// The "A2 · Coming soon" row's text (#297).
+    nonisolated static func comingSoonText(_ level: String, locale: Locale) -> String {
+        WordListsViewModel.levelName(level, locale: locale) + " · "
+            + WordListsViewModel.localized("grammar.comingSoon", locale: locale)
+    }
+
+    /// The same row as VoiceOver reads it: "A2, Coming soon".
+    nonisolated static func comingSoonLabel(_ level: String, locale: Locale) -> String {
+        WordListsViewModel.levelName(level, locale: locale) + ", "
+            + WordListsViewModel.localized("grammar.comingSoon", locale: locale)
     }
 
     @Published private(set) var levels: [Level] = []

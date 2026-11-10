@@ -1,7 +1,7 @@
 # Grammar reference
 
 > Spec written by Claude (AI) for LibreDict.
-> Status: Implemented, with a revision for epic #292 (#295: the Grammar section on Greek's tab, with Conjugation; #297: the Grammar list), approved by kyukhin on 2026-11-10 and not built yet; the rest approved by kyukhin on 2026-11-04 · Epic: #133 · Tickets: #171, #172, #173, #174; #295, #297 · Updated: 2026-11-10
+> Status: Implemented, with a revision for epic #292 (#295: the Grammar section on Greek's tab, with Conjugation; #297: the Grammar list), approved by kyukhin on 2026-11-10 and built (PRs #303, #304, #305); the rest approved by kyukhin on 2026-11-04 · Epic: #133 · Tickets: #171, #172, #173, #174; #295, #297 · Updated: 2026-11-10
 
 Read [0000-overview.md](0000-overview.md), [0129-dictionary-file.md](0129-dictionary-file.md) and [0136-word-forms.md](0136-word-forms.md) (the Greek paradigms, `ParadigmLayout`, `InflectionTable`) first. Then the specs this epic builds on, approved by kyukhin on 2026-11-04. 0237 and 0130 are on master; 0131 comes with PR #235 and 0132 with PR #247, which merge before this spec: [0237-downloads.md](0237-downloads.md) (#237: every language's data comes in its pack), [0130-word-lists.md](0130-word-lists.md) (E3: learned languages, the Greek lists, `entry(for:sourceOrder:)`), [0131-learning.md](0131-learning.md) (E4: the Learn home, "Learn %@?", the run views) and [0132-conjugation-drill.md](0132-conjugation-drill.md) (E5: `ConjugationTense`, the drill, Practise on Definition). No number in this spec is measured: the content does not exist yet. Sizes are estimates, checked by the build.
 
@@ -520,3 +520,4 @@ Unit classes go in `DictAppTests.swift`; async tests and mostly-async classes ar
 - 2026-11-08: #180 moves the Credits row under the version in Settings, as decided on 2026-11-04 (Decisions).
 - 2026-11-10: Revision for epic #292 (Draft, awaiting kyukhin's approval): the Grammar section sits after Trainers on Greek's pair tab and holds the topics row ("Topics · 17") and E5's Conjugation row (#295); the Grammar list drops its only level header, shows "17 topics · A1" under the title and ends with an "A2 · Coming soon" row that is not a button (#297).
 - 2026-11-10: The #292/#300 revision approved by kyukhin.
+- 2026-11-10: The #292/#300 revision is built (PRs #303, #304, #305).
