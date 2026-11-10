@@ -1,7 +1,7 @@
 # Learning statistics
 
 > Spec written by Claude (AI) for LibreDict.
-> Status: Implemented (approved by Kirill on 2026-11-04) · Epic: #166 · Tickets: #163, #164, #165 · Updated: 2026-11-08
+> Status: Implemented, with a revision for epic #292 (#293: the goal and the streak on every pair tab; #295: statistics per tab, without the switch) and #300 (the goal sound), approved by kyukhin on 2026-11-10 and not built yet; the rest approved by kyukhin on 2026-11-04 · Epic: #166 · Tickets: #163, #164, #165; #293, #295, #300 · Updated: 2026-11-10
 
 Read [0000-overview.md](0000-overview.md), [0129-dictionary-file.md](0129-dictionary-file.md) and [0131-learning.md](0131-learning.md) first. Every number here is computed on the device from 0131's answer log (`learn_review`), cards (`learn_card`) and words (`learn_word`). The conjugation drill (E5, #132) writes to the same log, which gives accuracy by tense. Lists and their words come from E3 ([0130-word-lists.md](0130-word-lists.md)). This epic adds one small table, for the daily goal.
 
@@ -13,13 +13,14 @@ Learners want to see their progress and their weak spots. A daily goal with a st
 
 ### Daily goal and streak (#163, shown by #164)
 
-- **Daily goal**: N exercise items a day, set in Settings (default 20, 0131). An item is one answered question, one matched pair or one drill question. Every run counts: session, trainers, mistakes, match the pairs and the drill (Decisions). The goal and the streak are shared: an exercise in any language counts (Kirill, 2026-11-03).
-- **On the Learn home**, Today gets a ring "12 / 20" that closes with a check mark when the goal is met. Next to it a flame shows the streak, "5". The flame is grey until today's goal is met, and a snowflake shows the freezes in stock, 0 to 3. Tapping the ring or the streak opens Statistics.
-- **Streak rules** (Kirill, 2026-10-22, #163). Weeks run Monday to Sunday:
+- **Daily goal**: N exercise items a day, set in Settings (default 20, 0131). An item is one answered question, one matched pair or one drill question. Every run counts: session, trainers, mistakes, match the pairs and the drill (Decisions). The goal and the streak are shared: an exercise in any language counts (kyukhin, 2026-11-03).
+- **On the Learn tab**, Today gets a ring "12 / 20" that closes with a check mark when the goal is met. Next to it a flame shows the streak, "5". The flame is grey until today's goal is met, and a snowflake shows the freezes in stock, 0 to 3. Tapping the ring or the streak opens Statistics. Since #293 every pair tab shows the same ring and streak (kyukhin, 2026-11-10), and its Statistics are the tab's language's.
+- **The goal sound** (#300): the run during which today's exercises reach the goal ends with the Daily goal reached sound instead of Lesson complete (0131, Sounds).
+- **Streak rules** (kyukhin, 2026-10-22, #163). Weeks run Monday to Sunday:
   - a day whose goal is met adds 1;
   - a missed day spends a freeze when one is in stock: the day is frozen, and the streak stays and does not grow;
   - a missed day with no freeze in stock resets the streak to 0;
-  - every Monday adds one freeze; unused freezes carry over, up to 3 in stock (Kirill, 2026-11-03). A first week that starts after Monday has none;
+  - every Monday adds one freeze; unused freezes carry over, up to 3 in stock (kyukhin, 2026-11-03). A first week that starts after Monday has none;
   - today counts as soon as its goal is met, and it is not a miss before the day ends;
   - a freeze is spent only when it saves a streak: a missed day with a streak of 0 keeps it (Decisions).
 - **A day keeps the goal in force when it ended.** Changing the goal later does not change past days (Decisions). Today always uses the current setting.
@@ -37,16 +38,16 @@ Every Monday adds a freeze, up to 3 in stock: a learner who misses nothing holds
 
 ### Statistics screen (#164)
 
-Learn → Statistics, or a tap on the ring or the streak. One scrolling list.
+Learn → a pair tab → Statistics, or a tap on the ring or the streak. One scrolling list.
 
-Progress is per language (Kirill, 2026-11-03). With two or more learned languages (0131), the screen starts with the Learn home's language switch, on the same preference. The goal, the streak and the 30-day chart count every language; every other number is the chosen language's. A language whose learning stopped leaves the switch and its numbers are hidden; its past answers still count for the goal, the streak and the chart.
+Progress is per language (kyukhin, 2026-11-03). The screen shows the language of the tab it is opened from, with no switch (#295, kyukhin 2026-11-10; until then it started with the Learn home's language switch). The goal, the streak and the 30-day chart count every language; every other number is the tab's language's. A language whose learning stopped has no tab, so its numbers do not show; its past answers still count for the goal, the streak and the chart.
 
 | Block | Content |
 |---|---|
 | Today | Exercises "12 of 20" (every language); the chosen language's new words, reviewed words, accuracy and time |
 | Streak | Current streak, best streak, "Freezes: 2 of 3", a calendar of the last 5 weeks (Monday first): goal met, frozen, missed, today outlined |
 | Last 30 days | A bar chart of exercises per day with a line at the current goal; days with the goal met in the accent colour |
-| Lists | The checked lists of the chosen language (0130, New words from), and every list of it with a started word (My words included, counting its words of that language): a bar of learned / learning / new, the numbers, and a forecast: "All learned in ~129 days", "Start learning to see a forecast" or "All learned". E3's Lists screen shows the same bar on each row (#154) |
+| Lists | The checked lists of the chosen language (0130, Learning from), and every list of it with a started word (My words included, counting its words of that language): a bar of learned / learning / new, the numbers, and a forecast: "All learned in ~129 days", "Start learning to see a forecast" or "All learned". E3's Lists screen shows the same bar on each row (#154) |
 | Accuracy, last 30 days | Recognition 87% (412 answers), Production 71% (380) |
 | Hardest words | Up to 20 words with the most mistakes in the last 30 days: word, meaning in the pair's meanings language (0131: the via, English for the limited Greek via Russian), "5 mistakes · 62%". A tap opens the Definition; a list word without a dictionary entry has none to open |
 | Conjugation | Shown once the drill (E5) has answers: accuracy by tense and the 10 hardest verbs, last 30 days |
@@ -95,22 +96,23 @@ The run summary in 0131 uses the same definitions over one run's rows. So a summ
 
 ### Decisions
 
-- 2026-10-22 (Kirill): statistics is a separate epic and ships in 2.0.0.
-- 2026-10-22 (Kirill): a day counts for the streak when the daily goal is met. One missed day per week is frozen.
-- 2026-10-22 (Kirill): the daily goal is a number of exercise items, set in Settings, default 20.
-- 2026-10-22 (Kirill): statistics show today, progress per list with a forecast, a 30-day chart, the streak, weak words, and per-tense accuracy fed by the E5 drill.
-- 2026-10-22 (Kirill): achievements and the widget move to 2.1.0 (#149, #150).
-- 2026-11-03 (Kirill): learning is per language. Progress is "about a specific language, not the whole learning module": statistics, the Learn home's counts and list bars show the chosen language. The daily goal ring and the streak stay shared.
-- 2026-11-03 (Kirill): learning a language is explicit (0131). Per-language numbers are offered for the learned languages only; a stopped language's numbers are hidden until it is chosen again.
-- 2026-11-04 (Kirill): learning is chosen as a language pair (0131). Statistics stay per learned language: changing the via changes no number, only the meanings shown with the hardest words.
-- 2026-11-04 (Kirill): Greek via Russian is offered as a limited pair (0131): its meanings are in English. Applied here: the hardest words show their meaning in the pair's meanings language (English for Greek via Russian); every number stays per learned language.
-- 2026-11-04 (Kirill): nothing is cut from 2.0 if it runs late: the release date moves instead (0131). This replaces the cut order for the streak calendar, the conjugation block and #165.
-- 2026-11-03 (Kirill, Open question 1): the forecast predicts "all learned" (both cards at 30 days).
-- 2026-11-03 (Kirill): the forecast's pace is a sliding window of the last 30 days, or of the days since the list's first started word when fewer.
-- 2026-11-03 (Kirill, Open question 2): a past day keeps the goal in force when it ended, as usual in streak apps.
-- 2026-11-03 (Kirill, Open question 3): freezes accumulate: every Monday adds one, up to 3 in stock. A freeze is spent only when it saves a streak.
-- 2026-11-03 (Kirill, Open question 4): every exercise item counts toward the goal: each question of a session, a trainer or mistakes practice, each matched pair and each drill question.
-- 2026-11-03 (Kirill, Open question 5): Statistics shows the best streak next to the current one.
+- 2026-10-22 (kyukhin): statistics is a separate epic and ships in 2.0.0.
+- 2026-10-22 (kyukhin): a day counts for the streak when the daily goal is met. One missed day per week is frozen.
+- 2026-10-22 (kyukhin): the daily goal is a number of exercise items, set in Settings, default 20.
+- 2026-10-22 (kyukhin): statistics show today, progress per list with a forecast, a 30-day chart, the streak, weak words, and per-tense accuracy fed by the E5 drill.
+- 2026-10-22 (kyukhin): achievements and the widget move to 2.1.0 (#149, #150).
+- 2026-11-03 (kyukhin): learning is per language. Progress is "about a specific language, not the whole learning module": statistics, the Learn home's counts and list bars show the chosen language. The daily goal ring and the streak stay shared.
+- 2026-11-03 (kyukhin): learning a language is explicit (0131). Per-language numbers are offered for the learned languages only; a stopped language's numbers are hidden until it is chosen again.
+- 2026-11-04 (kyukhin): learning is chosen as a language pair (0131). Statistics stay per learned language: changing the via changes no number, only the meanings shown with the hardest words.
+- 2026-11-04 (kyukhin): Greek via Russian is offered as a limited pair (0131): its meanings are in English. Applied here: the hardest words show their meaning in the pair's meanings language (English for Greek via Russian); every number stays per learned language.
+- 2026-11-04 (kyukhin): nothing is cut from 2.0 if it runs late: the release date moves instead (0131). This replaces the cut order for the streak calendar, the conjugation block and #165.
+- 2026-11-03 (kyukhin, Open question 1): the forecast predicts "all learned" (both cards at 30 days).
+- 2026-11-03 (kyukhin): the forecast's pace is a sliding window of the last 30 days, or of the days since the list's first started word when fewer.
+- 2026-11-03 (kyukhin, Open question 2): a past day keeps the goal in force when it ended, as usual in streak apps.
+- 2026-11-03 (kyukhin, Open question 3): freezes accumulate: every Monday adds one, up to 3 in stock. A freeze is spent only when it saves a streak.
+- 2026-11-03 (kyukhin, Open question 4): every exercise item counts toward the goal: each question of a session, a trainer or mistakes practice, each matched pair and each drill question.
+- 2026-11-03 (kyukhin, Open question 5): Statistics shows the best streak next to the current one.
+- 2026-11-10 (kyukhin, #293, #295): the streak and the daily goal are shared by all pairs and show on every pair tab; statistics are per language, opened from the tab, without a switch.
 - #166: everything stays on the device.
 
 ### Out of scope
@@ -206,7 +208,7 @@ All in `DatabaseService`, behind `userPool()`. The reads go through `read`; `set
 
 ### Screen (#164)
 
-- `StatisticsViewModel` (`@MainActor`, in `LearnViewModel.swift`) loads every block in one `load()` with `async let`, on `LearningClock.today` and the chosen language (`learning_language`, 0131). A switch reloads the per-language blocks; the screen reuses 0131's `LearningLanguagePicker`, shown with two or more languages.
+- `StatisticsViewModel` (`@MainActor`, in `LearnViewModel.swift`) loads every block in one `load()` with `async let`, on `LearningClock.today` and its language. Since #295 it is `StatisticsViewModel(lang:)`, given by the tab that pushes `StatisticsView(lang:)`; `select(_:)`, `learned` and the switch (0131's deleted `LearningLanguagePicker`) go, and with them the guard against a switch whose blocks arrive late.
 - `StatisticsView` goes in `Views/StatisticsView.swift`, created by 0131's Xcode step. It is a `List` with one section per block.
 - **Charts** use Swift Charts (`import Charts`, a system framework since iOS 16):
   - the 30-day `BarMark`s plus a `RuleMark` at the goal;
@@ -234,7 +236,7 @@ E5's rows are those in 0131 "For E5": kind `conjugation`, `facet` `<tense>.<voic
 | Element | Identifier |
 |---|---|
 | Learn home | `learn_goal_ring` (value `12/20`), `learn_streak` (value `5`), `learn_statistics_row` |
-| Screen | `stats_view`, `stats_language_switch`, `stats_empty`, `stats_today_exercises`, `stats_today_new`, `stats_today_reviewed`, `stats_today_accuracy`, `stats_today_time`, `stats_streak_current`, `stats_streak_best`, `stats_streak_freeze`, `stats_streak_day_<YYYY-MM-DD>` (value `met`, `frozen`, `missed`, `open`), `stats_chart_30d`, `stats_list_<list id>`, `stats_list_forecast_<list id>`, `stats_accuracy_recognition`, `stats_accuracy_production`, `stats_hardest_<n>`, `stats_tense_<tense>`, `stats_hardest_verb_<n>` |
+| Screen | `stats_view`, `stats_empty` (`stats_language_switch` goes with #295), `stats_today_exercises`, `stats_today_new`, `stats_today_reviewed`, `stats_today_accuracy`, `stats_today_time`, `stats_streak_current`, `stats_streak_best`, `stats_streak_freeze`, `stats_streak_day_<YYYY-MM-DD>` (value `met`, `frozen`, `missed`, `open`), `stats_chart_30d`, `stats_list_<list id>`, `stats_list_forecast_<list id>`, `stats_accuracy_recognition`, `stats_accuracy_production`, `stats_hardest_<n>`, `stats_tense_<tense>`, `stats_hardest_verb_<n>` |
 | Definition | `learning_status` |
 
 ### Strings
@@ -266,7 +268,7 @@ E5's rows are those in 0131 "For E5": kind `conjugation`, `facet` `<tense>.<voic
 | #164 | The statistics screen with its language switch and per-language blocks; the hardest words' meanings in the meanings language; the ring and the streak on the Learn home; the progress bar on E3's list rows | #163, 0131 #158, #159 (`meanings`); E3 #151 for the Lists block, #154 for its rows | M–L, 2.75 | B or C, with #161 and #162 |
 | #165 | The Definition status | 0131 #157, #158 | S, 0.5 | Any, with #161 and #162 |
 
-The dates are to be replanned with #237 (0131, Decisions); the order stays as in 0131's calendar. Learning pairs add 0.25 to #164: the hardest words' meanings in the via, and `translation_lang` in #163's `hardestWords` (#163 adds it if it has not merged yet, else #164). #163's aggregates do not change. If the checkpoint slips, nothing is cut: the release date moves (Kirill, 2026-11-04, Decisions).
+The dates are to be replanned with #237 (0131, Decisions); the order stays as in 0131's calendar. Learning pairs add 0.25 to #164: the hardest words' meanings in the via, and `translation_lang` in #163's `hardestWords` (#163 adds it if it has not merged yet, else #164). #163's aggregates do not change. If the checkpoint slips, nothing is cut: the release date moves (kyukhin, 2026-11-04, Decisions).
 
 ## Test plan
 
@@ -287,10 +289,10 @@ The dates are to be replanned with #237 (0131, Decisions); the order stays as in
 | #163: per-list counts and the forecast correct on fixtures | Unit `ListProgressTests`: `testNewLearningLearned` (a paused word counts as new; a word twice in a list counts once), `testForecastFromTheLastThirtyDays` (the A1 example: 129), `testForecastWithShortHistory` (50 words started over 5 days: pace 10), `testForecastWithoutPace`, `testForecastWhenEveryWordIsStarted`, `testAllLearned`, `testDaysToLearnedPerRung` |
 | #154 (0130, progress half): every list shows its progress | Unit `ListProgressTests.testProgressOverE3Keys` (a fake E3 list whose keys are cards in every state, a standalone word among them). UI `WordListsFlowTests.testListRowsShowProgress` (`-learningFixture stats`: the Greek A1 row's bar reads its learned / learning / new; a list with no started word shows the bar at new) |
 | #163: unit tests for every aggregate | The classes above, plus `DailySeriesTests`, `AccuracyTests`, `HardestWordsTests`, `ChartSummaryTests`, `WordStatusTextTests` |
-| Kirill 2026-11-04: statistics stay per learned language; the via changes only the meanings shown | Unit `StatisticsViewModelTests.testViaChangesOnlyTheMeanings` (a temp database with two English words answered wrong and the Spanish pack through `PackFixtures`; English via English, then via Spanish: every number and the order of the hardest words unchanged; their meanings WordNet's, then En–Es · FD's), `testLimitedPairShowsEnglishMeanings` (a Greek word answered wrong, Greek via English, then via Russian: the same English meaning and the same numbers) |
+| kyukhin 2026-11-04: statistics stay per learned language; the via changes only the meanings shown | Unit `StatisticsViewModelTests.testViaChangesOnlyTheMeanings` (a temp database with two English words answered wrong and the Spanish pack through `PackFixtures`; English via English, then via Spanish: every number and the order of the hardest words unchanged; their meanings WordNet's, then En–Es · FD's), `testLimitedPairShowsEnglishMeanings` (a Greek word answered wrong, Greek via English, then via Russian: the same English meaning and the same numbers) |
 | #166, #164: a 30-day chart and the 20 hardest words, each opening its Definition | Unit `DailySeriesTests.testThirtyDaysWithZeros`; `HardestWordsTests.testOrdering` (mistakes, then accuracy, then the latest), `LearningStatsStoreTests.testHardestWordsCountEveryAnswer` (a word wrong 2 times in 10: 2 mistakes, 80%, its latest mistake the last wrong answer, not the last answer), `testOnlyTheLast30Days`, `testAtMost20`. UI `StatisticsFlowTests.testChartAndHardestWords` (the chart and its summary; row 1 is the word with 5 mistakes; a tap opens its Definition) |
 | #166, #163, #164: accuracy by direction and by tense; the hardest verbs | Unit `AccuracyTests.testByDirection` (match counts as recognition, accent as right), `testByTenseFromDrillRows` (both voices of a tense in one group); `HardestWordsTests.testHardestVerbs`. UI `StatisticsFlowTests.testConjugationBlock` (the fixture's 3 tenses), `testNoDrillAnswersNoBlock` |
-| #166 (Kirill, 2026-11-03): progress per language; the goal and the streak shared | Unit `StatisticsViewModelTests.testBlocksFollowTheChosenLanguage` (`stats` fixture: Greek and English give different Today numbers, lists, accuracy and hardest words; the goal, the streak and the chart are the same for both), `LearningStatsStoreTests.testEveryLanguageCountsTowardTheGoal` (a Greek and an English answer: the day counts 2), `ListProgressTests.testMyWordsPerLanguage`, `StatisticsViewModelTests.testOnlyLearnedLanguages` (English stopped: no switch, no English numbers; the streak still counts its past answers). UI `StatisticsFlowTests.testLanguageSwitch` (the switch shows; English: `stats_today_new` changes, `stats_streak_current` stays 9) |
+| #166 (kyukhin, 2026-11-03): progress per language; the goal and the streak shared | Unit `StatisticsViewModelTests.testBlocksFollowTheTab` (was `testBlocksFollowTheChosenLanguage`; `stats` fixture, `lang` ell and eng: different Today numbers, lists, accuracy and hardest words; the goal, the streak and the chart are the same for both), `LearningStatsStoreTests.testEveryLanguageCountsTowardTheGoal` (a Greek and an English answer: the day counts 2), `ListProgressTests.testMyWordsPerLanguage`, `StatisticsViewModelTests.testStoppedLanguageStillCounts` (was `testOnlyLearnedLanguages`; English stopped: the streak and the chart still count its past answers). UI `StatisticsFlowTests.testStatisticsFollowTheTab` (was `testLanguageSwitch`; `-learningFixture stats`: no `stats_language_switch`; opened from the English tab, `stats_today_new` is English's, from the Greek tab Greek's; `stats_streak_current` is 9 on both) |
 | #164: every block shows the numbers from the aggregates | Unit `StatisticsViewModelTests.testBlocksEqualTheAggregates` (a temp database with the `stats` fixture) |
 | #166, #164: VoiceOver reads each chart as a short summary | Unit `ChartSummaryTests` (the texts in 5 languages; Arabic starts with U+200F). UI `StatisticsFlowTests.testChartsHaveSummaries` (the label of `stats_chart_30d` and of the conjugation chart) |
 | #165: a learned, a learning and a new word show the right status and dates | Unit `WordStatusTextTests` (the three states; today, tomorrow and a date; mistakes); `LearningStatsStoreTests.testErrorCountForAWord` (only the word's recognition and production rows: a conjugation row and the same spelling in another language do not count). UI `StatisticsFlowTests.testDefinitionShowsStatus` (the fixture's three words) |
@@ -316,13 +318,13 @@ A day starts at 4 AM local time (0131, Decisions), here too.
   - E3's list rows take the optional `ListProgress`, which #164 fills;
   - the hardest words show a list word's stored text and open no Definition when it has no entry.
 - 2026-11-03: Aligned with 0130's checked lists (Open question 6): the Lists block shows every checked list instead of one learning list.
-- 2026-11-03: Learning is per language (Kirill): the statistics screen gets 0131's language switch and shows the chosen language, except the goal, the streak and the 30-day chart, which count every language; the queries take `lang`; #164 grows by 0.5 day.
-- 2026-11-03: Learning a language is explicit (Kirill, 0131): the switch shows the learned languages, a stopped language's numbers are hidden while its past answers still count for the goal and the streak; the `stats` fixture sets `learning_languages`; dates are to be replanned with #237.
+- 2026-11-03: Learning is per language (kyukhin): the statistics screen gets 0131's language switch and shows the chosen language, except the goal, the streak and the 30-day chart, which count every language; the queries take `lang`; #164 grows by 0.5 day.
+- 2026-11-03: Learning a language is explicit (kyukhin, 0131): the switch shows the learned languages, a stopped language's numbers are hidden while its past answers still count for the goal and the streak; the `stats` fixture sets `learning_languages`; dates are to be replanned with #237.
 - 2026-11-04: Review fixes: accuracy by tense groups both voices of a tense, on the part of `facet` before the dot (`Accuracy.byTense`, `tenseAccuracy`, `stats_tense_<tense>`, a fixture tense in both voices); `setGoal` is a write, not a `read`.
-- 2026-11-04: Approved by Kirill.
-- 2026-11-04: Learning is chosen as a language pair (Kirill, 0131): numbers stay per learned language; the hardest words show their meaning in the language's via, through 0131's `meanings` (#164 +0.25). Nothing is cut if late: the release date moves (Kirill).
+- 2026-11-04: Approved by kyukhin.
+- 2026-11-04: Learning is chosen as a language pair (kyukhin, 0131): numbers stay per learned language; the hardest words show their meaning in the language's via, through 0131's `meanings` (#164 +0.25). Nothing is cut if late: the release date moves (kyukhin).
 - 2026-11-04: Review fix: the Per language row now says plainly that the goal, goal met, the streak and the 30-day chart count every language.
-- 2026-11-04: Greek via Russian is offered as a limited pair (Kirill, 0131): the hardest words' meanings follow the pair's meanings language (English for it); a test covers it. No size change.
+- 2026-11-04: Greek via Russian is offered as a limited pair (kyukhin, 0131): the hardest words' meanings follow the pair's meanings language (English for it); a test covers it. No size change.
 - 2026-11-04: Review fixes after approval: a freeze comes on Mondays only, as the rules say (the pseudocode also gave one in a first week that starts after Monday); the hardest words and verbs aggregate every answer on their cards, with the latest wrong one, so accuracy is right. Tests added.
 - 2026-11-05: Review fixes after approval: `translation_lang` is in the `learn_word` inputs; the query table names the `lang` argument of every per-language query; `errorCount` counts only the word's own recognition and production mistakes, with its test.
 - 2026-11-05: Review fix: `reviewRows(run:)` reads 0131's new `learn_review_run` index instead of scanning the log.
@@ -341,3 +343,5 @@ A day starts at 4 AM local time (0131, Decisions), here too.
 - 2026-11-08: Review fixes (CodeRabbit, PRs #255, #271): in list progress a paused word counts as new, even with both cards at 30 days or more (as `ListProgress.stage` has it since #163); a switch whose blocks arrive after a later switch is ignored. Tests added.
 - 2026-11-08: Performance in Release (iPhone 15 Pro, iOS 17.5, `stats` fixture, the view models' load, median of 3 after a warm-up): the Learn home loads in 2 to 5 ms (24 to 26 ms with Greek A1 to B1 checked; target 100 ms) and Statistics in 17 to 26 ms (target 300 ms), so nothing changed for speed. The targets are set for the 18k-answer fixture, so these runs do not yet show them met. The Debug figures above (`wordStates` 231 ms, `Forecast.days` 84 ms) do not occur in Release: there `wordStates` takes under 1 ms and `Forecast.days` under 1 ms; the lists' word reads (`wordListItems`, about 14 ms) are most of Statistics. The 18k-answer fixture is still to be written.
 - 2026-11-08: Epic #166 closed: Implemented. The Release performance line names each screen's target and says the runs used the `stats` fixture, not the 18k-answer one the targets are set for (CodeRabbit, PR #275).
+- 2026-11-10: Revision for epic #292 and #300 (Draft, awaiting kyukhin's approval): the ring and the streak show on every pair tab (#293); Statistics shows the language of the tab it opens from and loses its switch, `StatisticsViewModel(lang:)` (#295); the run that reaches the goal ends with the goal sound (#300). No data change.
+- 2026-11-10: The #292/#300 revision approved by kyukhin.

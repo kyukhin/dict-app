@@ -1,7 +1,7 @@
 # LibreDict overview
 
 > Spec written by Claude (AI) for LibreDict.
-> Status: Approved by Kirill on 2026-10-27 · Epic: — · Tickets: — · Updated: 2026-11-08
+> Status: Approved by kyukhin on 2026-10-27 · Epic: — · Tickets: — · Updated: 2026-11-08
 
 This spec describes the app as shipped in 1.4.0 (tag `v1.4.0`, master `f0f806e`), plus the v2.0.0 changes merged since (see History). Read it before any design, development, testing or review task, then read the spec of your epic. It describes the code as it is now. The last sections list what v2.0.0 will change. Paths are relative to the repo root. Links work from this folder.
 
@@ -38,7 +38,7 @@ LibreDict is a free offline dictionary for iPhone and iPad. It has no account, n
 | Dictionary info (i) | One section per source of the pair: provider, direction, source ID, version, entry count and the full license (#91) | [DictionaryDetailView](../../DictApp/DictApp/Views/DictionaryDetailView.swift), a pure renderer |
 | Manage Dictionaries | Imports a `.json`, `.sqlite` or `.db` file through the system file picker, then shows a message with the entry count. Also shows a reference of the supported formats | [ManageDictionariesView](../../DictApp/DictApp/Views/ManageDictionariesView.swift) · `ManageDictionariesViewModel` |
 | Support | Report a bug: the mail sheet, then a `mailto:` link, then a "copy address" alert as the last fallback. Write a review: an App Store deep link (#81) | `SupportViewModel`, `SupportService`, `MailComposeView` |
-| Credits | Opened from the row under the version (#180). App; Data Sources: one line per data source the app ships, in the bundle or a pack, installed or not, each with its license and attribution (WordNet, OpenRussian, FreeDict, the Spanish, Arabic and Greek WordNets, Wiktionary via kaikki.org, Kirill's Greek lists, CEFR-J, Octanove, FrequencyWords, Tatoeba, the Greek grammar notes); Software: GRDB.swift, whose row opens its LICENSE verbatim (MIT asks to ship the notice); Licenses: each license the lines and GRDB name, untranslated, with a link to its text | [CreditsView](../../DictApp/DictApp/Views/CreditsView.swift) · `Credits` in Models.swift |
+| Credits | Opened from the row under the version (#180). App; Data Sources: one line per data source the app ships, in the bundle or a pack, installed or not, each with its license and attribution (WordNet, OpenRussian, FreeDict, the Spanish, Arabic and Greek WordNets, Wiktionary via kaikki.org, kyukhin's Greek lists, CEFR-J, Octanove, FrequencyWords, Tatoeba, the Greek grammar notes); Software: GRDB.swift, whose row opens its LICENSE verbatim (MIT asks to ship the notice); Licenses: each license the lines and GRDB name, untranslated, with a link to its text | [CreditsView](../../DictApp/DictApp/Views/CreditsView.swift) · `Credits` in Models.swift |
 | Version | `AppVersion.current.displayString`, i.e. the `git describe` of the build (see Release) | SettingsView · [AppVersion](../../DictApp/DictApp/Models/AppVersion.swift) |
 
 `AboutView.swift` is an empty leftover: About is a section of Settings.
@@ -63,13 +63,13 @@ LibreDict is a free offline dictionary for iPhone and iPad. It has no account, n
 
 ### Decisions on record
 
-- 2026-10-16 (Kirill): Greek ships as one "Greek – English" pair of four sources. The Freelang origin of `freedict-eng-ell` is accepted.
-- 2026-10-21 (Kirill): no custom review prompt (#83 went to the wishlist under App Review guideline 5.6.1). #12 and #81 cover reviews.
-- 2026-10-22 (Kirill): bookmarks are removed in 2.0.0 (see Upcoming changes).
+- 2026-10-16 (kyukhin): Greek ships as one "Greek – English" pair of four sources. The Freelang origin of `freedict-eng-ell` is accepted.
+- 2026-10-21 (kyukhin): no custom review prompt (#83 went to the wishlist under App Review guideline 5.6.1). #12 and #81 cover reviews.
+- 2026-10-22 (kyukhin): bookmarks are removed in 2.0.0 (see Upcoming changes).
 - 2026-10-26: archives must be built from a tagged commit. 1.4.0 was archived before tagging and shows `1.3.0-20-gbd22843` in Settings.
-- 2026-10-27 (Kirill): bug reports keep the marketing version and build number. Since #196 every App Store build sits on its release tag, so they identify the commit. The unused `AppVersion.verboseString` is removed (#203).
-- 2026-10-27 (Kirill): `-resetData`, `-clearFixtureImports` and `-importFixtureViaCallback:` work in DEBUG builds only (#203). No user can pass launch arguments to an App Store build, so this is hygiene, not security. The 14 KB import fixtures stay in the bundle.
-- 2026-10-27 (Kirill): the old Cline rulebook and development guide are deleted in favour of the agent prompts in `.claude/agents/`, the README and the specs (#203). `docs/REMOTE_CI_SETUP.md` stays as it is until CI moves to a new machine.
+- 2026-10-27 (kyukhin): bug reports keep the marketing version and build number. Since #196 every App Store build sits on its release tag, so they identify the commit. The unused `AppVersion.verboseString` is removed (#203).
+- 2026-10-27 (kyukhin): `-resetData`, `-clearFixtureImports` and `-importFixtureViaCallback:` work in DEBUG builds only (#203). No user can pass launch arguments to an App Store build, so this is hygiene, not security. The 14 KB import fixtures stay in the bundle.
+- 2026-10-27 (kyukhin): the old Cline rulebook and development guide are deleted in favour of the agent prompts in `.claude/agents/`, the README and the specs (#203). `docs/REMOTE_CI_SETUP.md` stays as it is until CI moves to a new machine.
 - 2026-10-27 (PM): with no voice for the headword's language, Definition hides the speaker button rather than read the word with another language's voice (#202).
 
 ## Design
@@ -288,12 +288,12 @@ The specs of these epics will replace parts of this overview:
 ## Open questions
 
 1. Resolved by #202: TTS speaks each headword in its source's language (see Rules worth knowing).
-2. Resolved (Kirill, 2026-10-27): History ignoring the stored `source` is a bug, fixed in E1 (#138, see [0129-dictionary-file.md](0129-dictionary-file.md)).
+2. Resolved (kyukhin, 2026-10-27): History ignoring the stored `source` is a bug, fixed in E1 (#138, see [0129-dictionary-file.md](0129-dictionary-file.md)).
 
 ## History
 
 - 2026-10-26: First version, describing master `f0f806e` (1.4.0).
-- 2026-10-27: Approved by Kirill.
+- 2026-10-27: Approved by kyukhin.
 - 2026-10-27: Open questions 3–5 resolved and moved to Decisions on record (#203): the launch test hooks are DEBUG only, `AppVersion.verboseString` is gone, two stale root documents are deleted, and the agent prompts name the right unit-test target.
 - 2026-10-27: #202 speaks each headword in its source's language and hides the speaker button when the device has no voice for it (PM decision). Resolves open question 1.
 - 2026-10-29: #138: the app attaches the bundled seed read-only as `dict` and keeps user data in `user.sqlite`. The unpack, its progress bar and the 1.x schema code are gone. History and Recent words reopen the stored source; the bookmark star and tab use My words. Updated Screens, Rules, Code map, Bundled data, Database, Launch, Imported dictionaries, Search, Localization and the test sections.
@@ -307,8 +307,8 @@ The specs of these epics will replace parts of this overview:
 - 2026-10-31: #144: the Definition screen of a Greek headword shows its conjugation or declension table, verbs with "All forms"; Credits names Wiktionary. Updated Screens, Code map, Database, Localization and the test sections.
 - 2026-11-02: #143: a one-word query of 2+ letters a–z also lists the dictionary words it is a form of, through a port of WordNet morphy and two new tables (`user_version` 3), captioned "form of go". The forms step keeps each link page's own spelling (`form_link`), which the table links now check, and reads no synonym gloss as a link. Updated Screens, Rules, Code map, Bundled data, Database, Search, Localization, the test sections and Upcoming changes.
 - 2026-11-02: #229: every async unit test runs on the main actor, so XCTest records each failing assertion, and test timeouts are on, so a hung test fails instead of stalling the run. Updated the unit-test section and Known gotchas.
-- 2026-11-03 (Kirill): the first 2.0 TestFlight build is an alpha, tagged `v2.0.0-alpha.1`; the archive guard accepts `-alpha.N`, `-beta.N` and `-rc.N` tags of the version. Updated Release order.
+- 2026-11-03 (kyukhin): the first 2.0 TestFlight build is an alpha, tagged `v2.0.0-alpha.1`; the archive guard accepts `-alpha.N`, `-beta.N` and `-rc.N` tags of the version. Updated Release order.
 - 2026-11-04: #237 drafted ([0237](0237-downloads.md)): pointers in Why, the Dictionaries row, Bundled data and Upcoming changes. The rest describes the app as shipped until #237 is implemented.
-- 2026-11-04 (Kirill): v2.0.0 moves to 2026-12-04 for #237; code complete 11-27.
+- 2026-11-04 (kyukhin): v2.0.0 moves to 2026-12-04 for #237; code complete 11-27.
 - 2026-11-06: #240: the English bundle measures 56.2 MB.
 - 2026-11-08: #180: Credits moves under the version, names WordNet's license, credits GRDB.swift with its MIT text and lists the licenses with links (Screens, Why).
