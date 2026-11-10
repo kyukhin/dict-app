@@ -3143,3 +3143,50 @@ enum GrammarLinks {
         return result
     }
 }
+
+// MARK: - Kept lesson (0131, #296)
+
+/// One item of a kept lesson: a word card and whether it is a wrong
+/// answer's retry, which does not come back again.
+struct LessonItem: Hashable, Sendable {
+    let card: CardKey
+    var isRetry = false
+}
+
+/// The daily session closed before its end (`learn_lesson`): the items
+/// left, in order, and the answers given. Pure; the JSON of `items` is
+/// `[{"word":"γράφω","kind":"production","retry":false}, …]`.
+struct KeptLesson: Hashable, Sendable {
+    let lang: String
+    /// The learning day it started: on another day it is not offered.
+    let day: LearnDay
+    /// Its log rows' `run_id`.
+    let runID: UUID
+    /// Answers given so far: the bar's value.
+    var answered: Int
+    var items: [LessonItem]
+
+    private struct StoredItem: Codable {
+        let word: String
+        let kind: String
+        let retry: Bool
+    }
+
+    /// `items` as stored.
+    var itemsJSON: String {
+        let stored = items.map { StoredItem(word: $0.card.word.word, kind: $0.card.kind.rawValue, retry: $0.isRetry) }
+        let data = (try? JSONEncoder().encode(stored)) ?? Data("[]".utf8)
+        return String(decoding: data, as: UTF8.self)
+    }
+
+    /// The items of a stored `items` text of `lang`; nil when unreadable.
+    static func items(json: String, lang: String) -> [LessonItem]? {
+        guard let stored = try? JSONDecoder().decode([StoredItem].self, from: Data(json.utf8)) else { return nil }
+        var items: [LessonItem] = []
+        for item in stored {
+            guard let kind = CardKind(rawValue: item.kind), CardKind.wordKinds.contains(kind) else { return nil }
+            items.append(LessonItem(card: CardKey(word: WordKey(lang: lang, word: item.word), kind: kind), isRetry: item.retry))
+        }
+        return items
+    }
+}

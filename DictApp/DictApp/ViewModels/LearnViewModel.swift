@@ -37,6 +37,9 @@ final class LearnViewModel: ObservableObject {
     /// first one on its way, with its progress, or failed, with Try again.
     @Published private(set) var pairPacks: [PackID] = []
     @Published private(set) var today: Today?
+    /// The items left of the chosen language's lesson closed early (#296):
+    /// "Continue lesson · 7 left" replaces Start. nil: none to continue.
+    @Published private(set) var lessonLeft: Int?
     /// Words of the chosen language with a card in mistakes practice: wrong
     /// in the last 7 days and not right since. 0 hides the row.
     @Published private(set) var mistakeCount = 0
@@ -110,6 +113,7 @@ final class LearnViewModel: ObservableObject {
         do {
             if learned.isEmpty {
                 today = nil
+                lessonLeft = nil
                 pair = nil
                 canMatch = false
                 drillLevel = nil
@@ -177,6 +181,7 @@ final class LearnViewModel: ObservableObject {
             : nil
         let day = clock.today
         try await loadGoal(today: day)
+        lessonLeft = try await db.keptLesson(lang: language, today: day)?.items.count
         pair = try await languages.pair(for: language)
         if let pair {
             pairPacks = await languages.packs.packs(of: pair)
@@ -374,14 +379,20 @@ final class ExerciseRunViewModel: ObservableObject {
     let meaningsLang: String?
     /// `-learningAnswerHints`.
     let answerHints: Bool
-    /// One per run: its log rows.
-    let runID = UUID()
+    /// One per run: its log rows. A continued lesson (#296) takes its own,
+    /// once, at start.
+    private(set) var runID = UUID()
 
     private let db: DatabaseService
     private let settings: SettingsService
     private let languages: LearningLanguageService
     private let clock: LearningClock
     private let player: FeedbackPlayer
+    /// The answers a continued lesson had before this sitting: the plan
+    /// holds only its items left (#296).
+    private var base = 0
+    /// The session's lesson: the learning day it started (kept across 4 AM).
+    private var lessonDay: LearnDay?
     /// The answer that reaches today's goal cancels today's reminder (#162).
     private let reminder: LearningReminder?
     private var rng: SplitMix64
@@ -446,9 +457,15 @@ final class ExerciseRunViewModel: ObservableObject {
                 let practice = try await db.practiceCards(lang: lang, kind: kind, limit: .max).filter(hasMeaning)
                 plan = SessionPlanner.trainer(kind: kind, due: due, newWords: newWords, practice: practice, today: today)
             case .session:
-                let due = try await db.dueCards(lang: lang, today: today).filter(hasMeaning)
-                let newWords = try await startNewWords(today: today)
-                plan = SessionPlanner.session(due: due, newWords: newWords, today: today)
+                lessonDay = today
+                if let kept = try await db.keptLesson(lang: lang, today: today) {
+                    try await resume(kept)
+                } else {
+                    let due = try await db.dueCards(lang: lang, today: today).filter(hasMeaning)
+                    let newWords = try await startNewWords(today: today)
+                    plan = SessionPlanner.session(due: due, newWords: newWords, today: today)
+                    try await saveLesson()
+                }
             case .mistakes:
                 let cards = try await db.mistakeCards(since: SessionPlanner.mistakesSince(today: today), lang: lang)
                 plan = SessionPlanner.mistakes(cards: cards.filter(hasMeaning))
@@ -457,6 +474,34 @@ final class ExerciseRunViewModel: ObservableObject {
             errorMessage = error.localizedDescription
         }
         await show()
+    }
+
+    /// Continue lesson (#296): the kept run, its answers and its items with
+    /// their current states; a card that is gone or paused is dropped, as a
+    /// skipped question is.
+    private func resume(_ kept: KeptLesson) async throws {
+        runID = kept.runID
+        base = kept.answered
+        answered = kept.answered
+        let states = try await db.cardStates(kept.items.map(\.card))
+        plan = kept.items.compactMap { item in
+            guard let card = states[item.card], !card.isSuspended else { return nil }
+            return PlannedItem(card: card, isRetry: item.isRetry)
+        }
+        if plan.count != kept.items.count { try await saveLesson() }
+    }
+
+    /// The plan's items as the lesson to keep; nil outside the session.
+    private func lesson(items: ArraySlice<PlannedItem>, answered: Int) -> KeptLesson? {
+        guard run == .session, let lessonDay else { return nil }
+        return KeptLesson(lang: lang, day: lessonDay, runID: runID, answered: answered,
+                          items: items.map { LessonItem(card: $0.card.key, isRetry: $0.isRetry) })
+    }
+
+    /// Start, or a skipped question: the items left, as they are.
+    private func saveLesson() async throws {
+        guard let lesson = lesson(items: plan[index...], answered: answered) else { return }
+        try await db.saveLesson(lesson)
     }
 
     /// The words of `lang` in learning with their meanings in the pair: the
@@ -544,8 +589,8 @@ final class ExerciseRunViewModel: ObservableObject {
             if let word = words[card.key.word], let built = await build(card, word) {
                 sheetExamples = await shownExamples(of: built.word.key)
                 question = built
-                position = index + 1
-                total = plan.count
+                position = base + index + 1
+                total = base + plan.count
                 shownAt = clock.now()
                 phase = .question
                 return
@@ -553,9 +598,10 @@ final class ExerciseRunViewModel: ObservableObject {
             // Skipped: the cards around it may now be of one word.
             plan.remove(at: index)
             plan = SessionPlanner.separatingWords(plan, from: index)
+            do { try await saveLesson() } catch { errorMessage = error.localizedDescription }
         }
         question = nil
-        total = plan.count
+        total = base + plan.count
         guard answered > 0 else {
             phase = .empty
             return
@@ -648,21 +694,28 @@ final class ExerciseRunViewModel: ObservableObject {
         let record = AnswerRecord(card: question.card.key, exercise: question.exercise, mode: run.mode,
                                   runID: runID, outcome: outcome, durationMs: durationMs)
         let at = index
-        let write = Task { await self.write(record, today: today, wrongAt: outcome.isRight ? nil : at) }
+        // #296: the items left after this answer, as the plan will hold them.
+        var left = plan
+        if !outcome.isRight {
+            let next = FixedLadder().next(question.card, outcome: outcome, today: today)
+            left = SessionPlanner.separatingWords(SessionPlanner.requeue(plan, wrongAt: at, card: next), from: at + 1)
+        }
+        let kept = lesson(items: left[(at + 1)...], answered: answered)
+        let write = Task { await self.write(record, today: today, wrongAt: outcome.isRight ? nil : at, lesson: kept) }
         pendingWrite = write
         await write.value
     }
 
     /// Writes the answer with the daily goal in force (E10's `learn_day`),
     /// and requeues a wrong card at the end, apart from its word's other card.
-    private func write(_ record: AnswerRecord, today: LearnDay, wrongAt index: Int?) async {
+    private func write(_ record: AnswerRecord, today: LearnDay, wrongAt index: Int?, lesson: KeptLesson?) async {
         do {
-            let card = try await db.recordAnswer(record, today: today, goal: settings.learningDailyGoal)
+            let card = try await db.recordAnswer(record, today: today, goal: settings.learningDailyGoal, lesson: lesson)
             await reminder?.answerRecorded(today: today)
             if let index {
                 plan = SessionPlanner.separatingWords(SessionPlanner.requeue(plan, wrongAt: index, card: card),
                                                       from: index + 1)
-                total = plan.count
+                total = base + plan.count
             }
             errorMessage = nil
         } catch {

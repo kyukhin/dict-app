@@ -775,6 +775,18 @@ actor DatabaseService {
                 ) WITHOUT ROWID;
                 """)
         }
+        // The lesson a tab can continue (0131, #296): one row per language.
+        migrator.registerMigration("292-1-kept-lesson") { db in
+            try db.execute(sql: """
+                CREATE TABLE learn_lesson (
+                    lang      TEXT PRIMARY KEY,
+                    day       TEXT NOT NULL,
+                    run_id    TEXT NOT NULL,
+                    answered  INTEGER NOT NULL,
+                    items     TEXT NOT NULL
+                ) WITHOUT ROWID;
+                """)
+        }
         return migrator
     }
 
@@ -2380,7 +2392,7 @@ actor DatabaseService {
     /// inserted new, due today, when missing. A word card must exist.
     @discardableResult
     func recordAnswer(_ answer: AnswerRecord, today: LearnDay, goal: Int,
-                      scheduler: any Scheduler = FixedLadder()) async throws -> CardState {
+                      scheduler: any Scheduler = FixedLadder(), lesson: KeptLesson? = nil) async throws -> CardState {
         let pool = try await userPool()
         return try await pool.write { db in
             let key = answer.card
@@ -2417,7 +2429,60 @@ actor DatabaseService {
                 ])
             try db.execute(sql: "INSERT OR IGNORE INTO learn_day(day, goal) VALUES (?, ?)",
                            arguments: [today.rawValue, goal])
+            // #296: the session's lesson after this answer, in the same transaction.
+            if let lesson { try Self.writeLesson(lesson, db) }
             return next
+        }
+    }
+
+    /// The lesson row, upserted; deleted when no item is left.
+    private nonisolated static func writeLesson(_ lesson: KeptLesson, _ db: Database) throws {
+        if lesson.items.isEmpty {
+            try db.execute(sql: "DELETE FROM learn_lesson WHERE lang = ?", arguments: [lesson.lang])
+        } else {
+            try db.execute(sql: """
+                INSERT OR REPLACE INTO learn_lesson(lang, day, run_id, answered, items) VALUES (?, ?, ?, ?, ?)
+                """, arguments: [lesson.lang, lesson.day.rawValue, lesson.runID.uuidString, lesson.answered, lesson.itemsJSON])
+        }
+    }
+
+    /// The tab's lesson of `today` (0131, #296); nil when it has none, its
+    /// day is another (a stale row is never offered) or it is unreadable.
+    func keptLesson(lang: String, today: LearnDay) async throws -> KeptLesson? {
+        let pool = try await userPool()
+        return try await read(pool) { db in
+            guard let row = try Row.fetchOne(db, sql: "SELECT * FROM learn_lesson WHERE lang = ?", arguments: [lang])
+            else { return nil }
+            guard let day = LearnDay(rawValue: row["day"]), day == today else { return nil }
+            // A damaged row is no lesson: Start builds one and overwrites it.
+            guard let runID = UUID(uuidString: row["run_id"]),
+                  let items = KeptLesson.items(json: row["items"], lang: lang), !items.isEmpty
+            else { return nil }
+            return KeptLesson(lang: lang, day: day, runID: runID, answered: row["answered"], items: items)
+        }
+    }
+
+    /// Start, or a skipped question: the lesson as it is, upserted; an empty
+    /// one deletes the row. A plain write.
+    func saveLesson(_ lesson: KeptLesson) async throws {
+        let pool = try await userPool()
+        try await pool.write { db in try Self.writeLesson(lesson, db) }
+    }
+
+    /// The current states of the cards of a continued lesson; a key without
+    /// a card is absent.
+    func cardStates(_ keys: [CardKey]) async throws -> [CardKey: CardState] {
+        let pool = try await userPool()
+        return try await read(pool) { db in
+            var states: [CardKey: CardState] = [:]
+            for key in keys {
+                if let row = try Row.fetchOne(db, sql: """
+                    SELECT * FROM learn_card WHERE lang = ? AND word = ? AND kind = ? AND facet = ?
+                    """, arguments: [key.word.lang, key.word.word, key.kind.rawValue, key.facet]) {
+                    states[key] = try Self.cardState(row)
+                }
+            }
+            return states
         }
     }
 
@@ -3147,7 +3212,8 @@ actor DatabaseService {
         let pool = try await userPool()
         try await pool.write { db in
             try db.execute(sql: """
-                DELETE FROM learn_review; DELETE FROM learn_card; DELETE FROM learn_word; DELETE FROM learn_day
+                DELETE FROM learn_review; DELETE FROM learn_card; DELETE FROM learn_word; DELETE FROM learn_day;
+                DELETE FROM learn_lesson
                 """)
         }
     }

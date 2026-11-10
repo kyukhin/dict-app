@@ -10883,6 +10883,21 @@ final class LegacyMigrationTests: XCTestCase {
 
     // MARK: Upgrades
 
+    /// #296: a 1.4 database moved into a user database that already has `learn_lesson`: empty, no learning data invented.
+    func testMigrates140FixtureLeavesNoLesson() async throws {
+        try await assertMigrates(Self.v140)
+        let rows = try await db.writeForTesting { conn in
+            (try Int.fetchOne(conn, sql: "SELECT COUNT(*) FROM learn_lesson") ?? -1,
+             try Int.fetchOne(conn, sql: "SELECT COUNT(*) FROM learn_review") ?? -1,
+             try Int.fetchOne(conn, sql: "SELECT COUNT(*) FROM learn_word") ?? -1,
+             try String.fetchAll(conn, sql: "SELECT identifier FROM grdb_migrations ORDER BY identifier"))
+        }
+        XCTAssertEqual(rows.0, 0)
+        XCTAssertEqual(rows.1, 0)
+        XCTAssertEqual(rows.2, 0)
+        XCTAssertEqual(rows.3.last, "292-1-kept-lesson")
+    }
+
     /// Upgrade from 1.4.0 keeps bookmarks (as My words), History, both
     /// imports and the preferences.
     @MainActor
@@ -18044,8 +18059,8 @@ final class LearningStoreTests: XCTestCase {
              Dictionary(uniqueKeysWithValues: try Row.fetchAll(conn, sql: "PRAGMA database_list")
                 .map { ($0["name"] as String, $0["file"] as String) }))
         }
-        XCTAssertEqual(main, ["learn_card", "learn_card_due", "learn_day", "learn_review", "learn_review_day",
-                              "learn_review_run", "learn_review_word", "learn_word"])
+        XCTAssertEqual(main, ["learn_card", "learn_card_due", "learn_day", "learn_lesson", "learn_review",
+                              "learn_review_day", "learn_review_run", "learn_review_word", "learn_word"])
         XCTAssertEqual(dictionary, [], "no learn_* name in the dictionary file")
         XCTAssertEqual(files["main"].map { URL(fileURLWithPath: $0).resolvingSymlinksInPath().path },
                        URL(fileURLWithPath: userPath).resolvingSymlinksInPath().path)
@@ -18189,7 +18204,7 @@ final class LearningStoreTests: XCTestCase {
         try await open()
 
         let migrations = try await rows("SELECT identifier FROM grdb_migrations ORDER BY identifier")
-        XCTAssertEqual(migrations, ["129-1-core", "130-1-word-lists", "131-1-learning", "166-1-daily-goal"])
+        XCTAssertEqual(migrations, ["129-1-core", "130-1-word-lists", "131-1-learning", "166-1-daily-goal", "292-1-kept-lesson"])
         for table in ["learn_word", "learn_card", "learn_review"] {
             let n = try await count("SELECT COUNT(*) FROM \(table)")
             XCTAssertEqual(n, 0, "\(table) is empty after the migration")
@@ -18682,7 +18697,7 @@ final class LearningStoreTests: XCTestCase {
 
         try await db.clearLearning()
 
-        for table in ["learn_word", "learn_card", "learn_review", "learn_day"] {
+        for table in ["learn_word", "learn_card", "learn_review", "learn_day", "learn_lesson"] {
             let n = try await count("SELECT COUNT(*) FROM \(table)")
             XCTAssertEqual(n, 0, table)
         }
@@ -20507,7 +20522,7 @@ final class LearningStatsStoreTests: XCTestCase {
 
         try await store.open()
         let migrations = try await store.rows("SELECT identifier FROM grdb_migrations ORDER BY identifier")
-        XCTAssertEqual(migrations.last, "166-1-daily-goal")
+        XCTAssertEqual(migrations.last, "292-1-kept-lesson")
         let goals = try await store.db.learnDayGoals()
         XCTAssertEqual(goals, [:], "no backfill")
         let counts = try await store.db.dayCounts()
@@ -28048,6 +28063,8 @@ final class SessionPlannerTests: ExerciseTestCase {
         XCTAssertNil(vm.errorMessage)
         XCTAssertEqual(vm.total, 6, "three new words, recognition then production")
 
+        // Each run plans anew: the closed lesson (#296) is not continued here.
+        try await execute("DELETE FROM learn_lesson")
         settings.learningNewPerDay = 0
         vm = sessionRun()
         await vm.start()
@@ -28055,6 +28072,7 @@ final class SessionPlannerTests: ExerciseTestCase {
         let none = try await NewWordPicker(db: db, settings: settings).left(lang: "ell", today: today)
         XCTAssertEqual(none, 0)
 
+        try await execute("DELETE FROM learn_lesson")
         settings.learningNewPerDay = 50
         vm = sessionRun()
         await vm.start()
@@ -28390,6 +28408,8 @@ final class SessionRunTests: ExerciseTestCase {
         let introduced = try await rows("SELECT word FROM learn_word ORDER BY word")
         XCTAssertEqual(introduced.count, 4, "only the four picked words have rows")
 
+        // The lesson is dropped, as the day's end does (#296): Start plans anew.
+        try await execute("DELETE FROM learn_lesson")
         let second = sessionRun()
         await second.start()
         let asked = try await answer(second)
@@ -33918,5 +33938,537 @@ final class CreditsTests: XCTestCase {
                 }
             }
         }
+    }
+}
+
+// MARK: - Continue lesson (0131, #296)
+
+/// A lesson closed early is kept in `learn_lesson` and continues at the next
+/// unanswered question; each answer counts once; the day's end drops it.
+final class KeptLessonTests: ExerciseTestCase {
+    private let day1 = "2026-11-04T12:00:00Z"
+
+    /// Five new words: 10 questions (3 recognitions, 3 productions, 2 and 2).
+    private func fiveWords() async throws {
+        for index in 0..<5 {
+            try await db.learnWord(greek("ουσία\(index)"), today: today)
+        }
+        settings.learningAnswerMode = .choice
+    }
+
+    private func session(_ clock: TestClock) -> ExerciseRunViewModel {
+        ExerciseRunViewModel(run: .session, lang: "ell", meaningsLang: "eng", db: db, settings: settings,
+                             languages: languages, clock: clock.clock,
+                             player: FeedbackPlayer(settings: settings, sink: RecordingFeedbackSink()),
+                             reminder: nil, seed: 296, answerHints: true)
+    }
+
+    private func answerRecord(_ word: String, run: UUID = UUID(), outcome: Outcome = .right) -> AnswerRecord {
+        AnswerRecord(card: CardKey(word: WordKey(lang: "ell", word: word), kind: .recognition),
+                     exercise: .recognition, mode: .session, runID: run, outcome: outcome)
+    }
+
+    private func item(_ word: String, _ kind: CardKind = .recognition, retry: Bool = false) -> LessonItem {
+        LessonItem(card: CardKey(word: WordKey(lang: "ell", word: word), kind: kind), isRetry: retry)
+    }
+
+    func testItemsRoundTrip() throws {
+        let lesson = KeptLesson(lang: "ell", day: today, runID: UUID(), answered: 3,
+                                items: [item("γράφω", .production), item("νερό", retry: true)])
+        XCTAssertEqual(KeptLesson.items(json: lesson.itemsJSON, lang: "ell"), lesson.items)
+        XCTAssertEqual(KeptLesson.items(json: "[]", lang: "ell"), [])
+        XCTAssertNil(KeptLesson.items(json: "not json", lang: "ell"))
+        XCTAssertNil(KeptLesson.items(json: #"[{"word":"a","kind":"conjugation","retry":false}]"#, lang: "ell"))
+    }
+
+    func testKeptLessonMigration() throws {
+        let path = tempDir.appendingPathComponent("migration.sqlite").path
+        let queue = try DatabaseQueue(path: path)
+        try DatabaseService.migrator.migrate(queue, upTo: "166-1-daily-goal")
+        let before = try queue.read { try String.fetchAll($0, sql: "SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name") }
+        XCTAssertFalse(before.contains("learn_lesson"))
+        try DatabaseService.migrator.migrate(queue)
+        let after = try queue.read { try String.fetchAll($0, sql: "SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name") }
+        XCTAssertEqual(after, (before + ["learn_lesson"]).sorted(), "only learn_lesson is new")
+        let rows = try queue.read { try Int.fetchOne($0, sql: "SELECT COUNT(*) FROM learn_lesson") }
+        XCTAssertEqual(rows, 0)
+    }
+
+    func testStoreReadsOnlyTodaysLesson() async throws {
+        let run = UUID()
+        try await db.saveLesson(KeptLesson(lang: "ell", day: today, runID: run, answered: 2, items: [item("a"), item("b", retry: true)]))
+        let kept = try await db.keptLesson(lang: "ell", today: today)
+        XCTAssertEqual(kept?.runID, run)
+        XCTAssertEqual(kept?.answered, 2)
+        XCTAssertEqual(kept?.items, [item("a"), item("b", retry: true)])
+        let other = try await db.keptLesson(lang: "eng", today: today)
+        XCTAssertNil(other, "one lesson per language")
+        let tomorrow = try await db.keptLesson(lang: "ell", today: today.adding(days: 1))
+        XCTAssertNil(tomorrow, "a stale lesson is not offered")
+        try await db.saveLesson(KeptLesson(lang: "ell", day: today, runID: run, answered: 2, items: []))
+        let gone = try await db.keptLesson(lang: "ell", today: today)
+        XCTAssertNil(gone, "an empty lesson deletes the row")
+    }
+
+    func testAnswerAndLessonInOneTransaction() async throws {
+        try await fiveWords()
+        let run = UUID()
+        let start = KeptLesson(lang: "ell", day: today, runID: run, answered: 0, items: [item("ουσία0"), item("ουσία1")])
+        try await db.saveLesson(start)
+        try await execute("""
+            CREATE TRIGGER qa_lesson_fails BEFORE INSERT ON learn_lesson
+            BEGIN SELECT RAISE(ABORT, 'no lesson'); END
+            """)
+        var after = start
+        after.answered = 1
+        after.items = [item("ουσία1")]
+        do {
+            try await db.recordAnswer(answerRecord("ουσία0", run: run), today: today, goal: 20, lesson: after)
+            XCTFail("the write should fail")
+        } catch {}
+        let log = try await count("SELECT COUNT(*) FROM learn_review")
+        XCTAssertEqual(log, 0, "no log row without the lesson")
+        let kept = try await db.keptLesson(lang: "ell", today: today)
+        XCTAssertEqual(kept, start, "the lesson keeps the item")
+    }
+
+    func testLastAnswerDeletesTheLesson() async throws {
+        try await fiveWords()
+        let run = UUID()
+        try await db.saveLesson(KeptLesson(lang: "ell", day: today, runID: run, answered: 0, items: [item("ουσία0")]))
+        try await db.recordAnswer(answerRecord("ουσία0", run: run), today: today, goal: 20,
+                                  lesson: KeptLesson(lang: "ell", day: today, runID: run, answered: 1, items: []))
+        let rows = try await count("SELECT COUNT(*) FROM learn_lesson")
+        XCTAssertEqual(rows, 0)
+    }
+
+    func testClosedLessonContinuesAtTheNextQuestion() async throws {
+        try await fiveWords()
+        let clock = TestClock(day1)
+        let first = session(clock)
+        await first.start()
+        XCTAssertEqual(first.total, 10)
+        try await answer(first, limit: 3)
+        let fourth = try XCTUnwrap(first.question)
+        XCTAssertEqual(first.answered, 3)
+        let kept = try await db.keptLesson(lang: "ell", today: today)
+        XCTAssertEqual(kept?.answered, 3)
+        XCTAssertEqual(kept?.items.count, 7)
+
+        let second = session(clock)
+        await second.start()
+        XCTAssertEqual(second.phase, .question)
+        XCTAssertEqual(second.question?.card.key, fourth.card.key)
+        XCTAssertEqual(second.position, 4)
+        XCTAssertEqual(second.answered, 3)
+        XCTAssertEqual(second.total, 10)
+        XCTAssertEqual(second.runID, first.runID)
+    }
+
+    func testRetryIsKept() async throws {
+        try await fiveWords()
+        let clock = TestClock(day1)
+        let first = session(clock)
+        await first.start()
+        var count = 0
+        try await answer(first, limit: 3, wrong: { _ in count += 1; return count == 2 })
+        let kept = try await db.keptLesson(lang: "ell", today: today)
+        XCTAssertEqual(kept?.items.count, 8, "7 left and the retry")
+        XCTAssertEqual(kept?.items.last?.isRetry, true)
+
+        let second = session(clock)
+        await second.start()
+        XCTAssertEqual(second.total, 11)
+        try await answer(second)
+        XCTAssertEqual(second.phase, .summary)
+        XCTAssertEqual(second.summary?.exercises, 11, "the retry came back once, in the second sitting")
+    }
+
+    func testContinuedLessonCountsEachAnswerOnce() async throws {
+        try await fiveWords()
+        let clock = TestClock(day1)
+        let first = session(clock)
+        await first.start()
+        try await answer(first, limit: 3)
+        let second = session(clock)
+        await second.start()
+        try await answer(second)
+        XCTAssertEqual(second.phase, .summary)
+        let run = try await count("SELECT COUNT(*) FROM learn_review WHERE run_id = '\(first.runID.uuidString)'")
+        XCTAssertEqual(run, 10)
+        let counted = try await db.answeredCount(on: today)
+        XCTAssertEqual(counted, 10)
+        XCTAssertEqual(second.summary?.exercises, 10, "the summary covers both sittings")
+        XCTAssertEqual(second.goalProgress?.answered, 10)
+        let rows = try await count("SELECT COUNT(*) FROM learn_lesson")
+        XCTAssertEqual(rows, 0, "a finished lesson is not kept")
+    }
+
+    func testLessonEndsWithTheDay() async throws {
+        try await fiveWords()
+        let clock = TestClock(day1)
+        let first = session(clock)
+        await first.start()
+        try await answer(first, limit: 3)
+        settings.learningLanguages = ["ell"]
+        settings.learningLanguage = "ell"
+        let home = LearnViewModel(settings: settings, languages: languages, clock: clock.clock)
+        await home.load(locale: Locale(identifier: "en"))
+        XCTAssertEqual(home.lessonLeft, 7)
+
+        clock.set("2026-11-05T12:00:00Z")
+        await home.load(locale: Locale(identifier: "en"))
+        XCTAssertNil(home.lessonLeft, "the next day offers Start")
+        let next = session(clock)
+        await next.start()
+        XCTAssertNotEqual(next.runID, first.runID)
+        XCTAssertEqual(next.answered, 0)
+        let kept = try await db.keptLesson(lang: "ell", today: today.adding(days: 1))
+        XCTAssertEqual(kept?.runID, next.runID, "Start overwrote the stale row")
+        XCTAssertEqual(kept?.answered, 0)
+    }
+
+    func testNoNewLessonWhileOneCanContinue() async throws {
+        try await fiveWords()
+        let clock = TestClock(day1)
+        let first = session(clock)
+        await first.start()
+        try await answer(first, limit: 3)
+        settings.learningLanguages = ["ell"]
+        settings.learningLanguage = "ell"
+        let home = LearnViewModel(settings: settings, languages: languages, clock: clock.clock)
+        await home.load(locale: Locale(identifier: "en"))
+        XCTAssertEqual(home.lessonLeft, 7)
+        let again = session(clock)
+        await again.start()
+        XCTAssertEqual(again.runID, first.runID, "it continues the lesson")
+        try await answer(again)
+        await home.load(locale: Locale(identifier: "en"))
+        XCTAssertNil(home.lessonLeft, "finished")
+    }
+
+    func testSkippedQuestionIsSaved() async throws {
+        try await fiveWords()
+        let clock = TestClock(day1)
+        await session(clock).start()
+        try await execute("UPDATE learn_card SET suspended = 1 WHERE word = 'ουσία0'")
+        let second = session(clock)
+        await second.start()
+        XCTAssertEqual(second.total, 8, "the paused word's two cards are dropped")
+        let kept = try await db.keptLesson(lang: "ell", today: today)
+        XCTAssertEqual(kept?.items.count, 8)
+    }
+
+    func testTrainersKeepNoLesson() async throws {
+        try await fiveWords()
+        let clock = TestClock(day1)
+        let trainer = ExerciseRunViewModel(run: .trainer(.recognition), lang: "ell", meaningsLang: "eng", db: db,
+                                           settings: settings, languages: languages, clock: clock.clock,
+                                           player: FeedbackPlayer(settings: settings, sink: RecordingFeedbackSink()),
+                                           reminder: nil, seed: 296, answerHints: true)
+        await trainer.start()
+        try await answer(trainer, limit: 2)
+        let rows = try await count("SELECT COUNT(*) FROM learn_lesson")
+        XCTAssertEqual(rows, 0)
+        let answers = try await count("SELECT COUNT(*) FROM learn_review")
+        XCTAssertEqual(answers, 2)
+    }
+
+    /// A 2.0 beta database (at 166, learning data present, no `learn_lesson`) migrates with every row intact.
+    func testBetaDatabaseKeepsItsLearningDataAcrossTheMigration() throws {
+        let queue = try DatabaseQueue(path: tempDir.appendingPathComponent("beta.sqlite").path)
+        try DatabaseService.migrator.migrate(queue, upTo: "166-1-daily-goal")
+        try queue.write { db in
+            try db.execute(sql: """
+                INSERT INTO learn_word(lang, word, term) VALUES ('ell', 'γράφω', 'γράφω');
+                INSERT INTO learn_card(lang, word, kind, due_day) VALUES ('ell', 'γράφω', 'recognition', '2026-11-04');
+                INSERT INTO learn_review(day, lang, word, kind, exercise, mode, run_id, outcome, step_before, step_after)
+                    VALUES ('2026-11-04', 'ell', 'γράφω', 'recognition', 'recognition', 'session', 'r', 'right', 0, 1);
+                INSERT INTO learn_day(day, goal) VALUES ('2026-11-04', 20);
+                """)
+        }
+        func dump() throws -> [String] {
+            try queue.read { db in
+                try ["learn_word", "learn_card", "learn_review", "learn_day"].map { table in
+                    try Row.fetchAll(db, sql: "SELECT * FROM \(table) ORDER BY 1").map { "\($0)" }.joined(separator: ";")
+                }
+            }
+        }
+        let before = try dump()
+        try DatabaseService.migrator.migrate(queue)
+        XCTAssertEqual(try dump(), before)
+        XCTAssertEqual(try queue.read { try Int.fetchOne($0, sql: "SELECT COUNT(*) FROM learn_lesson") }, 0)
+        // Migrating again is a no-op.
+        try DatabaseService.migrator.migrate(queue)
+        XCTAssertEqual(try dump(), before)
+    }
+
+    // MARK: QA edge cases (#296)
+
+    /// Closed before any answer: Start saved the whole plan; Continue asks the first question.
+    func testClosedBeforeTheFirstAnswerContinuesAtTheFirst() async throws {
+        try await fiveWords()
+        let clock = TestClock(day1)
+        let first = session(clock)
+        await first.start()
+        let kept = try await db.keptLesson(lang: "ell", today: today)
+        XCTAssertEqual(kept?.answered, 0)
+        XCTAssertEqual(kept?.items.count, 10)
+        let second = session(clock)
+        await second.start()
+        XCTAssertEqual(second.position, 1)
+        XCTAssertEqual(second.total, 10)
+        XCTAssertEqual(second.question?.card.key, first.question?.card.key)
+        try await answer(second)
+        let log = try await count("SELECT COUNT(*) FROM learn_review WHERE run_id = '\(first.runID.uuidString)'")
+        XCTAssertEqual(log, 10)
+    }
+
+    /// Closed after exactly one answer, and killed between two answers.
+    func testClosedAfterTheFirstAnswerCountsItOnce() async throws {
+        try await fiveWords()
+        let clock = TestClock(day1)
+        let first = session(clock)
+        await first.start()
+        try await answer(first, limit: 1)
+        let second = session(clock)
+        await second.start()
+        XCTAssertEqual(second.position, 2)
+        XCTAssertEqual(second.answered, 1)
+        try await answer(second)
+        let counted = try await db.answeredCount(on: today)
+        XCTAssertEqual(counted, 10)
+        let perCard = try await rows("SELECT word, kind, COUNT(*) FROM learn_review GROUP BY word, kind HAVING COUNT(*) > 1")
+        XCTAssertEqual(perCard, [], "no card answered twice in a right-only lesson")
+    }
+
+    /// Killed right after an answer was written, before the next question showed.
+    func testKillAfterAnAnswerBeforeNext() async throws {
+        try await fiveWords()
+        let clock = TestClock(day1)
+        let first = session(clock)
+        await first.start()
+        let q = try XCTUnwrap(first.question)
+        await first.choose(try XCTUnwrap(q.rightIndex))
+        // dropped here: no next()
+        let second = session(clock)
+        await second.start()
+        XCTAssertEqual(second.answered, 1)
+        XCTAssertEqual(second.position, 2)
+        XCTAssertNotEqual(second.question?.card.key, q.card.key, "the answered one is not asked again")
+        try await answer(second)
+        let counted = try await db.answeredCount(on: today)
+        XCTAssertEqual(counted, 10)
+    }
+
+    func testClosedOnTheLastQuestionContinuesWithOne() async throws {
+        try await fiveWords()
+        let clock = TestClock(day1)
+        let first = session(clock)
+        await first.start()
+        try await answer(first, limit: 9)
+        let kept = try await db.keptLesson(lang: "ell", today: today)
+        XCTAssertEqual(kept?.items.count, 1)
+        XCTAssertEqual(kept?.answered, 9)
+        let second = session(clock)
+        await second.start()
+        XCTAssertEqual(second.position, 10)
+        XCTAssertEqual(second.total, 10)
+        try await answer(second)
+        XCTAssertEqual(second.phase, .summary)
+        XCTAssertEqual(second.summary?.exercises, 10)
+        XCTAssertEqual(second.total, 10, "the bar's total at the end counts both sittings")
+        let rows = try await count("SELECT COUNT(*) FROM learn_lesson")
+        XCTAssertEqual(rows, 0)
+    }
+
+    /// Resetting learning data (-resetData) drops the kept lessons too.
+    func testClearLearningDropsKeptLessons() async throws {
+        try await db.saveLesson(KeptLesson(lang: "ell", day: today, runID: UUID(), answered: 1, items: [item("a")]))
+        try await db.clearLearning()
+        let kept = try await db.keptLesson(lang: "ell", today: today)
+        XCTAssertNil(kept)
+        let rows = try await count("SELECT COUNT(*) FROM learn_lesson")
+        XCTAssertEqual(rows, 0)
+    }
+
+    /// The last item answered wrong: its retry keeps the lesson alive and asks once more.
+    func testWrongOnTheLastQuestionKeepsOneRetry() async throws {
+        try await fiveWords()
+        let clock = TestClock(day1)
+        let first = session(clock)
+        await first.start()
+        var n = 0
+        try await answer(first, limit: 10, wrong: { _ in n += 1; return n == 10 })
+        let kept = try await db.keptLesson(lang: "ell", today: today)
+        XCTAssertEqual(kept?.items.count, 1, "the retry")
+        XCTAssertEqual(kept?.items.first?.isRetry, true)
+        let second = session(clock)
+        await second.start()
+        XCTAssertEqual(second.total, 11)
+        XCTAssertEqual(second.position, 11)
+        try await answer(second)
+        XCTAssertEqual(second.summary?.exercises, 11)
+        let rows = try await count("SELECT COUNT(*) FROM learn_lesson")
+        XCTAssertEqual(rows, 0)
+    }
+
+    /// An answer after 4 AM counts for the new day; the lesson keeps its own day, is not offered
+    /// on the new day, and the old answers are not counted again.
+    func testRolloverMidLessonCountsEachAnswerOnceOnItsDay() async throws {
+        try await fiveWords()
+        let clock = TestClock(day1)
+        let first = session(clock)
+        await first.start()
+        try await answer(first, limit: 3)
+        clock.set("2026-11-05T12:00:00Z")
+        try await answer(first, limit: 2)
+        let day2 = today.adding(days: 1)
+        let c1 = try await db.answeredCount(on: today)
+        let c2 = try await db.answeredCount(on: day2)
+        XCTAssertEqual(c1, 3)
+        XCTAssertEqual(c2, 2)
+        let none = try await db.keptLesson(lang: "ell", today: day2)
+        XCTAssertNil(none)
+        let stillDay1 = try await db.keptLesson(lang: "ell", today: today)
+        XCTAssertEqual(stillDay1?.answered, 5)
+        let next = session(clock)
+        await next.start()
+        XCTAssertNotEqual(next.runID, first.runID)
+        XCTAssertEqual(next.answered, 0)
+        let total = try await count("SELECT COUNT(*) FROM learn_review")
+        XCTAssertEqual(total, 5, "starting the new day's lesson counts nothing")
+        let counts = try await db.dayCounts()
+        XCTAssertEqual(counts[today]?.exercises, 3)
+        XCTAssertEqual(counts[day2]?.exercises, 2)
+    }
+
+    /// Stop learning keeps the lesson row; adding the pair again the same day offers it again.
+    func testStopLearningKeepsTheLessonAndReAddResumesIt() async throws {
+        try await fiveWords()
+        let clock = TestClock(day1)
+        let first = session(clock)
+        await first.start()
+        try await answer(first, limit: 3)
+        settings.learningLanguages = ["ell", "eng"]
+        settings.learningLanguage = "ell"
+        let home = LearnViewModel(settings: settings, languages: languages, clock: clock.clock)
+        await home.load(locale: Locale(identifier: "en"))
+        XCTAssertEqual(home.lessonLeft, 7)
+        languages.stop("ell")
+        await home.load(locale: Locale(identifier: "en"))
+        let rows = try await count("SELECT COUNT(*) FROM learn_lesson WHERE lang = 'ell'")
+        XCTAssertEqual(rows, 1, "stopping keeps the progress")
+        XCTAssertNotEqual(home.language, "ell")
+        settings.learningLanguages = ["eng", "ell"]
+        await home.select("ell")
+        await home.load(locale: Locale(identifier: "en"))
+        XCTAssertEqual(home.lessonLeft, 7, "the same day, the lesson is back")
+        let counted = try await db.answeredCount(on: today)
+        XCTAssertEqual(counted, 3)
+    }
+
+    /// Each language has its own row; a wrong-language run never reads or overwrites the other's.
+    func testLessonsAreOnePerLanguage() async throws {
+        let run = UUID()
+        try await db.saveLesson(KeptLesson(lang: "ell", day: today, runID: run, answered: 1, items: [item("a")]))
+        var eng = KeptLesson(lang: "eng", day: today, runID: UUID(), answered: 4, items: [LessonItem(card: CardKey(word: WordKey(lang: "eng", word: "dog"), kind: .production))])
+        try await db.saveLesson(eng)
+        eng.items = []
+        try await db.saveLesson(eng)
+        let ell = try await db.keptLesson(lang: "ell", today: today)
+        XCTAssertEqual(ell?.runID, run)
+        let gone = try await db.keptLesson(lang: "eng", today: today)
+        XCTAssertNil(gone)
+    }
+
+    /// Words paused or deleted while the lesson was closed are dropped; the answers stay counted.
+    func testPausedAndDeletedWordsAreDroppedAndTheLessonShrinks() async throws {
+        try await fiveWords()
+        let clock = TestClock(day1)
+        let first = session(clock)
+        await first.start()
+        try await answer(first, limit: 3)
+        let before = try await db.keptLesson(lang: "ell", today: today)
+        let words = Set(before?.items.map(\.card.word.word) ?? [])
+        let victims = Array(words.prefix(2))
+        try await execute("UPDATE learn_card SET suspended = 1 WHERE word = ?", [victims[0]])
+        try await execute("DELETE FROM learn_card WHERE word = ?", [victims[1]])
+        let dropped = before?.items.filter { victims.contains($0.card.word.word) }.count ?? 0
+        let second = session(clock)
+        await second.start()
+        XCTAssertEqual(second.answered, 3)
+        XCTAssertEqual(second.total, 3 + 7 - dropped)
+        XCTAssertFalse(victims.contains(second.question?.card.key.word.word ?? ""))
+        let kept = try await db.keptLesson(lang: "ell", today: today)
+        XCTAssertEqual(kept?.items.count, 7 - dropped, "rewritten without them")
+        try await answer(second)
+        XCTAssertEqual(second.phase, .summary)
+        XCTAssertEqual(second.summary?.exercises, 3 + 7 - dropped)
+    }
+
+    /// Every item gone: with answers it ends in the summary, without it is empty; the row goes.
+    func testEveryItemGone() async throws {
+        try await fiveWords()
+        let clock = TestClock(day1)
+        let first = session(clock)
+        await first.start()
+        try await answer(first, limit: 3)
+        try await execute("DELETE FROM learn_card WHERE (lang, word, kind) NOT IN (SELECT lang, word, kind FROM learn_review)")
+        let second = session(clock)
+        await second.start()
+        XCTAssertEqual(second.phase, .summary)
+        XCTAssertEqual(second.summary?.exercises, 3)
+        var rows = try await count("SELECT COUNT(*) FROM learn_lesson")
+        XCTAssertEqual(rows, 0)
+
+        try await execute("DELETE FROM learn_review; DELETE FROM learn_card")
+        try await db.saveLesson(KeptLesson(lang: "ell", day: today, runID: UUID(), answered: 0, items: [item("ουσία0")]))
+        let third = session(clock)
+        await third.start()
+        XCTAssertEqual(third.phase, .empty)
+        rows = try await count("SELECT COUNT(*) FROM learn_lesson")
+        XCTAssertEqual(rows, 0)
+    }
+
+    /// A trainer and Practise mistakes neither read, change nor delete the kept lesson.
+    func testTrainerAndMistakesLeaveTheKeptLessonAlone() async throws {
+        try await fiveWords()
+        let clock = TestClock(day1)
+        let first = session(clock)
+        await first.start()
+        try await answer(first, limit: 3, wrong: { _ in true })
+        let before = try await db.keptLesson(lang: "ell", today: today)
+        for run in [ExerciseRunViewModel.Run.trainer(.recognition), .mistakes] {
+            let vm = ExerciseRunViewModel(run: run, lang: "ell", meaningsLang: "eng", db: db, settings: settings,
+                                          languages: languages, clock: clock.clock,
+                                          player: FeedbackPlayer(settings: settings, sink: RecordingFeedbackSink()),
+                                          reminder: nil, seed: 296, answerHints: true)
+            await vm.start()
+            XCTAssertNotEqual(vm.runID, first.runID)
+            try await answer(vm)
+        }
+        let after = try await db.keptLesson(lang: "ell", today: today)
+        XCTAssertEqual(after, before)
+    }
+
+    /// A damaged row must not take the Learn home down.
+    func testUnreadableLessonRowDoesNotBlockStart() async throws {
+        try await fiveWords()
+        try await execute("INSERT INTO learn_lesson(lang, day, run_id, answered, items) VALUES ('ell', ?, 'x', 0, 'garbage')",
+                          [today.rawValue])
+        settings.learningLanguages = ["ell"]
+        settings.learningLanguage = "ell"
+        let home = LearnViewModel(settings: settings, languages: languages, clock: TestClock(day1).clock)
+        await home.load(locale: Locale(identifier: "en"))
+        XCTAssertNil(home.lessonLeft)
+        XCTAssertNotNil(home.today, "Today still loads, so Start stays")
+        XCTAssertNil(home.errorMessage)
+        let run = session(TestClock(day1))
+        await run.start()
+        XCTAssertEqual(run.phase, .question)
+        XCTAssertEqual(run.total, 10, "a new lesson replaces the damaged row")
+        let kept = try await db.keptLesson(lang: "ell", today: today)
+        XCTAssertEqual(kept?.items.count, 10)
     }
 }

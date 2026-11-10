@@ -23,7 +23,7 @@ final class SessionFlowTests: XCTestCase {
     /// list ships in the Greek pack (0237), not in this bundle: the session
     /// takes its new words from the `session` fixture's user list.
     private var learningArguments: [String] {
-        if name.contains("testSessionDueThenNew") {
+        if name.contains("testSessionDueThenNew") || name.contains("testContinueLesson") {
             return ["-learningFixture", "session", "-learningLists", "user-fixture-ell"]
         }
         if name.contains("testPractiseMistakes") {
@@ -115,6 +115,34 @@ final class SessionFlowTests: XCTestCase {
         XCTAssertTrue(learnPage.waitForHome(), "Done closes the run")
         XCTAssertTrue(learnPage.allDone.waitForExistence(timeout: TestData.Timeouts.medium), "All done for today")
         XCTAssertFalse(learnPage.startButton.exists, "Start hides when all is done")
+    }
+
+    /// #296, `session`: close on the third question; Continue lesson · 15
+    /// left resumes at the fourth, the bar at 3 of 18, and finishing counts
+    /// all 18 once.
+    func testContinueLesson() throws {
+        XCTAssertTrue(learnPage.waitForLabel(of: learnPage.dueCount, toBe: "5 words due"))
+        var run = learnPage.startSession()
+        answerAll(run, limit: 3)
+        XCTAssertNotNil(nextQuestion(run, after: "Question 3 of 18"))
+        XCTAssertEqual(run.progress.label, "Question 4 of 18")
+        run.closeButton.tap()
+        XCTAssertTrue(learnPage.waitForHome(), "closing returns to the home")
+        XCTAssertTrue(learnPage.continueButton.waitForExistence(timeout: TestData.Timeouts.medium), "Continue lesson")
+        XCTAssertEqual(learnPage.continueButton.label, "Continue lesson · 15 left")
+        XCTAssertFalse(learnPage.startButton.exists, "Start is replaced")
+
+        run = learnPage.continueLesson()
+        XCTAssertNotNil(nextQuestion(run, after: nil))
+        XCTAssertEqual(run.progress.label, "Question 4 of 18", "the fourth question, the bar at 3 of 18")
+        let rest = answerAll(run)
+        XCTAssertTrue(run.summary.waitForExistence(timeout: TestData.Timeouts.medium), "the summary")
+        XCTAssertEqual(rest.count, 15)
+        XCTAssertEqual(run.summaryValue(IDs.summaryExercises), "18", "both sittings")
+        XCTAssertEqual(run.summaryValue(IDs.summaryGoal), "18 of 20")
+        run.tapDone()
+        XCTAssertTrue(learnPage.waitForHome(), "Done closes the run")
+        XCTAssertFalse(learnPage.continueButton.exists, "a finished lesson is not kept")
     }
 
     /// `due`: the summary's numbers are the answers given: 10 cards, the

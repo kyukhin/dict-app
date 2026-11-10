@@ -11453,6 +11453,42 @@
         }
       }
     },
+    "learn.continueLesson %lld": {
+      "comment": "Learn home, Today: continues the lesson closed early; the number of items left.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Continue lesson · %lld left"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Продолжить урок · осталось %lld"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Continuar lección · quedan %lld"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "متابعة الدرس · المتبقي %lld"
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Συνέχεια μαθήματος · υπόλοιπα %lld"
+          }
+        }
+      }
+    },
     "learn.start": {
       "comment": "Learn home, Today: starts the daily session (due cards, then new words).",
       "extractionState": "manual",
