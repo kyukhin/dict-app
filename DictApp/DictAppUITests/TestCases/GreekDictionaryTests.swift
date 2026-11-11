@@ -291,7 +291,8 @@ final class GreekDictionaryTests: XCTestCase {
 
     private var resultsContainer: XCUIElement { app.collectionViews.firstMatch }
 
-    private var firstCell: XCUIElement { resultsContainer.cells.element(boundBy: 0) }
+    /// The first result row: the chips row above it is a cell too (#307).
+    private var firstCell: XCUIElement { SearchPage(app: app).resultCells.element(boundBy: 0) }
 
     /// A result cell with headword `word` (exact label) and `source`'s badge.
     private func resultCell(word: String, source: String) -> XCUIElement {

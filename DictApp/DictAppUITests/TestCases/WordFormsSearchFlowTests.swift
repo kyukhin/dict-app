@@ -119,7 +119,8 @@ final class WordFormsSearchFlowTests: XCTestCase {
 
     private let greekToEnglish = [TestData.Sources.freedictEllEng, TestData.Sources.wordnetEllEng]
 
-    private var firstCell: XCUIElement { app.collectionViews.firstMatch.cells.element(boundBy: 0) }
+    /// The first result row: the chips row above it is a cell too (#307).
+    private var firstCell: XCUIElement { SearchPage(app: app).resultCells.element(boundBy: 0) }
 
     /// Whether `cell` itself shows `source`'s badge. Counted within the cell:
     /// a `firstMatch` after `cells.element(boundBy:)` can resolve in another
@@ -164,7 +165,7 @@ extension WordFormsSearchFlowTests {
         let formCaption = AccessibilityIdentifiers.Search.formCaption
         XCTAssertEqual(firstCell.staticTexts.matching(identifier: formCaption).count, 0, "went's own row has no caption")
 
-        let lemmaCell = app.collectionViews.firstMatch.cells.element(boundBy: 1)
+        let lemmaCell = search.resultCells.element(boundBy: 1)
         let caption = lemmaCell.staticTexts.matching(identifier: formCaption).element
         XCTAssertTrue(caption.waitForExistence(timeout: TestData.Timeouts.medium), "the second row carries a caption")
         XCTAssertEqual(lemmaCell.staticTexts.matching(NSPredicate(format: "label == %@", "go")).count, 1,

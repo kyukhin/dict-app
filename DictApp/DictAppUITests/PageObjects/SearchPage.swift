@@ -20,6 +20,14 @@ class SearchPage: BasePage {
         return app.collectionViews.firstMatch
     }
 
+    /// The result rows, in order: the cells with a source badge, which only
+    /// result rows carry. Issue #307: the chips are the list's first cell
+    /// while they are on screen, so `resultsList.cells` is not the results.
+    /// Like `cells`, it holds only the rows the lazy list has materialised.
+    var resultCells: XCUIElementQuery {
+        resultsList.cells.containing(NSPredicate(format: "identifier BEGINSWITH %@", "source_badge_"))
+    }
+
     // MARK: - Polling helper
 
     /// Polls `condition` until it returns true or `timeout` elapses, at the
@@ -143,7 +151,7 @@ class SearchPage: BasePage {
 
     @discardableResult
     func tapSearchResult(at index: Int) -> DefinitionPage {
-        let cells = resultsList.cells
+        let cells = resultCells
         XCTAssertTrue(cells.count > index, "Search result at index \(index) does not exist")
 
         let cell = cells.element(boundBy: index)
@@ -205,19 +213,19 @@ class SearchPage: BasePage {
     }
 
     func verifyResultsCount(greaterThan count: Int) -> Bool {
-        return resultsList.cells.count > count
+        return resultCells.count > count
     }
 
     func verifyResultsCount(equalTo count: Int) -> Bool {
-        return resultsList.cells.count == count
+        return resultCells.count == count
     }
 
     func verifyNoResults() -> Bool {
-        return resultsList.cells.count == 0
+        return resultCells.count == 0
     }
 
     func verifyResultContainsText(_ text: String, at index: Int) -> Bool {
-        let cells = resultsList.cells
+        let cells = resultCells
         guard cells.count > index else { return false }
 
         let cell = cells.element(boundBy: index)
@@ -228,7 +236,7 @@ class SearchPage: BasePage {
     /// `source`, matched by `source_badge_<source>` (the badge's `label` is
     /// its localized VoiceOver text, so never match the visible text).
     func verifyResultHasBadge(source: String, at index: Int) -> Bool {
-        let cells = resultsList.cells
+        let cells = resultCells
         guard cells.count > index else { return false }
         return cells.element(boundBy: index)
             .descendants(matching: .any)[AccessibilityIdentifiers.Search.sourceBadge(source: source)]
@@ -236,14 +244,14 @@ class SearchPage: BasePage {
     }
 
     func getResultsCount() -> Int {
-        return resultsList.cells.count
+        return resultCells.count
     }
 
     /// Headwords of the first `limit` rendered result cells, from the top of
     /// the list. Compare signatures, not `cells.count`, across a tab switch:
     /// the lazy `List` exposes only the rows it has rendered.
     func resultSignature(limit: Int = 3) -> [String] {
-        let cells = resultsList.cells
+        let cells = resultCells
         return (0..<min(limit, cells.count)).map { index in
             let headword = cells.element(boundBy: index).staticTexts.firstMatch
             return headword.exists ? headword.label : ""
@@ -279,7 +287,7 @@ class SearchPage: BasePage {
         )).firstMatch
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
-            if !noResults.exists && resultsList.cells.count > 0 {
+            if !noResults.exists && resultCells.count > 0 {
                 return true                                 // real result cell(s)
             }
             if noResults.exists {
@@ -291,7 +299,7 @@ class SearchPage: BasePage {
             }
             Thread.sleep(forTimeInterval: 0.15)             // settle through the debounce
         }
-        return resultsList.cells.count > 0 && !noResults.exists
+        return resultCells.count > 0 && !noResults.exists
     }
 
     /// Waits for the `ContentUnavailableView` that SearchView renders inside
@@ -323,6 +331,8 @@ class SearchPage: BasePage {
     // `Toggle` (value 1 or 0, like the Settings switches), "All" a `Button`
     // with the selected trait. The row scrolls sideways; it is scrolled by
     // geometry, never through `isHittable`. Pair keys are `TestData.Pairs`.
+    // Issue #307: the row is the list's first cell and scrolls away with the
+    // search field; `revealChip` scrolls the list back to the top first.
 
     /// The row: a container named "Dictionaries".
     var chipsRow: XCUIElement {
@@ -344,35 +354,63 @@ class SearchPage: BasePage {
     }
 
     /// The horizontal scroll view that holds the chips: the row's full
-    /// width. The "Dictionaries" container (`chipsRow`) is the chips inside
-    /// it, as wide as their content. On iOS 26 this scroll view's frame
-    /// reaches up under the navigation bar, so only its width is meaningful.
+    /// width, the list's width (#307). The "Dictionaries" container
+    /// (`chipsRow`) is the chips inside it, as wide as their content.
     var chipsScrollView: XCUIElement {
         app.scrollViews.containing(.any, identifier: AccessibilityIdentifiers.Search.allChip).firstMatch
     }
 
-    /// Drags the row sideways until `element`'s centre is inside the window.
+    /// Whether the chips are on screen: "All" exists and starts below the
+    /// search field. They scroll away with the field (#307).
+    func chipsAreOnScreen() -> Bool {
+        guard allChip.exists else { return false }
+        let frame = allChip.frame
+        let top = searchField.exists ? searchField.frame.maxY - 1 : app.windows.firstMatch.frame.minY
+        return frame.height > 1 && frame.minY >= top && frame.minY < app.windows.firstMatch.frame.maxY
+    }
+
+    /// Swipes the list down until the chips are back at the top (#307).
+    /// Returns at once when they are on screen; waits for them to load first.
+    @discardableResult
+    func scrollChipsIntoView(maxSwipes: Int = 6) -> Bool {
+        if chipsAreOnScreen() { return true }
+        if allChip.waitForExistence(timeout: TestData.Timeouts.short), chipsAreOnScreen() { return true }
+        for _ in 0..<maxSwipes {
+            resultsList.swipeDown()
+            if waitForCondition(timeout: TestData.Timeouts.short, { self.chipsAreOnScreen() }) { return true }
+        }
+        return waitForChips() && chipsAreOnScreen()
+    }
+
+    /// Drags the row sideways until `element`'s centre is inside the row's
+    /// part of the window.
     /// Works left to right and right to left: the direction comes from where
     /// the chip lies, not from the language. Each drag runs along the chips,
     /// moves 70% of the width and holds before lifting, so there is no
     /// momentum and a chip's centre cannot be skipped. It never swipes at the
-    /// row's centre, which lies off screen at large text sizes.
+    /// row's centre, which lies off screen at large text sizes. Scrolls the
+    /// list back to the top first (#307).
     @discardableResult
     func revealChip(_ element: XCUIElement, maxSwipes: Int = 10) -> Bool {
+        scrollChipsIntoView()
         guard waitForChips(), element.waitForExistence(timeout: TestData.Timeouts.medium) else { return false }
+        // The part of the row on screen: the row is as wide as the list's
+        // rows and clips the chips at its edges (#307), inside the window.
         let window = app.windows.firstMatch.frame
+        let row = chipsScrollView.exists ? chipsScrollView.frame.intersection(window) : window
+        let visible = row.width > 1 ? row : window
         func revealed() -> Bool {
             let frame = element.frame
             guard frame.width > 1, frame.height > 1 else { return false }
-            return window.contains(CGPoint(x: frame.midX, y: frame.midY))
+            return visible.contains(CGPoint(x: frame.midX, y: frame.midY))
         }
         let origin = app.coordinate(withNormalizedOffset: .zero)
         for _ in 0..<maxSwipes {
             if revealed() { return true }
             let y = element.frame.midY
-            let right = origin.withOffset(CGVector(dx: window.minX + window.width * 0.85, dy: y))
-            let left = origin.withOffset(CGVector(dx: window.minX + window.width * 0.15, dy: y))
-            let (from, to) = element.frame.midX > window.midX ? (right, left) : (left, right)
+            let right = origin.withOffset(CGVector(dx: visible.minX + visible.width * 0.85, dy: y))
+            let left = origin.withOffset(CGVector(dx: visible.minX + visible.width * 0.15, dy: y))
+            let (from, to) = element.frame.midX > visible.midX ? (right, left) : (left, right)
             from.press(forDuration: 0.05, thenDragTo: to, withVelocity: .slow, thenHoldForDuration: 0.3)
         }
         return revealed()

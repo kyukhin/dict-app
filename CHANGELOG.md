@@ -58,6 +58,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - [#180] Credits, now right under the version in Settings, names every data source with its license, WordNet's too, credits GRDB.swift with its MIT license text, and the Licenses section lists each license with a link to its text instead of a placeholder.
 - [#182] After an update from 1.x, the welcome sheet says My words appear in Learn once a language to learn is chosen, instead of promising them right away.
 - [#306] Search orders a word's exact matches and the words it is a form of: the word spelt exactly as typed first, then words with that exact form, then by frequency, so "ματια" shows μάτι (eyes) before ματιά (glance) and "better" stays first. Proper nouns no longer show as forms.
+- [#307] The Search dictionary chips now scroll away with the search field and come back at the top of the list.
 
 ### Fixed
 - [#138] History and Recent words reopen a word in the dictionary it was read in.

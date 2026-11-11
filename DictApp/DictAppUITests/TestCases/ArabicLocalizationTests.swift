@@ -387,9 +387,11 @@ final class ArabicLocalizationTests: XCTestCase {
         let firstPair = search.chip(try XCTUnwrap(order.first))
         XCTAssertGreaterThanOrEqual(search.allChip.frame.minX, firstPair.frame.maxX - 1,
                                     "'All' is right of the first pair chip")
-        let window = app.windows.firstMatch.frame
-        XCTAssertGreaterThan(search.allChip.frame.maxX, window.maxX - 40,
-                             "the row starts at the right edge: 'All' is the rightmost chip on screen")
+        // #307: the row is the list's first row, so its right edge is the
+        // list's, not the window's.
+        let row = search.chipsScrollView.frame
+        XCTAssertGreaterThan(search.allChip.frame.maxX, row.maxX - 40,
+                             "the row starts at the right edge: 'All' is the rightmost chip in the row")
         XCTAssertEqual(search.allChip.label, "كل القواميس")
         var chipLabels: [String: String] = [:]
         for pair in TestData.Pairs.all {

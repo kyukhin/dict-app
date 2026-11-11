@@ -92,7 +92,8 @@ final class SearchHighlightTests: XCTestCase {
         let search = tabBar.tapSearchTab()
         search.searchFor("a")
         XCTAssertTrue(search.waitForResults(), "Results should appear")
-        let firstResultCell = app.cells.firstMatch
+        // The first result row, not the chips row above it (#307).
+        let firstResultCell = search.resultCells.firstMatch
         XCTAssertTrue(firstResultCell.waitForExistence(timeout: TestData.Timeouts.medium),
                       "First result cell must exist")
         let firstCellHasPairStripe = newFirstSources.contains { source in
