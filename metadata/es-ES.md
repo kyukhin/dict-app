@@ -2,40 +2,46 @@
 
 ## Promotional Text
 
-Novedad: diccionario griego-inglés e interfaz en griego. Más de 400 000 palabras en 6 diccionarios, 100% sin conexión. Tu propio orden y cero rastreo.
+Aprende palabras con repetición espaciada, listas, conjugación y gramática; para empezar, griego e inglés. La búsqueda halla formas flexionadas. Sin conexión ni anuncios.
 
 ## Keywords (≤100 chars)
 
-diccionario,inglés,offline,wordnet,freedict,privacidad,sin anuncios,traducción,aprender,griego
+aprender griego,aprender inglés,tarjetas,repetición espaciada,vocabulario,conjugación,anki,cefr
 
 ## Description
 
-LibreDict es un diccionario ligero y ultrarrápido, pensado para la concentración y la privacidad. Con más de 400 000 palabras en seis diccionarios integrados, puedes buscar y aprender sin necesidad de conexión a internet.
+LibreDict es un diccionario rápido y ligero que también te ayuda a aprender palabras. El diccionario de inglés viene incluido. El griego, el español, el ruso y el árabe se descargan una sola vez: tú eliges cuáles y ves el tamaño antes. Las listas de inglés se descargan la primera vez que las necesitas. Después todo funciona sin conexión.
 
-Funciones principales:
-- 100% sin conexión: todos los diccionarios están en tu dispositivo, ideal para viajeros y estudiantes.
-- Seis diccionarios incluidos: inglés (WordNet), ruso-inglés, español-inglés, inglés-español, árabe-inglés y griego-inglés (en ambos sentidos).
-- Cinco idiomas de interfaz: usa LibreDict en inglés, ruso, español, árabe o griego, con diseño completo de derecha a izquierda para el árabe.
-- Búsqueda inteligente: escribe en griego sin acentos o en árabe sin diacríticos y encuentra igualmente las entradas correctas.
-- Resultados por colores: cada diccionario tiene su propia franja de color para ver de un vistazo el origen de la palabra.
-- Tu orden, a tu manera: ordena por relevancia o coloca primero tus diccionarios preferidos, y arrástralos para reordenarlos.
-- Biblioteca ampliable: importa tus propios diccionarios en formato .json o .sqlite.
-- Privacidad ante todo: sin anuncios, sin rastreo, sin cuentas y sin recopilación de datos.
-- Diseño minimalista: una interfaz limpia y rápida, optimizada para la lectura.
-- Gestiona las fuentes: consulta la fuente, el número de entradas y la licencia de cada diccionario, y activa o desactiva cualquier par de idiomas.
+Aprende:
+- Una pestaña para cada idioma que aprendes, con sus lecciones, listas, gramática y estadísticas. Para empezar, griego e inglés: griego desde el inglés o el ruso, inglés en el propio inglés o desde el español o el griego. Griego desde el ruso es limitado por ahora: las palabras se practican en inglés.
+- Práctica diaria con repetición espaciada: ejercicios, «Une las parejas» y una ronda con tus errores. Deja una lección a medias y continúala más tarde.
+- Si fallas, también ves qué significa lo que elegiste.
+- Listas de palabras por nivel: griego A1 a B1, inglés A1 a C2 de CEFR-J y Octanove. Importa las tuyas desde CSV, TSV, Anki o Quizlet.
+- Conjugación y temas de gramática, empezando por el griego: verbos según el programa del examen oficial de griego y 17 temas A1 explicados en inglés o en ruso. Las palabras enlazan con sus temas.
+- Frases de ejemplo de Tatoeba, con traducción.
+- Estadísticas, rachas, sonidos divertidos y un recordatorio diario opcional.
+
+Consulta:
+- La búsqueda halla formas flexionadas: escribe έγραψα y obtén γράφω, escribe went y obtén go. Las palabras griegas muestran sus tablas de conjugación y declinación.
+- Diccionarios: inglés (WordNet), ruso, español, árabe y griego, más de 400 000 palabras en total.
+- Escribe griego sin acentos o árabe sin diacríticos y encuentra igualmente la palabra.
+- Resultados por colores, tu propio orden de diccionarios y botones bajo el buscador para activarlos con un toque.
+- Importa tus propios diccionarios desde archivos .json o .sqlite.
+- Cinco idiomas de interfaz: inglés, ruso, español, árabe y griego, con diseño de derecha a izquierda para el árabe.
+
+Privacidad: sin anuncios, sin cuentas, sin rastreo y sin recopilar datos. Los idiomas se descargan como simples archivos públicos de GitHub, que recibe tu dirección IP y el agente de usuario del sistema, como en cualquier descarga.
 
 LibreDict no se interpone en tu camino: solo tú y las palabras.
 
-## What's New (1.4.0)
+## What's New (2.0.0)
 
-Versión 1.4.0
+Versión 2.0.0
 
-- Griego: nuevo diccionario griego-inglés (en ambos sentidos) con búsqueda sin acentos, e interfaz en griego.
-- Inicio instantáneo: la app se abre al momento y prepara los diccionarios en segundo plano.
-- Modo lectura: un botón en Buscar y en la definición mantiene la pantalla encendida.
-- Orden de diccionarios: una fila por par de idiomas, con un botón (i) para fuentes y licencias.
-- Inglés-español tiene muchas más traducciones.
-- Los diccionarios que importas aparecen al instante.
-
-Si antes desactivaste diccionarios, activa el griego en Ajustes → Orden de diccionarios.
-
+- Aprender: una pestaña nueva con una pestaña para cada idioma que aprendes, práctica diaria con repetición espaciada, parejas y una ronda con tus errores.
+- Listas de palabras: griego A1 a B1 e inglés A1 a C2. Importa las tuyas desde CSV, TSV, Anki o Quizlet.
+- Conjugación y temas de gramática, empezando por el griego.
+- Frases de ejemplo de Tatoeba. Estadísticas, rachas, sonidos y un recordatorio diario opcional.
+- La búsqueda halla formas flexionadas y las palabras griegas muestran tablas de conjugación y declinación.
+- Los idiomas se descargan una vez, cuando los eliges. La app ocupa menos y después todo funciona sin conexión.
+- Los marcadores ahora son «Mis palabras». Se conservan tus marcadores, historial e importaciones.
+- Los botones de diccionario bajo el buscador los activan con un toque.
