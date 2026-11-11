@@ -57,6 +57,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - [#131] Choosing a language pair to learn downloads the packs it needs, with their size in the picker, the download's progress on the Learn home and Try again after a failure. Greek meanings prefer the FreeDict Greek–English dictionary over WordNet's, English via English skips list words WordNet does not define (he, us, or), and the learning screens get small fixes from review.
 - [#180] Credits, now right under the version in Settings, names every data source with its license, WordNet's too, credits GRDB.swift with its MIT license text, and the Licenses section lists each license with a link to its text instead of a placeholder.
 - [#182] After an update from 1.x, the welcome sheet says My words appear in Learn once a language to learn is chosen, instead of promising them right away.
+- [#306] Search orders a word's exact matches and the words it is a form of: the word spelt exactly as typed first, then words with that exact form, then by frequency, so "ματια" shows μάτι (eyes) before ματιά (glance) and "better" stays first. Proper nouns no longer show as forms.
 
 ### Fixed
 - [#138] History and Recent words reopen a word in the dictionary it was read in.
