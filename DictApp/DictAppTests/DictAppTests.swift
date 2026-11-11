@@ -5054,8 +5054,10 @@ extension DictAppTests {
 
     /// `γρήγορα` headword only in `freedict-ell-eng`; `tomorrow` headword only
     /// in `freedict-eng-ell` among the Greek sources (OMW lacks both). Through
-    /// the app's `search` on a seed clone: `γρηγορα` puts `γρήγορα` first and
-    /// `tomorrow` returns the `freedict-eng-ell` row first among the Greek rows.
+    /// the app's `search` on a seed clone: `γρηγορα` puts `γρήγορα` first among
+    /// its own rows (after the more frequent lemma γρήγορος, #306: no row is
+    /// spelt γρηγορα, accents included) and `tomorrow`
+    /// returns the `freedict-eng-ell` row first among the Greek rows.
     @MainActor
     func testSeedWordsOnlyInFreeDictGreekSources() async throws {
         let queue = try Self.openBundledSeedReadOnly()
@@ -5073,9 +5075,11 @@ extension DictAppTests {
         XCTAssertTrue(try Self.seedDefinition(queue, word: "tomorrow", source: "freedict-eng-ell").contains("αύριο"))
 
         try await useSeedClone()
-        let quick = try await db.search(query: "γρηγορα")
-        XCTAssertEqual(quick.first.map { "\($0.word)|\($0.source)" }, "γρήγορα|freedict-ell-eng",
-                       "accent-free γρηγορα puts the FreeDict headword first")
+        let quick = try await db.searchResults(query: "γρηγορα")
+        XCTAssertEqual(quick.first?.formMatch?.lemma, "γρήγορος",
+                       "#306: nothing is spelt γρηγορα, so the more frequent γρήγορος (319, γρηγορα 358) leads")
+        XCTAssertEqual(quick.first { $0.formMatch == nil }.map { "\($0.entry.word)|\($0.entry.source)" },
+                       "γρήγορα|freedict-ell-eng", "accent-free γρηγορα puts the FreeDict headword first of its own rows")
 
         let tomorrowGreek = try await db.search(query: "tomorrow", enabledSources: Set(Self.greekSourceIDs))
         XCTAssertEqual(tomorrowGreek.first.map { "\($0.word)|\($0.source)" }, "tomorrow|freedict-eng-ell")
@@ -12460,6 +12464,149 @@ extension SearchAssembleTests {
     }
 }
 
+/// #306: the head group of a form-step search in frequency order, pure
+/// (0136, "Search path" step 4).
+extension SearchAssembleTests {
+    private func row(_ id: Int64, _ word: String, source: String = "freedict-ell-eng",
+                     lemma: String? = nil) -> SearchResult {
+        SearchResult(entry: DictionaryEntry(id: id, word: word, definition: "", phonetic: "", pos: "", source: source,
+                                            createdAt: nil),
+                     formMatch: lemma.map { FormMatch(lemma: $0, analysis: .greek(tags: ["nominative", "plural"])) })
+    }
+
+    private func exact(_ row: SearchResult) -> Search.RankedEntry { Search.RankedEntry(entry: row.entry, isExact: true) }
+    private func prefix(_ row: SearchResult) -> Search.RankedEntry { Search.RankedEntry(entry: row.entry, isExact: false) }
+
+    private func greek(_ query: String, ranks: [String: Int] = ["ματι": 356, "ματια": 426],
+                       typedLemmas: Set<String> = []) -> Search.HeadOrder {
+        Search.HeadOrder(step: Search.formStep(for: query)!, sanitized: query, ranks: ranks, typedLemmas: typedLemmas)
+    }
+
+    /// ματια: the exact rows (ματιά, 426) and the lemma rows (μάτι, 356) are
+    /// one group, the more frequent first; the prefix rows follow in their
+    /// order, and the cut comes after the sort.
+    func testHeadGroupGoesByFrequency() {
+        let ranked = [exact(row(1, "ματιά")), exact(row(2, "ματιά", source: "wordnet-ell-eng")),
+                      prefix(row(3, "ματιάς")), prefix(row(4, "ματιές"))]
+        let lemmas = [row(10, "μάτι", source: "wordnet-ell-eng", lemma: "μάτι"), row(11, "μάτι", lemma: "μάτι")]
+        let out = Search.mergeLemmaBucket(ranked: ranked, lemmaRows: lemmas, limit: 50, order: greek("ματια"))
+        XCTAssertEqual(out.map(\.id), [10, 11, 1, 2, 3, 4])
+        XCTAssertEqual(out.map { $0.formMatch?.lemma }, ["μάτι", "μάτι", nil, nil, nil, nil])
+        XCTAssertEqual(Search.mergeLemmaBucket(ranked: ranked, lemmaRows: lemmas, limit: 3, order: greek("ματια"))
+                        .map(\.id), [10, 11, 1])
+    }
+
+    /// Rows without a rank go after the ranked ones; ties and unranked rows
+    /// keep today's order. Without any rank the merge is today's.
+    func testUnrankedRowsGoLastInTodaysOrder() {
+        let ranked = [exact(row(1, "ματιά")), exact(row(2, "ματιά", source: "wordnet-ell-eng")), prefix(row(3, "ματιάς"))]
+        let lemmas = [row(10, "ματάκι", lemma: "ματάκι"), row(11, "μάτι", lemma: "μάτι"),
+                      row(12, "μάτι", source: "wordnet-ell-eng", lemma: "μάτι")]
+        let out = Search.mergeLemmaBucket(ranked: ranked, lemmaRows: lemmas, limit: 50, order: greek("ματια", ranks: ["ματι": 5]))
+        XCTAssertEqual(out.map(\.id), [11, 12, 1, 2, 10, 3])
+
+        let today = Search.mergeLemmaBucket(ranked: ranked, lemmaRows: lemmas, limit: 50)
+        XCTAssertEqual(today.map(\.id), [1, 2, 10, 11, 12, 3])
+        XCTAssertEqual(Search.mergeLemmaBucket(ranked: ranked, lemmaRows: lemmas, limit: 50, order: greek("ματια", ranks: [:])),
+                       today, "no rank: today's order")
+    }
+
+    /// Three tiers, each by frequency: the headword spelt as typed (accents
+    /// included, case not), then a lemma whose table holds the typed
+    /// spelling, then the rest. ματιά: its own word, though μάτι is more
+    /// frequent; μάτια: μάτι, whose table holds μάτια; είναι: its own row
+    /// before είμαι (3, είναι 11); ματια: no tier applies, so frequency.
+    func testSpellingAsTypedComesFirst() {
+        let ranked = [exact(row(1, "ματιά")), prefix(row(3, "ματιάς"))]
+        let lemmas = [row(10, "μάτι", lemma: "μάτι")]
+        XCTAssertEqual(Search.mergeLemmaBucket(ranked: ranked, lemmaRows: lemmas, limit: 50, order: greek("ματιά"))
+                        .map(\.id), [1, 10, 3], "ματιά: the word as typed, though μάτι is more frequent")
+        XCTAssertEqual(Search.mergeLemmaBucket(ranked: ranked, lemmaRows: lemmas, limit: 50,
+                                               order: greek("μάτια", typedLemmas: ["μάτι"])).map(\.id),
+                       [10, 1, 3], "μάτια: μάτι's form as typed")
+        XCTAssertEqual(Search.mergeLemmaBucket(ranked: ranked, lemmaRows: lemmas, limit: 50,
+                                               order: greek("ΜΆΤΙΑ", typedLemmas: ["μάτι"])).map(\.id),
+                       [10, 1, 3], "capitals")
+
+        let einai = Search.mergeLemmaBucket(ranked: [exact(row(1, "είναι"))], lemmaRows: [row(10, "είμαι", lemma: "είμαι")],
+                                            limit: 50, order: greek("είναι", ranks: ["ειναι": 11, "ειμαι": 3],
+                                                                    typedLemmas: ["είμαι"]))
+        XCTAssertEqual(einai.map(\.id), [1, 10], "the headword as typed before the lemma whose table holds it")
+
+        // Tier 0, 1, 2, each by rank: τας typed (made-up ranks).
+        let tiers = Search.mergeLemmaBucket(
+            ranked: [exact(row(1, "τάς")), exact(row(2, "τας"))],
+            lemmaRows: [row(10, "τα", lemma: "τα"), row(11, "ο", lemma: "ο"), row(12, "τάσσω", lemma: "τάσσω")],
+            limit: 50, order: greek("τας", ranks: ["τασ": 50, "ο": 1, "τα": 5, "τασσω": 9], typedLemmas: ["τάσσω", "τα"]))
+        XCTAssertEqual(tiers.map(\.id), [2, 10, 12, 11, 1])
+
+        // Accent twins without lemma rows: ποτέ typed leads, in any case.
+        let twins = [exact(row(1, "πότε")), exact(row(2, "ποτέ")), exact(row(3, "Ποτέ"))]
+        XCTAssertEqual(Search.mergeLemmaBucket(ranked: twins, lemmaRows: [], limit: 50,
+                                               order: greek("ποτέ", ranks: ["ποτε": 99])).map(\.id),
+                       [2, 3, 1], "without lemma rows too; case does not count")
+        XCTAssertEqual(Search.mergeLemmaBucket(ranked: twins, lemmaRows: [], limit: 50,
+                                               order: greek("ποτε", ranks: ["ποτε": 99])).map(\.id),
+                       [1, 2, 3], "no row spelt ποτε: today's order")
+    }
+
+    /// The typed spelling the tiers compare: lowercased NFC, accents kept.
+    func testTypedSpelling() {
+        XCTAssertEqual(greek("μάτια").typed, "μάτια")
+        XCTAssertEqual(greek("ΜΆΤΙΑ").typed, "μάτια")
+        XCTAssertEqual(greek("μα\u{0301}τια").typed, "μάτια", "decomposed")
+        XCTAssertEqual(greek("Μαϊος").typed, "μαϊος")
+        XCTAssertEqual(greek("ΜΑΤΙΑ").typed, "ματια")
+        XCTAssertEqual(Search.HeadOrder(step: .english(word: "leaves"), sanitized: "Leaves").typed, "leaves")
+        // QA: all caps end in Σ, which `lowercased()` makes σ; a word-final
+        // σ after a letter is ς, as headwords and tables spell it.
+        XCTAssertEqual(greek("ΚΑΛΟΎΣ").typed, "καλούς")
+        XCTAssertEqual(greek("ΚΑΝΕΊΣ").typed, "κανείς")
+        XCTAssertEqual(greek("ΣΑΣ").typed, "σας", "only the last σ")
+        XCTAssertEqual(Search.HeadOrder.spelling("ΠΆΝΤΟΣ ΣΤΗΝ"), "πάντος στην", "each word's end")
+        XCTAssertEqual(Search.HeadOrder.spelling("Σ"), "σ", "a lone σ stays")
+    }
+
+    /// QA: an all-caps accented query keeps both tiers. ΚΑΛΟΎΣ: καλός, whose
+    /// table holds καλούς, before κάλος (κάλους), which ties on the rank.
+    func testAllCapsQueryKeepsItsTiers() {
+        let lemmas = [row(10, "κάλος", lemma: "κάλος"), row(11, "καλός", lemma: "καλός")]
+        let out = Search.mergeLemmaBucket(ranked: [], lemmaRows: lemmas, limit: 50,
+                                          order: greek("ΚΑΛΟΎΣ", ranks: ["καλοσ": 56], typedLemmas: ["καλός"]))
+        XCTAssertEqual(out.map(\.id), [11, 10])
+        let exactCaps = Search.mergeLemmaBucket(ranked: [exact(row(1, "τής")), exact(row(2, "της"))], lemmaRows: [],
+                                                limit: 50, order: greek("ΤΗΣ"))
+        XCTAssertEqual(exactCaps.map(\.id), [2, 1], "ΤΗΣ is spelt της")
+    }
+
+    /// English: every head row is ranked by its lowercased headword,
+    /// whatever its source (QA, #306), so Spanish WordNet's leaves ties with
+    /// WordNet's and both keep today's order; then leave (120) before leaf
+    /// (1282). English lemmas have no table, so no tier 1.
+    func testEnglishRanksEveryRowByItsHeadword() {
+        let order = Search.HeadOrder(step: .english(word: "leaves"), sanitized: "Leaves",
+                                     ranks: ["leave": 120, "leaf": 1282, "leaves": 1454])
+        XCTAssertEqual(order.rankKey(of: row(1, "Leaves", source: "wordnet").entry), "leaves")
+        XCTAssertEqual(order.rankKey(of: row(1, "leaves", source: "wordnet-spa-eng").entry), "leaves")
+        XCTAssertEqual(greek("ματια").rankKey(of: row(1, "Μάτι").entry), "ματι", "Greek: folded")
+        let ranked = [exact(row(1, "leaves", source: "wordnet-spa-eng")), exact(row(2, "leaves", source: "wordnet")),
+                      prefix(row(3, "leaves of grass", source: "wordnet"))]
+        let lemmas = [row(10, "leave", source: "wordnet", lemma: "leave"), row(11, "leaf", source: "wordnet", lemma: "leaf")]
+        XCTAssertEqual(Search.mergeLemmaBucket(ranked: ranked, lemmaRows: lemmas, limit: 50, order: order).map(\.id),
+                       [1, 2, 10, 11, 3])
+    }
+
+    /// The preferred-mode tail is in FTS rank order, so its head group is
+    /// only its leading exact rows and the lemma rows; nothing after them
+    /// moves.
+    func testRankOrderedTailSortsOnlyItsHeadGroup() {
+        let ranked = [prefix(row(5, "ματιάς")), exact(row(1, "ματιά")), prefix(row(2, "ματιές"))]
+        let lemmas = [row(10, "ματάκι", lemma: "ματάκι"), row(11, "μάτι", lemma: "μάτι")]
+        XCTAssertEqual(Search.mergeLemmaBucket(ranked: ranked, lemmaRows: lemmas, limit: 50, order: greek("ματια"))
+                        .map(\.id), [11, 10, 5, 1, 2])
+    }
+}
+
 /// `FormCaption`: the caption of a lemma row, pure (0136, "Caption").
 final class FormCaptionTests: XCTestCase {
     private let ltrCodes = ["en", "ru", "es", "el"]
@@ -12638,8 +12785,8 @@ final class WordFormsSearchTests: XCTestCase {
     }
 
     /// Checks that the lemma rows of `query` are `lemma`'s headwords in both
-    /// Greek → English dictionaries with `labels`, right after the exact
-    /// rows and before every other row.
+    /// Greek → English dictionaries with `labels`, in one block among the
+    /// exact rows (by frequency since #306) and before every other row.
     private func assertLemmaRows(_ query: String, lemma: String, labels: [FormCaption.Label],
                                  file: StaticString = #filePath, line: UInt = #line) async throws {
         let results = try await db.searchResults(query: query)
@@ -12663,8 +12810,9 @@ final class WordFormsSearchTests: XCTestCase {
     }
 
     /// #142: έγραψα → γράφω, ήταν → είμαι, έχεις → έχω, also without
-    /// accents and in capitals; the lemma rows come right after the exact
-    /// rows, with the caption tags.
+    /// accents and in capitals; the lemma rows join the exact rows, with the
+    /// caption tags.
+    @MainActor
     func testInflectedGreekFindsLemma() async throws {
         for query in ["έγραψα", "εγραψα", "ΈΓΡΑΨΑ"] {
             try await assertLemmaRows(query, lemma: "γράφω", labels: [.aorist, .firstSingular])
@@ -12674,14 +12822,14 @@ final class WordFormsSearchTests: XCTestCase {
         try await assertLemmaRows("έχεις", lemma: "έχω", labels: [.present, .secondSingular])
         try await assertLemmaRows("σπιτιού", lemma: "σπίτι", labels: [.genitive, .singular])
 
-        // της: the exact row τής (FreeDict) first, then the article ο.
+        // της (#306): no row is spelt της (FreeDict's is τής), and the
+        // article ο's table holds της, so ο leads, then the exact row τής.
         let tis = try await db.searchResults(query: "της")
-        XCTAssertEqual(tis.first?.entry.word, "τής")
-        XCTAssertNil(tis.first?.formMatch)
-        let article = lemmaRows(tis).filter { $0.formMatch?.lemma == "ο" }
-        XCTAssertFalse(article.isEmpty, "της shows ο")
-        XCTAssertEqual(article.first.map { FormCaption.text(for: $0.formMatch!, locale: Locale(identifier: "en")) },
+        XCTAssertEqual(tis.first?.formMatch?.lemma, "ο")
+        XCTAssertEqual(tis.first.map { FormCaption.text(for: $0.formMatch!, locale: Locale(identifier: "en")) },
                        "genitive singular feminine of ο")
+        let exact = try XCTUnwrap(tis.first { $0.formMatch == nil })
+        XCTAssertEqual(exact.entry.word, "τής", "then the exact row")
     }
 
     /// #142, #136: frequent subtitle words that are no headword but a form of
@@ -12729,22 +12877,30 @@ final class WordFormsSearchTests: XCTestCase {
 
     /// #142, #143: base forms, and every probe query of #129, give the same
     /// results with the form step on and off. #143 adds go, mouse, good,
-    /// goose and well. On the main actor, as its assertions sit between
-    /// awaits (#229).
+    /// goose and well. #306: the row spelt as typed comes first, so ποτέ
+    /// (never) now leads its accent twin πότε (when); πότε and ποτε (no row
+    /// spelt so) keep today's order. On the main actor, as its assertions
+    /// sit between awaits (#229).
     @MainActor
     func testBaseFormResultsUnchanged() async throws {
         let queries = ["house", "a", "the", "ice cream", "dog", "water", "run", "entry", "light", "дом", "вод",
                        "говорить", "casa", "comer", "agua", "perro", "كتاب", "ماء", "بيت", "γράφω", "γραφω", "νερο",
-                       "σκυλος", "σπίτι", "είμαι", "νερό", "ποτέ", "πότε", "go", "mouse", "good", "goose", "well"]
+                       "σκυλος", "σπίτι", "είμαι", "νερό", "πότε", "ποτε", "go", "mouse", "good", "goose", "well"]
         var withStep: [String: [SearchResult]] = [:]
         for query in queries {
             withStep[query] = try await db.searchResults(query: query)
         }
+        let pote = try await db.searchResults(query: "ποτέ")
         DatabaseService.lemmaStepEnabled = false
         for query in queries {
             let without = try await db.searchResults(query: query)
             XCTAssertEqual(withStep[query], without, "'\(query)' changed with the form step")
         }
+        let poteOff = try await db.searchResults(query: "ποτέ")
+        XCTAssertEqual(poteOff.prefix(2).map(\.entry.word), ["πότε", "ποτέ"], "precondition: πότε led before #306")
+        XCTAssertEqual(pote.prefix(2).map(\.entry.word), ["ποτέ", "πότε"], "ποτέ: the typed spelling first")
+        XCTAssertEqual(Set(pote.map(\.id)), Set(poteOff.map(\.id)), "ποτέ: the same rows")
+        XCTAssertEqual(Array(pote.dropFirst(2)), Array(poteOff.dropFirst(2)), "ποτέ: the other rows keep their order")
     }
 }
 
@@ -12848,6 +13004,8 @@ extension WordFormsSearchTests {
     /// (work) and δουλεία (slavery), παιδιά of παιδί (child) and παΐδι
     /// (chop). Each row is captioned with the lemma it spells, never with its
     /// accent twin, and a word of two parts of speech shows once (κύριος).
+    /// FreeDict's proper noun Κύριος (the Lord) is no lemma row (#306).
+    @MainActor
     func testFoldAlikeLemmasCaptionTheirOwnRows() async throws {
         let geros = try await db.searchResults(query: "γέρου")
         let douleies = try await db.searchResults(query: "δουλειές")
@@ -12869,7 +13027,6 @@ extension WordFormsSearchTests {
             "wordnet-ell-eng/παιδί: nominative plural of παιδί",
         ])
         XCTAssertEqual(Set(captioned(kyrie)), [
-            "freedict-ell-eng/Κύριος: vocative singular of Κύριος",
             "freedict-ell-eng/κύριος: vocative singular of κύριος",
             "wordnet-ell-eng/κύριος: vocative singular of κύριος",
         ])
@@ -12889,8 +13046,11 @@ extension WordFormsSearchTests {
 
     /// The step adds rows and moves none: without the lemma rows, the
     /// results are the step-off list without them, in its order, cut to 50.
-    /// Also for a form that is a headword itself (είναι, της, το), whose
-    /// exact row stays first and uncaptioned.
+    /// Also for a form that is a headword itself (είναι, το), whose exact
+    /// row, spelt as typed, stays first and uncaptioned (#306). της has no
+    /// row spelt so (FreeDict's is τής), so the article ο, whose table holds
+    /// της, leads.
+    @MainActor
     func testFormStepOnlyInsertsLemmaRows() async throws {
         let queries = ["έγραψα", "ήταν", "είναι", "της", "το", "τα", "δω", "κανείς", "γέρου", "δουλειές"]
         var withStep: [String: [SearchResult]] = [:]
@@ -12906,13 +13066,16 @@ extension WordFormsSearchTests {
                            Array(off.map(\.id).filter { !added.contains($0 ?? -1) }.prefix(50 - added.count)),
                            "'\(query)': the other rows keep their order")
         }
-        for (query, headword, lemma) in [("είναι", "είναι", "present 3sg of είμαι"), ("της", "τής", "genitive singular feminine of ο"),
+        for (query, headword, lemma) in [("είναι", "είναι", "present 3sg of είμαι"),
                                          ("το", "το", "nominative singular neuter of ο")] {
             let on = try XCTUnwrap(withStep[query])
             XCTAssertEqual(on.first?.entry.word, headword, "'\(query)': the exact row first")
             XCTAssertNil(on.first?.formMatch)
             XCTAssertEqual(on.dropFirst().first.flatMap { caption($0) }, lemma, "'\(query)': then the lemma row")
         }
+        let tis = try XCTUnwrap(withStep["της"])
+        XCTAssertEqual(tis.first.flatMap { caption($0) }, "genitive singular feminine of ο", "της: ο's table holds της")
+        XCTAssertEqual(tis.first { $0.formMatch == nil }?.entry.word, "τής", "then the exact row τής, spelt otherwise")
     }
 
     /// Queries the step skips give exactly today's results: one letter (α, ο
@@ -13158,7 +13321,9 @@ extension WordFormsLookupTests {
         XCTAssertFalse(plans[1].contains { $0.contains("TEMP B-TREE") }, "the key orders the exceptions: \(plans[1])")
     }
 
-    /// κανείς and κάνεις both fold to κανεισ: the query shows κάνω and κανένας.
+    /// κανείς and κάνεις both fold to κανεισ: the query shows κάνω and κανένας,
+    /// the lemma whose table holds the typed spelling first (#306: κανένας
+    /// for κανείς, κάνω for κάνεις), else the more frequent (κάνω).
     @MainActor
     func testFoldCollisionReturnsAllLemmas() async throws {
         try readDictionaryFile { db in
@@ -13170,13 +13335,14 @@ extension WordFormsLookupTests {
         defer { try? FileManager.default.removeItem(at: tempDir) }
         try await DatabaseService.shared.setup(userPath: tempDir.appendingPathComponent("user.sqlite").path,
                                                dictionaryURL: try TestDictionary.bundledURL(), packFiles: try PackFixtures.all())
-        for query in ["κανείς", "κάνεις", "κανεις"] {
+        for (query, expected) in [("κανείς", ["κανένας", "κάνω"]), ("ΚΑΝΕΊΣ", ["κανένας", "κάνω"]),
+                                  ("κάνεις", ["κάνω", "κανένας"]), ("κανεις", ["κάνω", "κανένας"])] {
             let results = try await DatabaseService.shared.searchResults(query: query)
             var lemmas: [String] = []
             for lemma in results.compactMap(\.formMatch?.lemma) where !lemmas.contains(lemma) {
                 lemmas.append(lemma)
             }
-            XCTAssertEqual(lemmas, ["κάνω", "κανένας"], "'\(query)': the verb first, then the pronoun")
+            XCTAssertEqual(lemmas, expected, "'\(query)': the form as typed first, else the more frequent")
         }
     }
 }
@@ -13417,14 +13583,16 @@ extension FormCaptionTests {
 }
 
 /// #143 on the real file: inflected English forms find their lemmas
-/// through Morphy, right after the exact rows (0136, "Search by any form").
+/// through Morphy, among the exact rows by frequency since #306 (0136,
+/// "Search by any form").
 extension WordFormsSearchTests {
     private static let englishHeadwordSources: Set<String> = ["wordnet", "freedict-eng-spa", "freedict-eng-ell",
                                                               "wordnet-eng-ell"]
 
     /// Checks that the lemma rows of `query` are `lemmas`' headwords in the
-    /// four dictionaries with English headwords, in this order, each with its
-    /// caption, right after the exact rows and before every other row.
+    /// four dictionaries with English headwords, in this order (by
+    /// frequency since #306), each with its caption, in one block among the
+    /// exact rows and before every other row.
     @MainActor
     private func assertEnglishLemmaRows(_ query: String, _ lemmas: [(lemma: String, text: String)],
                                         file: StaticString = #filePath, line: UInt = #line) async throws {
@@ -13441,7 +13609,7 @@ extension WordFormsSearchTests {
         for lemma in added.compactMap(\.formMatch?.lemma) where !order.contains(lemma) {
             order.append(lemma)
         }
-        XCTAssertEqual(order, lemmas.map(\.lemma), "'\(query)': the lemmas in Morphy's order", file: file, line: line)
+        XCTAssertEqual(order, lemmas.map(\.lemma), "'\(query)': the lemmas by frequency", file: file, line: line)
         for (lemma, text) in lemmas {
             let rows = added.filter { $0.formMatch?.lemma == lemma }
             XCTAssertEqual(Set(rows.map(\.entry.source)), Self.englishHeadwordSources,
@@ -13456,14 +13624,15 @@ extension WordFormsSearchTests {
     /// #143: went → go, mice → mouse, better → good and well, running →
     /// run, geese → goose, also in capitals, plus regular forms (goes and
     /// dogs as verb forms); a form that is a headword keeps its exact rows
-    /// first.
+    /// first. #306: the lemmas go by frequency, so better reads well (45)
+    /// before good (52).
     @MainActor
     func testEnglishIrregularForms() async throws {
         for query in ["went", "WENT", "Went"] {
             try await assertEnglishLemmaRows(query, [("go", "form of go")])
         }
         try await assertEnglishLemmaRows("mice", [("mouse", "plural of mouse")])
-        try await assertEnglishLemmaRows("better", [("good", "comparative of good"), ("well", "comparative of well")])
+        try await assertEnglishLemmaRows("better", [("well", "comparative of well"), ("good", "comparative of good")])
         for query in ["running", "RUNNING"] {
             try await assertEnglishLemmaRows(query, [("run", "-ing form of run")])
         }
@@ -13577,7 +13746,7 @@ extension WordFormsSearchTests {
 
 /// QA, #143: more English forms through the search path on the real file:
 /// irregular nouns and adjectives, regular -ing and -men forms, forms that
-/// are headwords themselves, several lemmas in Morphy's order, and words
+/// are headwords themselves, several lemmas by frequency (#306), and words
 /// that are no form of anything.
 extension WordFormsSearchTests {
     @MainActor
@@ -13586,7 +13755,7 @@ extension WordFormsSearchTests {
             ("children", [("child", "plural of child")]),
             ("women", [("woman", "plural of woman")]),
             ("data", [("datum", "plural of datum")]),
-            ("best", [("good", "superlative of good"), ("well", "superlative of well")]),
+            ("best", [("well", "superlative of well"), ("good", "superlative of good")]),
             ("bigger", [("big", "comparative of big")]),
             ("walking", [("walk", "-ing form of walk")]),
             ("saw", [("see", "form of see")]),
@@ -13605,7 +13774,7 @@ extension WordFormsSearchTests {
             for lemma in added.compactMap(\.formMatch?.lemma) where !order.contains(lemma) {
                 order.append(lemma)
             }
-            XCTAssertEqual(order, lemmas.map(\.lemma), "'\(query)': the lemmas in Morphy's order")
+            XCTAssertEqual(order, lemmas.map(\.lemma), "'\(query)': the lemmas by frequency (#306)")
             for row in added {
                 XCTAssertEqual(row.entry.word.lowercased(), row.formMatch?.lemma, "'\(query)': \(row.entry.source)/\(row.entry.word)")
                 let expected = lemmas.first { $0.lemma == row.formMatch?.lemma }?.caption
@@ -13651,6 +13820,260 @@ extension WordFormsSearchTests {
             "freedict-eng-ell/plane: form of plane", "wordnet-eng-ell/plane: form of plane",
         ])
         XCTAssertEqual(Set(preferred.compactMap(\.id)).count, preferred.count, "no row repeats")
+    }
+}
+
+/// #306 on the real files (0136, "Search path" step 4): an ambiguous form
+/// shows the more frequent word first; a query with accent marks, the word
+/// or form spelt as typed; a proper noun is never a lemma row; Spanish,
+/// Russian and Arabic queries keep today's results.
+extension WordFormsSearchTests {
+    private func head(_ results: [SearchResult], key: String) -> [SearchResult] {
+        Array(results.prefix { $0.formMatch != nil || Search.foldGreek($0.entry.word) == key })
+    }
+
+    /// ματια: μάτι (356) before ματιά (426), captioned "nominative plural of
+    /// μάτι", and no Μάτι (FreeDict's place, a proper noun); ματιά: ματιά
+    /// first; μάτια: μάτι first. The Greek bucket of preferred mode alike.
+    @MainActor
+    func testAmbiguousGreekFormShowsTheMoreFrequentWordFirst() async throws {
+        let matia = try await db.searchResults(query: "ματια")
+        XCTAssertEqual(head(matia, key: "ματια").map(\.entry.word), ["μάτι", "μάτι", "ματιά", "ματιά"])
+        XCTAssertEqual(matia.prefix(2).map { caption($0) }, ["nominative plural of μάτι", "nominative plural of μάτι"])
+        XCTAssertEqual(Set(matia.prefix(2).map(\.entry.source)), Self.greekHeadwordSources)
+        XCTAssertFalse(matia.contains { $0.entry.word == "Μάτι" }, "the proper noun Μάτι is no form row")
+
+        let glance = try await db.searchResults(query: "ματιά")
+        XCTAssertEqual(head(glance, key: "ματια").map(\.entry.word), ["ματιά", "ματιά", "μάτι", "μάτι"])
+        XCTAssertNil(glance.first?.formMatch)
+        let eyes = try await db.searchResults(query: "μάτια")
+        XCTAssertEqual(head(eyes, key: "ματια").map(\.entry.word), ["μάτι", "μάτι", "ματιά", "ματιά"])
+        XCTAssertEqual(eyes.first.flatMap { caption($0) }, "nominative plural of μάτι")
+
+        let groups = DictionaryGrouping.sourceGroups(order: DictAppTests.greekSourceIDs + ["wordnet"])
+        let preferred = try await db.searchPreferredResults(query: "ματια", groups: groups,
+                                                            enabledSources: Set(groups.joined()))
+        XCTAssertEqual(preferred.prefix(2).map { $0.formMatch?.lemma }, ["μάτι", "μάτι"])
+        XCTAssertFalse(preferred.contains { $0.entry.word == "Μάτι" })
+    }
+
+    /// leaves (no headword of its own): leave (120) before leaf (1282), from
+    /// the English lists pack's `word_rank`.
+    @MainActor
+    func testEnglishFormShowsTheMoreFrequentLemmaFirst() async throws {
+        let results = try await db.searchResults(query: "leaves")
+        let lemmas = results.prefix { $0.formMatch != nil }.compactMap(\.formMatch?.lemma)
+        XCTAssertEqual(lemmas.first, "leave")
+        XCTAssertEqual(lemmas.firstIndex(of: "leaf").map { lemmas[..<$0].allSatisfy { $0 == "leave" } }, true,
+                       "every leave row before the leaf rows: \(lemmas)")
+    }
+
+    /// The row spelt as typed comes first: better its own rows (every
+    /// dictionary with English headwords), then well (45) and good (52);
+    /// went its En–El · FD row, then go; είναι its row, then είμαι, whose
+    /// table holds είναι. της: no row is spelt so (FreeDict's headword is
+    /// τής, a suffix), so the article ο, whose table holds της, leads and
+    /// τής follows.
+    @MainActor
+    func testSpellingAsTypedComesFirstOnTheFile() async throws {
+        let better = try await db.searchResults(query: "better")
+        let own = better.prefix { $0.formMatch == nil }
+        XCTAssertEqual(Set(own.map(\.entry.source)), Self.englishHeadwordSources, "better: its own rows first")
+        XCTAssertTrue(own.allSatisfy { $0.entry.word == "better" })
+        var lemmas: [String] = []
+        for lemma in better.compactMap(\.formMatch?.lemma) where !lemmas.contains(lemma) {
+            lemmas.append(lemma)
+        }
+        XCTAssertEqual(lemmas, ["well", "good"], "then the lemmas by frequency")
+
+        let went = try await db.searchResults(query: "went")
+        XCTAssertEqual(keys(Array(went.prefix(1))), ["freedict-eng-ell/went"])
+        XCTAssertEqual(went.dropFirst().first?.formMatch?.lemma, "go")
+
+        let einai = try await db.searchResults(query: "είναι")
+        XCTAssertEqual(keys(Array(einai.prefix(1))), ["freedict-ell-eng/είναι"])
+        XCTAssertEqual(einai.dropFirst().first?.formMatch?.lemma, "είμαι")
+
+        let tis = try await db.searchResults(query: "της")
+        XCTAssertEqual(tis.first?.formMatch?.lemma, "ο")
+        XCTAssertEqual(tis.first { $0.formMatch == nil }.map { keys([$0]) }, ["freedict-ell-eng/τής"])
+    }
+
+    /// QA: an all-caps query keeps its tiers (a final Σ is ς): ΚΑΛΟΎΣ, like
+    /// καλούς, shows καλός, whose table holds καλούς, before κάλος.
+    @MainActor
+    func testAllCapsQueryKeepsItsTiersOnTheFile() async throws {
+        for query in ["καλούς", "ΚΑΛΟΎΣ"] {
+            let results = try await db.searchResults(query: query)
+            XCTAssertEqual(results.first?.formMatch?.lemma, "καλός", "'\(query)'")
+            let lemmas = results.compactMap(\.formMatch?.lemma)
+            XCTAssertEqual(lemmas.firstIndex(of: "κάλος").map { lemmas[..<$0].allSatisfy { $0 == "καλός" } }, true,
+                           "'\(query)': καλός before κάλος: \(lemmas)")
+        }
+    }
+
+    /// QA: words spelt alike in English and Spanish (no, color, hotel) keep
+    /// today's order, the Spanish rows in place: every row is ranked by its
+    /// lowercased headword, so the exact rows tie.
+    @MainActor
+    func testWordsSpeltAlikeInSpanishKeepTheirPlace() async throws {
+        let queries = ["no", "color", "hotel"]
+        var on: [String: [SearchResult]] = [:]
+        for query in queries {
+            on[query] = try await db.searchResults(query: query)
+        }
+        DatabaseService.lemmaStepEnabled = false
+        var spanishBeforeEnglish = false
+        for query in queries {
+            let off = try await db.searchResults(query: query)
+            XCTAssertEqual(on[query], off, "'\(query)' keeps today's order")
+            let exact = off.prefix { $0.entry.word.lowercased() == query }
+            if let spanish = exact.firstIndex(where: { $0.entry.source == "wordnet-spa-eng" }),
+               exact.lastIndex(where: { Self.englishHeadwordSources.contains($0.entry.source) }).map({ $0 > spanish }) == true {
+                spanishBeforeEnglish = true
+            }
+        }
+        XCTAssertTrue(spanishBeforeEnglish, "precondition: today a Spanish row precedes an English one")
+    }
+
+    /// Spanish, Russian and Arabic queries: no form step, or no lemma row
+    /// and no reorder; the results are those with the step off.
+    @MainActor
+    func testSpanishRussianAndArabicResultsUnchanged() async throws {
+        let queries = ["casa", "comer", "agua", "perro", "libro", "hablar", "gato", "mujer", "ciudad", "tiempo", "real",
+                       "niño", "árbol", "mañana", "дом", "глаза", "время", "говорить", "книга", "كتاب", "ماء", "بيت",
+                       "مدرسة"]
+        let groups = [["freedict-eng-spa", "wordnet-spa-eng"], ["wordnet"], ["openrussian"], ["wordnet-arb-eng"],
+                      DictAppTests.greekSourceIDs]
+        var on: [String: [SearchResult]] = [:], preferredOn: [String: [SearchResult]] = [:]
+        for query in queries {
+            on[query] = try await db.searchResults(query: query)
+            preferredOn[query] = try await db.searchPreferredResults(query: query, groups: groups,
+                                                                     enabledSources: Set(groups.joined()))
+        }
+        DatabaseService.lemmaStepEnabled = false
+        for query in queries {
+            let off = try await db.searchResults(query: query)
+            XCTAssertFalse(off.isEmpty, "precondition: '\(query)' finds rows")
+            XCTAssertEqual(on[query], off, "'\(query)' changed")
+            let preferredOff = try await db.searchPreferredResults(query: query, groups: groups,
+                                                                   enabledSources: Set(groups.joined()))
+            XCTAssertEqual(preferredOn[query], preferredOff, "'\(query)' changed in preferred mode")
+        }
+    }
+}
+
+/// #306 on made-up rows: without `word_rank` rows the order is today's; with
+/// them the head group goes by frequency, in relevance and preferred mode;
+/// a proper noun is never a lemma row.
+extension WordFormsSearchTests {
+    private static let fd = "freedict-ell-eng", wn = "wordnet-ell-eng", spanishWordNet = "wordnet-spa-eng"
+
+    /// A file with ματιά, μάτι (both Greek → English dictionaries) and the
+    /// proper noun Μάτι; the lemmas μάτι (ματια: nominative plural) and
+    /// ματιά; leaves, leave and leaf in WordNet and leaves in Spanish
+    /// WordNet, with morphy's leaves → leave (verb rule) and leaf (noun
+    /// exception); and `ranks` in `word_rank`. The service attaches it as
+    /// the bundle, the Greek pack and the English lists pack.
+    private func openRankFixture(_ name: String, ranks: [(lang: String, key: String, rank: Int)]) async throws {
+        let rows = [
+            TestDictionary.Row(word: "ματιά", normalized: "ματια", definition: "glance", pos: "noun", source: Self.fd),
+            TestDictionary.Row(word: "μάτι", normalized: "ματι", definition: "eye", pos: "noun", source: Self.fd),
+            TestDictionary.Row(word: "Μάτι", normalized: "ματι", definition: "Mati (a town)", pos: "proper noun",
+                               source: Self.fd),
+            TestDictionary.Row(word: "μάτι", normalized: "ματι", definition: "eye (organ)", pos: "noun", source: Self.wn),
+            TestDictionary.Row(word: "leaves", definition: "foliage", pos: "noun", source: "wordnet"),
+            TestDictionary.Row(word: "leave", definition: "go away", pos: "verb", source: "wordnet"),
+            TestDictionary.Row(word: "leaf", definition: "a part of a plant", pos: "noun", source: "wordnet"),
+            TestDictionary.Row(word: "leaves", definition: "hojas", pos: "noun", source: Self.spanishWordNet),
+        ]
+        let metadata = [
+            TestDictionary.Metadata(source: Self.fd, displayName: "El–En · FD", fromLang: "ell", toLang: "eng"),
+            TestDictionary.Metadata(source: Self.wn, displayName: "El–En · WN", fromLang: "ell", toLang: "eng"),
+            TestDictionary.Metadata(source: "wordnet", displayName: "WordNet"),
+            TestDictionary.Metadata(source: Self.spanishWordNet, displayName: "Es–En · WN", fromLang: "spa", toLang: "eng"),
+        ]
+        let url = try TestDictionary.make(rows: rows, metadata: metadata, at: tempDir.appendingPathComponent("\(name).sqlite"))
+        try await DatabaseQueue(path: url.path).write { db in
+            try db.execute(sql: """
+                INSERT INTO lemma(id, lang, word, word_normalized, pos) VALUES
+                    (1, 'ell', 'μάτι', 'ματι', 'noun'), (2, 'ell', 'ματιά', 'ματια', 'noun');
+                INSERT INTO tagset(id, tags) VALUES (1, 'nominative singular'), (2, 'nominative plural');
+                INSERT INTO paradigm(lemma_id, ord, form, tagset_id) VALUES (1, 1, 'μάτι', 1), (1, 2, 'μάτια', 2),
+                    (2, 1, 'ματιά', 1), (2, 2, 'ματιές', 2);
+                INSERT INTO form_lookup(form_norm, lemma_id, tagset_id) VALUES
+                    ('ματι', 1, 1), ('ματια', 1, 2), ('ματια', 2, 1), ('ματιεσ', 2, 2);
+                INSERT INTO morphy_exception(form, pos, base) VALUES ('leaves', 'n', 'leaf');
+                INSERT INTO morphy_lemma(word, pos_mask) VALUES ('leave', 2), ('leaf', 1);
+                """)
+            for rank in ranks {
+                try db.execute(sql: "INSERT INTO word_rank(lang, key, rank) VALUES (?, ?, ?)",
+                               arguments: [rank.lang, rank.key, rank.rank])
+            }
+        }
+        try await db.setup(userPath: tempDir.appendingPathComponent("\(name)-user.sqlite").path, dictionaryURL: url,
+                           packFiles: [.ell: url, .engLists: url])
+    }
+
+    private func keys(_ results: [SearchResult]) -> [String] {
+        results.map { "\($0.entry.source)/\($0.entry.word)\($0.formMatch == nil ? "" : "*")" }
+    }
+
+    /// No `word_rank` rows: the exact rows, then the lemma rows, as before
+    /// #306; the proper noun Μάτι never shows. The tiers need no rank:
+    /// μάτια still puts μάτι, whose table holds μάτια, first.
+    @MainActor
+    func testWithoutRanksTheOrderIsTodays() async throws {
+        try await openRankFixture("no-ranks", ranks: [])
+        let matia = try await db.searchResults(query: "ματια")
+        XCTAssertEqual(keys(Array(matia.prefix(1))), ["\(Self.fd)/ματιά"])
+        XCTAssertEqual(Set(keys(Array(matia.dropFirst()))), ["\(Self.fd)/μάτι*", "\(Self.wn)/μάτι*"])
+        XCTAssertEqual(matia.count, 3, "no Μάτι: \(keys(matia))")
+        let eyes = try await db.searchResults(query: "μάτια")
+        XCTAssertEqual(Set(keys(Array(eyes.prefix(2)))), ["\(Self.fd)/μάτι*", "\(Self.wn)/μάτι*"])
+        XCTAssertEqual(keys(Array(eyes.dropFirst(2))), ["\(Self.fd)/ματιά"])
+
+        let leaves = try await db.searchResults(query: "leaves")
+        XCTAssertEqual(Set(keys(Array(leaves.prefix(2)))), ["wordnet/leaves", "\(Self.spanishWordNet)/leaves"])
+        XCTAssertEqual(keys(Array(leaves.dropFirst(2))), ["wordnet/leave*", "wordnet/leaf*"])
+        DatabaseService.lemmaStepEnabled = false
+        let leavesOff = try await db.searchResults(query: "leaves")
+        XCTAssertEqual(keys(Array(leaves.prefix(2))), keys(leavesOff), "the exact rows in today's order")
+    }
+
+    /// With ranks: ματια gives μάτι (356) before ματιά (426), ματιά its own
+    /// word first, μάτια μάτι first. leaves gives its own rows first (spelt
+    /// as typed; WordNet's and Spanish WordNet's share the key `leaves`),
+    /// then leaf before leave (ranked 10 and 20 here, against Morphy's
+    /// order). Preferred mode sorts each bucket the same way before its top
+    /// N.
+    @MainActor
+    func testRanksOrderTheHeadGroup() async throws {
+        try await openRankFixture("ranks", ranks: [("ell", "ματι", 356), ("ell", "ματια", 426), ("eng", "leaf", 10),
+                                                   ("eng", "leave", 20), ("eng", "leaves", 30)])
+        let fdEye = "\(Self.fd)/μάτι*", wnEye = "\(Self.wn)/μάτι*", glance = "\(Self.fd)/ματιά"
+        let matia = try await db.searchResults(query: "ματια")
+        XCTAssertEqual(Set(keys(Array(matia.prefix(2)))), [fdEye, wnEye])
+        XCTAssertEqual(keys(Array(matia.dropFirst(2))), [glance], "no Μάτι")
+        XCTAssertEqual(matia.first.map { FormCaption.text(for: $0.formMatch!, locale: Locale(identifier: "en")) },
+                       "nominative plural of μάτι")
+        let typedGlance = try await db.searchResults(query: "ματιά")
+        XCTAssertEqual(keys(Array(typedGlance.prefix(1))), [glance])
+        XCTAssertEqual(Set(keys(Array(typedGlance.dropFirst()))), [fdEye, wnEye])
+        let eyes = try await db.searchResults(query: "μάτια")
+        XCTAssertEqual(Set(keys(Array(eyes.prefix(2)))), [fdEye, wnEye])
+
+        let leaves = try await db.searchResults(query: "leaves")
+        XCTAssertEqual(Set(keys(Array(leaves.prefix(2)))), ["wordnet/leaves", "\(Self.spanishWordNet)/leaves"])
+        XCTAssertEqual(keys(Array(leaves.dropFirst(2))), ["wordnet/leaf*", "wordnet/leave*"])
+
+        let greek = try await db.searchPreferredResults(query: "ματια", groups: [[Self.fd, Self.wn]],
+                                                        enabledSources: [Self.fd, Self.wn], topN: 2)
+        XCTAssertEqual(Set(keys(Array(greek.prefix(2)))), [fdEye, wnEye], "the bucket's top 2 after the sort")
+        XCTAssertEqual(keys(Array(greek.dropFirst(2))), [glance], "ματιά in the tail")
+        let english = try await db.searchPreferredResults(query: "leaves", groups: [[Self.spanishWordNet], ["wordnet"]],
+                                                          enabledSources: [Self.spanishWordNet, "wordnet"])
+        XCTAssertEqual(keys(english), ["\(Self.spanishWordNet)/leaves", "wordnet/leaves", "wordnet/leaf*", "wordnet/leave*"])
     }
 }
 
@@ -16418,7 +16841,8 @@ final class WordListModelTests: XCTestCase {
         XCTAssertNil(spanish.last ?? nil, "a Spanish list links only to Spanish headwords")
     }
 
-    /// The level and rank reads use their primary keys, as does the Greek form lookup of linking.
+    /// The level and rank reads use their primary keys, as does the Greek form lookup of linking, and the
+    /// ranks of a search's head group (#306).
     func testRankLookupUsesPrimaryKey() async throws {
         let url = try WordListFixture.make(rows: Self.rows, metadata: Self.metadata, lists: Self.lists, items: Self.items,
                                            at: tempDir.appendingPathComponent("dictionary.sqlite"))
@@ -16430,6 +16854,7 @@ final class WordListModelTests: XCTestCase {
                 (DatabaseService.wordRankSQL(schema: "dict"), ["ell", "σπιτι"]),
                 (DatabaseService.wordListItemsSQL(schema: "dict", order: "seq"), ["ky-ell", 1]),
                 (DatabaseService.greekFormLemmasSQL(schema: "ell"), ["λιγοι", "λίγοι"]),
+                (DatabaseService.headRanksSQL(schema: "dict", count: 2), ["ell", "ματι", "ματια"]),
             ]
             return try queries.map { sql, arguments in
                 try Row.fetchAll(db, sql: "EXPLAIN QUERY PLAN " + sql, arguments: arguments).map { $0["detail"] as String }
@@ -16439,6 +16864,7 @@ final class WordListModelTests: XCTestCase {
         XCTAssertTrue(plans[1].contains { $0.hasSuffix("wordlist_item USING PRIMARY KEY (series=?)") }, "\(plans[1])")
         XCTAssertEqual(plans[2].first, "SEARCH f USING PRIMARY KEY (form_norm=?)",
                        "the form's key comes first, never all the lemmas: \(plans[2])")
+        XCTAssertTrue(plans[3].contains { $0.hasSuffix("word_rank USING PRIMARY KEY (lang=? AND key=?)") }, "\(plans[3])")
         for plan in plans {
             XCTAssertFalse(plan.contains { $0.hasPrefix("SCAN") }, "no table scan: \(plan)")
         }

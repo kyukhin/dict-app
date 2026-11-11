@@ -116,16 +116,22 @@ final class GreekDictionaryTests: XCTestCase {
         }
     }
 
-    /// `γρηγορα` → first result `γρήγορα` with `source_badge_freedict-ell-eng`;
-    /// the row and the definition view show "quickly".
+    /// `γρηγορα` → `γρήγορα` with `source_badge_freedict-ell-eng`, after the
+    /// more frequent lemma γρήγορος (#306: no row is spelt γρηγορα); the row
+    /// and the definition view show "quickly".
     func testWordOnlyInFreeDictGreekToEnglish() throws {
         let search = isolateGreekPair()
         search.searchFor("γρηγορα")
         XCTAssertTrue(search.waitForResults(), "'γρηγορα' must return results")
-        waitForFirstResult(word: "γρήγορα", sources: [TestData.Sources.freedictEllEng], query: "γρηγορα")
-        XCTAssertTrue(search.verifyResultContainsText("quickly", at: 0), "the row snippet shows the translation")
+        waitForFirstResult(word: "γρήγορος", sources: [TestData.Sources.freedictEllEng, TestData.Sources.wordnetEllEng],
+                           query: "γρηγορα")
+        let quickly = resultCell(word: "γρήγορα", source: TestData.Sources.freedictEllEng)
+        XCTAssertTrue(quickly.waitForExistence(timeout: TestData.Timeouts.medium), "'γρηγορα' must find γρήγορα (El–En · FD)")
+        XCTAssertTrue(quickly.staticTexts.containing(NSPredicate(format: "label CONTAINS[c] %@", "quickly")).count > 0,
+                      "the row snippet shows the translation")
 
-        let definition = search.tapSearchResult(at: 0)
+        search.dismissKeyboard()
+        let definition = search.tapResult(word: "γρήγορα", source: TestData.Sources.freedictEllEng)
         XCTAssertTrue(definition.waitForDefinitionToLoad(), "definition view must load")
         XCTAssertTrue(app.navigationBars["γρήγορα"].waitForExistence(timeout: TestData.Timeouts.medium),
                       "definition title is the accented headword")

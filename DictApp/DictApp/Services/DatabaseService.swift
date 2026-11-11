@@ -101,9 +101,9 @@ enum Search {
     // MARK: Search by any form (Issue #142)
     //
     // 0136-word-forms.md, "Search path": a one-word query is also looked up
-    // as an inflected form, and its lemmas' headword rows come right after
-    // the exact matches, each with a `FormMatch`. The SQL is in
-    // `DatabaseService`; the decisions below are pure.
+    // as an inflected form, and its lemmas' headword rows join the exact
+    // matches (ordered by frequency since #306), each with a `FormMatch`.
+    // The SQL is in `DatabaseService`; the decisions below are pure.
 
     /// Which form step a sanitized query gets.
     enum FormStep: Equatable {
@@ -158,12 +158,14 @@ enum Search {
         let isExact: Bool
     }
 
-    /// Merges one bucket: the exact rows (the leading run of `ranked`, which
-    /// is in rank order), then the lemma rows not already among them, then
-    /// the remaining rows of `ranked` without the lemma rows, cut to `limit`.
-    /// A lemma row that `ranked` has further down moves up and keeps its
-    /// caption. Without lemma rows the result is `ranked` as it is.
-    static func mergeLemmaBucket(ranked: [RankedEntry], lemmaRows: [SearchResult], limit: Int) -> [SearchResult] {
+    /// Merges one bucket: the head group (the exact rows, the leading run of
+    /// `ranked`, which is in rank order, then the lemma rows not already
+    /// among them), then the remaining rows of `ranked` without the lemma
+    /// rows, cut to `limit`. A lemma row that `ranked` has further down moves
+    /// up and keeps its caption. `order` (#306) sorts the head group;
+    /// without it, and without lemma rows, the result is `ranked` as it is.
+    static func mergeLemmaBucket(ranked: [RankedEntry], lemmaRows: [SearchResult], limit: Int,
+                                 order: HeadOrder? = nil) -> [SearchResult] {
         let exact = ranked.prefix { $0.isExact }
         var seen = Set<Int64>()
         var result: [SearchResult] = []
@@ -173,8 +175,92 @@ enum Search {
         }
         exact.forEach { append(SearchResult(entry: $0.entry)) }
         lemmaRows.forEach(append)
+        if let order { result = order.sorted(result) }
         ranked.dropFirst(exact.count).forEach { append(SearchResult(entry: $0.entry)) }
         return Array(result.prefix(limit))
+    }
+
+    // MARK: Frequency order of the head group (Issue #306)
+    //
+    // 0136-word-forms.md, "Search path" step 4: a query with a form step
+    // orders its head group (the exact rows and the lemma rows) by tier
+    // (spelt as typed, then a form spelt as typed, then the rest), then by
+    // `word_rank`, most frequent first; rows without a rank go last. Ties
+    // keep today's order. The ranks and the lemmas of the typed spelling
+    // come from `DatabaseService`; the order is pure.
+
+    /// How a form-step search orders its head group.
+    struct HeadOrder: Equatable, Sendable {
+        /// The `word_rank` language: `ell` keys a headword folded, `eng`
+        /// lowercased.
+        let lang: String
+        /// The query's own key, which every exact row has.
+        let queryKey: String
+        /// The query as typed, lowercased NFC, accents included.
+        let typed: String
+        /// The frequency rank of each key (1 = most frequent).
+        var ranks: [String: Int] = [:]
+        /// The Greek lemmas whose paradigm holds `typed`
+        /// (`greekFormLemmasSQL`). English lemmas have no paradigm.
+        var typedLemmas: Set<String> = []
+
+        init(step: FormStep, sanitized: String, ranks: [String: Int] = [:], typedLemmas: Set<String> = []) {
+            switch step {
+            case .greek(let key):
+                lang = "ell"
+                queryKey = key
+            case .english(let word):
+                lang = "eng"
+                queryKey = word
+            }
+            typed = HeadOrder.spelling(sanitized)
+            self.ranks = ranks
+            self.typedLemmas = typedLemmas
+        }
+
+        /// A word's spelling as the tiers compare it: lowercased NFC, so
+        /// case does not count and accents do. `lowercased()` maps every Σ
+        /// to σ, so a σ that ends a word after a letter becomes ς, as the
+        /// headwords and the paradigms spell it (ΚΑΛΟΎΣ = καλούς).
+        static func spelling(_ word: String) -> String {
+            let scalars = Array(word.lowercased().precomposedStringWithCanonicalMapping.unicodeScalars)
+            var out = String.UnicodeScalarView()
+            for (index, scalar) in scalars.enumerated() {
+                let afterLetter = index > 0 && scalars[index - 1].properties.isAlphabetic
+                let endsWord = index + 1 == scalars.count || !scalars[index + 1].properties.isAlphabetic
+                out.append(scalar == "\u{03C3}" && afterLetter && endsWord ? "\u{03C2}" : scalar)
+            }
+            return String(out)
+        }
+
+        /// The `word_rank` key of an entry's headword, as the build keys it:
+        /// folded for a Greek step, lowercased for an English one, whatever
+        /// the row's source (a Spanish row spelt as the query shares the
+        /// exact rows' key, so they tie and keep their order).
+        func rankKey(of entry: DictionaryEntry) -> String {
+            lang == "ell" ? Search.foldGreek(entry.word) : entry.word.lowercased()
+        }
+
+        /// 0 for a row whose headword is spelt as typed; 1 for a lemma row
+        /// whose lemma's paradigm holds the typed spelling; 2 for the rest.
+        func tier(of row: SearchResult) -> Int {
+            if HeadOrder.spelling(row.entry.word) == typed { return 0 }
+            if let lemma = row.formMatch?.lemma, typedLemmas.contains(lemma) { return 1 }
+            return 2
+        }
+
+        /// The row's frequency rank; `nil` when unranked.
+        func rank(of row: SearchResult) -> Int? {
+            ranks[rankKey(of: row.entry)]
+        }
+
+        /// `rows` sorted stably by tier, then rank, unranked rows last.
+        func sorted(_ rows: [SearchResult]) -> [SearchResult] {
+            rows.enumerated()
+                .map { (key: (tier(of: $0.element), rank(of: $0.element) ?? Int.max, $0.offset), row: $0.element) }
+                .sorted { $0.key < $1.key }
+                .map(\.row)
+        }
     }
 
     /// The sources an English form step reads lemma rows from (Kirill,
@@ -972,8 +1058,9 @@ actor DatabaseService {
     }
 
     /// Relevance search, as `search`, with the form step (#142): when the
-    /// query is an inflected form, its lemmas' rows follow the exact matches,
-    /// each with its `FormMatch`.
+    /// query is an inflected form, its lemmas' rows join the exact matches,
+    /// each with its `FormMatch`, and the group is ordered by frequency
+    /// (#306).
     func searchResults(query: String, limit: Int = 50, enabledSources: Set<String>? = nil) async throws -> [SearchResult] {
         // If an explicit (non-nil) empty set is passed, no sources are enabled — return immediately.
         if let sources = enabledSources, sources.isEmpty { return [] }
@@ -993,9 +1080,13 @@ actor DatabaseService {
                 db, schemas: schemas, fts: fts, sources: sources, withImports: withImports,
                 ranking: .relevance(fts, limit: limit)
             )
+            let english = try Self.englishHeadwordSources(db, step: formStep)
             let lemmaRows = try Self.lemmaRows(db, schemas: schemas, step: formStep, sources: sources,
-                                               withImports: withImports)
-            return Search.mergeLemmaBucket(ranked: ranked, lemmaRows: lemmaRows, limit: limit)
+                                               withImports: withImports, english: english)
+            let order = try Self.headOrder(db, step: formStep, sanitized: sanitized,
+                                           head: ranked.prefix { $0.isExact }.map(\.entry) + lemmaRows.map(\.entry),
+                                           hasLemmaRows: !lemmaRows.isEmpty)
+            return Search.mergeLemmaBucket(ranked: ranked, lemmaRows: lemmaRows, limit: limit, order: order)
         }
     }
 
@@ -1023,9 +1114,10 @@ actor DatabaseService {
     }
 
     /// "Preferred dictionary first", as `searchPreferred`, with the form step
-    /// (#142): each pair bucket merges its lemma rows after its exact rows,
-    /// then takes its top N, before the tail query, so the tail excludes
-    /// them. Lemma rows of sources outside every pair group join the tail.
+    /// (#142): each pair bucket merges its lemma rows with its exact rows,
+    /// ordered by frequency (#306), then takes its top N, before the tail
+    /// query, so the tail excludes them. Lemma rows of sources outside every
+    /// pair group join the tail.
     func searchPreferredResults(
         query: String,
         groups: [[String]],
@@ -1051,8 +1143,21 @@ actor DatabaseService {
 
         return try await read(pool) { db in
             let imported = try Self.importedSources(db)
+            let english = try Self.englishHeadwordSources(db, step: formStep)
             let lemmaRows = try Self.lemmaRows(db, schemas: schemas, step: formStep, sources: Array(enabledSources),
-                                               withImports: !imported.isDisjoint(with: enabledSources))
+                                               withImports: !imported.isDisjoint(with: enabledSources), english: english)
+            // Every bucket's rows first, so one rank query covers their exact
+            // rows; the tail's exact rows have the query's key (#306).
+            let bucketRows = try enabledGroups.map { members in
+                try Self.rankedEntries(
+                    db, schemas: schemas, fts: fts, sources: members, withImports: !imported.isDisjoint(with: members),
+                    ranking: .relevance(fts, limit: topN)
+                )
+            }
+            let order = try Self.headOrder(
+                db, step: formStep, sanitized: sanitized,
+                head: bucketRows.flatMap { $0.prefix { $0.isExact }.map(\.entry) } + lemmaRows.map(\.entry),
+                hasLemmaRows: !lemmaRows.isEmpty)
             var buckets: [String: [SearchResult]] = [:]
             var bucketOrder: [String] = []
             var takenIds: [Int64] = []
@@ -1060,12 +1165,9 @@ actor DatabaseService {
             for (index, members) in enabledGroups.enumerated() {
                 // Index, not joined IDs: a custom ID may contain any separator.
                 let key = String(index)
-                let ranked = try Self.rankedEntries(
-                    db, schemas: schemas, fts: fts, sources: members, withImports: !imported.isDisjoint(with: members),
-                    ranking: .relevance(fts, limit: topN)
-                )
                 let rows = Search.mergeLemmaBucket(
-                    ranked: ranked, lemmaRows: lemmaRows.filter { members.contains($0.entry.source) }, limit: topN
+                    ranked: bucketRows[index], lemmaRows: lemmaRows.filter { members.contains($0.entry.source) },
+                    limit: topN, order: order
                 )
                 buckets[key] = rows
                 bucketOrder.append(key)
@@ -1084,7 +1186,8 @@ actor DatabaseService {
                 )
                 let grouped = Set(enabledGroups.joined())
                 tail = Search.mergeLemmaBucket(
-                    ranked: ranked, lemmaRows: lemmaRows.filter { !grouped.contains($0.entry.source) }, limit: remaining
+                    ranked: ranked, lemmaRows: lemmaRows.filter { !grouped.contains($0.entry.source) }, limit: remaining,
+                    order: order
                 )
             }
 
@@ -1152,21 +1255,28 @@ actor DatabaseService {
         }
     }
 
+    /// The `pos` of a proper noun's entry in the bundled sources (FreeDict
+    /// El–En and En–Es; WordNet labels them "noun"). Never a lemma row
+    /// (#306): Μάτι (a place) is no form row of ματια.
+    static let properNounPOS = "proper noun"
+
     /// The headword rows of the query's lemmas in the enabled dictionaries,
     /// each with its `FormMatch`: ordered by candidate, then rank, at most
-    /// `Search.maximumLemmaRows` rows of `Search.maximumFormLemmas` lemmas.
-    /// One query of the base query's shape: an FTS filter on the
-    /// `word_normalized` column, which uses the index, plus the exact key.
-    /// Bundled Greek rows store the folded key and imported rows the word as
-    /// it is, so each lemma matches both.
+    /// `Search.maximumLemmaRows` rows of `Search.maximumFormLemmas` lemmas,
+    /// no proper noun among them (#306). One query of the base query's
+    /// shape: an FTS filter on the `word_normalized` column, which uses the
+    /// index, plus the exact key. Bundled Greek rows store the folded key
+    /// and imported rows the word as it is, so each lemma matches both.
+    /// `english`: the sources whose headwords are English, for an English
+    /// step (`englishHeadwordSources(_:step:)`).
     private static func lemmaRows(_ db: Database, schemas: DictionarySchemas, step: Search.FormStep?,
-                                  sources: [String]?, withImports: Bool) throws -> [SearchResult] {
+                                  sources: [String]?, withImports: Bool, english: Set<String>) throws -> [SearchResult] {
         guard let step else { return [] }
         var sources = sources
         if case .english = step {
-            let english = Search.englishLemmaSources(enabled: sources, english: try englishHeadwordSources(db))
-            guard !english.isEmpty else { return [] }
-            sources = english
+            let englishSources = Search.englishLemmaSources(enabled: sources, english: english)
+            guard !englishSources.isEmpty else { return [] }
+            sources = englishSources
         }
         let candidates = try lemmaCandidates(db, step: step)
         guard !candidates.isEmpty else { return [] }
@@ -1176,8 +1286,9 @@ actor DatabaseService {
         let match = "word_normalized : (" + keys.map(Search.ftsString).joined(separator: " OR ") + ")"
         let union = searchBranches(
             schemas, match: match,
-            filter: ("e.word_normalized COLLATE NOCASE IN (\(keys.map { _ in "?" }.joined(separator: ", ")))",
-                     StatementArguments(keys)),
+            filter: ("e.word_normalized COLLATE NOCASE IN (\(keys.map { _ in "?" }.joined(separator: ", "))) "
+                     + "AND e.pos IS NOT ?",
+                     StatementArguments(keys) + [properNounPOS]),
             sources: sources, withImports: withImports
         )
         guard !union.sql.isEmpty else { return [] }
@@ -1208,6 +1319,43 @@ actor DatabaseService {
         })
     }
 
+    // MARK: Frequency order (Issue #306)
+    //
+    // 0136-word-forms.md, "Search path" step 4: the head group of a
+    // form-step search is ordered by `Search.HeadOrder`, with the ranks of
+    // its keys from the language's `word_rank` (the Greek pack for `ell`,
+    // the English lists pack for `eng`; without the pack, the stub's empty
+    // table: every row unranked, today's order).
+
+    /// The `word_rank` ranks of `count` keys of one language: one search of
+    /// the primary key. Arguments: the language, then the keys.
+    static func headRanksSQL(schema: String, count: Int) -> String {
+        "SELECT key, rank FROM \(schema).word_rank WHERE lang = ? AND key IN (\(Array(repeating: "?", count: count).joined(separator: ", ")))"
+    }
+
+    /// The order of a form-step search's head group, or `nil` without a form
+    /// step. `head`: the entries of every head group the search merges (its
+    /// exact rows and its lemma rows). One query for the ranks of their keys
+    /// and the query's own key; for a Greek query with lemma rows, one more
+    /// for the lemmas whose paradigm holds the typed spelling.
+    private static func headOrder(_ db: Database, step: Search.FormStep?, sanitized: String,
+                                  head: [DictionaryEntry], hasLemmaRows: Bool) throws -> Search.HeadOrder? {
+        guard let step else { return nil }
+        var order = Search.HeadOrder(step: step, sanitized: sanitized)
+        let keys = Array(Set(head.map(order.rankKey(of:)) + [order.queryKey])).sorted()
+        if let schema = DictionarySchemas.listsSchema(for: order.lang) {
+            for row in try Row.fetchAll(db, sql: headRanksSQL(schema: schema, count: keys.count),
+                                        arguments: StatementArguments([order.lang] + keys)) {
+                order.ranks[row["key"]] = row["rank"] as Int
+            }
+        }
+        if case .greek(let key) = step, hasLemmaRows {
+            order.typedLemmas = Set(try String.fetchAll(db, sql: greekFormLemmasSQL(schema: PackID.ell.schema),
+                                                        arguments: [key, order.typed]))
+        }
+        return order
+    }
+
     // MARK: Search by an English form (Issue #143)
     //
     // 0136-word-forms.md, "Morphy (#143)" and "Search path" step 2: one
@@ -1235,8 +1383,11 @@ actor DatabaseService {
         "dict_metadata", columns: "source", where: "from_lang = 'eng'")
         + " UNION SELECT source FROM imported_sources WHERE from_lang = 'eng'"
 
-    private static func englishHeadwordSources(_ db: Database) throws -> Set<String> {
-        Set(try String.fetchAll(db, sql: englishHeadwordSourcesSQL))
+    /// The dictionaries whose headwords are English, read for an English
+    /// form step only: its lemma rows need them.
+    private static func englishHeadwordSources(_ db: Database, step: Search.FormStep?) throws -> Set<String> {
+        guard case .english = step else { return [] }
+        return Set(try String.fetchAll(db, sql: englishHeadwordSourcesSQL))
     }
 
     /// The lemmas the lowercased `word` is a form of, in `Morphy`'s order,

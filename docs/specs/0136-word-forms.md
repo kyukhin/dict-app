@@ -1,7 +1,7 @@
 # Word forms
 
 > Spec written by Claude (AI) for LibreDict.
-> Status: Implemented (approved by kyukhin on 2026-10-28, the #144 change on 2026-10-31) · Epic: #136 · Tickets: #141, #142, #143, #144 · Updated: 2026-11-06
+> Status: Implemented (approved by kyukhin on 2026-10-28, the #144 change on 2026-10-31) · Epic: #136 · Tickets: #141, #142, #143, #144, #306 · Updated: 2026-11-11
 
 Read [0000-overview.md](0000-overview.md) and [0129-dictionary-file.md](0129-dictionary-file.md) first. This epic builds on #129's read-only `dictionaries.sqlite`. #237 ([0237-downloads.md](0237-downloads.md), Approved) moves the Greek tables (`lemma`, `tagset`, `paradigm`, `form_lookup`, `form_link`) and their `data_source` row into the Greek pack, attached as `ell`: since T2 (#241) their SQL says `ell.` where this spec says `dict.`, and without the Greek pack `ell` is the empty stub: the same tables with no rows, so the queries return nothing and need no special code. `morphy_exception` and `morphy_lemma` stay in the bundle as `dict.`. Numbers marked "measured" come from a prototype of the pipeline, run on 2026-10-27 against the 2026-10-01 Wiktionary snapshot and the 1.4.0 seed.
 
@@ -17,22 +17,25 @@ Greek is highly inflected. Of the 5,000 most frequent Greek words in subtitles, 
   - every letter Greek: in the Greek forms table, ignoring accents, case and final sigma (`εγραψα`, `ΈΓΡΑΨΑ` = `έγραψα`);
   - every letter a–z, any case: through the WordNet morphy port, with lemma rows from dictionaries whose headwords are English only (kyukhin, 2026-11-02);
   - mixed scripts, other scripts or several words: no form step.
-- The lemma's rows (its headword entries in the enabled dictionaries) come right after the exact matches and before the prefix matches. Each carries a caption under the headword line.
-- If the folded query is the lemma itself, nothing is added, so results for base forms do not change.
+- The lemma's rows (its headword entries in the enabled dictionaries, never a proper noun) join the exact matches, before the prefix matches. Each carries a caption under the headword line.
+- **Frequency order** (kyukhin, #306): the exact matches and the lemma rows are one group, in three steps: first the rows whose headword is spelt exactly as typed, accents included (case does not count); then the lemma rows whose lemma's table holds that exact spelling (μάτια → μάτι; English lemmas have no table); then the rest. Within each step, most frequent first by `word_rank`; rows without a rank go last, in the order of #142. `ματια` shows μάτι (eyes, "nominative plural of μάτι") before ματιά (glance), as nothing is spelt `ματια`; `ματιά` shows ματιά first, `μάτια` μάτι; `better` shows better first, then well and good. English rows use the English lists' ranks (leaves → leave before leaf). Without the pack that holds a language's ranks, the order is #142's but for the first two steps.
+- If the folded query is the lemma itself, nothing is added, so results for base forms change only when a row spelt as typed moves up (`ποτέ` before πότε).
 - A form shared by several lemmas shows each of them: up to 5 lemmas and 10 rows. Example: κανείς and κάνεις both fold to `κανεισ`, so the query also shows κάνω.
-- In "Preferred dictionary first" mode, lemma rows go into their pair's bucket after that bucket's exact matches. The top 4 per pair is applied after the merge.
+- In "Preferred dictionary first" mode, lemma rows go into their pair's bucket, ordered with that bucket's exact matches. The top 4 per pair is applied after the merge.
 - Opening a lemma row works as today. History records the opened row's source and word (#138), i.e. the lemma, not the typed form.
 
-| Query | Rows added after exact matches | Caption (en) |
+| Query | Rows added, with the exact matches by frequency (#306) | Caption (en) |
 |---|---|---|
 | έγραψα, εγραψα | γράφω (El–En · FD, El–En · WN) | aorist 1sg of γράφω |
 | ήταν | είμαι | imperfect 3sg of είμαι |
 | έχεις | έχω | present 2sg of έχω |
 | σπιτιού | σπίτι | genitive singular of σπίτι |
-| της | ο | genitive singular feminine of ο |
-| went | go (WordNet, En–Es · FD, En–El · FD, En–El · WN) | form of go |
+| της | ο, before the exact row `τής` (no row is spelt της) | genitive singular feminine of ο |
+| ματια, μάτια | μάτι, before the exact row `ματιά` | nominative plural of μάτι |
+| ματιά | μάτι, after the exact row `ματιά` | nominative plural of μάτι |
+| went | go (WordNet, En–Es · FD, En–El · FD, En–El · WN), after the exact row `went` | form of go |
 | mice, geese | mouse, goose | plural of mouse |
-| better | good and well, after the exact row `better` | comparative of good, comparative of well |
+| better | well and good, after the exact row `better` | comparative of well, comparative of good |
 | running | run, after the exact row `running` | -ing form of run |
 
 ### Inflection tables (#144)
@@ -84,6 +87,7 @@ Credits gains the line "Word forms: Wiktionary contributors, via kaikki.org (CC 
 - 2026-11-02 (kyukhin, #143): English lemma rows come only from dictionaries whose headwords are English (`dict_metadata.from_lang` eng; an import once it records its language, #208). Spanish WordNet's do, idea and doctor no longer read as forms of doing, ideas and doctors (77 of the English top 5,000).
 - 2026-11-02 (kyukhin, #143): within a part of speech without an exception, Morphy takes only the first rule whose base is a lemma of that part of speech, as NLTK's `morphy()` does: hoping → hope, not hop. A word that is itself a lemma keeps its rule base (things → thing, also boss → bos).
 - 2026-11-02 (kyukhin, #143): a Spanish query of a–z letters keeps its English rows (planes → plane); the step does not guess the query's language.
+- 2026-11-11 (kyukhin, #306): the exact matches and the lemma rows are one group: the headword spelt as typed, accents included, first; then the lemmas whose table holds that spelling; then the rest; each step by `word_rank`, unranked last. English ranks every row by its lowercased headword, whatever its source, so Spanish results keep their order; proper nouns are never lemma rows. Frequency for prefix matches and ranks for Spanish, Russian and Arabic are out of scope.
 - Interface languages en, ru, es, ar (RTL), el; Wiktionary is credited (#136).
 - 2026-10-31 (kyukhin, #144): an entry's table follows the order of the labels in its own `pos`, the first whose lemma has a table, instead of the fixed verb, noun, adj, name order. FreeDict's καλός ("adjective, noun") shows the adjective's table.
 - 2026-10-31 (kyukhin, #144): an entry without a `pos` shows the table when its lemma, by the same word or folded-word rule, has exactly one table across all parts of speech; with more than one, none.
@@ -223,8 +227,10 @@ The change goes into `DatabaseService.search` and `searchPreferred` as #138 leav
 2. **Candidates.**
    - Greek: `SELECT … FROM dict.form_lookup JOIN dict.lemma JOIN dict.tagset WHERE form_norm = Search.foldGreek(token)`, minus lemmas whose `word_normalized` equals the key, ordered verb, noun, adj, others, then by word. No cap here: the lemma-row query's LIMIT 10 applies after the enabled-source filter.
    - English: one query on `dict.morphy_exception` and one on `dict.morphy_lemma` (an `IN` list of the rule outputs), then `Morphy`.
-3. **Lemma rows.** One query of the base query's shape: an FTS column filter `{word_normalized} : ("γραφω" OR …)` plus `word_normalized COLLATE NOCASE IN (…)` over `dict.entries_fts`, with #138's imported branch when an imported source is enabled. Imported rows keep `word_normalized = word`, so that branch also matches each lemma's own word (γράφω as well as γραφω). Enabled sources only, and for English only those whose headwords are English (`dict.dict_metadata.from_lang` or `imported_sources.from_lang` = eng, `Search.englishLemmaSources`); LIMIT 10, ordered by candidate, then rank. The column filter uses the FTS index; a plain `word_normalized = ?` would scan, because the column has no index.
-4. **Merge** with the pure `Search.mergeLemmaBucket(ranked:lemmaRows:limit:)`: exact rows, then lemma rows not already present, then the remaining base rows, cut to `limit`.
+3. **Lemma rows.** One query of the base query's shape: an FTS column filter `{word_normalized} : ("γραφω" OR …)` plus `word_normalized COLLATE NOCASE IN (…)` over `dict.entries_fts`, with #138's imported branch when an imported source is enabled. Imported rows keep `word_normalized = word`, so that branch also matches each lemma's own word (γράφω as well as γραφω). Enabled sources only, and for English only those whose headwords are English (`dict.dict_metadata.from_lang` or `imported_sources.from_lang` = eng, `Search.englishLemmaSources`); never a proper noun (`pos IS NOT 'proper noun'`, `DatabaseService.properNounPOS`: FreeDict El–En and En–Es label them so, WordNet labels them noun; #306); LIMIT 10, ordered by candidate, then rank. The column filter uses the FTS index; a plain `word_normalized = ?` would scan, because the column has no index.
+4. **Merge** with the pure `Search.mergeLemmaBucket(ranked:lemmaRows:limit:order:)`: the head group (exact rows, then lemma rows not already present), sorted by `order` when the query has a form step (#306), then the remaining base rows, cut to `limit`.
+   - **Order** (#306), `Search.HeadOrder`, pure: a stable sort of the head group by (tier, rank). The typed spelling is the sanitized query, lowercased NFC, with a word-final σ after a letter as ς (`lowercased()` makes every Σ σ, so ΚΑΛΟΎΣ = καλούς), as headwords and tables spell it. Tier 0: the row's headword, lowercased NFC, equals it. Tier 1: a lemma row whose lemma's table holds it (`typedLemmas`; English lemma rows have no table). Tier 2: the rest. Rank: the row's headword key in `word_rank` (0130, "List data"): `ell` with the folded headword for a Greek step, `eng` with the lowercased headword for an English step, whatever the row's source: a Spanish row spelt as the query shares the exact rows' key, so they tie and keep #142's order (QA: no, color, hotel). No rank sorts after every rank; ties keep #142's order.
+   - **Its reads**, in the same read as the search: one query for the ranks of the head groups' distinct keys plus the query's own key (every exact row's key, so a preferred-mode tail is covered too), on the primary key of the language's lists file (`DatabaseService.headRanksSQL`, `DictionarySchemas.listsSchema`: `ell` for Greek, `eng_lists` for English). Without that pack the stub's empty table gives no rank. For a Greek query with lemma rows, one more: the lemmas whose table holds the typed spelling (`greekFormLemmasSQL`). In preferred mode every bucket's base query runs first, so one rank query covers all buckets.
    - Relevance mode: the limit is 50.
    - Preferred mode: one merge per pair bucket with `topN`, before the tail query, so the tail excludes the merged ids. `Search.assemble` then works as today.
    - Lemma rows from sources outside every pair group (imports not yet in the order) are merged into the relevance tail the same way, with the tail's limit.
@@ -240,7 +246,7 @@ The change goes into `DatabaseService.search` and `searchPreferred` as #138 leav
 - In Arabic the caption starts with U+200F, and the Greek lemma is wrapped in FSI…PDI, as in #119.
 - VoiceOver reads the person as the Greek pronoun ("aorist, εγώ of γράφω"), the same words as in the tables.
 
-**Performance.** Measured on the 1.4.0 seed with the prototype tables attached as a second schema (#129's layout), 17 probes, median of 5 runs: 33.1 ms without the lemma step, 31.8 ms with it, i.e. within noise. Prefix keystrokes cost one primary-key probe that finds nothing. Gate: on #129's probe set plus the inflected probes, search with the lemma step is at most 10% slower than the 1.4.0 baseline, measured as #129 measures (iPhone 15 Pro simulator, iOS 17.5, median of 3, and a device).
+**Performance.** #306 adds one primary-key query per form-step search, and one more for a Greek query with lemma rows (both in `testRankLookupUsesPrimaryKey`). Measured on the 1.4.0 seed with the prototype tables attached as a second schema (#129's layout), 17 probes, median of 5 runs: 33.1 ms without the lemma step, 31.8 ms with it, i.e. within noise. Prefix keystrokes cost one primary-key probe that finds nothing. Gate: on #129's probe set plus the inflected probes, search with the lemma step is at most 10% slower than the 1.4.0 baseline, measured as #129 measures (iPhone 15 Pro simulator, iOS 17.5, median of 3, and a device).
 
 ### Tables (#144)
 
@@ -289,7 +295,7 @@ The change goes into `DatabaseService.search` and `searchPreferred` as #138 leav
 | `Scripts/inputs.json`, `Scripts/inputs.py` | Entries for the Greek snapshot (a committed file, checked by `inputs.committed()`) and the frequency list |
 | `Scripts/data/kaikki-el-20261001.jsonl.gz` (LFS, `Scripts/data/*.jsonl.gz` in `.gitattributes`), `Scripts/data/forms-allowlist.tsv`, `Scripts/fixtures/kaikki-el-sample.jsonl`, `Scripts/reports/forms-qa.md` | New |
 | `DictApp/DictApp/Resources/dictionaries.sqlite` | Rebuilt with the E2 tables; `user_version` and `DictionaryFile.formatVersion` bumped in the same PR |
-| `DictApp/DictApp/Services/DatabaseService.swift` | Lemma step in `search` and `searchPreferred`, `Search.mergeLemmaBucket`, `inflection(for:)`; the morphy lookups and the `form_link` check of table links (#143) |
+| `DictApp/DictApp/Services/DatabaseService.swift` | Lemma step in `search` and `searchPreferred`, `Search.mergeLemmaBucket`, `inflection(for:)`; the morphy lookups and the `form_link` check of table links (#143); `Search.HeadOrder`, `headRanksSQL` and the proper-noun filter (#306) |
 | `DictApp/DictApp/Models/Models.swift` | `SearchResult`, `FormMatch` (#142); `Morphy`, pure (#143); the pure table code of #144: `ParadigmCell`, `LemmaParadigm`, `InflectionLookup`, `FormLabel`, `InflectionTable`, `ParadigmLayout` |
 | `DictApp/DictApp/ViewModels/SearchViewModel.swift`, `DictApp/DictApp/ViewModels/DefinitionViewModel.swift` | `[SearchResult]` and `FormCaption` (#142, English labels #143); the published inflection table |
 | `DictApp/DictApp/Views/SearchView.swift` | Caption line in `EntryRow` |
@@ -327,6 +333,7 @@ Unit classes go in the `DictAppTests` target. `WordForms*` classes that touch SQ
 | #144: VoiceOver reads "aorist, εγώ, έγραψα" | `ParadigmLayoutTests.testCellAccessibilityLabel` (Greek runs carry `el`; the other voice, moods, nouns, adjectives, Arabic, Greek); `InflectionTableTests.testCellLabel` (the cell's `label`; the form is no element of its own) |
 | #144: UI tests green on iPhone and iPad, iOS 17.5 and 26.4 | The matrix run of `InflectionTableTests`, `WordFormsSearchFlowTests` and the two extended language suites; `InflectionTableTests.testTablesFitTheScreenAtTheLargestTextSize` (σπίτι and γράφω with all forms at the largest accessibility size: every cell and the definition inside the window, each cell once) |
 | #136: Wiktionary credited | `InflectionTableTests.testCreditsListsWiktionary` (`credits_wiktionary`, reached through `settings_credits_link`); `testWiktionaryDataSourceRow` |
+| #306: ματια shows μάτι before ματιά, no Μάτι; ματιά shows ματιά first, μάτια μάτι; better shows better first; της shows ο, then τής (no row is spelt της); leaves shows leave before leaf; without ranks the order is #142's but for the tiers; Spanish, Russian and Arabic unchanged | `SearchAssembleTests` (pure): `testHeadGroupGoesByFrequency`, `testUnrankedRowsGoLastInTodaysOrder`, `testSpellingAsTypedComesFirst`, `testTypedSpelling` (all caps, final σ), `testAllCapsQueryKeepsItsTiers`, `testEnglishRanksEveryRowByItsHeadword`, `testRankOrderedTailSortsOnlyItsHeadGroup`; `WordFormsSearchTests` on the real files: `testAmbiguousGreekFormShowsTheMoreFrequentWordFirst`, `testEnglishFormShowsTheMoreFrequentLemmaFirst`, `testSpellingAsTypedComesFirstOnTheFile` (better, went, είναι, της), `testAllCapsQueryKeepsItsTiersOnTheFile` (ΚΑΛΟΎΣ), `testWordsSpeltAlikeInSpanishKeepTheirPlace` (no, color, hotel), `testSpanishRussianAndArabicResultsUnchanged`, `WordFormsLookupTests.testFoldCollisionReturnsAllLemmas` (ΚΑΝΕΊΣ); on made-up rows: `testWithoutRanksTheOrderIsTodays`, `testRanksOrderTheHeadGroup` (relevance and preferred mode); the rank query's plan in `WordListModelTests.testRankLookupUsesPrimaryKey`; UI: `GreekDictionaryTests.testWordOnlyInFreeDictGreekToEnglish` (γρηγορα: γρήγορος first, then γρήγορα, opened by its row) |
 
 ## Open questions
 
@@ -386,3 +393,5 @@ None.
 - 2026-11-04: #237 (0237, Approved) marked: the Greek form tables move to the Greek pack and are read as `ell.` from T2 (#241); morphy stays in the bundle as `dict.`. Updated the intro, Depends on #129 and Layering.
 - 2026-11-05: Review fix: without the Greek pack, `ell` is a stub with the same tables and no rows, as 0237 defines it.
 - 2026-11-06: #241: the Greek tables are read as `ell.`, also by word list linking (#151); `dict.` stays for morphy.
+- 2026-11-11 (kyukhin): #306 orders the exact matches and the lemma rows of a form-step search in three steps (spelt as typed, a lemma whose table holds the typed spelling, the rest), each by `word_rank`, and drops proper nouns from the lemma rows (Behaviour, Search path, Decisions on record). `word_rank` counts a form into its lemma's key too, so frequency alone put the lemma first (better → well); the spelling steps, refined by kyukhin the same day, keep a word typed exactly first. Tests changed for the new order: ποτέ leads πότε; της shows ο first, as its only headword is τής; γρηγορα shows γρήγορος first and κανείς κανένας; better and best read well before good; FreeDict's proper noun Κύριος is no lemma row of κύριε.
+- 2026-11-11 (QA): #306 fixes. An all-caps query lost its tiers, as `lowercased()` makes a final Σ σ (ΚΑΛΟΎΣ showed κάλος before καλός, ΚΑΝΕΊΣ κάνω before κανένας): the typed spelling now ends a word in ς. English ranked only rows of dictionaries with English headwords, so Spanish rows spelt like the query (no, color, hotel: 27 of QA's 68 probes) dropped below the English ones: every row is now ranked by its lowercased headword, and the exact rows tie. QA's `GreekDictionaryTests.testWordOnlyInFreeDictGreekToEnglish` expects γρήγορος first for γρηγορα.
