@@ -203,6 +203,7 @@ final class iPadSpecificTests: XCTestCase {
 
     /// Issue #145: with a query the chips row sits above the first result in
     /// both orientations, and on iPadOS 26 the tab strip still shows (#120).
+    /// Since #307 the row is the list's first row.
     func testChipsOnIPad() throws {
         XCTAssertTrue(app.waitForDictionariesReady(), "Search screen after launch")
         let search = SearchPage(app: app)
@@ -221,8 +222,9 @@ final class iPadSpecificTests: XCTestCase {
             XCTAssertTrue(row.exists, "the row stays while the field holds a query")
             XCTAssertLessThanOrEqual(row.frame.maxY, firstResult.frame.minY + 1,
                                      "the row is above the first result in \(orientation.rawValue)")
-            XCTAssertEqual(search.chipsScrollView.frame.width, app.windows.firstMatch.frame.width, accuracy: 1,
-                           "the row spans the full width in \(orientation.rawValue)")
+            // #307: the row is the list's first row, as wide as the results.
+            XCTAssertEqual(search.chipsScrollView.frame.width, search.resultCells.element(boundBy: 0).frame.width,
+                           accuracy: 1, "the row is as wide as the results in \(orientation.rawValue)")
             let field = app.searchFields.firstMatch
             XCTAssertTrue(field.exists, "the search field shows with a query")
             XCTAssertGreaterThanOrEqual(row.frame.minY, field.frame.maxY - 1,

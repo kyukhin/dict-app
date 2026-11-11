@@ -528,43 +528,52 @@ final class DictionaryFilterTests: XCTestCase {
         XCTAssertEqual(search.isChipOn(last), true)
     }
 
-    /// #145 (Kirill, 2026-10-30): the row stays pinned under the search
-    /// field: with an empty field, with the keyboard up, and while the
-    /// results scroll under it.
-    func testChipsStayPinnedUnderTheField() throws {
+    /// #307 (kyukhin): the chips are the list's first row. They start under
+    /// the search field, scroll away with the results while the field keeps
+    /// the focus, and come back at the top.
+    func testChipsScrollAwayWithTheField() throws {
         let search = tabBarPage.tapSearchTab()
         XCTAssertTrue(search.waitForChips())
         let row = search.chipsRow
         let field = app.searchFields.firstMatch
         XCTAssertTrue(field.waitForExistence(timeout: TestData.Timeouts.medium))
-        // The "Dictionaries" container covers the chips only. On iOS 26 a
-        // container around the scroll view started at the top of the screen,
-        // over the title and the search field (#145, Kirill 2026-10-31).
+        // The "Dictionaries" container covers the chips only, not the title
+        // and the field (#145, kyukhin 2026-10-31).
         XCTAssertGreaterThanOrEqual(row.frame.minY, field.frame.maxY - 1,
                                     "empty field: the row's frame starts below the search field")
 
         search.searchFor("apple")
         XCTAssertTrue(search.waitForResults(timeout: TestData.Timeouts.long), "results for 'apple'")
-        XCTAssertTrue(row.exists, "keyboard up: the row stays")
-        XCTAssertGreaterThanOrEqual(row.frame.minY, field.frame.maxY - 1, "keyboard up: the row is under the field")
+        XCTAssertTrue(search.chipsAreOnScreen(), "with results the row is at the top, under the field")
+        XCTAssertGreaterThanOrEqual(search.resultCells.element(boundBy: 0).frame.minY, row.frame.maxY - 1,
+                                    "the first result starts under the row")
+        XCTAssertTrue(search.searchFieldHasFocus(), "precondition: the field has the focus after typing")
 
-        search.dismissKeyboard()
-        XCTAssertGreaterThanOrEqual(app.cells.element(boundBy: 0).frame.minY, row.frame.maxY - 1,
-                                    "before scrolling, the first result starts under the row")
-        // Pinned to the field, not to the screen: a large title (iPadOS 26)
-        // collapses as the results scroll and takes the field and the row up.
-        let gapToField = row.frame.minY - field.frame.maxY
-        let swipeTarget = app.cells.element(boundBy: 4)
+        let swipeTarget = search.resultCells.element(boundBy: 2)
         XCTAssertTrue(swipeTarget.waitForExistence(timeout: TestData.Timeouts.medium))
         swipeTarget.swipeUp()
+        XCTAssertTrue(waitUntil { !search.chipsAreOnScreen() }, "the row scrolls away with the results")
+        XCTAssertTrue(field.exists, "the field stays while the results scroll")
 
-        XCTAssertLessThan(app.cells.element(boundBy: 0).frame.minY, row.frame.maxY - 10,
-                          "precondition: the results scrolled under the row")
-        XCTAssertTrue(row.exists, "the row stays while the results scroll")
-        XCTAssertEqual(row.frame.minY - field.frame.maxY, gapToField, accuracy: 1,
-                       "the row stays right under the field while the results scroll")
-        XCTAssertGreaterThan(row.frame.minY, app.windows.firstMatch.frame.minY, "the row stays on screen")
-        XCTAssertTrue(search.revealChip(search.chip(englishPair)), "the chips stay reachable")
+        for _ in 0..<5 where !search.chipsAreOnScreen() {
+            app.collectionViews.firstMatch.swipeDown()
+            _ = waitUntil(timeout: TestData.Timeouts.short) { search.chipsAreOnScreen() }
+        }
+        XCTAssertTrue(search.chipsAreOnScreen(), "back at the top, the row is under the field again")
+        XCTAssertGreaterThanOrEqual(search.resultCells.element(boundBy: 0).frame.minY, row.frame.maxY - 1,
+                                    "back at the top, the row is above the first result")
+        search.tapChip(englishPair)
+        XCTAssertEqual(search.isChipOn(englishPair), false, "the chips work again at the top")
+    }
+
+    /// Polls `condition` until it holds or `timeout` passes.
+    private func waitUntil(timeout: TimeInterval = TestData.Timeouts.medium, _ condition: () -> Bool) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if condition() { return true }
+            Thread.sleep(forTimeInterval: 0.2)
+        }
+        return condition()
     }
 
     /// #145: the chips are the stored setting, so their state survives a

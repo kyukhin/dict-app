@@ -9,6 +9,16 @@ struct SearchView: View {
     var body: some View {
         NavigationStack {
             List {
+                // Issue #307: the chips are the list's first row in every
+                // state, so they scroll away with the search field and come
+                // back at the top. They are the header of an empty section:
+                // a plain first row sits under the empty header gap of an
+                // inset grouped list, about 35 pt below the active field.
+                Section {
+                } header: {
+                    DictionaryChipsRow(selection: vm.selection)
+                }
+                .listSectionSpacing(.compact)
                 if vm.query.isEmpty {
                     if !vm.recentWords.isEmpty {
                         Section("search.recent.title") {
@@ -48,11 +58,6 @@ struct SearchView: View {
                         .listRowInsets(EdgeInsets())   // stripe reaches the leading edge (#6 §4c)
                     }
                 }
-            }
-            // Issue #145: the chips stay pinned under the search field while
-            // the results scroll, with the keyboard up and with an empty field.
-            .safeAreaInset(edge: .top, spacing: 0) {
-                DictionaryChipsRow(selection: vm.selection)
             }
             .navigationTitle("search.title")
             .modifier(SearchFieldPlacement(text: $vm.query))
@@ -133,30 +138,27 @@ private struct DictionaryChipsRow: View {
 
     var body: some View {
         if selection.isLoaded {
-            VStack(spacing: 0) {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 8) {
-                        allChip
-                        ForEach(selection.pairs) { item in
-                            pairChip(item)
-                        }
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    allChip
+                    ForEach(selection.pairs) { item in
+                        pairChip(item)
                     }
-                    .padding(.horizontal)
-                    .padding(.vertical, 8)
-                    // The container is the chips, inside the scroll view: on
-                    // iOS 26 the scroll view's own frame reaches up under the
-                    // navigation bar, and a container around it takes that
-                    // frame, covering the title and the search field.
-                    .accessibilityElement(children: .contain)
-                    .accessibilityLabel(Text("search.chips.label"))
-                    .accessibilityIdentifier("dictionary_chips")
                 }
-                Divider()
+                .padding(.horizontal)
+                .padding(.vertical, 8)
+                // The container is the chips, inside the scroll view: on
+                // iOS 26 a scroll view right under the navigation bar can
+                // report a frame up under the bar, and a container around
+                // it takes that frame, covering the title and the field.
+                .accessibilityElement(children: .contain)
+                .accessibilityLabel(Text("search.chips.label"))
+                .accessibilityIdentifier("dictionary_chips")
             }
-            // Only behind the row: by default a style background extends into
-            // the safe area, up over the navigation bar, and on iOS 26 it
-            // covers the large title and the iPad tab strip.
-            .background(.bar, ignoresSafeAreaEdges: [])
+            // A section header (#307): as wide as the results, and labels
+            // keep their case.
+            .listRowInsets(EdgeInsets())
+            .textCase(nil)
         }
     }
 
@@ -176,40 +178,39 @@ private struct DictionaryChipsRow: View {
 
     /// A switch that reads "English, on". Long press (secondary click on
     /// iPad) and the VoiceOver Actions rotor offer "Only this".
+    ///
+    /// A menu with a primary action, not a `Toggle` with `.contextMenu`: in
+    /// a `List` (#307) a context menu belongs to the whole row, and a
+    /// section header gets none. VoiceOver and XCUITest still see a switch.
     private func pairChip(_ item: DictionaryItem) -> some View {
         let onlyThis = SettingsViewModel.localizedString("search.chips.onlyThis", locale: locale)
-        return Toggle(item.displayName, isOn: Binding(
+        let isOn = Binding(
             get: { item.isEnabled },
             set: { selection.setEnabled($0, pair: item.id) }
-        ))
-        .toggleStyle(ChipToggleStyle())
-        .contentShape(.contextMenuPreview, Capsule())
-        .contextMenu {
+        )
+        return Menu {
             Button {
                 selection.enableOnly(pair: item.id)
             } label: {
                 Text(verbatim: onlyThis)
             }
             .accessibilityIdentifier("dictionary_chip_only_this")
+        } label: {
+            Text(item.displayName)
+                .modifier(ChipShape(isOn: item.isEnabled))
+        } primaryAction: {
+            isOn.wrappedValue.toggle()
+        }
+        .menuStyle(.button)
+        .buttonStyle(.plain)
+        .menuIndicator(.hidden)
+        .accessibilityRepresentation {
+            Toggle(item.displayName, isOn: isOn)
         }
         .accessibilityAction(named: Text(verbatim: onlyThis)) {
             selection.enableOnly(pair: item.id)
         }
         .accessibilityIdentifier("dictionary_chip_\(item.id)")
-    }
-}
-
-/// A capsule filled with the tint when on, outlined when off. The `Toggle`
-/// keeps its switch semantics; the style only draws it.
-private struct ChipToggleStyle: ToggleStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        Button {
-            configuration.isOn.toggle()
-        } label: {
-            configuration.label
-                .modifier(ChipShape(isOn: configuration.isOn))
-        }
-        .buttonStyle(.plain)
     }
 }
 

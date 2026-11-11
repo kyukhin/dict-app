@@ -1,7 +1,7 @@
 # Quick dictionary switching on Search
 
 > Spec written by Claude (AI) for LibreDict.
-> Status: Implemented (approved by kyukhin on 2026-10-30) · Epic: #146 · Tickets: #145 · Updated: 2026-10-31
+> Status: Implemented (approved by kyukhin on 2026-10-30) · Epic: #146 · Tickets: #145, #307 · Updated: 2026-11-11
 
 Read [0000-overview.md](0000-overview.md) first. This epic changes the Search screen and how the Dictionary Order list is held in memory. It adds no data, no preference key and no migration. E1 ([0129](0129-dictionary-file.md)) and E2 ([0136](0136-word-forms.md)) change the same search path: see "Search, preferred mode, E1 and E2".
 
@@ -13,7 +13,7 @@ Dictionaries are switched on and off only in Settings → Dictionary Order. Typi
 
 ### The chips row
 
-- A row of chips sits at the top of the Search screen, under the search field. It stays there while the results scroll, while the keyboard is up, and with an empty field (Recent words).
+- A row of chips is the first row of the Search list, under the search field, in every state: Recent words, results, no results and "Choose a dictionary". It scrolls away with the search field as the list scrolls, also while the keyboard is up, and comes back at the top (#307).
 - "All" comes first, then one chip per Dictionary Order row, in the Dictionary Order sequence. Reordering rows in Settings reorders the chips. The chips themselves cannot be dragged.
 - A chip's label is its row's title in Dictionary Order: "English", "Russian – English", "Greek – English". An imported dictionary shows its source name.
 - A filled chip is on, an outlined chip is off.
@@ -39,7 +39,7 @@ Dictionaries are switched on and off only in Settings → Dictionary Order. Typi
 
 ### iPhone, iPad, Arabic, VoiceOver, Dynamic Type
 
-- iPhone and iPad, portrait and landscape: the same row across the full width.
+- iPhone and iPad, portrait and landscape: the same row, as wide as the result rows (#307).
 - iPadOS 26: the row sits under the search drawer. The floating tab strip stays visible while the field holds a query (#120, unchanged).
 - Several iPad windows show the same chip state at the same time.
 - Arabic: the row is mirrored. "All" is at the right edge and the row scrolls from the right. Labels are the Arabic Dictionary Order titles (#119).
@@ -59,7 +59,8 @@ Dictionaries are switched on and off only in Settings → Dictionary Order. Typi
 - No "all off" action. Turning the last chip off does it, and the hint explains the empty screen.
 - The long-press menu holds only "Only this": "English off" is one tap, and "All" is a chip.
 - The chips decide which dictionaries are searched, never the order of results. "Preferred dictionary first" still follows Dictionary Order.
-- 2026-10-30 (kyukhin): the row stays pinned under the search field. Switching while looking at results matters more than about 44 pt of list height.
+- 2026-10-30 (kyukhin): the row stays pinned under the search field. Switching while looking at results matters more than about 44 pt of list height. Replaced on 2026-11-11.
+- 2026-11-11 (kyukhin, #307): the row scrolls away with the search field and comes back at the top.
 
 ## Design
 
@@ -87,9 +88,9 @@ The setting stays where it is: `enabled_sources` and `dictionary_order` in `Sett
 - `ManageDictionariesViewModel.performImport` awaits `selection.load()` after `enableImportedSource` and `appendImportedSourceToOrder`, on the same selection and settings store it was given (`.shared` in the app). An import that joins an enabled pair keeps the pair's source IDs, which the dictionary file already lists, but raises its entry count, so Search re-runs its query.
 - `SearchView`:
   - `.task` also calls `selection.loadIfNeeded()`;
-  - `DictionaryChipsRow` goes in `.safeAreaInset(edge: .top, spacing: 0)` on the List, on the `.bar` background, shown once `isLoaded`. It is an `HStack` in a horizontal `ScrollView`, not a lazy stack or a list, so every chip exists for VoiceOver and XCUITest, and `SearchPage.resultsList` still finds the results list. The "Dictionaries" container (label and `dictionary_chips`) is the `HStack`, not the `ScrollView`: on iOS 26 the scroll view's frame reaches up under the navigation bar, and a container around it covers the title and the search field (kyukhin, 2026-10-31);
+  - `DictionaryChipsRow` is the header of the List's first, empty section (`.listSectionSpacing(.compact)`, zero row insets, `.textCase(nil)`, no background, no divider), shown once `isLoaded` (#307). A plain first row sat under the empty header gap of the inset grouped list, about 35 pt below the active field. It is an `HStack` in a horizontal `ScrollView`, not a lazy stack or a list, so every chip exists for VoiceOver and XCUITest. The header is a `Cell` for XCUITest, so tests reach results through `SearchPage.resultCells` (the cells with a source badge). The "Dictionaries" container (label and `dictionary_chips`) is the `HStack`, not the `ScrollView`: on iOS 26 a scroll view right under the navigation bar can report a frame up under the bar, and a container around it covers the title and the search field (kyukhin, 2026-10-31);
   - the hint is a `ContentUnavailableView` (symbol `books.vertical`) in the List, in place of `search_no_results`.
-- A pair chip is a SwiftUI `Toggle` with a custom `ChipToggleStyle` (a capsule, filled with the tint when on, outlined when off), a `.contextMenu` with "Only this", and an `.accessibilityAction(named:)` that runs the same action. The Toggle keeps switch semantics: VoiceOver reads "English, on" and XCUITest reads `value` 1 or 0, as for the Settings switches. If the custom style loses them on a matrix OS, the chip sets the `.isToggle` trait and the value itself.
+- A pair chip is a SwiftUI `Menu` with a primary action (#307): a tap toggles the pair, a long press (a secondary click on iPad) opens "Only this". Its label is the capsule, filled with the tint when on, outlined when off. In a `List` a `.contextMenu` opens for the whole row, and in a section header not at all, so the 2026-10-30 `Toggle` with a `.contextMenu` no longer works there. `.accessibilityRepresentation` shows the chip as its `Toggle`, so VoiceOver reads "English, on" and XCUITest reads a switch with `value` 1 or 0, as for the Settings switches; an `.accessibilityAction(named:)` runs "Only this".
 - "All" is a `Button` with the `.isSelected` trait when every pair is on.
 
 Layering: the views hold no rules. They render `pairs` and call `DictionarySelection`. SQL stays in `DatabaseService`.
@@ -120,7 +121,7 @@ The ids join `AccessibilityIdentifiers.Search`. `SearchPage` gains:
 - `chipOrder(of:)`: pair keys in reading order, sorted by `frame.minX`, or by descending `frame.maxX` when the app runs right to left (Arabic);
 - `waitForNoDictionariesHint()`. `waitForResults` also treats the hint as "no results", since the hint is a list cell.
 
-Chips are found by id with any element type, and the row is scrolled by geometry, never through `isHittable`. `revealChip` drags along the chips with no momentum. `chipsRow` is as wide as the chips; `chipsScrollView` gives the row's full width.
+Chips are found by id with any element type, and the row is scrolled by geometry, never through `isHittable`. `revealChip` first scrolls the list back to the top (`scrollChipsIntoView`, #307), then drags along the chips with no momentum, inside the row's part of the window. `chipsRow` is as wide as the chips; `chipsScrollView` gives the row's width, the width of the result rows. `chipsAreOnScreen()` tells whether the row is under the field.
 
 ### Strings
 
@@ -142,7 +143,7 @@ Six new keys. The implementing agent writes the translations; these are the prop
 | `DictApp/DictApp/ViewModels/SettingsViewModel.swift` | `DictionarySelection`, with the pair logic moved out of `SettingsViewModel`, which forwards to it |
 | `DictApp/DictApp/ViewModels/SearchViewModel.swift` | Re-run on chip changes, `showsNoDictionariesHint` |
 | `DictApp/DictApp/ViewModels/ManageDictionariesViewModel.swift` | Reload the selection after an import |
-| `DictApp/DictApp/Views/SearchView.swift` | `DictionaryChipsRow`, `ChipToggleStyle`, the hint |
+| `DictApp/DictApp/Views/SearchView.swift` | `DictionaryChipsRow`, `ChipShape`, the hint |
 | `DictApp/DictApp/Resources/Localizable.xcstrings` | The six keys |
 | `DictApp/DictAppUITests/TestHelpers/AccessibilityIdentifiers.swift`, `DictApp/DictAppUITests/PageObjects/SearchPage.swift` | Ids and page-object methods above |
 | `DictApp/DictAppTests/DictAppTests.swift`, the UI suites in the test plan | New tests |
@@ -161,12 +162,12 @@ Unit tests go in `DictAppTests.swift`: two new classes, `DictionarySelectionTest
 | #145: "Only this" leaves only that pair; "All" enables every pair | Unit `testEnableOnlyKeepsExactlyThePair` (Greek: its 4 sources; no write when it is already the only one), `testEnableAllRemovesStoredSet` (key absent, every pair on, no write when already absent; an explicit set holding every source, as the Settings switches leave it, is removed too). UI: `testThreeCasesInOneOrTwoTaps`, which also checks the Settings switches after "Only this" |
 | #145: with every pair off, the hint and no results | Unit `testAllOffShowsHintOnlyWithQuery`. UI `testAllOffShowsHint`: "Only this" on English, tap English, `search_no_dictionaries` shows and no result cell; tap "All", results return |
 | #145, 0129: Recent words and History are not filtered; every pair off with an empty field shows Recent words and no hint | Unit `QuickSwitchSearchTests.testRecentWordsAndHistoryIgnoreTheChips`. UI `testRecentWordsIgnoreTheChips`: a word read in Russian stays in Recent words with every chip off, no hint, and opens its Russian entry |
-| #145 (kyukhin, 2026-10-30): the row stays pinned under the search field | UI `testChipsStayPinnedUnderTheField`: with an empty field, with the keyboard up, and while the results scroll under the row, the chips stay right under the field; the row's frame starts below the field |
+| #307 (kyukhin, 2026-11-11): the row scrolls away with the search field and comes back at the top | UI `testChipsScrollAwayWithTheField`: with an empty field the row's frame starts below the field; with results it is under the field and above the first result; a swipe up with the field focused takes it off screen while the field stays; swiping back to the top brings it back above the first result, and a chip still toggles |
 | #145: imported dictionaries get a chip | Unit `DictionarySelectionTests.testImportReloadAppendsPairOn`. UI `ImportDictionaryTests.testImportedDictionaryGetsAChip`: after the JSON fixture import the fixture chip is last and on, `qaflux` is found; chip off, `search_no_results` |
 | #145: "Preferred dictionary first" uses the chips | Unit `QuickSwitchSearchTests.testPreferredModeFollowsChips`: "Only this" on `ell-eng` returns only Greek sources, buckets in Dictionary Order |
-| #145: all 5 UI languages, Arabic right to left | `testEveryCatalogKeyIsTranslatedInEveryShippedLanguage` (existing); unit `testTitlesFollowLanguageChange`. UI `ArabicLocalizationTests.testChipsReadRightToLeft` ("All" right of the first pair chip and at the right edge, labels equal the Arabic Dictionary Order titles), `GreekLocalizationTests.testChipsAreLocalizedInGreek` ("Όλα τα λεξικά", the Greek pair first by the #88 default, the Greek hint), `SpanishLocalizationTests.testChipsAreLocalizedInSpanish` |
+| #145: all 5 UI languages, Arabic right to left | `testEveryCatalogKeyIsTranslatedInEveryShippedLanguage` (existing); unit `testTitlesFollowLanguageChange`. UI `ArabicLocalizationTests.testChipsReadRightToLeft` ("All" right of the first pair chip and at the row's right edge, labels equal the Arabic Dictionary Order titles), `GreekLocalizationTests.testChipsAreLocalizedInGreek` ("Όλα τα λεξικά", the Greek pair first by the #88 default, the Greek hint), `SpanishLocalizationTests.testChipsAreLocalizedInSpanish` |
 | #145: VoiceOver "English, on" | UI `testChipAccessibility`: a pair chip is a switch and "All" a button, the label is the pair title, the value flips between 1 and 0 with a tap, "All" is `isSelected` only when every chip is on |
-| #145: iPad including iPadOS 26; Dynamic Type | UI `iPadSpecificTests.testChipsOnIPad`: with a query the row is under the search field and above the first result in both orientations; on iPadOS 26 the tab strip still shows. `testChipsAtAccessibilityTextSize` (relaunch with `-UIPreferredContentSizeCategoryName UICTContentSizeCategoryAccessibilityXXXL`): the last chip is reached by scrolling the row and toggles |
+| #145: iPad including iPadOS 26; Dynamic Type | UI `iPadSpecificTests.testChipsOnIPad`: with a query the row is under the search field, above the first result and as wide as it in both orientations; on iPadOS 26 the tab strip still shows. `testChipsAtAccessibilityTextSize` (relaunch with `-UIPreferredContentSizeCategoryName UICTContentSizeCategoryAccessibilityXXXL`): the last chip is reached by scrolling the row and toggles |
 | #145: UI tests green on iPhone and iPad, iOS 17.5 and 26.4 | The matrix run of every suite above, plus `SearchFlowTests` and `NavigationTests`, which prove the row does not break result lookups |
 | No regression in Settings | `SettingsViewModelPairTests`, the `DictionaryOrder*Tests` suites and the existing `DictionaryFilterTests` stay green unchanged |
 
@@ -183,3 +184,4 @@ Unit tests go in `DictAppTests.swift`: two new classes, `DictionarySelectionTest
 - 2026-10-30 (QA): new tests: unit `testRecentWordsAndHistoryIgnoreTheChips`, `testAppViewModelsShareOneSelection`; UI `testChipsStayPinnedUnderTheField`, `testChipStateSurvivesRelaunch`, `testRecentWordsIgnoreTheChips`, and checks for focus and keyboard after a tap, the switch and button types, "All" at the right edge in Arabic, the row under the field on iPad.
 - 2026-10-30 (QA): looked at en and ar, light and dark, iPhone and iPad on 17.5 and 26.4, and at the largest accessibility size: one line, no truncation, mirrored in Arabic, pinned under the field. On iPadOS 26 the large title collapses as the results scroll and the row moves up with the field. The accessibility audit finds only "contrast nearly passed" on the white-on-tint chips. Not checked by a test: "Only this" in the VoiceOver Actions rotor (code: `accessibilityAction(named:)`), the iPad secondary click and several iPad windows.
 - 2026-10-31 (QA): kyukhin: the row's accessibility frame must cover only the chips. The "Dictionaries" container and `dictionary_chips` moved from the stack around the `ScrollView` onto the chips' `HStack` inside it. On iPhone 17 (26.4) the frame was (0, 0, 402, 274), over the title and the search field; it is now (16, 236, 721, 30), under the field (bottom at 213). Identifiers, labels, RTL order and the layout are unchanged; on 17.5 the frame is now the chips too. `testChipsStayPinnedUnderTheField` asserts the frame starts below the field, `chipsBand` is gone, and `chipsScrollView` checks the full width on iPad. Green on iPhone 17 26.4, iPad M5 26.4 and iPhone 15 Pro 17.5: unit 262 (1 skipped), `DictionaryFilterTests` 17/17, `iPadSpecificTests` (3 on iPad, skipped on iPhone), `ArabicLocalizationTests` 7/7.
+- 2026-11-11 (kyukhin): #307: the row is no longer pinned. It is the header of the List's first, empty section, so it scrolls away with the search field and comes back at the top, in every state; no `.bar` background, no divider, as wide as the result rows. A pair chip is a `Menu` with a primary action and an `accessibilityRepresentation` of its `Toggle`, because a `.contextMenu` inside a `List` opens for the whole row (or, in a header, never). Identifiers, labels, the switch semantics and "Only this" are unchanged. `testChipsScrollAwayWithTheField` replaces `testChipsStayPinnedUnderTheField`; results tests go through `SearchPage.resultCells`. Green on iPhone 17 26.4: `DictionaryFilterTests` 17/17, `SearchFlowTests` 7/7; `testChipsOnIPad` on iPad Pro M5 26.4. Looked at iPhone 15 Pro 17.5.
