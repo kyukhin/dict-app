@@ -2,7 +2,7 @@ import XCTest
 
 /// Issue #5 — Reading Mode (keep screen awake).
 ///
-/// What XCUITest can verify: the open-book toggle is present in the
+/// What XCUITest can verify: the light-bulb toggle (#315) is present in the
 /// top-right toolbar of the Search root and of a pushed Definition, flips its
 /// `.isSelected` trait on tap, keeps its state across the Search → Definition
 /// push (both screens observe the same `ReadingModeService.shared`), and is
@@ -24,6 +24,9 @@ final class ReadingModeTests: XCTestCase {
         app.launchArguments = ["-resetData", "-disableReviewPrompt"]
         // Issue #237: no first-launch sheet.
         app.launchArguments += [UITestHelpers.skipWelcome]
+        // #315: the hint stays up, as a tap's wait for the app to idle can
+        // take most of its 2 s.
+        if name.contains("Hint") { app.launchArguments.append("-keepReadingModeHint") }
         // Force portrait — sim orientation persists across sessions on Intel
         // x86_64 (see MyWordsFlowTests); the frame assertions below assume it.
         XCUIDevice.shared.orientation = .portrait
@@ -176,5 +179,56 @@ final class ReadingModeTests: XCTestCase {
         XCTAssertTrue(learn.exists && learn.isEnabled,
                       "Learn button must remain present and enabled after toggling reading mode")
         XCTAssertEqual(learn.label, "Learn", "Toggling reading mode must not change the Learn button")
+    }
+
+    // MARK: - #315: the hint
+
+    func testHintShowsOnEachTurnOn() throws {
+        let searchPage = tabBarPage.tapSearchTab()
+        let hint = app.staticTexts[AccessibilityIdentifiers.ReadingMode.hint]
+        XCTAssertFalse(hint.exists, "No hint while Reading Mode is off")
+
+        searchPage.tapReadingModeToggle()
+        XCTAssertTrue(hint.waitForExistence(timeout: TestData.Timeouts.medium), "Turning on shows the hint")
+        XCTAssertEqual(hint.label, "The screen stays on")
+
+        searchPage.tapReadingModeToggle()
+        XCTAssertTrue(searchPage.waitForReadingModeSelected(false))
+        XCTAssertTrue(hint.waitForNonExistence(timeout: TestData.Timeouts.medium), "Turning off hides the hint")
+
+        // Definition's button shows it too, once.
+        let term = TestData.learnTestWords[0] // "apple"
+        searchPage.searchFor(term)
+        XCTAssertTrue(searchPage.waitForResults(), "Search results should appear for '\(term)'")
+        let definitionPage = searchPage.tapSearchResult(at: 0)
+        XCTAssertTrue(definitionPage.waitForDefinitionToLoad(), "Definition should load")
+        XCTAssertFalse(hint.exists, "No hint before the next turn-on")
+        definitionPage.tapReadingModeToggle()
+        XCTAssertTrue(hint.waitForExistence(timeout: TestData.Timeouts.medium), "Each turn-on shows the hint")
+        XCTAssertEqual(app.staticTexts.matching(identifier: AccessibilityIdentifiers.ReadingMode.hint).count, 1,
+                       "Only the screen on top shows the hint")
+    }
+
+    func testHintDoesNotBlockTaps() throws {
+        let searchPage = tabBarPage.tapSearchTab()
+        searchPage.tapReadingModeToggle()
+        let hint = app.staticTexts[AccessibilityIdentifiers.ReadingMode.hint]
+        XCTAssertTrue(hint.waitForExistence(timeout: TestData.Timeouts.medium), "Turning on shows the hint")
+
+        // The hint sits over the dictionary chips: tap the English chip
+        // where the hint covers it.
+        let pair = TestData.Pairs.english
+        let chip = searchPage.chip(pair)
+        XCTAssertTrue(chip.waitForExistence(timeout: TestData.Timeouts.medium), "The English chip should exist")
+        let overlap = hint.frame.intersection(chip.frame)
+        try XCTSkipIf(overlap.isEmpty, "The hint \(hint.frame) covers no chip \(chip.frame) at this width")
+        let before = searchPage.isChipOn(pair)
+        app.coordinate(withNormalizedOffset: .zero)
+            .withOffset(CGVector(dx: overlap.midX, dy: overlap.midY))
+            .tap()
+        let flipped = expectation(for: NSPredicate { _, _ in searchPage.isChipOn(pair) != before },
+                                  evaluatedWith: nil)
+        wait(for: [flipped], timeout: TestData.Timeouts.short)
+        XCTAssertTrue(hint.exists, "The hint is still up, so the tap went through it")
     }
 }

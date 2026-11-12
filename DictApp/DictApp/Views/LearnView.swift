@@ -1424,6 +1424,7 @@ struct GrammarTopicView: View {
                 ReadingModeToolbarButton()
             }
         }
+        .readingModeHint()
         .task {
             vm.allowsPractise = allowsPractise
             await vm.load()

@@ -183,12 +183,24 @@ extension UIApplication: IdleTimerControlling {}
 /// no `-resetData` handling. The ONLY place that writes `isIdleTimerDisabled`.
 @MainActor
 final class ReadingModeService: ObservableObject {
-    static let shared = ReadingModeService(idleTimer: UIApplication.shared)
+    /// `-keepReadingModeHint`: UI tests get a minute to find the hint, as a
+    /// tap's wait for the app to idle can take most of the 2 s.
+    static let shared = ReadingModeService(
+        idleTimer: UIApplication.shared,
+        hintDuration: CommandLine.arguments.contains("-keepReadingModeHint") ? .seconds(60) : .seconds(2))
 
     @Published private(set) var isEnabled = false
+    /// #315: the "The screen stays on" hint, for `hintDuration` after each
+    /// turn-on; a new turn-on restarts it, turning off clears it.
+    @Published private(set) var showsHint = false
     private let idleTimer: IdleTimerControlling
+    private let hintDuration: Duration
+    private var hintTask: Task<Void, Never>?
 
-    init(idleTimer: IdleTimerControlling) { self.idleTimer = idleTimer }
+    init(idleTimer: IdleTimerControlling, hintDuration: Duration = .seconds(2)) {
+        self.idleTimer = idleTimer
+        self.hintDuration = hintDuration
+    }
 
     func toggle() { setEnabled(!isEnabled) }
 
@@ -197,6 +209,14 @@ final class ReadingModeService: ObservableObject {
         guard enabled != isEnabled else { return }
         isEnabled = enabled
         idleTimer.isIdleTimerDisabled = enabled
+        hintTask?.cancel()
+        showsHint = enabled
+        guard enabled else { return }
+        hintTask = Task { [weak self, hintDuration] in
+            try? await Task.sleep(for: hintDuration)
+            guard !Task.isCancelled else { return }
+            self?.showsHint = false
+        }
     }
 
     /// Scene went `.background` (not `.inactive`): a backgrounded app must never

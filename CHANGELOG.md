@@ -59,6 +59,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - [#182] After an update from 1.x, the welcome sheet says My words appear in Learn once a language to learn is chosen, instead of promising them right away.
 - [#306] Search orders a word's exact matches and the words it is a form of: the word spelt exactly as typed first, then words with that exact form, then by frequency, so "ματια" shows μάτι (eyes) before ματιά (glance) and "better" stays first. Proper nouns no longer show as forms.
 - [#307] The Search dictionary chips now scroll away with the search field and come back at the top of the list.
+- [#315] Reading Mode is a light bulb that lights up yellow when on, and turning it on shows "The screen stays on" for 2 seconds.
 
 ### Fixed
 - [#138] History and Recent words reopen a word in the dictionary it was read in.

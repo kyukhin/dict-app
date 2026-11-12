@@ -1,7 +1,7 @@
 # LibreDict overview
 
 > Spec written by Claude (AI) for LibreDict.
-> Status: Approved by kyukhin on 2026-10-27 · Epic: — · Tickets: — · Updated: 2026-11-11
+> Status: Approved by kyukhin on 2026-10-27 · Epic: — · Tickets: — · Updated: 2026-11-12
 
 This spec describes the app as shipped in 1.4.0 (tag `v1.4.0`, master `f0f806e`), plus the v2.0.0 changes merged since (see History). Read it before any design, development, testing or review task, then read the spec of your epic. It describes the code as it is now. The last sections list what v2.0.0 will change. Paths are relative to the repo root. Links work from this folder.
 
@@ -27,7 +27,7 @@ LibreDict is a free offline dictionary for iPhone and iPad. It has no account, n
 | Screen | What the user sees | View · logic |
 |---|---|---|
 | Search | A search-as-you-type field (150 ms debounce) and up to 50 results. Each result shows the headword, a source badge (`Es–En · WN`), the phonetic, the part of speech, a 2-line snippet and a colour stripe per source. With an empty field it shows the 10 most recent History words. There is a "no results" view. At the top of the list, under the field, a row of dictionary chips ("All", then one per Dictionary Order pair) switches pairs on and off: the same setting as Dictionary Order. The row scrolls away with the search field and comes back at the top, in every state (#307). With a query and every pair off, "Choose a dictionary" replaces the results (#145, [0146](0146-quick-switch.md)). A Greek query that is an inflected form also lists its dictionary words right after the exact matches, each captioned "aorist 1sg of γράφω" (#142, [0136](0136-word-forms.md)); an English one does the same through WordNet morphy, "form of go" (#143) | [SearchView](../../DictApp/DictApp/Views/SearchView.swift) · `SearchViewModel` |
-| Reading Mode | An open-book toggle on Search and Definition that keeps the screen awake through `UIApplication.shared.isIdleTimerDisabled`. It lasts for the session only and is not persisted. It turns off when the app goes to `.background`, but not on `.inactive` (#5, #127) | `ReadingModeToolbarButton` in DefinitionView.swift · `ReadingModeService` in ReviewRequestService.swift |
+| Reading Mode | A light bulb toggle on Search, Definition and the grammar topic that keeps the screen awake through `UIApplication.shared.isIdleTimerDisabled`. Off: an outline bulb in the toolbar's colour. On: a filled bulb with rays, amber in light and system yellow in dark, with a short bounce. Each turn-on shows "The screen stays on" at the top of the screen for about 2 s, a new turn-on restarts it and turning off hides it; it takes no taps, and VoiceOver announces it (#315). It lasts for the session only and is not persisted. It turns off when the app goes to `.background`, but not on `.inactive` (#5, #127) | `ReadingModeToolbarButton` and `readingModeHint()` in DefinitionView.swift · `ReadingModeService` (`showsHint`) in ReviewRequestService.swift |
 | Definition | The headword, phonetic, part of speech and the definition as Markdown (inline syntax only, selectable). A speaker button next to the headword reads it aloud (TTS), and is hidden when the device has no voice for the headword's language (#202). A Greek headword shows its conjugation or declension table below, verbs with an "All forms" button (#144, [0136](0136-word-forms.md)). Toolbar: Reading Mode, bookmark (adds the entry to My words or removes it, #138). Opening the screen records History and counts towards the review prompt | [DefinitionView](../../DictApp/DictApp/Views/DefinitionView.swift) · `DefinitionViewModel` |
 | History | Up to 100 words, newest first, each with its source stripe and a local-time caption ("Today, 8:41 PM", #114). A Clear button removes all of them | [HistoryView](../../DictApp/DictApp/Views/HistoryView.swift) · `HistoryViewModel`, `HistoryTimestamp` |
 | Bookmarks | My words (the former bookmarks, until #158 replaces the tab), newest first, with a one-line snippet. Swipe to delete. No stripe | [BookmarksView](../../DictApp/DictApp/Views/BookmarksView.swift) · `BookmarksViewModel` |
@@ -245,6 +245,7 @@ The unit tests do not run in parallel, and test timeouts are on (see [DictApp.xc
   |---|---|
   | `-resetData` | Clears My words (bookmarks), history, enabled sources, the order, the review counters and the in-app language. Imported entries stay (DEBUG only) |
   | `-disableReviewPrompt` | Turns off the review prompt |
+  | `-keepReadingModeHint` | Keeps the Reading Mode hint up for 60 s instead of 2 s (#315) |
   | `-resetDatabase` | Deletes the user database and any 1.x database (DEBUG only) |
   | `-clearFixtureImports` | Removes the rows imported from the test fixture and its `imported_sources` row (DEBUG only) |
   | `-importFixtureViaCallback:json` or `:sqlite` | Skips the file picker and imports the bundled fixture (DEBUG only) |
@@ -314,4 +315,5 @@ The specs of these epics will replace parts of this overview:
 - 2026-11-04 (kyukhin): v2.0.0 moves to 2026-12-04 for #237; code complete 11-27.
 - 2026-11-06: #240: the English bundle measures 56.2 MB.
 - 2026-11-11: #307 (kyukhin): the Search chips scroll away with the search field and come back at the top, in every state, instead of staying pinned (#145). They are the header of the list's first, empty section, without the `.bar` background and the divider: a plain first row sat under the empty header gap of the inset grouped list, about 35 pt below the active field. The row is now as wide as the list's rows. A pair chip is a `Menu` with a primary action (a tap toggles it, a long press offers "Only this") that VoiceOver and XCUITest see as its `Toggle` through `accessibilityRepresentation`: in a `List` a `.contextMenu` opens for the whole row, and in a section header not at all. Results tests go through `SearchPage.resultCells`. Updated Screens, the test sections and Known gotchas.
+- 2026-11-12: #315: Reading Mode is a light bulb instead of a book, and turning it on shows "The screen stays on" for about 2 s (Screens). UI tests launch with `-keepReadingModeHint` to keep the hint up, as a tap's wait for the app to idle takes most of the 2 s (launch arguments).
 - 2026-11-08: #180: Credits moves under the version, names WordNet's license, credits GRDB.swift with its MIT text and lists the licenses with links (Screens, Why).

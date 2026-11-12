@@ -66,6 +66,7 @@ struct SearchView: View {
                     ReadingModeToolbarButton()
                 }
             }
+            .readingModeHint()
             .onChange(of: vm.query) {
                 vm.onQueryChanged()
             }
