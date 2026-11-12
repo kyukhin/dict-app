@@ -545,6 +545,7 @@ final class DictionaryFilterTests: XCTestCase {
         search.searchFor("apple")
         XCTAssertTrue(search.waitForResults(timeout: TestData.Timeouts.long), "results for 'apple'")
         XCTAssertTrue(search.chipsAreOnScreen(), "with results the row is at the top, under the field")
+        XCTAssertTrue(search.chipsRowOverlapsVisibleList(), "precondition: the row shows in the list")
         XCTAssertGreaterThanOrEqual(search.resultCells.element(boundBy: 0).frame.minY, row.frame.maxY - 1,
                                     "the first result starts under the row")
         XCTAssertTrue(search.searchFieldHasFocus(), "precondition: the field has the focus after typing")
@@ -552,7 +553,9 @@ final class DictionaryFilterTests: XCTestCase {
         let swipeTarget = search.resultCells.element(boundBy: 2)
         XCTAssertTrue(swipeTarget.waitForExistence(timeout: TestData.Timeouts.medium))
         swipeTarget.swipeUp()
-        XCTAssertTrue(waitUntil { !search.chipsAreOnScreen() }, "the row scrolls away with the results")
+        // The whole row, not just the "All" chip's top: a half-visible row
+        // still overlaps the list (PR #310 review).
+        XCTAssertTrue(waitUntil { !search.chipsRowOverlapsVisibleList() }, "the row scrolls away with the results")
         XCTAssertTrue(field.exists, "the field stays while the results scroll")
 
         for _ in 0..<5 where !search.chipsAreOnScreen() {

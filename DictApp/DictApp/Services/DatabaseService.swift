@@ -158,15 +158,19 @@ enum Search {
         let isExact: Bool
     }
 
-    /// Merges one bucket: the head group (the exact rows, the leading run of
-    /// `ranked`, which is in rank order, then the lemma rows not already
-    /// among them), then the remaining rows of `ranked` without the lemma
-    /// rows, cut to `limit`. A lemma row that `ranked` has further down moves
-    /// up and keeps its caption. `order` (#306) sorts the head group;
-    /// without it, and without lemma rows, the result is `ranked` as it is.
+    /// Merges one bucket: the head group (the exact rows, then the lemma
+    /// rows not already among them), then the remaining rows of `ranked` in
+    /// their order, without the lemma rows, cut to `limit`. A lemma row that
+    /// `ranked` has further down moves up and keeps its caption. `order`
+    /// (#306) sorts the head group, which then takes every exact row of
+    /// `ranked`: the preferred-mode tail is in FTS rank order, where an
+    /// exact row can follow a non-exact one. Without `order` the exact rows
+    /// are the leading run of `ranked`, and without lemma rows the result is
+    /// `ranked` as it is.
     static func mergeLemmaBucket(ranked: [RankedEntry], lemmaRows: [SearchResult], limit: Int,
                                  order: HeadOrder? = nil) -> [SearchResult] {
-        let exact = ranked.prefix { $0.isExact }
+        let exact = order == nil ? Array(ranked.prefix { $0.isExact }) : ranked.filter(\.isExact)
+        let rest = order == nil ? Array(ranked.dropFirst(exact.count)) : ranked.filter { !$0.isExact }
         var seen = Set<Int64>()
         var result: [SearchResult] = []
         func append(_ row: SearchResult) {
@@ -176,7 +180,7 @@ enum Search {
         exact.forEach { append(SearchResult(entry: $0.entry)) }
         lemmaRows.forEach(append)
         if let order { result = order.sorted(result) }
-        ranked.dropFirst(exact.count).forEach { append(SearchResult(entry: $0.entry)) }
+        rest.forEach { append(SearchResult(entry: $0.entry)) }
         return Array(result.prefix(limit))
     }
 
@@ -985,12 +989,17 @@ actor DatabaseService {
     #endif
 
     /// The ranked query of `rankedEntries`: its SQL and arguments, or nil
-    /// when no file and no import holds one of `sources`.
+    /// when no file and no import holds one of `sources`. `exactOnly` keeps
+    /// the exact rows alone.
     private static func rankedQuery(
         schemas: DictionarySchemas, fts: (match: String, rankKey: String, rawKey: String),
-        sources: [String]?, excluding ids: [Int64] = [], withImports: Bool, ranking: Ranking
+        sources: [String]?, excluding ids: [Int64] = [], withImports: Bool, ranking: Ranking, exactOnly: Bool = false
     ) -> (sql: String, arguments: StatementArguments)? {
-        let union = searchBranches(schemas, match: fts.match, exactKeys: (fts.rankKey, fts.rawKey),
+        let exactFilter = exactOnly
+            ? ("(e.word_normalized = ? COLLATE NOCASE OR e.word_normalized = ? COLLATE NOCASE)",
+               StatementArguments([fts.rankKey, fts.rawKey]))
+            : nil
+        let union = searchBranches(schemas, match: fts.match, exactKeys: (fts.rankKey, fts.rawKey), filter: exactFilter,
                                    sources: sources, excluding: ids, withImports: withImports, ranking: ranking)
         guard !union.sql.isEmpty else { return nil }
         var arguments = union.arguments
@@ -1010,12 +1019,42 @@ actor DatabaseService {
     /// the raw key (#142).
     private static func rankedEntries(
         _ db: Database, schemas: DictionarySchemas, fts: (match: String, rankKey: String, rawKey: String),
-        sources: [String]?, excluding ids: [Int64] = [], withImports: Bool, ranking: Ranking
+        sources: [String]?, excluding ids: [Int64] = [], withImports: Bool, ranking: Ranking, exactOnly: Bool = false
     ) throws -> [Search.RankedEntry] {
         guard let query = rankedQuery(schemas: schemas, fts: fts, sources: sources, excluding: ids,
-                                      withImports: withImports, ranking: ranking) else { return [] }
+                                      withImports: withImports, ranking: ranking, exactOnly: exactOnly) else { return [] }
         return try Row.fetchAll(db, sql: query.sql, arguments: query.arguments)
             .map { row in Search.RankedEntry(entry: try DictionaryEntry(row: row), isExact: row["is_exact"]) }
+    }
+
+    /// Each bucket's ranked rows with its whole exact group (0136, "Search
+    /// path" step 4): a bucket whose `limit` rows are all exact may have
+    /// more exact rows (Greek headwords spelt with other accents share a
+    /// folded key: μέτρο, μετρό), which the relevance order cut before
+    /// `HeadOrder` could sort them. One query reads every exact row of those
+    /// buckets, in the same order, and each takes its own; the merge cuts
+    /// them to `limit` after the sort. A bucket with a non-exact row already
+    /// has them all. `members`: each bucket's sources (`nil`: every source).
+    private static func withWholeExactGroups(
+        _ db: Database, schemas: DictionarySchemas, fts: (match: String, rankKey: String, rawKey: String),
+        buckets: [[Search.RankedEntry]], members: [[String]?], limit: Int, imported: Set<String>
+    ) throws -> [[Search.RankedEntry]] {
+        let full = buckets.indices.filter {
+            limit > 0 && buckets[$0].count == limit && buckets[$0].allSatisfy(\.isExact)
+        }
+        guard !full.isEmpty else { return buckets }
+        let sources: [String]? = full.contains { members[$0] == nil }
+            ? nil : Array(Set(full.flatMap { members[$0] ?? [] })).sorted()
+        let withImports = sources.map { !imported.isDisjoint(with: $0) } ?? !imported.isEmpty
+        // A negative LIMIT is no limit in SQLite.
+        let exact = try rankedEntries(db, schemas: schemas, fts: fts, sources: sources, withImports: withImports,
+                                      ranking: .relevance(fts, limit: -1), exactOnly: true)
+        var out = buckets
+        for index in full {
+            let own = members[index].map(Set.init)
+            out[index] = exact.filter { own?.contains($0.entry.source) ?? true }
+        }
+        return out
     }
 
     #if DEBUG
@@ -1076,10 +1115,14 @@ actor DatabaseService {
             let imported = try Self.importedSources(db)
             let sources = enabledSources.map { Array($0) }
             let withImports = enabledSources.map { !imported.isDisjoint(with: $0) } ?? !imported.isEmpty
-            let ranked = try Self.rankedEntries(
+            var ranked = try Self.rankedEntries(
                 db, schemas: schemas, fts: fts, sources: sources, withImports: withImports,
                 ranking: .relevance(fts, limit: limit)
             )
+            if formStep != nil {
+                ranked = try Self.withWholeExactGroups(db, schemas: schemas, fts: fts, buckets: [ranked],
+                                                       members: [sources], limit: limit, imported: imported)[0]
+            }
             let english = try Self.englishHeadwordSources(db, step: formStep)
             let lemmaRows = try Self.lemmaRows(db, schemas: schemas, step: formStep, sources: sources,
                                                withImports: withImports, english: english)
@@ -1114,10 +1157,11 @@ actor DatabaseService {
     }
 
     /// "Preferred dictionary first", as `searchPreferred`, with the form step
-    /// (#142): each pair bucket merges its lemma rows with its exact rows,
-    /// ordered by frequency (#306), then takes its top N, before the tail
-    /// query, so the tail excludes them. Lemma rows of sources outside every
-    /// pair group join the tail.
+    /// (#142): each pair bucket merges its lemma rows with all its exact
+    /// rows, ordered by frequency (#306), then takes its top N, before the
+    /// tail query, so the tail excludes them. Lemma rows of sources outside
+    /// every pair group join the tail, and so do its exact rows, wherever
+    /// its rank order puts them.
     func searchPreferredResults(
         query: String,
         groups: [[String]],
@@ -1147,12 +1191,17 @@ actor DatabaseService {
             let lemmaRows = try Self.lemmaRows(db, schemas: schemas, step: formStep, sources: Array(enabledSources),
                                                withImports: !imported.isDisjoint(with: enabledSources), english: english)
             // Every bucket's rows first, so one rank query covers their exact
-            // rows; the tail's exact rows have the query's key (#306).
-            let bucketRows = try enabledGroups.map { members in
+            // rows; the tail's exact rows have the query's key (#306). A
+            // form step sorts each bucket's whole exact group, then cuts it.
+            var bucketRows = try enabledGroups.map { members in
                 try Self.rankedEntries(
                     db, schemas: schemas, fts: fts, sources: members, withImports: !imported.isDisjoint(with: members),
                     ranking: .relevance(fts, limit: topN)
                 )
+            }
+            if formStep != nil {
+                bucketRows = try Self.withWholeExactGroups(db, schemas: schemas, fts: fts, buckets: bucketRows,
+                                                           members: enabledGroups, limit: topN, imported: imported)
             }
             let order = try Self.headOrder(
                 db, step: formStep, sanitized: sanitized,

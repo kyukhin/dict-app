@@ -12596,14 +12596,26 @@ extension SearchAssembleTests {
                        [1, 2, 10, 11, 3])
     }
 
-    /// The preferred-mode tail is in FTS rank order, so its head group is
-    /// only its leading exact rows and the lemma rows; nothing after them
-    /// moves.
-    func testRankOrderedTailSortsOnlyItsHeadGroup() {
+    /// CodeRabbit, PR #309: the preferred-mode tail is in FTS rank order, so
+    /// an exact row can follow a non-exact one. With an order every exact
+    /// row joins the head group, sorted with the lemma rows, and the other
+    /// rows follow in their order; without one, the tail is as before.
+    func testRankOrderedTailSortsEveryExactRow() {
         let ranked = [prefix(row(5, "ματιάς")), exact(row(1, "ματιά")), prefix(row(2, "ματιές"))]
         let lemmas = [row(10, "ματάκι", lemma: "ματάκι"), row(11, "μάτι", lemma: "μάτι")]
         XCTAssertEqual(Search.mergeLemmaBucket(ranked: ranked, lemmaRows: lemmas, limit: 50, order: greek("ματια"))
-                        .map(\.id), [11, 10, 5, 1, 2])
+                        .map(\.id), [11, 1, 10, 5, 2], "ματιά (426) between μάτι (356) and the unranked ματάκι")
+        XCTAssertEqual(Search.mergeLemmaBucket(ranked: ranked, lemmaRows: lemmas, limit: 50, order: greek("ματιά"))
+                        .map(\.id), [1, 11, 10, 5, 2], "the row spelt as typed leads")
+        XCTAssertEqual(Search.mergeLemmaBucket(ranked: ranked, lemmaRows: lemmas, limit: 50).map(\.id),
+                       [10, 11, 5, 1, 2], "no order: only a leading exact row joins, none here")
+
+        // Without lemma rows, and cut: both exact rows before the rest.
+        let tail = [prefix(row(5, "ματιάς")), exact(row(1, "ματιά")), prefix(row(2, "ματιές")),
+                    exact(row(3, "ματιά", source: "wordnet-ell-eng"))]
+        XCTAssertEqual(Search.mergeLemmaBucket(ranked: tail, lemmaRows: [], limit: 3, order: greek("ματιά"))
+                        .map(\.id), [1, 3, 5])
+        XCTAssertEqual(Search.mergeLemmaBucket(ranked: tail, lemmaRows: [], limit: 3).map(\.id), [5, 1, 2])
     }
 }
 
@@ -13910,6 +13922,43 @@ extension WordFormsSearchTests {
             XCTAssertEqual(lemmas.firstIndex(of: "κάλος").map { lemmas[..<$0].allSatisfy { $0 == "καλός" } }, true,
                            "'\(query)': καλός before κάλος: \(lemmas)")
         }
+    }
+
+    /// CodeRabbit, PR #309: the whole exact group is sorted, then cut.
+    /// μέτρο has five exact rows (μέτρο, μετρο, μετρό); the relevance order
+    /// puts WordNet's μέτρο last, so a cut before the sort lost it. A
+    /// relevance search cut to 2 and the Greek bucket of preferred mode
+    /// (its top 4) show both rows spelt μέτρο first, and σοφία's bucket its
+    /// three rows spelt σοφία.
+    @MainActor
+    func testWholeExactGroupIsSortedBeforeTheCutOnTheFile() async throws {
+        let metro: Set<String> = ["freedict-ell-eng/μέτρο", "wordnet-ell-eng/μέτρο"]
+        let relevance = try await db.searchResults(query: "μέτρο", limit: 2)
+        XCTAssertEqual(Set(keys(relevance)), metro, "relevance, cut to 2")
+
+        let groups = DictionaryGrouping.sourceGroups(order: DictAppTests.greekSourceIDs + ["wordnet"])
+        let preferred = try await db.searchPreferredResults(query: "μέτρο", groups: groups,
+                                                            enabledSources: Set(groups.joined()))
+        XCTAssertEqual(Set(keys(Array(preferred.prefix(2)))), metro, "the Greek bucket")
+        let sofia = try await db.searchPreferredResults(query: "σοφία", groups: groups,
+                                                        enabledSources: Set(groups.joined()))
+        XCTAssertEqual(Set(keys(Array(sofia.prefix(3)))),
+                       ["freedict-ell-eng/σοφία", "freedict-ell-eng/Σοφία", "wordnet-ell-eng/σοφία"])
+    }
+
+    /// CodeRabbit, PR #309: the preferred-mode tail is in FTS rank order;
+    /// its exact rows join its head group wherever they stand. πειθώ has
+    /// five exact rows: the Greek bucket takes the three spelt πειθώ and
+    /// FreeDict's πείθω, and WordNet's πείθω leads the tail.
+    @MainActor
+    func testExactTailRowsLeadTheTailOnTheFile() async throws {
+        let groups = DictionaryGrouping.sourceGroups(order: DictAppTests.greekSourceIDs + ["wordnet"])
+        let results = try await db.searchPreferredResults(query: "πειθώ", groups: groups,
+                                                          enabledSources: Set(groups.joined()))
+        XCTAssertEqual(Set(keys(Array(results.prefix(3)))),
+                       ["freedict-ell-eng/πειθώ", "freedict-ell-eng/Πειθώ", "wordnet-ell-eng/πειθώ"])
+        XCTAssertEqual(keys(Array(results.prefix(5).suffix(2))), ["freedict-ell-eng/πείθω", "wordnet-ell-eng/πείθω"],
+                       "the bucket's fourth row, then the tail's first")
     }
 
     /// QA: words spelt alike in English and Spanish (no, color, hotel) keep
@@ -32189,6 +32238,21 @@ final class ListTextTests: XCTestCase {
         XCTAssertEqual(result.broken, [ListText.BrokenRow(line: 2, text: "\"broken", problem: .openQuote)])
     }
 
+    /// CodeRabbit, PR #289: the recovery counts fields in every file (0130).
+    /// A two-column file's continuation line with two fields imports as a
+    /// word; a one-column file's two-field line is broken, and the search
+    /// goes on to the next line of one field.
+    func testContinuationWithTheExpectedFieldCountImports() throws {
+        let twoColumns = try ListText.parse("term,translation\nfirst,meaning\n\"broken\ncontinued,words\n")
+        XCTAssertEqual(terms(twoColumns), ["first", "continued"])
+        XCTAssertEqual(twoColumns.words.last?.translation, "words")
+        XCTAssertEqual(twoColumns.broken, [ListText.BrokenRow(line: 3, text: "\"broken", problem: .openQuote)])
+
+        let oneColumn = try ListText.parse("first\n\"broken\na,b\ncontinued\n")
+        XCTAssertEqual(terms(oneColumn), ["first", "continued"])
+        XCTAssertEqual(oneColumn.broken.map(\.line), [2, 3])
+    }
+
     /// QA, PR #281: the lines an unclosed quote swallows are listed with
     /// their own numbers, whatever the line ends, around closed multiline
     /// fields and blank lines, in Anki and Quizlet texts; a quote opened on
@@ -34940,6 +35004,28 @@ final class KeptLessonTests: ExerciseTestCase {
         let kept = try await db.keptLesson(lang: "ell", today: today)
         XCTAssertEqual(kept?.items.count, 10)
     }
+
+    /// CodeRabbit, PR #303: when the kept items' cards cannot be read, the
+    /// run takes nothing of the lesson, so it shows the error, not a
+    /// summary of an unfinished lesson.
+    func testUnreadableCardsShowTheErrorNotASummary() async throws {
+        try await fiveWords()
+        let clock = TestClock(day1)
+        let first = session(clock)
+        await first.start()
+        try await answer(first, limit: 3)
+        let kept = try await db.keptLesson(lang: "ell", today: today)
+        let next = try XCTUnwrap(kept?.items.first)
+        try await execute("UPDATE learn_card SET due_day = 'garbage' WHERE lang = 'ell' AND word = ? AND kind = ?",
+                          [next.card.word.word, next.card.kind.rawValue])
+
+        let second = session(clock)
+        await second.start()
+        XCTAssertNotNil(second.errorMessage, "the error shows")
+        XCTAssertEqual(second.answered, 0, "the lesson's answers are not taken")
+        XCTAssertNotEqual(second.phase, .summary)
+        XCTAssertNil(second.summary)
+    }
 }
 
 // MARK: - #299 What you chose, #300 sounds
@@ -35194,6 +35280,25 @@ extension LearnViewModelTests {
 
         vm.move("eng", to: 0)
         XCTAssertEqual(vm.learned, ["eng", "ell"], "no change")
+    }
+
+    /// CodeRabbit, PR #305: a drag while the tabs load wins. The load
+    /// commits its tabs in the order `learned` has then, not the one it read.
+    func testDragWhileTheTabsLoadKeepsTheNewOrder() async throws {
+        settings.learningLanguages = ["ell", "eng"]
+        settings.learningLanguage = "ell"
+        let vm = pairTabHome()
+        let loading = Task { await vm.load(locale: Locale(identifier: "en")) }
+        // The load has read the order and waits for the first tab's pair.
+        for _ in 0..<100 where vm.learned.isEmpty { await Task.yield() }
+        XCTAssertEqual(vm.learned, ["ell", "eng"], "the load started")
+        XCTAssertTrue(vm.tabs.isEmpty, "precondition: its tabs are not in yet")
+        vm.move("eng", to: 0)
+        await loading.value
+        XCTAssertEqual(vm.learned, ["eng", "ell"])
+        XCTAssertEqual(vm.tabs.map(\.lang), ["eng", "ell"], "the dragged order, not the one the load read")
+        XCTAssertEqual(vm.language, "ell", "the selection stays")
+        XCTAssertNil(vm.errorMessage)
     }
 
     /// A pair added goes last, and so does one stopped and added again.

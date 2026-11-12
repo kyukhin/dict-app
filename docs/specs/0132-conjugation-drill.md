@@ -1,7 +1,7 @@
 # Greek conjugation drill
 
 > Spec written by Claude (AI) for LibreDict.
-> Status: Implemented, with a revision for epic #292 (#295: the Conjugation row moves to Greek's Grammar section; #299: a wrong form shows its tense and person) and #300 (sounds), approved by kyukhin on 2026-11-10 and built (PRs #303, #304, #305); the rest approved by kyukhin on 2026-11-04 · Epic: #132 · Tickets: #167, #168, #169; #295, #299, #300 · Updated: 2026-11-10
+> Status: Implemented, with a revision for epic #292 (#295: the Conjugation row moves to Greek's Grammar section; #299: a wrong form shows its tense and person) and #300 (sounds), approved by kyukhin on 2026-11-10 and built (PRs #303, #304, #305); the rest approved by kyukhin on 2026-11-04 · Epic: #132 · Tickets: #167, #168, #169; #295, #299, #300 · Updated: 2026-11-12
 
 Read [0000-overview.md](0000-overview.md), [0129-dictionary-file.md](0129-dictionary-file.md) and [0136-word-forms.md](0136-word-forms.md) (the Greek paradigms and `ParadigmLayout`) first. Then read the specs this epic builds on. kyukhin approved them on 2026-11-04. 0130 and 0237 are on master; 0131 and 0166 come with PR #235, which merges before this spec: [0130-word-lists.md](0130-word-lists.md) (E3, the Greek A1–B1 lists), [0131-learning.md](0131-learning.md) (E4: cards, the answer log, the run views, the Learn tab, its "For E5" section), [0166-learning-statistics.md](0166-learning-statistics.md) (E10: the goal, accuracy by tense) and [0237-downloads.md](0237-downloads.md) (#237: the Greek forms and lists move into the Greek pack, attached as `ell`). Numbers marked "measured" come from a prototype run on 2026-11-04 against the dictionary file of master `fc8c930` (format 3) and kyukhin's three CSVs of 2026-10-22, with είμαι moved to A1 (0130, Decisions).
 
@@ -298,7 +298,7 @@ These are pure types in `Models/Learning.swift`.
 - `options: [String]` (4) and `rightIndex`;
 - `rightForms: [String]`: every form of the asked cell;
 - `tenseRows: [(Person, [String])]`: the whole tense, for the feedback.
-- `optionSlots: [(facet: ConjugationFacet, person: Person)]` (#299): for each option, the cell it was taken from, which the builder knows (a distractor is a cell's first form, and its slot is that cell even when another cell holds the same form; a generated θα or να form is its generated cell's); the right option's is the question's. The feedback's "You chose" line writes the chosen option's slot as the tense line does (0131, Feedback).
+- `optionSlots: [ConjugationQuestion.Slot]` (#299; `Slot` is a `Hashable` struct of `facet: ConjugationFacet` and `person: Person`): for each option, the cell it was taken from, which the builder knows (a distractor is a cell's first form, and its slot is that cell even when another cell holds the same form; a generated θα or να form is its generated cell's); the right option's is the question's. The feedback's "You chose" line writes the chosen option's slot as the tense line does (0131, Feedback).
 
 **`ConjugationQuestionBuilder.build(verb:facet:person:level:rng:) -> ConjugationQuestion?`** is pure:
 1. `rightForms` = `facet.tense.forms(voice, person)`. If it is empty, the result is nil.
@@ -540,3 +540,4 @@ Unit classes go in `DictAppTests.swift`. Async tests, and classes that are mostl
 - 2026-11-10: The #292/#300 revision approved by kyukhin.
 - 2026-11-10: Two rules from kyukhin's spec review via CodeRabbit on PR #302: the drill never plays Lesson complete (only Daily goal reached, when its answers fill the ring), and a form shared by several cells is named by the option's own slot.
 - 2026-11-10: The #292/#300 revision is built (PRs #303, #304, #305).
+- 2026-11-12: CodeRabbit review: `optionSlots` names its real type, `[ConjugationQuestion.Slot]`; no change to the behaviour.
