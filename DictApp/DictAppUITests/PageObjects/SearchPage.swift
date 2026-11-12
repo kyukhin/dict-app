@@ -369,6 +369,22 @@ class SearchPage: BasePage {
         return frame.height > 1 && frame.minY >= top && frame.minY < app.windows.firstMatch.frame.maxY
     }
 
+    /// Whether any part of the chip row shows in the list (#307): the row
+    /// overlaps the list's frame inside the window, below the search field
+    /// (the list scrolls under the bar). False once the row has scrolled
+    /// away whole, also when it has left the accessibility tree. Unlike
+    /// `chipsAreOnScreen()`, a half-visible row counts.
+    func chipsRowOverlapsVisibleList() -> Bool {
+        guard chipsRow.exists, resultsList.exists else { return false }
+        var area = resultsList.frame.intersection(app.windows.firstMatch.frame)
+        if searchField.exists, searchField.frame.maxY > area.minY {
+            area = CGRect(x: area.minX, y: searchField.frame.maxY, width: area.width,
+                          height: max(0, area.maxY - searchField.frame.maxY))
+        }
+        let overlap = area.intersection(chipsRow.frame)
+        return !overlap.isNull && overlap.height > 1 && overlap.width > 1
+    }
+
     /// Swipes the list down until the chips are back at the top (#307).
     /// Returns at once when they are on screen; waits for them to load first.
     @discardableResult

@@ -756,6 +756,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 8;
 				DEVELOPMENT_TEAM = 8W78LNAP9K;
+				EXCLUDED_SOURCE_FILE_NAMES = "test_import_fixture.*";
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = DictApp/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = LibreDict;

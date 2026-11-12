@@ -124,7 +124,9 @@ final class LearnViewModel: ObservableObject {
             // The tabs belong to the latest full load; the home, to the latest
             // load or tab selection, which then loads its own.
             guard fullTicket == fullLoad else { return }
-            self.tabs = tabs
+            // In the current order: a drag while they loaded (`move`) has
+            // reordered `learned` since `loadTabs` read it.
+            self.tabs = learned.compactMap { lang in tabs.first { $0.lang == lang } }
             guard ticket == homeLoad else { return }
             if learned.isEmpty {
                 today = nil
@@ -596,12 +598,13 @@ final class ExerciseRunViewModel: ObservableObject {
 
     /// Continue lesson (#296): the kept run, its answers and its items with
     /// their current states; a card that is gone or paused is dropped, as a
-    /// skipped question is.
+    /// skipped question is. The states are read first: if that fails, the
+    /// run takes nothing of the lesson, so it shows the error, not a summary.
     private func resume(_ kept: KeptLesson) async throws {
+        let states = try await db.cardStates(kept.items.map(\.card))
         runID = kept.runID
         base = kept.answered
         answered = kept.answered
-        let states = try await db.cardStates(kept.items.map(\.card))
         plan = kept.items.compactMap { item in
             guard let card = states[item.card], !card.isSuspended else { return nil }
             return PlannedItem(card: card, isRetry: item.isRetry)
