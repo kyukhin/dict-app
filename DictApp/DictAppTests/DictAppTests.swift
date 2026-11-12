@@ -2681,13 +2681,44 @@ final class ReadingModeServiceTests: XCTestCase {
         let cancellable = service.objectWillChange.sink { _ in publishes += 1 }
         defer { cancellable.cancel() }
 
-        service.toggle()                    // off → on: publish
+        service.toggle()                    // off → on: publishes isEnabled and showsHint (#315)
         service.setEnabled(true)            // unchanged: no publish
-        service.sceneDidEnterBackground()   // on → off: publish
+        service.sceneDidEnterBackground()   // on → off: publishes isEnabled and showsHint
         service.sceneDidEnterBackground()   // unchanged: no publish
 
-        XCTAssertEqual(publishes, 2, "objectWillChange must fire exactly once per effective change")
+        XCTAssertEqual(publishes, 4, "objectWillChange must fire only on an effective change")
         XCTAssertEqual(fake.writes, [true, false], "publish count must track seam writes 1:1")
+    }
+
+    // MARK: #315: the hint
+
+    func testTurnOnShowsHintThatClearsItself() async throws {
+        let service = ReadingModeService(idleTimer: fake, hintDuration: .milliseconds(100))
+        XCTAssertFalse(service.showsHint, "no hint at launch")
+        service.toggle()
+        XCTAssertTrue(service.showsHint, "turning on shows the hint")
+        try await Task.sleep(for: .milliseconds(500))
+        XCTAssertFalse(service.showsHint, "the hint clears after its duration")
+        XCTAssertTrue(service.isEnabled, "clearing the hint leaves the mode on")
+    }
+
+    func testTurnOffClearsHintAtOnce() {
+        service.toggle()
+        service.toggle()
+        XCTAssertFalse(service.showsHint, "turning off shows nothing")
+        service.toggle()
+        service.sceneDidEnterBackground()
+        XCTAssertFalse(service.showsHint, "backgrounding clears the hint")
+    }
+
+    func testNewTurnOnRestartsHint() async throws {
+        let service = ReadingModeService(idleTimer: fake, hintDuration: .seconds(1))
+        service.toggle()
+        try await Task.sleep(for: .milliseconds(600))
+        service.toggle()
+        service.toggle()
+        try await Task.sleep(for: .milliseconds(600))
+        XCTAssertTrue(service.showsHint, "the second turn-on runs its own full duration")
     }
 
     func testInstancesAreIndependent() {

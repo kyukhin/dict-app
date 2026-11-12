@@ -114,6 +114,7 @@ struct DefinitionView: View {
                 .accessibilityIdentifier("learn_button")
             }
         }
+        .readingModeHint()
         .alert(Text(questionTitle),
                isPresented: Binding(get: { vm.question != nil },
                                     set: { if !$0 { vm.question = nil } }),
@@ -290,21 +291,66 @@ extension EnvironmentValues {
     }
 }
 
-// MARK: - Issue #5: Reading Mode toolbar button (shared by SearchView + DefinitionView)
+// MARK: - Issue #5: Reading Mode toolbar button (shared by Search, Definition and the grammar topic)
 
 struct ReadingModeToolbarButton: View {
     @ObservedObject private var readingMode = ReadingModeService.shared
+    @Environment(\.locale) private var locale
+    /// #315: bumped on each turn-on, so only turning on bounces the bulb.
+    @State private var turnOns = 0
+
+    /// #315: amber on a light toolbar, where system yellow fades into white;
+    /// system yellow in dark.
+    private static let onColor = Color(uiColor: UIColor {
+        $0.userInterfaceStyle == .dark ? .systemYellow : UIColor(red: 0.85, green: 0.6, blue: 0, alpha: 1)
+    })
 
     var body: some View {
         Button {
             readingMode.toggle()
+            guard readingMode.isEnabled else { return }
+            turnOns += 1
+            AccessibilityNotification.Announcement(
+                SettingsViewModel.localizedString("readingMode.hint", locale: locale)).post()
         } label: {
-            Image(systemName: readingMode.isEnabled ? "book.fill" : "book")
+            Image(systemName: readingMode.isEnabled ? "lightbulb.max.fill" : "lightbulb")
+                .symbolEffect(.bounce, value: turnOns)
         }
+        // Off: the toolbar's own colour.
+        .tint(readingMode.isEnabled ? Self.onColor : nil)
         .accessibilityLabel(Text(readingMode.isEnabled ? "readingMode.a11y.disable"
                                                        : "readingMode.a11y.enable"))
         .accessibilityAddTraits(readingMode.isEnabled ? .isSelected : [])
         .accessibilityIdentifier("reading_mode_toggle")
+    }
+}
+
+extension View {
+    /// #315: "The screen stays on" at the top of a screen with the Reading
+    /// Mode button, while `ReadingModeService.showsHint`. It takes no taps.
+    func readingModeHint() -> some View {
+        overlay(alignment: .top) { ReadingModeHint() }
+    }
+}
+
+private struct ReadingModeHint: View {
+    @ObservedObject private var readingMode = ReadingModeService.shared
+
+    var body: some View {
+        ZStack {
+            if readingMode.showsHint {
+                Text("readingMode.hint")
+                    .font(.subheadline)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 10)
+                    .background(.regularMaterial, in: Capsule())
+                    .padding(.top, 8)
+                    .transition(.opacity)
+                    .accessibilityIdentifier("reading_mode_hint")
+            }
+        }
+        .animation(.default, value: readingMode.showsHint)
+        .allowsHitTesting(false)
     }
 }
 

@@ -135,8 +135,10 @@ struct AccessibilityIdentifiers {
 
     // MARK: - Reading Mode (Issue #5)
     struct ReadingMode {
-        /// Open-book toolbar toggle shared by the Search root and Definition.
+        /// Light-bulb toolbar toggle shared by Search, Definition and the grammar topic.
         static let toggle = "reading_mode_toggle"
+        /// #315: "The screen stays on", shown after each turn-on.
+        static let hint = "reading_mode_hint"
     }
 
     // MARK: - History View

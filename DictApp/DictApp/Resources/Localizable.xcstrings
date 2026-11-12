@@ -4900,6 +4900,42 @@
         }
       }
     },
+    "readingMode.hint": {
+      "comment": "#315: shown for about 2 seconds when Reading Mode turns on, and read by VoiceOver.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The screen stays on"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Экран не будет гаснуть"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La pantalla no se apagará"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ستبقى الشاشة مضاءة"
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Η οθόνη θα μένει αναμμένη"
+          }
+        }
+      }
+    },
     "search.chips.all": {
       "comment": "Chip on Search that turns every dictionary on.",
       "extractionState": "manual",
