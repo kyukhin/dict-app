@@ -113,6 +113,14 @@ enum Search {
         /// Every letter a–z, any case (Issue #143): look up `word`,
         /// lowercased (Morphy's step 0), through `Morphy`.
         case english(word: String)
+
+        /// The query's own key: the exact rows have it.
+        var key: String {
+            switch self {
+            case .greek(let key): return key
+            case .english(let word): return word
+            }
+        }
     }
 
     /// A query needs at least this many letters for the form step.
@@ -149,6 +157,20 @@ enum Search {
         let word: String
         let wordNormalized: String
         let match: FormMatch
+        /// #314: the other spellings of the lemma's first cell (ξεκινώ for
+        /// ξεκινάω), when that cell is the lemma itself. Greek only.
+        var alternatives: [String] = []
+
+        /// The keys of the lemma's rows: its word and folded key, and, when
+        /// no enabled row spells the lemma (`spelled` false), its
+        /// `alternatives` with their folded keys (#314: ξεκινάω reads the
+        /// headword ξεκινώ). A key that folds to the query's own key is left
+        /// out, as its rows are the exact rows: a base form adds nothing.
+        /// Empty: the lemma adds no row.
+        func keys(queryKey: String, spelled: Bool) -> [String] {
+            let spellings = [wordNormalized, word] + (spelled ? [] : alternatives.flatMap { [Search.foldGreek($0), $0] })
+            return Array(Set(spellings.filter { Search.foldGreek($0) != queryKey })).sorted()
+        }
     }
 
     /// One row of a base search query: the entry, and whether it matched the
@@ -1258,16 +1280,23 @@ actor DatabaseService {
     static var lemmaStepEnabled = true
     #endif
 
-    /// The Greek lemma candidates of a folded query (both arguments): a probe
+    /// The Greek lemma candidates of a folded query (the argument): a probe
     /// of the `form_lookup` primary-key prefix, then the lemma and tag set
     /// by id. A lookup that missed the key's first column would scan the
     /// table (6× slower in the prototype); a unit test checks the plan.
+    /// `alternatives` (#314): when the lemma's first cell is the lemma
+    /// itself, the other forms with its tag set (ξεκινώ beside ξεκινάω),
+    /// space-separated, read by the `paradigm` primary-key prefix. The query's
+    /// own lemma is a candidate too, for its alternatives.
     static let greekLemmaCandidatesSQL = """
-        SELECT l.word, l.word_normalized, t.tags
+        SELECT l.word, l.word_normalized, t.tags,
+               (SELECT group_concat(p.form, ' ') FROM ell.paradigm h
+                JOIN ell.paradigm p ON p.lemma_id = h.lemma_id AND p.tagset_id = h.tagset_id AND p.form <> h.form
+                WHERE h.lemma_id = l.id AND h.ord = 1 AND h.form = l.word) AS alternatives
         FROM ell.form_lookup f
         JOIN ell.lemma l ON l.id = f.lemma_id
         JOIN ell.tagset t ON t.id = f.tagset_id
-        WHERE f.form_norm = ? AND l.word_normalized <> ?
+        WHERE f.form_norm = ?
         ORDER BY CASE l.pos WHEN 'verb' THEN 0 WHEN 'noun' THEN 1 WHEN 'adj' THEN 2 ELSE 3 END,
                  l.word, l.pos
         """
@@ -1282,7 +1311,8 @@ actor DatabaseService {
 
     /// The lemmas the query is a form of, ordered verb, noun, adj, others,
     /// then by word, without the lemmas whose key is the query's own (a base
-    /// form adds nothing). One per headword: the first of its parts of speech
+    /// form adds nothing) unless their first cell has another spelling
+    /// (#314). One per headword: the first of its parts of speech
     /// (κύριε: κύριος, noun). Lemmas that fold alike but are spelt apart
     /// (γέρου: γέρος and γερός) each stay, so a row is captioned with its
     /// own lemma (`lemmaRows`). Unlimited: the lemma-row query's limit
@@ -1290,14 +1320,17 @@ actor DatabaseService {
     private static func lemmaCandidates(_ db: Database, step: Search.FormStep) throws -> [Search.LemmaCandidate] {
         switch step {
         case .greek(let key):
-            let rows = try Row.fetchAll(db, sql: greekLemmaCandidatesSQL, arguments: [key, key])
+            let rows = try Row.fetchAll(db, sql: greekLemmaCandidatesSQL, arguments: [key])
             var words = Set<String>()
             return rows.compactMap { row in
                 let word: String = row["word"], wordNormalized: String = row["word_normalized"]
+                let alternatives = (row["alternatives"] as String?)?.split(separator: " ").map(String.init) ?? []
+                if wordNormalized == key && alternatives.isEmpty { return nil }
                 guard words.insert(word).inserted else { return nil }
                 let tags = Set((row["tags"] as String).split(separator: " ").map(String.init))
                 return Search.LemmaCandidate(word: word, wordNormalized: wordNormalized,
-                                             match: FormMatch(lemma: word, analysis: .greek(tags: tags)))
+                                             match: FormMatch(lemma: word, analysis: .greek(tags: tags)),
+                                             alternatives: alternatives)
             }
         case .english(let word):
             return try englishLemmaCandidates(db, word: word)
@@ -1317,7 +1350,10 @@ actor DatabaseService {
     /// index, plus the exact key. Bundled Greek rows store the folded key
     /// and imported rows the word as it is, so each lemma matches both.
     /// `english`: the sources whose headwords are English, for an English
-    /// step (`englishHeadwordSources(_:step:)`).
+    /// step (`englishHeadwordSources(_:step:)`). #314: a lemma whose first
+    /// cell has another spelling reads that spelling's rows when no row
+    /// spells the lemma (ξεκινάω: ξεκινώ), one more query when a candidate
+    /// has one (`Search.LemmaCandidate.keys(queryKey:spelled:)`).
     private static func lemmaRows(_ db: Database, schemas: DictionarySchemas, step: Search.FormStep?,
                                   sources: [String]?, withImports: Bool, english: Set<String>) throws -> [SearchResult] {
         guard let step else { return [] }
@@ -1327,19 +1363,19 @@ actor DatabaseService {
             guard !englishSources.isEmpty else { return [] }
             sources = englishSources
         }
-        let candidates = try lemmaCandidates(db, step: step)
+        let found = try lemmaCandidates(db, step: step)
+        let withAlternatives = found.filter { !$0.alternatives.isEmpty }
+        let spelled = try withAlternatives.isEmpty ? [] : spelledKeys(
+            db, schemas: schemas, keys: withAlternatives.flatMap { [$0.wordNormalized, $0.word] },
+            sources: sources, withImports: withImports)
+        let keyed = found.map { ($0, $0.keys(queryKey: step.key, spelled: spelled.contains($0.wordNormalized))) }
+            .filter { !$0.1.isEmpty }
+        let candidates = keyed.map(\.0)
+        let keysPerCandidate = keyed.map(\.1)
         guard !candidates.isEmpty else { return [] }
 
-        let keysPerCandidate = candidates.map { Array(Set([$0.wordNormalized, $0.word])).sorted() }
-        let keys = keysPerCandidate.flatMap { $0 }
-        let match = "word_normalized : (" + keys.map(Search.ftsString).joined(separator: " OR ") + ")"
-        let union = searchBranches(
-            schemas, match: match,
-            filter: ("e.word_normalized COLLATE NOCASE IN (\(keys.map { _ in "?" }.joined(separator: ", "))) "
-                     + "AND e.pos IS NOT ?",
-                     StatementArguments(keys) + [properNounPOS]),
-            sources: sources, withImports: withImports
-        )
+        let union = lemmaBranches(schemas, keys: keysPerCandidate.flatMap { $0 }, sources: sources,
+                                  withImports: withImports)
         guard !union.sql.isEmpty else { return [] }
         var whens: [String] = []
         var arguments = StatementArguments()
@@ -1366,6 +1402,31 @@ actor DatabaseService {
             let candidate = candidates.first { $0.word == entry.word } ?? candidates[index]
             return SearchResult(entry: entry, formMatch: candidate.match)
         })
+    }
+
+    /// The branches of the rows whose key is one of `keys` (lemma words and
+    /// folded keys) in `sources`, never a proper noun: an FTS filter on the
+    /// `word_normalized` column, which uses the index, plus the exact keys.
+    private static func lemmaBranches(_ schemas: DictionarySchemas, keys: [String], sources: [String]?,
+                                      withImports: Bool) -> (sql: String, arguments: StatementArguments) {
+        let match = "word_normalized : (" + keys.map(Search.ftsString).joined(separator: " OR ") + ")"
+        return searchBranches(
+            schemas, match: match,
+            filter: ("e.word_normalized COLLATE NOCASE IN (\(keys.map { _ in "?" }.joined(separator: ", "))) "
+                     + "AND e.pos IS NOT ?",
+                     StatementArguments(keys) + [properNounPOS]),
+            sources: sources, withImports: withImports
+        )
+    }
+
+    /// #314: the folded keys among `keys` that have a row in `sources`, of
+    /// the kind a lemma row can be (`lemmaBranches`).
+    private static func spelledKeys(_ db: Database, schemas: DictionarySchemas, keys: [String], sources: [String]?,
+                                    withImports: Bool) throws -> Set<String> {
+        let union = lemmaBranches(schemas, keys: Array(Set(keys)).sorted(), sources: sources, withImports: withImports)
+        guard !union.sql.isEmpty else { return [] }
+        return Set(try String.fetchAll(db, sql: "SELECT DISTINCT word_normalized FROM (\n\(union.sql)\n)",
+                                       arguments: union.arguments).map(Search.foldGreek))
     }
 
     // MARK: Frequency order (Issue #306)
