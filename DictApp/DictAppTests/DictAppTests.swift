@@ -12462,6 +12462,30 @@ extension SearchAssembleTests {
             XCTAssertNil(Search.formStep(for: query), "'\(query)' gets no form step")
         }
     }
+
+    /// #314: a lemma's keys are its word and folded key, plus the other
+    /// spellings of its first cell when no row spells it; a key that folds
+    /// to the query's own is left out, so the query's own lemma reads only
+    /// those spellings, and a base form without them adds nothing.
+    func testLemmaKeysReadTheOtherSpellingOnlyForALemmaWithoutRows() {
+        let lemma = Search.LemmaCandidate(word: "ξεκινάω", wordNormalized: "ξεκιναω",
+                                          match: FormMatch(lemma: "ξεκινάω", analysis: .greek(tags: ["present"])),
+                                          alternatives: ["ξεκινώ"])
+        XCTAssertEqual(lemma.keys(queryKey: "ξεκινασ", spelled: false), ["ξεκινάω", "ξεκιναω", "ξεκινω", "ξεκινώ"])
+        XCTAssertEqual(lemma.keys(queryKey: "ξεκινασ", spelled: true), ["ξεκινάω", "ξεκιναω"], "spelled: its own keys")
+        XCTAssertEqual(lemma.keys(queryKey: "ξεκιναω", spelled: false), ["ξεκινω", "ξεκινώ"], "the lemma itself")
+        XCTAssertEqual(lemma.keys(queryKey: "ξεκιναω", spelled: true), [], "a spelled base form adds nothing")
+        XCTAssertEqual(lemma.keys(queryKey: "ξεκινω", spelled: false), ["ξεκινάω", "ξεκιναω"],
+                       "the other spelling typed: its rows are the exact rows")
+
+        let plain = Search.LemmaCandidate(word: "γράφω", wordNormalized: "γραφω",
+                                          match: FormMatch(lemma: "γράφω", analysis: .greek(tags: ["aorist"])))
+        XCTAssertEqual(plain.keys(queryKey: "εγραψα", spelled: false), ["γράφω", "γραφω"], "as before #314")
+        XCTAssertEqual(plain.keys(queryKey: "γραφω", spelled: false), [])
+        let english = Search.LemmaCandidate(word: "go", wordNormalized: "go", match: FormMatch(
+            lemma: "go", analysis: .english(pos: .verb, rule: nil, suffix: "")))
+        XCTAssertEqual(english.keys(queryKey: "went", spelled: false), ["go"])
+    }
 }
 
 /// #306: the head group of a form-step search in frequency order, pure
@@ -13309,7 +13333,7 @@ extension WordFormsLookupTests {
         let url = try TestDictionary.bundledURL()
         let bases = Morphy.ruleBases(of: "cities")
         let queries: [(String, StatementArguments)] = [
-            (DatabaseService.greekLemmaCandidatesSQL, ["εγραψα", "εγραψα"]),
+            (DatabaseService.greekLemmaCandidatesSQL, ["εγραψα"]),
             (DatabaseService.morphyExceptionSQL, ["went"]),
             (DatabaseService.morphyLemmaSQL(count: bases.count), StatementArguments(bases)),
             (DatabaseService.linkedLemmasSQL, ["στύλος", "στύλος", "στυλοσ", -1, "noun"]),
@@ -13323,6 +13347,9 @@ extension WordFormsLookupTests {
             }
         }
         XCTAssertTrue(plans[0].contains { $0.contains("SEARCH f USING PRIMARY KEY (form_norm=?)") }, "\(plans[0])")
+        // #314: the first cell's other spellings, by the lemma's cells.
+        XCTAssertTrue(plans[0].contains { $0.hasSuffix("SEARCH h USING PRIMARY KEY (lemma_id=? AND ord=?)") }, "\(plans[0])")
+        XCTAssertTrue(plans[0].contains { $0.hasSuffix("SEARCH p USING PRIMARY KEY (lemma_id=?)") }, "\(plans[0])")
         XCTAssertTrue(plans[1].contains { $0.hasPrefix("SEARCH") && $0.hasSuffix("morphy_exception USING PRIMARY KEY (form=?)") }, "\(plans[1])")
         XCTAssertTrue(plans[2].contains { $0.hasPrefix("SEARCH") && $0.hasSuffix("morphy_lemma USING PRIMARY KEY (word=?)") }, "\(plans[2])")
         XCTAssertTrue(plans[3].contains { $0.hasSuffix("SEARCH k USING PRIMARY KEY (form=? AND lemma_id=?)") },
@@ -14123,6 +14150,125 @@ extension WordFormsSearchTests {
         let english = try await db.searchPreferredResults(query: "leaves", groups: [[Self.spanishWordNet], ["wordnet"]],
                                                           enabledSources: [Self.spanishWordNet, "wordnet"])
         XCTAssertEqual(keys(english), ["\(Self.spanishWordNet)/leaves", "wordnet/leaves", "wordnet/leaf*", "wordnet/leave*"])
+    }
+}
+
+/// #314: a lemma no dictionary spells (Wiktionary's ξεκινάω) finds the rows of
+/// the other spelling of its first cell (ξεκινώ), also when the query is the
+/// lemma itself (0136, "Search path" step 2).
+extension WordFormsSearchTests {
+    /// Greek – English first, as a Greek interface orders it.
+    private var greekFirstGroups: [[String]] {
+        DictionaryGrouping.sourceGroups(order: DictAppTests.greekSourceIDs + ["wordnet", "freedict-eng-spa",
+                                                                                "wordnet-spa-eng", "openrussian",
+                                                                                "wordnet-arb-eng"])
+    }
+
+    /// The real file: ξεκινάω, Ξεκιναω, ξεκινάς and ρωτάω show both
+    /// dictionaries' ξεκινώ or ρωτώ first, in relevance and in preferred
+    /// mode, captioned with the lemma.
+    @MainActor
+    func testOtherSpellingOfTheFirstCellFindsItsHeadword() async throws {
+        let groups = greekFirstGroups
+        let cases: [(query: String, headword: String, lemma: String, caption: String)] = [
+            ("ξεκινάω", "ξεκινώ", "ξεκινάω", "present 1sg of ξεκινάω"),
+            ("Ξεκιναω", "ξεκινώ", "ξεκινάω", "present 1sg of ξεκινάω"),
+            ("ξεκινάς", "ξεκινώ", "ξεκινάω", "present 2sg of ξεκινάω"),
+            ("ρωτάω", "ρωτώ", "ρωτάω", "present 1sg of ρωτάω"),
+        ]
+        for test in cases {
+            let relevance = try await db.searchResults(query: test.query)
+            let preferred = try await db.searchPreferredResults(query: test.query, groups: groups,
+                                                                enabledSources: Set(groups.joined()))
+            for (mode, results) in [("relevance", relevance), ("preferred", preferred)] {
+                let head = Array(results.prefix(2))
+                let shown = keys(Array(results.prefix(6)))
+                XCTAssertEqual(head.map(\.entry.word), [test.headword, test.headword], "\(test.query), \(mode): \(shown)")
+                XCTAssertEqual(Set(head.map(\.entry.source)), Self.greekHeadwordSources, "\(test.query), \(mode): \(shown)")
+                XCTAssertEqual(head.map { $0.formMatch?.lemma }, [test.lemma, test.lemma], "\(test.query), \(mode)")
+                XCTAssertEqual(head.map { caption($0) }, [test.caption, test.caption], "\(test.query), \(mode)")
+            }
+        }
+    }
+
+    /// The real file: the other spelling's own search does not change
+    /// (ξεκινώ, ρωτώ: their exact rows, uncaptioned, as with the form step
+    /// off), and a lemma that has rows of its own adds none of its other
+    /// spelling (αγαπάς shows αγαπάω, not also αγαπώ; αγαπάω, a base form,
+    /// adds nothing).
+    @MainActor
+    func testOtherSpellingIsOnlyReadForALemmaWithoutRows() async throws {
+        let groups = greekFirstGroups
+        let queries = ["ξεκινώ", "ξεκινω", "ρωτώ", "αγαπάω", "αγαπαω"]
+        var relevance: [String: [SearchResult]] = [:], preferred: [String: [SearchResult]] = [:]
+        for query in queries {
+            relevance[query] = try await db.searchResults(query: query)
+            preferred[query] = try await db.searchPreferredResults(query: query, groups: groups,
+                                                                   enabledSources: Set(groups.joined()))
+        }
+        let forms = try await db.searchResults(query: "αγαπάς")
+        DatabaseService.lemmaStepEnabled = false
+        for query in queries {
+            let without = try await db.searchResults(query: query)
+            XCTAssertEqual(relevance[query], without, "'\(query)' is unchanged: \(keys(Array(without.prefix(6))))")
+            let preferredWithout = try await db.searchPreferredResults(query: query, groups: groups,
+                                                                       enabledSources: Set(groups.joined()))
+            XCTAssertEqual(preferred[query], preferredWithout, "'\(query)', preferred, is unchanged")
+        }
+        XCTAssertEqual(relevance["ξεκινώ"]?.prefix(2).map(\.entry.word), ["ξεκινώ", "ξεκινώ"])
+        let added = lemmaRows(forms)
+        XCTAssertFalse(added.isEmpty, "αγαπάς finds αγαπάω")
+        XCTAssertEqual(Set(added.map(\.entry.word)), ["αγαπάω"], "\(keys(Array(forms.prefix(6))))")
+    }
+
+    /// Made-up rows: ξεκινάω (no row) reads ξεκινώ, the other spelling of
+    /// its first cell; αγαπάω, which has a row, does not read αγαπώ; ξεκινώ
+    /// itself shows its exact rows.
+    @MainActor
+    func testOtherSpellingOnMadeUpRows() async throws {
+        let fd = Self.fd, wn = Self.wn
+        let url = try TestDictionary.make(rows: [
+            TestDictionary.Row(word: "ξεκινώ", normalized: "ξεκινω", definition: "start", pos: "verb", source: fd),
+            TestDictionary.Row(word: "ξεκινώ", normalized: "ξεκινω", definition: "begin", pos: "verb", source: wn),
+            TestDictionary.Row(word: "αγαπάω", normalized: "αγαπαω", definition: "love", pos: "verb", source: fd),
+            TestDictionary.Row(word: "αγαπώ", normalized: "αγαπω", definition: "love (formal)", pos: "verb", source: fd),
+            TestDictionary.Row(word: "αγαπώ", normalized: "αγαπω", definition: "love", pos: "verb", source: wn),
+        ], at: tempDir.appendingPathComponent("other-spelling.sqlite"))
+        try await DatabaseQueue(path: url.path).write { db in
+            try db.execute(sql: """
+                INSERT INTO lemma(id, lang, word, word_normalized, pos) VALUES
+                    (1, 'ell', 'ξεκινάω', 'ξεκιναω', 'verb'), (2, 'ell', 'αγαπάω', 'αγαπαω', 'verb');
+                INSERT INTO tagset(id, tags) VALUES
+                    (1, 'active first-person imperfective indicative present singular'),
+                    (2, 'active imperfective indicative present second-person singular');
+                INSERT INTO paradigm(lemma_id, ord, form, tagset_id) VALUES
+                    (1, 1, 'ξεκινάω', 1), (1, 2, 'ξεκινώ', 1), (1, 3, 'ξεκινάς', 2),
+                    (2, 1, 'αγαπάω', 1), (2, 2, 'αγαπώ', 1), (2, 3, 'αγαπάς', 2);
+                INSERT INTO form_lookup(form_norm, lemma_id, tagset_id) VALUES
+                    ('ξεκιναω', 1, 1), ('ξεκινω', 1, 1), ('ξεκινασ', 1, 2),
+                    ('αγαπαω', 2, 1), ('αγαπω', 2, 1), ('αγαπασ', 2, 2);
+                """)
+        }
+        try await db.setup(userPath: tempDir.appendingPathComponent("other-spelling-user.sqlite").path,
+                           dictionaryURL: url, packFiles: [.ell: url])
+
+        let lemma = try await db.searchResults(query: "ξεκινάω")
+        XCTAssertEqual(Set(keys(lemma)), ["\(fd)/ξεκινώ*", "\(wn)/ξεκινώ*"])
+        XCTAssertEqual(lemma.map { caption($0) }, ["present 1sg of ξεκινάω", "present 1sg of ξεκινάω"])
+        let form = try await db.searchResults(query: "ξεκινάς")
+        XCTAssertEqual(Set(keys(form)), ["\(fd)/ξεκινώ*", "\(wn)/ξεκινώ*"])
+        XCTAssertEqual(form.first.flatMap { caption($0) }, "present 2sg of ξεκινάω")
+        let preferred = try await db.searchPreferredResults(query: "ξεκινάω", groups: [[fd, wn]], enabledSources: [fd, wn])
+        XCTAssertEqual(Set(keys(preferred)), ["\(fd)/ξεκινώ*", "\(wn)/ξεκινώ*"])
+        let other = try await db.searchResults(query: "ξεκινώ")
+        XCTAssertEqual(Set(keys(other)), ["\(fd)/ξεκινώ", "\(wn)/ξεκινώ"], "the exact rows, uncaptioned")
+
+        let spelled = try await db.searchResults(query: "αγαπάς")
+        XCTAssertEqual(keys(spelled), ["\(fd)/αγαπάω*"], "αγαπάω has a row, so αγαπώ is not read")
+        let base = try await db.searchResults(query: "αγαπάω")
+        XCTAssertEqual(keys(base), ["\(fd)/αγαπάω"], "a base form with a row adds nothing")
+        let wordNetOnly = try await db.searchResults(query: "αγαπάς", enabledSources: [wn])
+        XCTAssertEqual(keys(wordNetOnly), ["\(wn)/αγαπώ*"], "no enabled dictionary spells αγαπάω, so αγαπώ is read")
     }
 }
 
