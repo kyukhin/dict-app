@@ -2,7 +2,7 @@
 
 ## Promotional Text
 
-Learn words with spaced repetition, word lists, conjugation drills and grammar, Greek and English to start. Search finds inflected forms. Offline, no ads, no accounts.
+Learn Greek and English words with spaced repetition and word lists, plus Greek conjugation drills and grammar. Search finds word forms. Offline, no ads, no accounts.
 
 ## Keywords (≤100 chars)
 

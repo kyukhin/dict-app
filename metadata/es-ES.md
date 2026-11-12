@@ -2,7 +2,7 @@
 
 ## Promotional Text
 
-Aprende palabras con repetición espaciada, listas, conjugación y gramática; para empezar, griego e inglés. La búsqueda halla formas flexionadas. Sin conexión ni anuncios.
+Aprende palabras en griego e inglés con repetición espaciada y listas, más conjugación y gramática griegas. Encuentra formas flexionadas. Sin conexión ni anuncios.
 
 ## Keywords (≤100 chars)
 
