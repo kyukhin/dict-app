@@ -70,8 +70,12 @@ final class DefinitionViewModel: ObservableObject {
     @Published private(set) var examples: [ExampleSentence] = []
 
     let entry: DictionaryEntry
-    /// Issue #202: the headword's voice language. Without that voice the
-    /// speaker button is hidden rather than reading the word in another language.
+    /// Issue #325: what the speaker reads, the search target
+    /// (`SpeechService.target`): the headword, or the first sense line of
+    /// its translation when a search matched the headword.
+    let speechText: String
+    /// Issue #202: the voice language of `speechText`. Without that voice the
+    /// speaker button is hidden rather than reading the text in another language.
     let speechLanguage: String
     let canSpeak: Bool
     private let db: DatabaseService
@@ -83,15 +87,19 @@ final class DefinitionViewModel: ObservableObject {
     /// The meanings language of `drillVerb`'s translation.
     private var drillMeaningsLang = "eng"
 
-    init(entry: DictionaryEntry, db: DatabaseService = .shared, settings: SettingsService = .shared,
-         languages: LearningLanguageService? = nil, clock: LearningClock = LearningClock(),
-         hasVoice: (String) -> Bool = SpeechService.hasVoice(for:)) {
+    /// `searchSide`: the side of the entry the Search row matched (#325);
+    /// `nil` when the entry was opened elsewhere.
+    init(entry: DictionaryEntry, searchSide: SearchSide? = nil, db: DatabaseService = .shared,
+         settings: SettingsService = .shared, languages: LearningLanguageService? = nil,
+         clock: LearningClock = LearningClock(), hasVoice: (String) -> Bool = SpeechService.hasVoice(for:)) {
         self.entry = entry
         self.db = db
         self.settings = settings
         self.languages = languages ?? .shared
         self.clock = clock
-        speechLanguage = SpeechService.language(forSource: entry.source)
+        let speech = SpeechService.target(for: entry, side: searchSide)
+        speechText = speech.text
+        speechLanguage = speech.language
         canSpeak = hasVoice(speechLanguage)
     }
 
@@ -192,7 +200,7 @@ final class DefinitionViewModel: ObservableObject {
     }
 
     func speak() {
-        SpeechService.shared.speak(entry.word, language: speechLanguage)
+        SpeechService.shared.speak(speechText, language: speechLanguage)
     }
 
     // MARK: - Issue #144: inflection table

@@ -174,10 +174,28 @@ enum Search {
     }
 
     /// One row of a base search query: the entry, and whether it matched the
-    /// query's key exactly (the first ranking term).
+    /// query's key exactly (the first ranking term) or as a prefix (the
+    /// second, `isPrefixMatch`).
     struct RankedEntry: Equatable, Sendable {
         let entry: DictionaryEntry
         let isExact: Bool
+        var isPrefix = false
+
+        /// Issue #325: the query matched the headword, not only the
+        /// definition text.
+        var matchesHeadword: Bool { isExact || isPrefix }
+    }
+
+    /// Issue #325: whether a row's `word_normalized` starts with one of the
+    /// query's keys (`ftsQuery`'s rank and raw keys), as the ranking's
+    /// `LIKE 'key%'` term tests, here in any case and ignoring accents, as
+    /// the FTS tokenizer does: cancion found Es–En's canción by its
+    /// headword. An exact match is one.
+    static func isPrefixMatch(wordNormalized: String, keys: [String]) -> Bool {
+        keys.contains {
+            !$0.isEmpty
+                && wordNormalized.range(of: $0, options: [.anchored, .caseInsensitive, .diacriticInsensitive]) != nil
+        }
     }
 
     /// Merges one bucket: the head group (the exact rows, then the lemma
@@ -199,10 +217,10 @@ enum Search {
             guard let id = row.id else { result.append(row); return }
             if seen.insert(id).inserted { result.append(row) }
         }
-        exact.forEach { append(SearchResult(entry: $0.entry)) }
+        exact.forEach { append(SearchResult(entry: $0.entry, matchesHeadword: true)) }
         lemmaRows.forEach(append)
         if let order { result = order.sorted(result) }
-        rest.forEach { append(SearchResult(entry: $0.entry)) }
+        rest.forEach { append(SearchResult(entry: $0.entry, matchesHeadword: $0.matchesHeadword)) }
         return Array(result.prefix(limit))
     }
 
@@ -1038,15 +1056,18 @@ actor DatabaseService {
 
     /// Rows matching the query, ranked by `ranking` and cut to its limit,
     /// each with `is_exact`: whether its `word_normalized` is the folded or
-    /// the raw key (#142).
+    /// the raw key (#142), and whether it starts with one (#325).
     private static func rankedEntries(
         _ db: Database, schemas: DictionarySchemas, fts: (match: String, rankKey: String, rawKey: String),
         sources: [String]?, excluding ids: [Int64] = [], withImports: Bool, ranking: Ranking, exactOnly: Bool = false
     ) throws -> [Search.RankedEntry] {
         guard let query = rankedQuery(schemas: schemas, fts: fts, sources: sources, excluding: ids,
                                       withImports: withImports, ranking: ranking, exactOnly: exactOnly) else { return [] }
-        return try Row.fetchAll(db, sql: query.sql, arguments: query.arguments)
-            .map { row in Search.RankedEntry(entry: try DictionaryEntry(row: row), isExact: row["is_exact"]) }
+        return try Row.fetchAll(db, sql: query.sql, arguments: query.arguments).map { row in
+            Search.RankedEntry(entry: try DictionaryEntry(row: row), isExact: row["is_exact"],
+                               isPrefix: Search.isPrefixMatch(wordNormalized: row["word_normalized"],
+                                                              keys: [fts.rankKey, fts.rawKey]))
+        }
     }
 
     /// Each bucket's ranked rows with its whole exact group (0136, "Search

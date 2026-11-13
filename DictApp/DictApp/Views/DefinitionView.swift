@@ -13,8 +13,10 @@ struct DefinitionView: View {
     /// False in the drill's Rule sheet (0133, #174): no Practise there.
     @Environment(\.allowsPractise) private var allowsPractise
 
-    init(entry: DictionaryEntry) {
-        _vm = StateObject(wrappedValue: DefinitionViewModel(entry: entry))
+    /// `searchSide`: the side of the entry a Search row matched, which
+    /// sets what the speaker reads (#325); `nil` when opened elsewhere.
+    init(entry: DictionaryEntry, searchSide: SearchSide? = nil) {
+        _vm = StateObject(wrappedValue: DefinitionViewModel(entry: entry, searchSide: searchSide))
     }
 
     /// The active foreground window scene — required by the scene-based review API.
@@ -42,6 +44,9 @@ struct DefinitionView: View {
                                 .font(.title2)
                         }
                         .accessibilityLabel(Text("definition.a11y.speakWord"))
+                        // #325: the text it reads, the headword or its translation.
+                        .accessibilityValue(Text(verbatim: vm.speechText))
+                        .accessibilityIdentifier("speak_button")
                     }
                 }
 
