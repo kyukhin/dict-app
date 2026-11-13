@@ -103,8 +103,12 @@ class LearnPage: BasePage {
         selectTab(code)
     }
 
-    /// Taps the pair tab `lang` and waits until it is selected.
+    /// Taps the pair tab `lang` and waits until it is selected. The strip
+    /// scrolls with the home (0131), which keeps its scroll back from a
+    /// pushed screen: after a row further down (Statistics) the lazy List
+    /// has dropped the tabs, so this scrolls back up to them first (#323).
     func selectTab(_ lang: String) {
+        revealBelowNavigationBar(pairTabs)
         let tab = pairTab(lang)
         XCTAssertTrue(tab.waitForExistence(timeout: TestData.Timeouts.medium) || pairTabMore.exists, "the \(lang) tab")
         if !tab.exists {
