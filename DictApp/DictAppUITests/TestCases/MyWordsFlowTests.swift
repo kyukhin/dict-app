@@ -50,10 +50,15 @@ final class MyWordsFlowTests: XCTestCase {
         return definitionPage
     }
 
-    /// Learn tab → home → My words.
-    private func openMyWords() -> MyWordsPage {
+    /// Learn tab → home → `lang`'s tab, when given → My words. Each tab's
+    /// My words lists its language's words only (#295); the first learned
+    /// language's tab shows first.
+    private func openMyWords(on lang: String? = nil) -> MyWordsPage {
         let learnPage = tabBarPage.tapLearnTab()
         XCTAssertTrue(learnPage.waitForHome(), "the Learn home should show with a learned language")
+        if let lang {
+            learnPage.selectTab(lang)
+        }
         let myWords = learnPage.tapMyWords()
         XCTAssertTrue(myWords.waitForMyWordsToLoad(), "My words should load")
         return myWords
@@ -93,11 +98,12 @@ final class MyWordsFlowTests: XCTestCase {
         XCTAssertTrue(definitionPage.waitForLearnButtonLabel("Stop learning"), "a filled cap reads 'Stop learning'")
     }
 
-    /// Search γράφω, Learn: My words lists it; Stop learning: gone.
+    /// Search γράφω, Learn: the Greek tab's My words lists it; Stop
+    /// learning: gone.
     func testLearnButtonAddsAndRemoves() throws {
         let term = "γράφω"
         openDefinition(term, source: TestData.Sources.freedictEllEng).learn()
-        var myWords = openMyWords()
+        var myWords = openMyWords(on: "ell")
         XCTAssertTrue(myWords.waitForWord(term), "My words should list '\(term)'")
 
         let definitionPage = openDefinition(term, source: TestData.Sources.freedictEllEng)
@@ -105,7 +111,7 @@ final class MyWordsFlowTests: XCTestCase {
         definitionPage.tapLearnButton()
         XCTAssertTrue(definitionPage.waitForLearnButtonLabel("Learn"), "Stop learning gives back an outlined cap")
 
-        myWords = openMyWords()
+        myWords = openMyWords(on: "ell")
         XCTAssertTrue(myWords.waitForEmpty(), "My words should be empty after Stop learning")
     }
 
@@ -152,8 +158,8 @@ final class MyWordsFlowTests: XCTestCase {
 
     /// `-learningLanguages ell`, English UI: Learn on "house" asks "Learn
     /// English via English?", the default pair; No adds it to My words and
-    /// learns no language; Learn on "water", Yes: the switch reads Greek |
-    /// English.
+    /// learns no language, so it shows on no tab (#295); Learn on "water",
+    /// Yes: an English tab next to Greek, whose My words lists both.
     func testLearnOnANewLanguageAsks() throws {
         let house = openDefinition("house")
         house.tapLearnButton()
@@ -166,8 +172,8 @@ final class MyWordsFlowTests: XCTestCase {
         var learnPage = tabBarPage.tapLearnTab()
         XCTAssertTrue(learnPage.waitForHome())
         XCTAssertFalse(learnPage.pairTab("eng").exists, "No learns no language: no English tab")
-        let myWords = learnPage.tapMyWords()
-        XCTAssertTrue(myWords.waitForWord("house"), "No still adds the word to My words")
+        let greek = learnPage.tapMyWords()
+        XCTAssertTrue(greek.waitForEmpty(), "English house is on no tab while English is not learned")
 
         let water = openDefinition("water")
         water.tapLearnButton()
@@ -177,9 +183,13 @@ final class MyWordsFlowTests: XCTestCase {
 
         learnPage = tabBarPage.tapLearnTab()
         XCTAssertTrue(learnPage.waitForHome())
+        learnPage.revealPairTabs()
         XCTAssertTrue(learnPage.pairTab("eng").waitForExistence(timeout: TestData.Timeouts.medium),
                       "Yes adds English: its tab shows")
         XCTAssertTrue(learnPage.pairTab("ell").exists)
+        let english = openMyWords(on: "eng")
+        XCTAssertTrue(english.waitForWord("house"), "No still added house to My words: it shows once English is learned")
+        XCTAssertTrue(english.waitForWord("water"), "the English tab's My words lists water")
     }
 
     /// Russian UI, nothing learned: Learn on γράφω asks for Greek via
