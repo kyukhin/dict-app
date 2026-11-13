@@ -1,7 +1,7 @@
 # Learning words with spaced repetition
 
 > Spec written by Claude (AI) for LibreDict.
-> Status: Implemented, with a revision for epic #292 (tickets #293, #295, #296, #298, #299; #297 is in 0133) and for #300, approved by kyukhin on 2026-11-10 and built (PRs #303, #304, #305); the rest approved by kyukhin on 2026-11-04 · Epic: #131, revised by #292 · Tickets: #157, #158, #159, #160, #161, #162; #293, #295, #296, #298, #299, #300 · Updated: 2026-11-12
+> Status: Implemented, with a revision for epic #292 (tickets #293, #295, #296, #298, #299; #297 is in 0133) and for #300, approved by kyukhin on 2026-11-10 and built (PRs #303, #304, #305); the rest approved by kyukhin on 2026-11-04 · Epic: #131, revised by #292 · Tickets: #157, #158, #159, #160, #161, #162; #293, #295, #296, #298, #299, #300 · Updated: 2026-11-13
 
 Read [0000-overview.md](0000-overview.md) and [0129-dictionary-file.md](0129-dictionary-file.md) first. This epic is designed together with [0166-learning-statistics.md](0166-learning-statistics.md) (E10, #166), which computes the daily goal, the streak and every number from this epic's answer log. Word lists are E3 (#130, [0130-word-lists.md](0130-word-lists.md), drafted at the same time). This spec follows E3's interface ("For E4 and E10" there); "Depends on E3" records how, and the three points where it differs. The conjugation drill (E5, #132) reuses the cards, the scheduler and the log ("For E5"). The pair tabs of #292 also change 0130, 0132, 0133 and 0166 where they describe the Learn tab.
 
@@ -572,8 +572,9 @@ The records are `LearnDay`, `CardKind`, `CardKey (WordKey, kind, facet)`, `CardS
 `Gloss.short(definition:)` is pure:
 1. Drop part-of-speech header lines (`**verb**`) and example lines (`*"…"*`), then strip the remaining `*`.
 2. Take the first sense: the text after `1. `, or the first non-empty line.
-3. A WordNet-style sense `X — Y` keeps X.
-4. Cut at 80 characters, at a space or comma, with "…".
+3. Drop what the dictionary build left in a WordNet gloss when it took out its examples (`Gloss.dropExamples`, #320): attributions (`; - Galsworthy`, `; -Wordsworth`), the empty `; ;` between examples, an example that lost one of its quotes (from the `;` before it), a trailing `e.g.,` after other text, and a trailing `;` or `,`. "deserving or inciting pity; ; ; - Galsworthy" gives "deserving or inciting pity". Real separators, dates ("63 BC - AD 14"), balanced quotes and a lone "e.g." stay.
+4. A WordNet-style sense `X — Y` keeps X (after step 3, so a lemma list ending in "e.g." keeps it).
+5. Cut at 80 characters, at a space or comma, with "…".
 
 | Entry | Meaning |
 |---|---|
@@ -586,9 +587,11 @@ The records are `LearnDay`, `CardKind`, `CardKey (WordKey, kind, facet)`, `CardS
 | house (En–El · WN) | οικογένεια |
 | дом (OpenRussian) | house, home, house-hold |
 
+In English WordNet (`Gloss.partOfSpeechSources`) a list word's meaning is of one of its list parts of speech (#320), as WordNet lists nouns first: `Gloss.short(definition:source:partOfSpeech:)` applies the steps above to the first section, in WordNet's order, whose header (`**verb**`) is one of the list's parts of speech (`Gloss.section`). So WordNet's first sense stays when its part of speech is the word's, and is passed over only when it is not; the list's order (alphabetical) does not count. be-verb, do-verb and have-verb are verbs; a list adjective, or determiner (WordNet files determiners as adjectives: all, "quantifier; …"), takes an adjective or adjective satellite section. A determiner alone still gives no WordNet meaning (`Gloss.gives`, 2026-11-07): WordNet's a is "a metric unit of length". With no such section, an unknown part of speech (My words) or any other dictionary, the whole entry, as before. `meanings(of:)` passes `MeaningQuery.partOfSpeech` (the list's), so questions, options, match the pairs, E3's list rows and E10's hardest words (`HardWord.partOfSpeech`) show the same meaning.
+
 A word's meaning is in the meanings language of its language's pair (`LearningPair.meanings`: the via, except in a limited pair, where it is English for Greek via Russian), chosen at each question, never stored. Below, "the pair's dictionaries" go from the learned language into the meanings language:
 1. its stored `translation`, when it is not empty and `translation_lang` is the meanings language, or '' (an imported list: the user's own translations show in every pair);
-2. else `Gloss.short` of its headword (its term, for a word without an entry) in the first of the pair's dictionaries that has it, in Dictionary Order, enabled ones first (`meanings(of:lang:meaningsLang:sourceOrder:)`);
+2. else `Gloss.short` of its headword (its term, for a word without an entry) in the first of the pair's dictionaries that has it, in Dictionary Order, enabled ones first (`meanings(of:lang:meaningsLang:sourceOrder:)`); in English WordNet, the first sense of one of its list parts of speech (#320, above);
 3. Other (`und`) has no pair: rule 1, else `Gloss.short` of its own entry `(source, headword)`, as before pairs;
 4. none: the planners skip the word in this pair. It is never deleted, and comes back when the via changes or the pair's pack is installed.
 
@@ -600,6 +603,7 @@ A word's meaning is in the meanings language of its language's pair (`LearningPa
 | house (English A1), English via Spanish | casalicio, casa | 2, En–Es · FD |
 | house (English A1), English via Greek | σπίτι (το χτίριο), οίκος, στεγάζω: a Greek UI's default order puts En–El · FD first (#88). With En–El · WN first it is οικογένεια | 2 |
 | house (English A1), English via English | a dwelling that serves as living quarters for one or more families | 2, WordNet |
+| was (English A1, be-verb, headword be), English via English | have the quality of being; (copula, used with an adjective or a predicate noun): the verb, not WordNet's first sense, Be "beryllium" (#320) | 2, WordNet |
 
 - The meaning's text runs carry the meanings language (`languageIdentifier`), so VoiceOver reads σπίτι with the Greek voice in English via Greek; in Arabic it keeps its own direction (FSI…PDI, #119).
 - Changing the via changes the meanings from the next question when the meanings language changes (Greek via English to via Russian does not); cards and the log are untouched.
@@ -936,6 +940,7 @@ Unit classes go in `DictAppTests.swift`. Async tests, and classes that are mostl
 | #299: VoiceOver reads it after the right answer | Unit `FeedbackBarTests.testAnnouncementOrder` (`lines`: the right answer, then the "You chose" line) |
 | #300: each of the six cases plays its sound once, off the main thread | Unit `FeedbackPlayerTests.testSixSoundsAtTheirMoments` (`FeedbackSink`: a right and a wrong answer give `right`, `wrong`; a match round with one wrong pair gives `pairWrong` once and `pairRight` 5 times, then `goalReached` if it fills the ring and no end sound otherwise, never `lessonComplete`; `ExerciseRunViewModelTests.testRunEndSounds`: a daily session ends with `lessonComplete`, or `goalReached` when it fills the ring, a trainer only with `goalReached`, a run closed early with none; `ConjugationRunViewModelTests.testDrillEndsWithTheGoalsSoundOnly`), `RunEndSoundTests` (pure: 18 → 22 with a goal of 20: `goalReached`; 20 → 25: `lessonComplete`), `ToneSynthTests` (each sound: a 16-bit mono 44.1 kHz WAV of its recipe's length, a peak of about 0.7, silent at its end, equal across two calls), `TonePlayerTests.testTonesPlayOffTheMainThread` over the six. QA: kyukhin hears each on a device; the silent switch mutes them; music keeps playing; the speaker button (#202) still speaks |
 | #300: Sounds off in Settings: none plays | Unit `FeedbackPlayerTests.testSoundAndHapticsFollowTheSettings`, over the six |
+| #320: no English list word with a known part of speech shows a WordNet sense of another part of speech, unless WordNet has no section of its part of speech (30 list words, some mistagged in the list, such as weep as a noun; they keep the first sense, as before) | Unit `GlossTests.testWordNetSenseOfTheListPartOfSpeech` (pure: a noun-then-verb entry gives its verb sense to be-, do-, have-verb and verb, and its noun sense to any list with noun, in any order; an adjective satellite is an adjective; no section, an unknown part of speech or another dictionary: the first sense), `LearningStoreTests.testWordNetMeaningIsOfTheListPartOfSpeech`, `LearningStoreTests.testNewListWordsInMatchThePairsTakeTheListPartOfSpeech` (match the pairs, words not yet in learning) (the shipped files, English via English: be, was, do, have and well take the sense of their list part of speech; afraid, back, home, kind and all are unchanged; `wordChoices` reads the same), `StatisticsViewModelTests.testHardestWordMeaningIsOfTheListPartOfSpeech` (was among the hardest words reads as the verb), `GlossTests.testExampleLeftoversDropped` (pure: attributions, empty separators, an example that lost a quote, a trailing `e.g.,`; dates, balanced quotes and a lone or listed "e.g." kept). Review: kyukhin checks the before/after list of every English list word whose meaning changes |
 
 ## Open questions
 
@@ -1013,3 +1018,4 @@ Unit classes go in `DictAppTests.swift`. Async tests, and classes that are mostl
 - 2026-11-10 (kyukhin, #293): pair tabs show flags (a big one for the language, a small one before it for the via), with the selected pair's full name as a caption under the strip; the Arabic letter "ع" in a circle stands for Arabic. Pair tabs section, Decisions, Test plan updated.
 - 2026-11-10: The #292/#300 revision is built (PRs #303, #304, #305).
 - 2026-11-12: Review fixes (CodeRabbit, PRs #303, #305): a load commits the pair tabs in the current order, so a drag while they load is kept; a continued lesson reads its cards before it takes the lesson's answers, so a failed read shows the error, not a summary. Tests added.
+- 2026-11-13: #320: in English WordNet a list word's meaning is WordNet's first sense only when its part of speech is one of the list's, else the first sense of the first section, in WordNet's order, that is (was read "beryllium", the noun Be). The list's order is alphabetical, so it decides nothing. A list determiner reads as WordNet's adjective. `Gloss.short` also drops the attributions, empty `; ;`, half-quoted examples and trailing `e.g.,` that the build left in WordNet glosses (93 English list words showed them). E10's hardest words pass the part of speech too. 1,073 of the 8,647 English list items change in English via English; the other pairs' list words do not, and outside WordNet only two meanings lose a trailing comma. Meanings and Test plan updated.

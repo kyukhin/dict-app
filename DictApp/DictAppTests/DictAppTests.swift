@@ -26845,6 +26845,91 @@ final class GlossTests: XCTestCase {
         XCTAssertNil(Gloss.listMeaning(translation: "", translationLang: "eng", meaningsLang: "eng"), "empty: a dictionary's")
         XCTAssertNil(Gloss.listMeaning(translation: " \t", translationLang: "", meaningsLang: nil), "blank: a dictionary's")
     }
+
+    /// #320: WordNet lists nouns first, so in English WordNet a list word
+    /// takes the first sense of the first section, in WordNet's order, of
+    /// one of its parts of speech (be-, do- and have-verb are verbs, an
+    /// adjective satellite an adjective): WordNet's first sense stays when
+    /// its part of speech is the word's, whatever the list's (alphabetical)
+    /// order. No such section, an unknown part of speech or another
+    /// dictionary: the entry's first sense.
+    func testWordNetSenseOfTheListPartOfSpeech() {
+        let be = "**noun**\n1. a light strong brittle grey toxic bivalent metallic element\n\n"
+            + "**verb**\n1. have the quality of being; (copula, used with an adjective or a predicate noun)  \n"
+            + "   *\"John is rich\"; \"This is not a good answer\"*\n2. be identical to; be someone or something"
+        let copula = "have the quality of being; (copula, used with an adjective or a predicate noun)"
+        let beryllium = "a light strong brittle grey toxic bivalent metallic element"
+        for pos in ["be-verb", "verb", "do-verb", "have-verb", " Verb ", "pronoun, verb", "adverb, verb"] {
+            XCTAssertEqual(Gloss.short(definition: be, source: "wordnet", partOfSpeech: pos), copula, pos)
+        }
+        XCTAssertEqual(Gloss.short(definition: be, source: "wordnet", partOfSpeech: "noun"), beryllium)
+        for pos in ["noun, verb", "verb, noun", "adverb, verb, noun"] {
+            XCTAssertEqual(Gloss.short(definition: be, source: "wordnet", partOfSpeech: pos), beryllium,
+                           "\(pos): WordNet's first sense is one of the list's, so it stays")
+        }
+        XCTAssertEqual(Gloss.short(definition: be, source: "wordnet", partOfSpeech: ""), beryllium,
+                       "unknown (My words): the first sense, as before")
+        XCTAssertEqual(Gloss.short(definition: be, source: "wordnet", partOfSpeech: "adjective"), beryllium,
+                       "no adjective section: the first sense, as before")
+        XCTAssertEqual(Gloss.short(definition: be, source: "freedict-eng-ell", partOfSpeech: "be-verb"), beryllium,
+                       "only English WordNet: other dictionaries keep the first sense")
+        XCTAssertEqual(Gloss.short(definition: be, source: "wordnet-eng-ell", partOfSpeech: "verb"), beryllium)
+
+        let well = "**noun**\n1. a deep hole\n\n**verb**\n1. come up\n\n**adjective satellite**\n1. in good health\n\n"
+            + "**adverb**\n1. in a good manner"
+        XCTAssertEqual(Gloss.short(definition: well, source: "wordnet", partOfSpeech: "adjective, adverb"), "in good health",
+                       "an adjective satellite is an adjective")
+        XCTAssertEqual(Gloss.short(definition: well, source: "wordnet", partOfSpeech: "adverb, adjective"), "in good health",
+                       "WordNet's order, not the list's")
+        XCTAssertEqual(Gloss.short(definition: well, source: "wordnet", partOfSpeech: "adverb, verb"), "come up")
+        XCTAssertEqual(Gloss.short(definition: well, source: "wordnet", partOfSpeech: "adverb"), "in a good manner")
+        XCTAssertEqual(Gloss.section(of: well, partOfSpeech: "verb"), "1. come up")
+        XCTAssertNil(Gloss.section(of: well, partOfSpeech: "pronoun, preposition"))
+        XCTAssertNil(Gloss.section(of: "1. cabin\n2. hut", partOfSpeech: "noun"), "no headers")
+        XCTAssertNil(Gloss.section(of: well, partOfSpeech: ""))
+
+        // WordNet files determiners as adjectives: all keeps "quantifier".
+        let all = "**adjective**\n1. quantifier; used with either mass or count nouns\n\n**adverb**\n1. to a complete degree"
+        XCTAssertEqual(Gloss.short(definition: all, source: "wordnet", partOfSpeech: "adverb, determiner, pronoun"),
+                       "quantifier; used with either mass or count nouns")
+        XCTAssertFalse(Gloss.gives("wordnet", partOfSpeech: "determiner"),
+                       "alone, a determiner still takes no WordNet meaning (a: \"a metric unit of length\")")
+    }
+
+    /// #320: what the dictionary build left in a WordNet gloss when it took
+    /// its examples out (attributions, empty `; ;`, an example that lost a
+    /// quote, a trailing `e.g.,`, `;` or `,`) is dropped, so the meaning
+    /// ends with the gloss. Real separators, dates, balanced quotes and a
+    /// lone or listed "e.g." stay.
+    func testExampleLeftoversDropped() {
+        let nice = "**adjective satellite**\n1. pleasant or pleasing or agreeable in nature or appearance; - George Meredith  \n"
+            + "   *\"what a nice fellow you are\"; \"nice manners\"*"
+        XCTAssertEqual(Gloss.short(definition: nice), "pleasant or pleasing or agreeable in nature or appearance")
+        let cleaned = [
+            "so lacking in interest as to cause mental weariness; ; ; ; ; ; - Edmund Burke; ; - Mark Twain":
+                "so lacking in interest as to cause mental weariness",
+            "consistent with fact or reality; not false; ; - B. Russell": "consistent with fact or reality; not false",
+            "dark and dismal as of the rivers Acheron and Styx in Hades; ; -Wordsworth":
+                "dark and dismal as of the rivers Acheron and Styx in Hades",
+            "roundabout and unnecessarily wordy; ; -T.S.Eliot; (`ambagious' is archaic)":
+                "roundabout and unnecessarily wordy; (`ambagious' is archaic)",
+            "to or in any or all places; ; ; ; ; (`everyplace' is informal)": "to or in any or all places; (`everyplace' is informal)",
+            "close in; darkness enclosed him\"": "close in",
+            "a local branch where postal services are available\"": "a local branch where postal services are available",
+            "keep in a certain state, position, or activity; e.g.,": "keep in a certain state, position, or activity",
+            "a similar kind; ,": "a similar kind",
+            "travel up,": "travel up",
+        ]
+        for (sense, meaning) in cleaned {
+            XCTAssertEqual(Gloss.dropExamples(sense), meaning, sense)
+        }
+        for kept in ["Roman statesman (63 BC - AD 14)", "hora punta, hora \"peak\"", "e.g.",
+                     "a neurotransmitter involved in e.g. sleep", "house; a building"] {
+            XCTAssertEqual(Gloss.dropExamples(kept), kept)
+        }
+        XCTAssertEqual(Gloss.short(definition: "1. for example, for instance, e.g. — as an example"),
+                       "for example, for instance, e.g.", "a lemma list keeps its e.g.")
+    }
 }
 
 /// `AnswerChecker`: strict, lenient and the folding rules (0131, "Typed
@@ -28053,6 +28138,84 @@ extension LearningStoreTests {
         XCTAssertTrue(greek.isSuperset(of: ["he", "i", "us", "me", "or"]), "via Greek: \(greek.sorted())")
         let spanish = try await words(via: "spa", ["freedict-eng-spa"])
         XCTAssertTrue(spanish.isSuperset(of: ["he", "i", "us", "me", "or", "who"]), "via Spanish: \(spanish.sorted())")
+    }
+
+    /// #320: in English via English WordNet's first sense is passed over
+    /// only when its part of speech is none of the list word's: was is the
+    /// verb be, not Be "beryllium". A word whose list has WordNet's first
+    /// part of speech (back, home, kind: nouns among others; all: a
+    /// determiner, which WordNet files as an adjective) or has one part of
+    /// speech (afraid) keeps its meaning. The exercises read the same
+    /// meaning (`wordChoices`: questions, options and "You chose"). On the
+    /// shipped English A1 list.
+    func testWordNetMeaningIsOfTheListPartOfSpeech() async throws {
+        try await openShipped()
+        let items = try await db.wordListItems("cefr-eng-a1")
+        let expected = [
+            "be": "have the quality of being; (copula, used with an adjective or a predicate noun)",
+            "was": "have the quality of being; (copula, used with an adjective or a predicate noun)",
+            "do": "engage in",
+            "have": "have or possess, either in a concrete or an abstract sense",
+            "well": "in good health especially after having suffered illness or injury",
+            "afraid": "filled with fear or apprehension",
+            "back": "the posterior part of a human (or animal) body from the neck to the end of the…",
+            "home": "where you live at a particular time",
+            "kind": "a category of things distinguished by some common characteristic or quality",
+            "all": "quantifier; used with either mass or count nouns to indicate the whole number…",
+        ]
+        let picked = try expected.keys.sorted().map { term in try XCTUnwrap(items.first { $0.term == term }, term) }
+        XCTAssertEqual(picked.first { $0.term == "was" }?.partOfSpeech, "be-verb")
+        XCTAssertEqual(picked.first { $0.term == "well" }?.partOfSpeech, "adjective, adverb")
+        XCTAssertEqual(picked.first { $0.term == "afraid" }?.partOfSpeech, "adjective")
+
+        let meanings = try await db.meanings(of: picked.map(MeaningQuery.init), lang: "eng", meaningsLang: "eng",
+                                             sourceOrder: ["wordnet"])
+        XCTAssertEqual(Dictionary(uniqueKeysWithValues: meanings.map { ($0.key.word, $0.value) }), expected)
+
+        try await db.introduce(picked, sourceOrder: ["wordnet"], today: today)
+        let choices = try await db.wordChoices(lang: "eng", meaningsLang: "eng", sourceOrder: ["wordnet"])
+        XCTAssertEqual(Dictionary(uniqueKeysWithValues: choices.map { ($0.key.word, $0.meaning) }), expected)
+        XCTAssertEqual(choices.first { $0.key.word == "was" }?.entry, EntryKey(source: "wordnet", word: "be"))
+    }
+
+    /// #320, QA: Match the pairs shows the checked lists' words that are not
+    /// in learning yet with the meanings `NewWordPicker` reads for them
+    /// (`listMeanings`), which take the list part of speech as well. On the
+    /// shipped English A1 list in English via English, by frequency, the
+    /// forms of be, have and do come first and read as the verbs, never as
+    /// WordNet's first senses (Be "beryllium", "a person who possesses great
+    /// material wealth", "an uproarious party"); you, I, the and a have no
+    /// WordNet meaning and are not picked. A round of five shows the same.
+    func testNewListWordsInMatchThePairsTakeTheListPartOfSpeech() async throws {
+        try await openShipped()
+        let copula = "have the quality of being; (copula, used with an adjective or a predicate noun)"
+        let verbs = ["be": copula, "have": "have or possess, either in a concrete or an abstract sense", "do": "engage in"]
+        let newWords = try await NewWordPicker(db: db, settings: checkedListSettings(["cefr-eng-a1"], perDay: 50))
+            .pick(lang: "eng", meaningsLang: "eng", sourceOrder: ["wordnet"], today: today)
+        let terms = newWords.lists.map(\.term)
+        XCTAssertEqual(newWords.lists.count, 50)
+        for term in ["'m", "'re", "am", "are", "be", "is", "was", "were", "have", "had", "do", "did", "does"] {
+            XCTAssertTrue(terms.contains(term), "\(term) among the first new words: \(terms)")
+        }
+        XCTAssertTrue(Set(terms).isDisjoint(with: ["you", "I", "the", "a"]), "no WordNet meaning: never picked")
+        var checked = 0
+        for item in newWords.lists {
+            guard let verb = item.headword.flatMap({ verbs[$0] }) else { continue }
+            XCTAssertEqual(newWords.listMeanings[item.key], verb, item.term)
+            checked += 1
+        }
+        XCTAssertEqual(checked, 13)
+
+        let round = try await MatchWordPicker(db: db).pick(lang: "eng", meaningsLang: "eng", sourceOrder: ["wordnet"],
+                                                          newWords: newWords)
+        let words = try XCTUnwrap(round?.words)
+        XCTAssertEqual(words.count, MatchRound.size)
+        XCTAssertTrue(words.contains { $0.meaning == copula }, "a form of be comes first: \(words.map(\.term))")
+        let headwords = Dictionary(uniqueKeysWithValues: newWords.lists.map { ($0.key, $0.headword) })
+        for word in words {
+            guard let verb = headwords[word.key]?.flatMap({ verbs[$0] }) else { continue }
+            XCTAssertEqual(word.meaning, verb, word.term)
+        }
     }
 
     private func insertListWord(_ word: String, lang: String = "ell", translation: String, translationLang: String,
@@ -31651,6 +31814,28 @@ final class StatisticsViewModelTests: ExerciseTestCase {
         let spanish = ExerciseFixture.meanings(in: enEs)
         XCTAssertEqual(vm.blocks.hardestWords.map(\.meaning), [spanish["house"], spanish["water"]])
         XCTAssertEqual(vm.blocks.hardestWords.map(\.meaning), ["casalicio, casa", "agua, aguacha, linfa, wata"])
+    }
+
+    /// #320: a hardest word shows the meaning the exercises showed, of its
+    /// list part of speech: English A1's was (be-verb) reads as the verb be
+    /// in English via English, not WordNet's first sense, Be "beryllium".
+    /// On the shipped files.
+    func testHardestWordMeaningIsOfTheListPartOfSpeech() async throws {
+        try await db.setup(userPath: tempDir.appendingPathComponent("shipped.sqlite").path,
+                           dictionaryURL: try TestDictionary.bundledURL(), packFiles: try PackFixtures.all())
+        let was = WordKey(lang: "eng", word: "was")
+        try await insertListWord("was", lang: "eng", pos: "be-verb", translation: "", translationLang: "",
+                                 list: "cefr-eng-a1", entry: EntryKey(source: wordnet, word: "be"))
+        try await answer(was, .wrong)
+        settings.learningLanguages = ["eng"]
+        settings.learningVia = ["eng": "eng"]
+        let vm = statistics()
+        await vm.load()
+        XCTAssertNil(vm.errorMessage)
+        XCTAssertEqual(vm.blocks.hardestWords.map(\.word.key), [was])
+        XCTAssertEqual(vm.blocks.hardestWords.map(\.word.partOfSpeech), ["be-verb"])
+        XCTAssertEqual(vm.blocks.hardestWords.map(\.meaning),
+                       ["have the quality of being; (copula, used with an adjective or a predicate noun)"])
     }
 
     /// Greek via Russian is limited: its meanings are English, so the

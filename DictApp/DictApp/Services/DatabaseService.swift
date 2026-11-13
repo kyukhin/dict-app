@@ -2879,7 +2879,8 @@ actor DatabaseService {
     /// The meaning of each word in the pair's meanings language (0131,
     /// "Meanings"), chosen now, never stored: rule 1, the list translation
     /// in that language (or an import's), in Swift; else rule 2, `Gloss.short`
-    /// of its `lookup` in the first of the pair's dictionaries (`lang` →
+    /// of its `lookup` (in WordNet, of its list part of speech, #320) in the
+    /// first of the pair's dictionaries (`lang` →
     /// `meaningsLang`) in `sourceOrder` that has it, one read per file that
     /// holds one (#237: the bundle or the dictionary's pack, through
     /// `DictionarySchemas`; a pack that is not installed gives none).
@@ -3098,7 +3099,7 @@ actor DatabaseService {
                    partOfSpeech: String = "") -> (text: String, source: String?)? {
             for source in sources where Gloss.gives(source, partOfSpeech: partOfSpeech) {
                 if let definition = definitions[source] {
-                    let text = Gloss.short(definition: definition)
+                    let text = Gloss.short(definition: definition, source: source, partOfSpeech: partOfSpeech)
                     if !text.isEmpty { return (text, source) }
                 }
             }
@@ -3578,7 +3579,8 @@ actor DatabaseService {
 
     /// The words of `lang` with the most mistakes on word cards from
     /// `since` on (`HardestWords.rank`), with their text, its language
-    /// (`translation_lang`) and entry. The via filters nothing here.
+    /// (`translation_lang`), entry and part of speech. The via filters
+    /// nothing here.
     func hardestWords(since: LearnDay, lang: String,
                       limit: Int = HardestWords.wordLimit) async throws -> [HardWord] {
         try await hardWords(kinds: LearningSQL.wordKinds, since: since, lang: lang, limit: limit)
@@ -3599,7 +3601,7 @@ actor DatabaseService {
             try Row.fetchAll(db, sql: """
                 SELECT r.lang, r.word, COUNT(*) AS answers, SUM(r.outcome <> 'wrong') AS "right",
                        MAX(CASE WHEN r.outcome = 'wrong' THEN r.id END) AS latest_mistake,
-                       w.term, w.translation, w.translation_lang, w.source, w.headword
+                       w.term, w.translation, w.translation_lang, w.source, w.headword, w.pos
                 FROM learn_review r
                 LEFT JOIN learn_word w ON w.lang = r.lang AND w.word = r.word
                 WHERE r.day >= ? AND r.lang = ? AND r.kind IN \(kinds)
@@ -3610,11 +3612,12 @@ actor DatabaseService {
                 let term: String? = row["term"], translation: String? = row["translation"]
                 let translationLang: String? = row["translation_lang"]
                 let source: String? = row["source"], headword: String? = row["headword"]
+                let pos: String? = row["pos"]
                 return HardWord(key: WordKey(lang: row["lang"], word: word), term: term ?? word,
                                 translation: translation ?? "", translationLang: translationLang ?? "",
                                 entry: source.flatMap { source in headword.map { EntryKey(source: source, word: $0) } },
                                 tally: Tally(answers: row["answers"], right: row["right"]),
-                                latestMistake: row["latest_mistake"])
+                                latestMistake: row["latest_mistake"], partOfSpeech: pos ?? "")
             }
         }
         return HardestWords.rank(words, limit: limit)

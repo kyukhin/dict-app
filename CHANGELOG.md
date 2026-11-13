@@ -71,6 +71,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - [#281] A list import shows every row that a quote left open swallows as a broken row instead of dropping it silently, and a preview change that fails keeps the pickers on the preview shown.
 - [#281] In the drill, Rule also opens the topic that lists a verb with passive forms only: έρχομαι's aorist opens Irregular aorists.
 - [#314] Greek search finds 17 verbs the dictionaries spell with their other present form, such as ξεκινάω, ρωτάω and their forms, which now show ξεκινώ and ρωτώ.
+- [#320] In English via English, a list word's meaning is a WordNet sense of its own part of speech, so "was" reads as the verb be, not "beryllium", and most meanings lose the example and author text the dictionary build left in them.
 - [#181] Localization pass for 2.0: the typed answer's placeholder writes the language in lower case ("στα ελληνικά"), the Russian Import and the Greek Paste screens no longer truncate their titles, the Languages rows and the Learning steppers stack at the largest text sizes instead of breaking words, and the Spanish daily goal, the Greek "learning" badge and the Arabic strict-accents option use the app's own terms.
 
 ### Tests / CI
