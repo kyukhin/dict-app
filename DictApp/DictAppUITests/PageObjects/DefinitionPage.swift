@@ -20,6 +20,11 @@ class DefinitionPage: BasePage {
         waitForButton(AccessibilityIdentifiers.Definition.learnButton)
     }
 
+    /// #325: the speaker button; `value` is the text it reads.
+    var speakButton: XCUIElement {
+        waitForButton(AccessibilityIdentifiers.Definition.speakButton)
+    }
+
     /// 0166, #165: the learning status under the part of speech.
     var learningStatus: XCUIElement {
         app.descendants(matching: .any)[AccessibilityIdentifiers.Definition.learningStatus].firstMatch

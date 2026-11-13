@@ -6692,6 +6692,227 @@ final class SpeechLanguageTests: XCTestCase {
     }
 }
 
+// MARK: - Issue #325: the speaker reads the search target
+
+/// What Definition's speaker reads and in which voice (0000, "Rules worth
+/// knowing"): the pure `SpeechService.target`, the side a Search row
+/// matched, and the real search path.
+final class SpeechTargetTests: XCTestCase {
+    private func entry(_ word: String, _ source: String, _ definition: String = "") -> DictionaryEntry {
+        DictionaryEntry(id: nil, word: word, definition: definition, phonetic: "", pos: "", source: source,
+                        createdAt: nil)
+    }
+
+    /// El–En · FD and En–El · FD rows as the Greek pack stores them: Greek
+    /// in NFD.
+    private let helloEnEl = DictionaryEntry(id: nil, word: "hello",
+                                            definition: "1. εμπρός, γεία σας, γεία σου".decomposedStringWithCanonicalMapping,
+                                            phonetic: "", pos: "", source: "freedict-eng-ell", createdAt: nil)
+    private let fina = DictionaryEntry(id: nil, word: "φίνα".decomposedStringWithCanonicalMapping,
+                                       definition: "**adverb**\n1. exquisitely", phonetic: "", pos: "",
+                                       source: "freedict-ell-eng", createdAt: nil)
+
+    /// hello, En–El row: its translation's first sense line, Greek voice, NFC.
+    func testHeadwordMatchReadsTheTranslation() {
+        let target = SpeechService.target(for: helloEnEl, side: .headword)
+        XCTAssertEqual(target, SpeechTarget(text: "εμπρός, γεία σας, γεία σου", language: "el-GR"))
+        XCTAssertTrue(target.text.unicodeScalars.elementsEqual(target.text.precomposedStringWithCanonicalMapping.unicodeScalars),
+                      "the text is NFC")
+        let spanish = entry("hello", "freedict-eng-spa",
+                            "**interjection**\n1. hola, buenas tardes, buenos días, qué tal\n2. hola, aló")
+        XCTAssertEqual(SpeechService.target(for: spanish, side: .headword),
+                       SpeechTarget(text: "hola, buenas tardes, buenos días, qué tal", language: "es-ES"))
+    }
+
+    /// exquisite → φίνα (found through its translation): the headword, Greek voice.
+    func testDefinitionMatchReadsTheHeadword() {
+        XCTAssertEqual(SpeechService.target(for: fina, side: .definition), SpeechTarget(text: fina.word, language: "el-GR"))
+    }
+
+    /// γεια in El–En: its translation's first sense line, English voice.
+    func testGreekHeadwordReadsItsEnglishTranslation() {
+        let geia = entry("γεια", "freedict-ell-eng",
+                         "1. hello\n2. congrats on your new etc., may it serve you well, may they serve you well")
+        XCTAssertEqual(SpeechService.target(for: geia, side: .headword), SpeechTarget(text: "hello", language: "en-US"))
+    }
+
+    /// έγραψα → γράφω, a lemma row: its translation's first sense line,
+    /// English voice; a WordNet sense keeps the words before " — ".
+    func testLemmaRowReadsTheTranslation() {
+        let freedict = entry("γράφω", "freedict-ell-eng", "**verb**\n1. write")
+        let row = SearchResult(entry: freedict, formMatch: FormMatch(lemma: "γράφω", analysis: .greek(tags: ["aorist"])))
+        XCTAssertEqual(row.side, .headword, "a lemma row matched the headword side")
+        XCTAssertEqual(SpeechService.target(for: row.entry, side: row.side), SpeechTarget(text: "write", language: "en-US"))
+        let wordnet = entry("γράφω", "wordnet-ell-eng",
+                            "**verb**\n1. read, say — have or contain a certain wording or form\n2. write — communicate")
+        XCTAssertEqual(SpeechService.target(for: wordnet, side: .headword), SpeechTarget(text: "read, say", language: "en-US"))
+    }
+
+    /// hello in WordNet (English only): the headword.
+    func testOneLanguageSourceReadsTheHeadword() {
+        let hello = entry("hello", "wordnet", "**noun**\n1. hello, hullo, hi — an expression of greeting")
+        XCTAssertEqual(SpeechService.target(for: hello, side: .headword), SpeechTarget(text: "hello", language: "en-US"))
+        XCTAssertNil(SpeechService.translationLanguage(forSource: "wordnet"))
+    }
+
+    /// Opened from History, My words, a list or Learn: the headword, as before #325.
+    func testEntryNotOpenedFromSearchReadsTheHeadword() {
+        XCTAssertEqual(SpeechService.target(for: helloEnEl, side: nil), SpeechTarget(text: "hello", language: "en-US"))
+        XCTAssertEqual(SpeechService.target(for: fina, side: nil), SpeechTarget(text: fina.word, language: "el-GR"))
+    }
+
+    /// An import declares no language: the headword in `en-US`, unless it
+    /// is named like a bundled source; an unknown (`und`) or voiceless
+    /// translation language and an empty sense read the headword.
+    func testImportsAndUnknownLanguagesReadTheHeadword() {
+        let custom = entry("hello", "my dict", "1. γεια σας")
+        XCTAssertNil(SpeechService.translationLanguage(forSource: "my dict"))
+        XCTAssertEqual(SpeechService.target(for: custom, side: .headword), SpeechTarget(text: "hello", language: "en-US"))
+        let named = entry("hello", "freedict-eng-ell", "1. γεια σας")
+        XCTAssertEqual(SpeechService.target(for: named, side: .headword), SpeechTarget(text: "γεια σας", language: "el-GR"),
+                       "an import named like a bundled source has its languages")
+
+        let geia = entry("γεια", "imported-greek", "1. hello")
+        XCTAssertEqual(SpeechService.target(for: geia, side: .headword, headwordLanguage: "ell", translationLanguage: "und"),
+                       SpeechTarget(text: "γεια", language: "el-GR"), "und")
+        XCTAssertEqual(SpeechService.target(for: geia, side: .headword, headwordLanguage: "ell", translationLanguage: nil),
+                       SpeechTarget(text: "γεια", language: "el-GR"), "no translation language")
+        XCTAssertEqual(SpeechService.target(for: geia, side: .headword, headwordLanguage: "ell", translationLanguage: "deu"),
+                       SpeechTarget(text: "γεια", language: "el-GR"), "a language without a voice code")
+        XCTAssertEqual(SpeechService.target(for: geia, side: .headword, headwordLanguage: "ell", translationLanguage: "ell"),
+                       SpeechTarget(text: "γεια", language: "el-GR"), "the same language")
+        XCTAssertEqual(SpeechService.target(for: geia, side: .headword, headwordLanguage: "ell", translationLanguage: "eng"),
+                       SpeechTarget(text: "hello", language: "en-US"), "known languages")
+        XCTAssertEqual(SpeechService.target(for: entry("γεια", "freedict-ell-eng", "**interjection**"), side: .headword),
+                       SpeechTarget(text: "γεια", language: "el-GR"), "an empty sense")
+    }
+
+    /// Every bundled bilingual source's translation language is its second one.
+    func testTranslationLanguages() {
+        let expected: [String: String?] = [
+            "wordnet": nil, "openrussian": "eng", "freedict-eng-spa": "spa", "wordnet-spa-eng": "eng",
+            "wordnet-arb-eng": "eng", "freedict-ell-eng": "eng", "wordnet-ell-eng": "eng",
+            "freedict-eng-ell": "ell", "wordnet-eng-ell": "ell",
+        ]
+        let bundled = Set(DictionaryGrouping.legacyBareIDs.keys).union(DictionaryGrouping.bundledSourceIDs)
+        XCTAssertEqual(Set(expected.keys), bundled, "every bundled source is covered")
+        for (source, language) in expected {
+            XCTAssertEqual(SpeechService.translationLanguage(forSource: source), language, source)
+        }
+    }
+
+    /// The side of a row: exact, prefix and lemma rows matched the headword;
+    /// the rest only the definition.
+    func testSearchResultSide() {
+        XCTAssertEqual(SearchResult(entry: fina).side, .definition)
+        XCTAssertEqual(SearchResult(entry: helloEnEl, matchesHeadword: true).side, .headword)
+        XCTAssertTrue(Search.RankedEntry(entry: helloEnEl, isExact: true).matchesHeadword)
+        XCTAssertTrue(Search.RankedEntry(entry: helloEnEl, isExact: false, isPrefix: true).matchesHeadword)
+        XCTAssertFalse(Search.RankedEntry(entry: fina, isExact: false).matchesHeadword)
+
+        XCTAssertTrue(Search.isPrefixMatch(wordNormalized: "hello", keys: ["hello", "hello"]))
+        XCTAssertTrue(Search.isPrefixMatch(wordNormalized: "hello there", keys: ["hel", "hel"]))
+        XCTAssertTrue(Search.isPrefixMatch(wordNormalized: "γεια", keys: ["γει", "Γει"]), "folded or raw key")
+        XCTAssertTrue(Search.isPrefixMatch(wordNormalized: "привет", keys: ["Привет", "Привет"]), "any case")
+        XCTAssertTrue(Search.isPrefixMatch(wordNormalized: "canción", keys: ["cancion", "cancion"]),
+                      "no accent typed: Es–En stores canción as written, the tokenizer ignores the accent")
+        XCTAssertTrue(Search.isPrefixMatch(wordNormalized: "Año Nuevo", keys: ["ano", "ano"]), "ñ typed as n")
+        XCTAssertFalse(Search.isPrefixMatch(wordNormalized: "hola", keys: ["hello", "hello"]))
+        XCTAssertFalse(Search.isPrefixMatch(wordNormalized: "φινα", keys: ["exquisite", "exquisite"]))
+        XCTAssertFalse(Search.isPrefixMatch(wordNormalized: "say hello", keys: ["hello", "hello"]),
+                       "a later word of the headword is no prefix")
+        XCTAssertFalse(Search.isPrefixMatch(wordNormalized: "hello", keys: ["", ""]))
+    }
+
+    /// The merge keeps each row's side: exact and prefix rows the headword,
+    /// lemma rows through their match, the rest the definition.
+    func testMergeKeepsTheSide() {
+        func row(_ id: Int64) -> DictionaryEntry {
+            DictionaryEntry(id: id, word: "w\(id)", definition: "", phonetic: "", pos: "", source: "freedict-ell-eng",
+                            createdAt: nil)
+        }
+        let lemma = SearchResult(entry: row(4), formMatch: FormMatch(lemma: "γράφω", analysis: .greek(tags: ["aorist"])))
+        let ranked = [Search.RankedEntry(entry: row(1), isExact: true, isPrefix: true),
+                      Search.RankedEntry(entry: row(2), isExact: false, isPrefix: true),
+                      Search.RankedEntry(entry: row(3), isExact: false)]
+        let out = Search.mergeLemmaBucket(ranked: ranked, lemmaRows: [lemma], limit: 50)
+        XCTAssertEqual(out.map(\.id), [1, 4, 2, 3])
+        XCTAssertEqual(out.map(\.side), [.headword, .headword, .headword, .definition])
+    }
+
+    /// Definition: from a Search row that matched the headword the voice
+    /// check gets the translation's language; without it the button hides.
+    @MainActor
+    func testDefinitionViewModelUsesTheTarget() {
+        var asked: [String] = []
+        let vm = DefinitionViewModel(entry: helloEnEl, searchSide: .headword, hasVoice: { asked.append($0); return true })
+        XCTAssertEqual(vm.speechText, "εμπρός, γεία σας, γεία σου")
+        XCTAssertEqual(vm.speechLanguage, "el-GR")
+        XCTAssertEqual(asked, ["el-GR"])
+        XCTAssertTrue(vm.canSpeak)
+
+        let englishOnly: (String) -> Bool = { $0 == "en-US" }
+        XCTAssertFalse(DefinitionViewModel(entry: helloEnEl, searchSide: .headword, hasVoice: englishOnly).canSpeak,
+                       "no Greek voice hides the button")
+        let fromHistory = DefinitionViewModel(entry: helloEnEl, hasVoice: englishOnly)
+        XCTAssertEqual(fromHistory.speechText, "hello")
+        XCTAssertTrue(fromHistory.canSpeak)
+    }
+
+    /// The real search path, with the Greek pack: hello's En–El and WordNet
+    /// rows matched their headword, exquisite's φίνα only its definition,
+    /// γεια its headword, έγραψα's γράφω through its lemma row.
+    @MainActor
+    func testSearchRowsCarryTheirSide() async throws {
+        await DictAppTests.waitForHostAppLaunch()
+        let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+        let db = DatabaseService.shared
+        try await db.setup(userPath: tempDir.appendingPathComponent("user.sqlite").path,
+                           dictionaryURL: try TestDictionary.bundledURL(), packFiles: try PackFixtures.all())
+
+        func side(_ query: String, _ word: String, _ source: String) async throws -> SearchSide? {
+            let results = try await db.searchResults(query: query)
+            return results.first { $0.entry.source == source && $0.entry.word.precomposedStringWithCanonicalMapping == word }?.side
+        }
+        let hello = try await db.searchResults(query: "hello")
+        let enEl = try XCTUnwrap(hello.first { $0.entry.source == "freedict-eng-ell" && $0.entry.word == "hello" })
+        XCTAssertEqual(enEl.side, .headword)
+        XCTAssertEqual(SpeechService.target(for: enEl.entry, side: enEl.side),
+                       SpeechTarget(text: "εμπρός, γεία σας, γεία σου", language: "el-GR"))
+        let wordnet = try XCTUnwrap(hello.first { $0.entry.source == "wordnet" && $0.entry.word == "hello" })
+        XCTAssertEqual(SpeechService.target(for: wordnet.entry, side: wordnet.side),
+                       SpeechTarget(text: "hello", language: "en-US"))
+
+        let found = try await side("exquisite", "φίνα", "freedict-ell-eng")
+        XCTAssertEqual(found, .definition)
+        let geia = try await side("γεια", "γεια", "freedict-ell-eng")
+        XCTAssertEqual(geia, .headword)
+        let grafo = try await side("έγραψα", "γράφω", "freedict-ell-eng")
+        XCTAssertEqual(grafo, .headword)
+        let prefix = try await side("γει", "γεια", "freedict-ell-eng")
+        XCTAssertEqual(prefix, .headword, "a prefix match")
+
+        // Es–En stores its headwords as written (canción), so cancion is no
+        // exact or LIKE prefix match in SQL; the FTS tokenizer still found
+        // the row by its headword, which reads its translation.
+        let accentless = try await db.searchResults(query: "cancion")
+        let cancion = try XCTUnwrap(accentless.first { $0.entry.source == "wordnet-spa-eng" && $0.entry.word == "canción" })
+        XCTAssertEqual(cancion.side, .headword, "an accentless query matched the headword")
+        XCTAssertEqual(SpeechService.target(for: cancion.entry, side: cancion.side),
+                       SpeechTarget(text: "song, vocal", language: "en-US"))
+        let enEs = accentless.filter { $0.entry.source == "freedict-eng-spa" }
+        XCTAssertFalse(enEs.isEmpty, "En–Es rows whose translation is canción")
+        XCTAssertTrue(enEs.allSatisfy { $0.side == .definition }, "found through their translation: \(enEs.map(\.entry.word))")
+
+        let preferred = try await db.searchPreferredResults(query: "exquisite", groups: [["freedict-ell-eng"]],
+                                                            enabledSources: ["freedict-ell-eng"])
+        XCTAssertEqual(preferred.first { $0.entry.word.precomposedStringWithCanonicalMapping == "φίνα" }?.side,
+                       .definition, "preferred mode")
+    }
+}
+
 // MARK: - Issue #140: the dictionary file's format
 
 /// The bundled `dictionaries.sqlite` as `Scripts/build_dictionaries.py`

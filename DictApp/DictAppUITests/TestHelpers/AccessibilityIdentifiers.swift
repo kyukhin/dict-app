@@ -74,6 +74,9 @@ struct AccessibilityIdentifiers {
         /// one element whose label is its lines; absent when the word is not
         /// in learning or is paused.
         static let learningStatus = "learning_status"
+        /// #325: the speaker button; its `value` is the text it reads (the
+        /// headword, or the translation a search matched).
+        static let speakButton = "speak_button"
     }
 
     // MARK: - Inflection table (Issue #144)

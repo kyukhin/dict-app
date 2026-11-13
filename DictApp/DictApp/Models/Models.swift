@@ -168,13 +168,31 @@ struct FormMatch: Hashable, Sendable {
 struct SearchResult: Identifiable, Hashable, Sendable {
     let entry: DictionaryEntry
     var formMatch: FormMatch?
+    /// Issue #325: the headword starts with the query, i.e. the row is an
+    /// exact or a prefix match (`Search.RankedEntry.matchesHeadword`).
+    var matchesHeadword: Bool
 
-    init(entry: DictionaryEntry, formMatch: FormMatch? = nil) {
+    init(entry: DictionaryEntry, formMatch: FormMatch? = nil, matchesHeadword: Bool = false) {
         self.entry = entry
         self.formMatch = formMatch
+        self.matchesHeadword = matchesHeadword
     }
 
     var id: Int64? { entry.id }
+
+    /// Issue #325: the side of the entry the query matched, which tells
+    /// Definition's speaker what to read (`SpeechService.target`): the
+    /// headword for an exact, prefix or lemma row, else the definition.
+    var side: SearchSide { matchesHeadword || formMatch != nil ? .headword : .definition }
+}
+
+/// Issue #325: which side of an entry a Search query matched. An entry
+/// opened elsewhere (History, My words, a list, Learn) has none (`nil`).
+enum SearchSide: Hashable, Sendable {
+    /// The headword: an exact or prefix match, or a lemma row (#142, #143).
+    case headword
+    /// Only the definition text: a reverse translation (exquisite → φίνα).
+    case definition
 }
 
 // MARK: - Morphy (Issue #143)

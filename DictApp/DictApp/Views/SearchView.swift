@@ -50,7 +50,8 @@ struct SearchView: View {
                 } else {
                     ForEach(vm.results) { result in
                         // Issue #142: a lemma row opens and records the lemma's entry.
-                        NavigationLink(value: result.entry) {
+                        // Issue #325: the row carries the side the query matched.
+                        NavigationLink(value: result) {
                             SourceStripeRow(source: result.entry.source) {
                                 EntryRow(entry: result.entry, formMatch: result.formMatch)
                             }
@@ -75,8 +76,8 @@ struct SearchView: View {
                     ProgressView()
                 }
             }
-            .navigationDestination(for: DictionaryEntry.self) { entry in
-                DefinitionView(entry: entry)
+            .navigationDestination(for: SearchResult.self) { result in
+                DefinitionView(entry: result.entry, searchSide: result.side)
             }
             .navigationDestination(for: HistoryItem.self) { item in
                 HistoryDestination(item: item)
