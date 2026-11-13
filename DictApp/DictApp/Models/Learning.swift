@@ -793,6 +793,9 @@ struct HardWord: Hashable, Sendable {
     let tally: Tally
     /// The log id of its latest wrong answer: a larger id is later.
     let latestMistake: Int64
+    /// The list's part of speech, as `LearnWord.partOfSpeech`: its meaning
+    /// is the one the exercises show (#320).
+    var partOfSpeech = ""
 }
 
 enum HardestWords {
@@ -1652,10 +1655,60 @@ enum Gloss {
     /// English and is skipped (rule 4).
     static func gives(_ source: String, partOfSpeech: String) -> Bool {
         guard partOfSpeechSources.contains(source), !partOfSpeech.isEmpty else { return true }
-        return partOfSpeech.split(separator: ",").contains { label in
-            let label = label.trimmingCharacters(in: .whitespaces).lowercased()
-            // be-verb, do-verb and have-verb are verbs.
-            return ["noun", "verb", "adjective", "adverb"].contains(label) || label.hasSuffix("-verb")
+        // A determiner alone gives none: WordNet's "a" is a unit of length.
+        return labels(partOfSpeech).contains { $0 != "determiner" && !wordNetHeaders($0).isEmpty }
+    }
+
+    /// The meaning `source` gives a word of `partOfSpeech` (the list's,
+    /// comma-separated; `""` = unknown): in English WordNet, the first sense
+    /// of the first section, in WordNet's order, whose part of speech is one
+    /// of the word's. So WordNet's first sense stays when its part of speech
+    /// is the word's, and is passed over only when it is not (#320: was →
+    /// be, a verb, not the noun Be "beryllium"). With no such section, an
+    /// unknown part of speech or another dictionary, `short(definition:)`.
+    static func short(definition: String, source: String, partOfSpeech: String) -> String {
+        guard partOfSpeechSources.contains(source),
+              let section = section(of: definition, partOfSpeech: partOfSpeech) else {
+            return short(definition: definition)
+        }
+        return short(definition: section)
+    }
+
+    /// The lines under the first header (`**verb**`), in the definition's
+    /// order, of a part of speech in `partOfSpeech`, up to the next header;
+    /// nil when it has none. The list's own order (alphabetical) does not
+    /// count.
+    static func section(of definition: String, partOfSpeech: String) -> String? {
+        var sections: [(header: String, lines: [Substring])] = []
+        for line in definition.split(whereSeparator: \.isNewline) {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if isHeader(trimmed) {
+                let header = trimmed.dropFirst(2).dropLast(2).trimmingCharacters(in: .whitespaces).lowercased()
+                sections.append((header, []))
+            } else if !sections.isEmpty {
+                sections[sections.count - 1].lines.append(line)
+            }
+        }
+        let headers = labels(partOfSpeech).reduce(into: Set<String>()) { $0.formUnion(wordNetHeaders($1)) }
+        return sections.first { headers.contains($0.header) }.map { $0.lines.joined(separator: "\n") }
+    }
+
+    /// A list's parts of speech, trimmed and lowercased.
+    private static func labels(_ partOfSpeech: String) -> [String] {
+        partOfSpeech.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces).lowercased() }
+    }
+
+    /// The WordNet headers of a list's part of speech: be-verb, do-verb and
+    /// have-verb are verbs, and WordNet's adjective satellites adjectives.
+    /// A determiner reads as an adjective, as WordNet files determiners
+    /// (all: "quantifier; …"), but alone it gives no meaning (`gives`).
+    /// Empty for the parts of speech WordNet does not define (pronoun,
+    /// preposition…).
+    private static func wordNetHeaders(_ label: String) -> Set<String> {
+        switch label {
+        case "noun", "verb", "adverb": return [label]
+        case "adjective", "determiner": return ["adjective", "adjective satellite"]
+        default: return label.hasSuffix("-verb") ? ["verb"] : []
         }
     }
 
@@ -1674,8 +1727,9 @@ enum Gloss {
     /// 1. part-of-speech header lines (`**verb**`) and example lines
     ///    (`*"…"*`) dropped, then the remaining `*` stripped;
     /// 2. the text after `1. `, or else the first non-empty line;
-    /// 3. a WordNet-style sense `X — Y` keeps X;
-    /// 4. cut at 80 characters, at a space or comma, with "…".
+    /// 3. what WordNet's examples left in it dropped (`dropExamples`);
+    /// 4. a WordNet-style sense `X — Y` keeps X;
+    /// 5. cut at 80 characters, at a space or comma, with "…".
     static func short(definition: String) -> String {
         var lines: [String] = []
         for raw in definition.split(whereSeparator: \.isNewline) {
@@ -1685,12 +1739,37 @@ enum Gloss {
             if !text.isEmpty { lines.append(text) }
         }
         var sense = lines.first { $0.hasPrefix("1. ") }.map { String($0.dropFirst(3)) } ?? lines.first ?? ""
-        sense = sense.trimmingCharacters(in: .whitespaces)
+        sense = dropExamples(sense.trimmingCharacters(in: .whitespaces))
         if let dash = sense.range(of: " — ") {
             let head = sense[..<dash.lowerBound].trimmingCharacters(in: .whitespaces)
             if !head.isEmpty { sense = head }
         }
         return cut(sense)
+    }
+
+    /// What the dictionary build left in a WordNet gloss when it took its
+    /// examples out (#320): an attribution (`; - Galsworthy`,
+    /// `; -Wordsworth`), the empty `; ;` between examples, an example that
+    /// lost one of its quotes (`close in; darkness enclosed him"`: from the
+    /// `;` before it on, else the quote), a trailing `e.g.,` after other
+    /// text and trailing `;` or `,`. "deserving or inciting pity; ; ; -
+    /// Galsworthy" → "deserving or inciting pity". Balanced quotes stay
+    /// (`hora "peak"`), and so does a lone "e.g." (π.χ.) or one in a lemma
+    /// list before " — ", which runs before the split.
+    static func dropExamples(_ sense: String) -> String {
+        var sense = sense
+        if sense.filter({ $0 == "\"" }).count % 2 == 1, let quote = sense.firstIndex(of: "\"") {
+            if let semicolon = sense[..<quote].lastIndex(of: ";") {
+                sense = String(sense[..<semicolon])
+            } else {
+                sense.removeAll { $0 == "\"" }
+            }
+        }
+        for (pattern, replacement) in [(#";\s*-[^;]*"#, ""), (#";(\s*;)+"#, ";"), (#"[\s;,]+e\.g\.[\s;,]*$"#, ""),
+                                       (#"[\s;,]+$"#, "")] {
+            sense = sense.replacingOccurrences(of: pattern, with: replacement, options: .regularExpression)
+        }
+        return sense.trimmingCharacters(in: .whitespaces)
     }
 
     /// `**verb**`: a part-of-speech header.

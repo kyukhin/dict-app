@@ -1669,7 +1669,7 @@ final class StatisticsViewModel: ObservableObject {
         let sourceOrder = try await languages.sourceOrder(lang: lang, meaningsLang: meaningsLang)
         let queries = words.map {
             MeaningQuery(key: $0.key, lookup: $0.entry?.word ?? $0.term, translation: $0.translation,
-                         translationLang: $0.translationLang, entry: $0.entry)
+                         translationLang: $0.translationLang, entry: $0.entry, partOfSpeech: $0.partOfSpeech)
         }
         let meanings = try await db.meanings(of: queries, lang: lang, meaningsLang: meaningsLang, sourceOrder: sourceOrder)
         var entries: [EntryKey: DictionaryEntry] = [:]
