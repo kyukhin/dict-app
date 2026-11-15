@@ -23515,6 +23515,70 @@ final class ConjugationRunRuleTests: XCTestCase {
         XCTAssertEqual(durations, [2_500, 1_250])
     }
 
+    /// #329: the time the ⓘ popover stays open is not the answer's. Open
+    /// 30 s between 2 s and 1.5 s of thinking: 3.5 s. Still open at the
+    /// answer: only the time before it opened.
+    func testTenseInfoTimeIsNotTheAnswersTime() async throws {
+        let clock = TestClock("2026-11-04T12:00:00Z")
+        let vm = run(.verb(try await DrillFixture.verb("γράφω"), level: .a1), clock: clock, length: 2)
+        await vm.start()
+        clock.advance(2)
+        vm.tenseInfo(isOpen: true)
+        clock.advance(30)
+        vm.tenseInfo(isOpen: false)
+        clock.advance(1.5)
+        await vm.choose(try XCTUnwrap(vm.question).rightIndex)
+        await vm.next()
+        clock.advance(1)
+        vm.tenseInfo(isOpen: true)
+        clock.advance(10)
+        await vm.choose(try XCTUnwrap(vm.question).rightIndex)
+        clock.advance(5)
+        vm.tenseInfo(isOpen: false)
+        await vm.next()
+        XCTAssertEqual(vm.phase, .summary)
+        let durations = try await DatabaseService.shared.writeForTesting { db in
+            try Int.fetchAll(db, sql: "SELECT duration_ms FROM learn_review ORDER BY id")
+        }
+        XCTAssertEqual(durations, [3_500, 1_000])
+    }
+
+    /// QA (#329): the popover opened twice in one question takes out both
+    /// stays; an open or a close reported twice changes nothing. Opened
+    /// after an answer and still open at Continue: the next question's
+    /// time starts when it shows, and the late close does not move it.
+    func testTenseInfoOpenedTwiceAndLeftOpen() async throws {
+        let clock = TestClock("2026-11-04T12:00:00Z")
+        let vm = run(.verb(try await DrillFixture.verb("γράφω"), level: .a1), clock: clock, length: 2)
+        await vm.start()
+        clock.advance(1)
+        vm.tenseInfo(isOpen: true)
+        clock.advance(20)
+        vm.tenseInfo(isOpen: true)
+        clock.advance(5)
+        vm.tenseInfo(isOpen: false)
+        clock.advance(2)
+        vm.tenseInfo(isOpen: false)
+        vm.tenseInfo(isOpen: true)
+        clock.advance(40)
+        vm.tenseInfo(isOpen: false)
+        clock.advance(0.5)
+        await vm.choose(try XCTUnwrap(vm.question).rightIndex)
+        vm.tenseInfo(isOpen: true)
+        clock.advance(10)
+        await vm.next()
+        clock.advance(1.5)
+        vm.tenseInfo(isOpen: false)
+        clock.advance(0.75)
+        await vm.choose(try XCTUnwrap(vm.question).rightIndex)
+        await vm.next()
+        XCTAssertEqual(vm.phase, .summary)
+        let durations = try await DatabaseService.shared.writeForTesting { db in
+            try Int.fetchAll(db, sql: "SELECT duration_ms FROM learn_review ORDER BY id")
+        }
+        XCTAssertEqual(durations, [3_500, 2_250])
+    }
+
     /// QA (#174): a Russian UI's default pair, Greek via Russian, titles
     /// the Rule topic in Russian; the sheet opens the same topic id.
     func testRuleTopicInTheExplanationLanguage() async throws {
@@ -24350,13 +24414,16 @@ final class ConjugationFormsTests: XCTestCase {
         XCTAssertEqual(Fixture.facetsAsked(verb, .a1), ["future.active", "subjunctiveSimple.active"])
         XCTAssertEqual(Fixture.facetsAsked(verb, .b1), ["imperfect.active", "future.active", "subjunctiveSimple.active"])
         XCTAssertEqual(Fixture.questions(verb, .b2), Fixture.questions(verb, .b1))
-        let allowed: Set<String> = ["θα πρέπει", "πρέπει", "να πρέπει", "θα πρέπουν", "έπρεπε"]
+        // #330: only αυτός, in the options and in the tense table.
         for seed in UInt64(0)..<30 {
             let question = try XCTUnwrap(Fixture.build(verb, .future, .thirdSingular, level: .a1, seed: seed))
             XCTAssertEqual(question.options[question.rightIndex], "θα πρέπει")
-            XCTAssertTrue(Set(question.options).isSubset(of: allowed), "\(question.options)")
-            XCTAssertEqual(Set(question.options).count, 4)
+            XCTAssertEqual(Set(question.options), ["θα πρέπει", "πρέπει", "να πρέπει", "έπρεπε"], "seed \(seed)")
+            XCTAssertEqual(question.tenseRows.map(\.person), [.thirdSingular])
+            XCTAssertEqual(question.tenseRows.first?.forms, ["θα πρέπει"])
+            XCTAssertTrue(question.optionSlots.allSatisfy { $0.person == .thirdSingular })
         }
+        XCTAssertFalse(Fixture.everyForm(of: verb).contains("πρέπουν"), "no plural cell")
 
         let prokeitai = try await Fixture.verb("πρόκειται")
         XCTAssertTrue(prokeitai.isImpersonal)
@@ -24402,6 +24469,57 @@ final class DrillVerbTests: XCTestCase {
         let ntyno = try await Fixture.verb("ντύνω")
         XCTAssertEqual(ntyno.word, "ντύνω")
         XCTAssertTrue(ntyno.hasPassive, "the lemma drills both voices")
+    }
+
+    /// #330: `DrillVerb.make` with a list word given in the third person,
+    /// υπάρχει for υπάρχω, is impersonal: cited as listed, asked and shown
+    /// in αυτός only; its card word stays the verb's. Without the list term
+    /// (Practise on Definition), or with υπάρχω, it is whole. The pool
+    /// prefers υπάρχω's own entry (`DrillVerbPoolTests.testPlainFormMakesAWholeVerb`).
+    func testListWordInTheThirdPerson() async throws {
+        let found = try await InflectionFixture.paradigm("υπάρχω", pos: "verb")
+        let paradigm = try XCTUnwrap(found)
+        let verb = try XCTUnwrap(DrillVerb.make(word: "υπάρχω", paradigm: paradigm, translation: "there is",
+                                                listLevel: 1, listTerm: "υπάρχει"))
+        XCTAssertEqual(verb.word, "υπάρχω")
+        XCTAssertEqual(verb.citation, "υπάρχει")
+        XCTAssertEqual(verb.translation, "there is")
+        XCTAssertTrue(verb.isImpersonal)
+        for level in DrillLevel.allCases {
+            for (facet, persons) in ConjugationQuestionBuilder.questions(verb: verb, level: level) {
+                XCTAssertEqual(persons, [.thirdSingular], "\(level) \(facet.rawValue)")
+            }
+        }
+        XCTAssertFalse(Fixture.questions(verb, .a1).isEmpty)
+        XCTAssertNil(Fixture.questions(verb, .a1)["present.active"], "the cited cell is not asked")
+        for (facet, persons) in ConjugationQuestionBuilder.questions(verb: verb, level: .b2) {
+            let question = try XCTUnwrap(Fixture.build(verb, facet.tense, persons[0], voice: facet.voice, level: .b2))
+            XCTAssertEqual(question.tenseRows.map(\.person), [.thirdSingular], facet.rawValue)
+            XCTAssertTrue(question.optionSlots.allSatisfy { $0.person == .thirdSingular }, "\(question.options)")
+        }
+        let aorist = try XCTUnwrap(Fixture.build(verb, .aorist, .thirdSingular, level: .a1))
+        XCTAssertEqual(aorist.options[aorist.rightIndex], "υπήρξε")
+        XCTAssertTrue(DrillVerb.isPlainForm(listTerm: "υπάρχω", of: verb), "the plain form, for the pool")
+        XCTAssertFalse(DrillVerb.isPlainForm(listTerm: "υπάρχει", of: verb))
+
+        // "(δεν) πειράζει" gives πειράζω's αυτός; χαίρετε (εσείς) and
+        // Ευχαριστώ! (εγώ) are no third person.
+        let peirazoTable = try await InflectionFixture.paradigm("πειράζω", pos: "verb")
+        let peirazo = try XCTUnwrap(peirazoTable)
+        let listed = try XCTUnwrap(DrillVerb.make(word: "πειράζω", paradigm: peirazo, translation: "it doesn't matter",
+                                                  listTerm: "(δεν) πειράζει"))
+        XCTAssertTrue(listed.isImpersonal)
+        XCTAssertEqual(listed.citation, "πειράζει")
+        XCTAssertEqual(DrillVerb.listWord("(Σε/Σας) παρακαλώ!"), "παρακαλώ")
+        XCTAssertEqual(DrillVerb.listWord("Χιονίζει"), "χιονίζει")
+        XCTAssertNil(DrillVerb.thirdPerson(listTerm: "χαίρετε", verb.voices[.active]))
+
+        let whole = try await Fixture.verb("υπάρχω")
+        XCTAssertFalse(whole.isImpersonal, "Practise on Definition: every person")
+        XCTAssertEqual(whole.citation, "υπάρχω")
+        let plain = try XCTUnwrap(DrillVerb.make(word: "υπάρχω", paradigm: paradigm, translation: "to exist",
+                                                 listTerm: "υπάρχω"))
+        XCTAssertFalse(plain.isImpersonal, "listed as υπάρχω")
     }
 
     /// A participle listed as a verb is no verb, by its own table or through a link.
@@ -25066,9 +25184,174 @@ final class DrillVerbPoolTests: XCTestCase {
                            dictionaryURL: try TestDictionary.bundledURL(), packFiles: try PackFixtures.all())
         let verbs = try await db.drillVerbs(lists: DrillScope.lists.map(\.id), meaningsLang: "eng")
         let perList = Dictionary(grouping: verbs, by: { $0.listLevel ?? 0 }).mapValues(\.count)
-        XCTAssertEqual(perList, [1: 198, 2: 69, 3: 330])
+        // #330: 198, 69 and 330 before the nouns left: ορίζω (Ορίστε!) and
+        // κρεμάω (κρέμα) leave, χωράω comes from B1's χωράω, not A1's χώρα
+        // (196, 68, 331). Then a verb's plain form wins: πειράζω and εξετάζω
+        // come from Greek B1, not A2's πειράζει and εξετάσεις.
+        XCTAssertEqual(perList, [1: 196, 2: 66, 3: 333])
         XCTAssertEqual(Set(verbs.map(\.word)).count, verbs.count)
     }
+
+    /// #330: a list word that is a lemma of another part of speech and of
+    /// no verb (φορά "time", a noun) never takes a verb's table, though it
+    /// spells one of its forms (φοράω's αυτός). The three lists' words that
+    /// left, each with the verb it reached; the verbs and the third-person
+    /// words stay.
+    func testListNounsAreNoVerbs() async throws {
+        try await db.setup(userPath: tempDir.appendingPathComponent("packs.sqlite").path,
+                           dictionaryURL: try TestDictionary.bundledURL(), packFiles: try PackFixtures.all())
+        let verbs = try await db.drillVerbs(lists: DrillScope.lists.map(\.id), meaningsLang: "eng")
+        let left = try await Fixture.greekPack().read { db in
+            try Row.fetchAll(db, sql: """
+                SELECT DISTINCT i.level_ord, i.seq, i.term, v.word AS verb FROM wordlist_item i
+                JOIN paradigm p ON p.form = COALESCE(i.headword, i.term)
+                JOIN lemma v ON v.id = p.lemma_id AND v.pos = 'verb'
+                JOIN tagset t ON t.id = p.tagset_id AND t.tags LIKE '%-person%'
+                WHERE i.series = 'ky-ell' AND i.level_ord IN (1, 2, 3)
+                  AND NOT EXISTS (SELECT 1 FROM lemma l WHERE l.lang = 'ell' AND l.word = COALESCE(i.headword, i.term)
+                                  AND l.pos = 'verb')
+                  AND EXISTS (SELECT 1 FROM lemma o WHERE o.lang = 'ell' AND o.word = COALESCE(i.headword, i.term)
+                              AND o.pos <> 'verb')
+                ORDER BY i.level_ord, i.seq
+                """).map { "\($0["term"] as String) → \($0["verb"] as String)" }
+        }
+        print("#330: list words of another part of speech that spell a verb's form: \(left)")
+        XCTAssertEqual(left, ["Ορίστε! → ορίζω", "φορά → φοράω", "χώρα → χωράω", "κρέμα → κρεμάω", "γέννα → γεννάω",
+                              "πείνα → πεινάω"])
+        let byWord = Dictionary(uniqueKeysWithValues: verbs.map { ($0.word, $0) })
+        for translation in ["Here you are!", "time", "country", "cream", "birth", "hunger, famine"] {
+            XCTAssertFalse(verbs.contains { $0.translation == translation }, "no verb translated '\(translation)'")
+        }
+        XCTAssertNil(byWord["ορίζω"], "only Ορίστε! gave ορίζω")
+        XCTAssertNil(byWord["κρεμάω"], "only κρέμα gave κρεμάω")
+        let foraw = try XCTUnwrap(byWord["φοράω"], "φοράω, a list verb, stays")
+        XCTAssertEqual(foraw.translation, "to wear")
+        XCTAssertFalse(foraw.isImpersonal)
+        let chorao = try XCTUnwrap(byWord["χωράω"])
+        XCTAssertEqual(chorao.listLevel, 3)
+        XCTAssertEqual(chorao.translation, "to fit")
+        XCTAssertEqual(byWord["γεννάω"]?.translation, "to give birth")
+        XCTAssertEqual(byWord["πεινάω"]?.translation, "to be hungry")
+        let impersonal = verbs.filter(\.isImpersonal).map(\.citation)
+        XCTAssertEqual(impersonal, ["πρέπει", "επιτρέπεται", "χιονίζει", "πρόκειται"], "the impersonal verbs stay")
+    }
+
+    /// kyukhin, 2026-11-15 (#330): a verb the lists also give in its plain
+    /// form is whole, with that entry's citation, translation and level:
+    /// υπάρχω "to exist" (Greek A1, after υπάρχει), πειράζω (Greek B1, after
+    /// A2's πειράζει), every person asked and shown. νοιάζομαι, listed so,
+    /// is its passive in every person, not the active's νοιάζει. Fails when
+    /// the third-person word wins again.
+    func testPlainFormMakesAWholeVerb() async throws {
+        try await db.setup(userPath: tempDir.appendingPathComponent("packs.sqlite").path,
+                           dictionaryURL: try TestDictionary.bundledURL(), packFiles: try PackFixtures.all())
+        let verbs = try await db.drillVerbs(lists: DrillScope.lists.map(\.id), meaningsLang: "eng")
+        let byWord = Dictionary(uniqueKeysWithValues: verbs.map { ($0.word, $0) })
+        let expected: [(word: String, translation: String, level: Int)] = [
+            ("υπάρχω", "to exist", 1), ("πειράζω", "to mess around with, to harm, to tease", 3),
+            ("νοιάζομαι", "to care", 3),
+        ]
+        for row in expected {
+            let verb = try XCTUnwrap(byWord[row.word], row.word)
+            XCTAssertFalse(verb.isImpersonal, row.word)
+            XCTAssertEqual(verb.citation, row.word)
+            XCTAssertEqual(verb.translation, row.translation)
+            XCTAssertEqual(verb.listLevel, row.level, row.word)
+            let questions = ConjugationQuestionBuilder.questions(verb: verb, level: .b2)
+            let persons = Set(questions.flatMap(\.persons))
+            XCTAssertEqual(persons, Set(ParadigmLayout.Person.allCases), "\(row.word) asks every person")
+            let present = try XCTUnwrap(questions.first { $0.facet == ConjugationFacet(.present, verb.mainVoice) })
+            let question = try XCTUnwrap(DrillFixture.build(verb, .present, present.persons[0],
+                                                            voice: verb.mainVoice, level: .b2))
+            XCTAssertEqual(question.tenseRows.count, 6, "\(row.word): the whole tense")
+        }
+        XCTAssertEqual(byWord["νοιάζομαι"]?.mainVoice, .passive)
+        XCTAssertEqual(byWord["προτιμάω"]?.listLevel, 1, "προτιμώ, another form of its εγώ, is plain too")
+    }
+
+    /// #330 over the three Greek lists of the pack: a verb the lists give in
+    /// the third person alone (επιτρέπεται) is impersonal, cited and
+    /// translated as listed; a verb they also give in its plain form
+    /// (υπάρχω besides υπάρχει) is whole (kyukhin, 2026-11-15). Every
+    /// question of an impersonal verb asks αυτός, and its questions that
+    /// drop for want of three options are listed.
+    func testListWordsInTheThirdPersonAreImpersonal() async throws {
+        try await db.setup(userPath: tempDir.appendingPathComponent("packs.sqlite").path,
+                           dictionaryURL: try TestDictionary.bundledURL(), packFiles: try PackFixtures.all())
+        let verbs = try await db.drillVerbs(lists: DrillScope.lists.map(\.id), meaningsLang: "eng")
+        let items = try await Fixture.greekPack().read { db in
+            try Row.fetchAll(db, sql: """
+                SELECT term, COALESCE(headword, term) AS word, translation FROM wordlist_item i
+                WHERE series = 'ky-ell' AND level_ord IN (1, 2, 3)
+                  AND (EXISTS (SELECT 1 FROM lemma l WHERE l.lang = 'ell' AND l.word = COALESCE(i.headword, i.term)
+                               AND l.pos = 'verb')
+                       OR NOT EXISTS (SELECT 1 FROM lemma o WHERE o.lang = 'ell'
+                                      AND o.word = COALESCE(i.headword, i.term) AND o.pos <> 'verb'))
+                ORDER BY level_ord, COALESCE(rank, 1000000000), seq
+                """).map { (term: $0["term"] as String, word: $0["word"] as String, translation: $0["translation"] as String) }
+        }
+        // The list words that may be verbs: no noun such as φορά (testListNounsAreNoVerbs).
+        // Independent of the code's own: no parenthesised part, letters and spaces, lowercased.
+        func given(_ term: String) -> String {
+            let plain = term.replacingOccurrences(of: #"\([^)]*\)"#, with: "", options: .regularExpression)
+            return plain.precomposedStringWithCanonicalMapping.lowercased()
+                .filter { $0.isLetter || $0 == " " }.split(separator: " ").joined(separator: " ")
+        }
+        var impersonal: [String] = []
+        var merged: [String] = []
+        var dropped: [String] = []
+        var failures: [String] = []
+        for verb in verbs {
+            guard let main = verb.voices[verb.mainVoice] else { continue }
+            let tableForms = Set(main.finite.values.flatMap { $0.values.flatMap { $0 } })
+            let third = Set(main.forms(.present, .thirdSingular))
+            let plain = Set(main.forms(.present, .firstSingular))
+            // The list words that reach this verb, in list order; the one in
+            // the plain form decides, else the first (kyukhin, 2026-11-15).
+            let reaching = items.filter { $0.word == verb.word || tableForms.contains($0.word) }
+            guard let deciding = reaching.first(where: { plain.contains(given($0.term)) }) ?? reaching.first
+            else { continue }
+            let thirdPerson = third.contains(given(deciding.term))
+            if thirdPerson {
+                impersonal.append("\(deciding.term) → \(verb.word)")
+                if !verb.isImpersonal || verb.citation != given(deciding.term)
+                    || verb.translation != deciding.translation {
+                    failures.append("\(deciding.term): impersonal \(verb.isImpersonal), cited \(verb.citation)")
+                }
+            } else if verb.isImpersonal && !plain.isEmpty {
+                failures.append("\(verb.word): impersonal, though listed as \(deciding.term)")
+            }
+            for other in reaching where third.contains(given(other.term)) && !thirdPerson {
+                merged.append("\(other.term) → \(verb.word) (\(deciding.term))")
+            }
+            guard verb.isImpersonal else { continue }
+            let questions = ConjugationQuestionBuilder.questions(verb: verb, level: .b2)
+            if questions.contains(where: { $0.persons != [.thirdSingular] }) {
+                failures.append("\(verb.word): a question in another person")
+            }
+            for facet in ConjugationQuestionBuilder.facets(of: verb, level: .b2)
+            where verb.cell(facet, .thirdSingular) != nil && !questions.contains(where: { $0.facet == facet })
+                && !(facet == ConjugationFacet(.present, verb.mainVoice)) {
+                dropped.append("\(verb.citation) \(facet.rawValue)")
+            }
+        }
+        print("#330: in the third person: \(impersonal); merged: \(merged); dropped: \(dropped)")
+        XCTAssertEqual(failures, [])
+        XCTAssertEqual(impersonal, ["πρέπει → πρέπει", "επιτρέπεται → επιτρέπεται", "Χιονίζει → χιονίζει",
+                                    "πρόκειται → πρόκειται"], "the verbs the lists give in the third person alone")
+        XCTAssertEqual(merged, Self.mergedThirdPerson, "third-person words of a verb also listed in its plain form")
+        XCTAssertEqual(dropped, Self.droppedImpersonal, "impersonal questions without three options")
+    }
+
+    /// Third-person list words whose verb the lists also give in its plain
+    /// form, so the verb is drilled whole, with that word's citation,
+    /// translation and level (#330, kyukhin 2026-11-15).
+    private static let mergedThirdPerson = ["υπάρχει → υπάρχω (υπάρχω)", "(μου) αρέσει → αρέσω (αρέσω)",
+                                            "βρέχει → βρέχω (βρέχω)", "αστράφτει → αστράφτω (αστράφτω)",
+                                            "πειράζει → πειράζω (πειράζω)", "(δεν) πειράζει → πειράζω (πειράζω)"]
+
+    /// Impersonal verbs' αυτός cells that never build a question (#330).
+    private static let droppedImpersonal: [String] = []
 }
 
 // MARK: - Issue #167 QA: edge cases of the drill's pool, verbs and options (0132-conjugation-drill.md)
@@ -25397,7 +25680,8 @@ final class ConjugationDrillEdgeTests: XCTestCase {
     }
 
     /// The tense after the answer holds only the persons with a form: έρχομαι's
-    /// continuous imperative has only εσείς, πρέπει's future αυτός and αυτοί.
+    /// continuous imperative has only εσείς; πρέπει, impersonal, only αυτός
+    /// (#330: θα πρέπουν is no longer shown).
     func testTenseRowsOnlyHoldPersonsWithForms() async throws {
         let erchomai = try await Fixture.verb("έρχομαι")
         let come = try XCTUnwrap(Fixture.build(erchomai, .imperativeContinuous, .secondPlural, voice: .passive,
@@ -25408,8 +25692,8 @@ final class ConjugationDrillEdgeTests: XCTestCase {
                      "no εσύ form")
         let prepei = try await Fixture.verb("πρέπει")
         let must = try XCTUnwrap(Fixture.build(prepei, .future, .thirdSingular, level: .a1))
-        XCTAssertEqual(must.tenseRows.map(\.person), [.thirdSingular, .thirdPlural])
-        XCTAssertEqual(must.tenseRows.map(\.forms), [["θα πρέπει"], ["θα πρέπουν"]])
+        XCTAssertEqual(must.tenseRows.map(\.person), [.thirdSingular])
+        XCTAssertEqual(must.tenseRows.map(\.forms), [["θα πρέπει"]])
     }
 
     /// A cell without a form never builds a question: another voice, a
@@ -33987,19 +34271,31 @@ final class DrillQuestionTextTests: XCTestCase {
         try await super.tearDown()
     }
 
-    /// "Aorist · εγώ"; "Present · passive · εσύ" for γράφομαι; VoiceOver
-    /// reads "Aorist, εγώ" with the pronoun in the Greek voice.
+    /// "Aorist · εγώ"; "Present · passive · εσύ" for γράφομαι. On the
+    /// question (#329) the form's name ("Aorist") and the person ("εγώ")
+    /// have a line each; VoiceOver reads them in one stop as before,
+    /// "Aorist, εγώ", the pronoun in the Greek voice.
     func testTenseLine() async throws {
         let grafo = try await Fixture.verb("γράφω")
         let aorist = try XCTUnwrap(Fixture.build(grafo, .aorist, .firstSingular, level: .a1))
         XCTAssertEqual(DrillText.tenseLine(aorist, locale: en), "Aorist · εγώ")
-        let label = DrillText.tenseLabel(aorist, locale: en)
-        XCTAssertEqual(String(label.characters), "Aorist, εγώ")
-        XCTAssertEqual(label.runs.compactMap(\.languageIdentifier), ["el"], "only the pronoun is Greek")
+        XCTAssertEqual(DrillText.formName(aorist, locale: en), "Aorist")
+        let label = DrillText.formLabel(aorist, locale: en)
+        XCTAssertEqual(String(label.characters), "Aorist")
+        XCTAssertEqual(label.runs.compactMap(\.languageIdentifier), [], "the form's name is not Greek")
+        let person = DrillText.personLabel(aorist.person)
+        XCTAssertEqual(String(person.characters), "εγώ")
+        XCTAssertEqual(person.runs.compactMap(\.languageIdentifier), ["el"], "the pronoun in the Greek voice")
+        let spoken = DrillText.promptLabel(aorist, locale: en)
+        XCTAssertEqual(String(spoken.characters), "Aorist, εγώ", "VoiceOver's one stop")
+        XCTAssertEqual(spoken.runs.compactMap(\.languageIdentifier), ["el"], "only the pronoun is Greek")
         XCTAssertFalse(aorist.showsPassiveNote)
 
         let passive = try XCTUnwrap(Fixture.build(grafo, .present, .secondSingular, voice: .passive, level: .a2))
         XCTAssertEqual(DrillText.tenseLine(passive, locale: en), "Present · passive · εσύ")
+        XCTAssertEqual(DrillText.formName(passive, locale: en), "Present · passive")
+        XCTAssertEqual(String(DrillText.formLabel(passive, locale: en).characters), "Present, passive")
+        XCTAssertEqual(String(DrillText.promptLabel(passive, locale: en).characters), "Present, passive, εσύ")
         XCTAssertFalse(passive.showsPassiveNote, "γράφομαι says passive in its tense line instead")
 
         let future = try XCTUnwrap(Fixture.build(grafo, .future, .firstPlural, level: .a1))
@@ -34014,6 +34310,8 @@ final class DrillQuestionTextTests: XCTestCase {
         let question = try XCTUnwrap(Fixture.build(erchomai, .aorist, .firstSingular, voice: .passive, level: .a2))
         XCTAssertTrue(question.showsPassiveNote)
         XCTAssertEqual(DrillText.tenseLine(question, locale: en), "Aorist · εγώ")
+        XCTAssertEqual(String(DrillText.promptLabel(question, locale: en).characters), "Aorist, εγώ, passive",
+                       "VoiceOver's one stop ends with the note")
     }
 
     /// Arabic: the line starts with U+200F and isolates the pronoun; the
@@ -34025,7 +34323,12 @@ final class DrillQuestionTextTests: XCTestCase {
         let line = DrillText.tenseLine(question, locale: ar)
         XCTAssertEqual(line.unicodeScalars.first, "\u{200F}", line)
         XCTAssertTrue(line.hasSuffix(" · \u{2068}εγώ\u{2069}"), line)
-        XCTAssertTrue(String(DrillText.tenseLabel(question, locale: ar).characters).hasSuffix("\u{060C} εγώ"))
+        // #329: the form's name alone is not composed; with "passive" it is.
+        XCTAssertFalse(DrillText.formName(question, locale: ar).contains("\u{200F}"))
+        let passive = try XCTUnwrap(Fixture.build(grafo, .present, .secondSingular, voice: .passive, level: .a2))
+        XCTAssertEqual(DrillText.formName(passive, locale: ar).unicodeScalars.first, "\u{200F}")
+        XCTAssertTrue(String(DrillText.formLabel(passive, locale: ar).characters).contains("\u{060C} "))
+        XCTAssertTrue(String(DrillText.promptLabel(question, locale: ar).characters).hasSuffix("\u{060C} εγώ"))
     }
 
     /// A row reads "εγώ, γράφτηκα / γράφηκα", every form of the cell.
@@ -34035,6 +34338,195 @@ final class DrillQuestionTextTests: XCTestCase {
         let row = try XCTUnwrap(question.tenseRows.first)
         XCTAssertEqual(String(DrillText.rowLabel(row.person, forms: row.forms, locale: en).characters),
                        "εγώ, γράφτηκα / γράφηκα")
+    }
+}
+
+/// #329: the ⓘ after the drill's tense line. What each tense is for and
+/// the examples' translations in every UI language, and the example rule:
+/// the first of a tense's two Greek examples with no form of the asked
+/// verb, a word compared with the last word of each form (0132, "A
+/// question").
+@MainActor
+final class DrillTenseInfoTests: XCTestCase {
+    private typealias Person = ParadigmLayout.Person
+    private var tempDir: URL!
+
+    override func tearDown() async throws {
+        if let tempDir { try? FileManager.default.removeItem(at: tempDir) }
+        try await super.tearDown()
+    }
+
+    /// Every tense: two examples, and its explanation and both
+    /// translations in en, ru, es, ar and el, none the raw key. A Greek UI
+    /// shows the example with no translation line.
+    func testEveryTenseHasItsTextInEveryLanguage() {
+        for tense in ConjugationTense.allCases {
+            XCTAssertEqual(tense.examples.count, 2, tense.rawValue)
+            XCTAssertEqual(Set(tense.examples).count, 2, tense.rawValue)
+            for code in ["en", "ru", "es", "ar", "el"] {
+                let locale = Locale(identifier: code)
+                for key in [tense.infoKey, tense.exampleKey(0), tense.exampleKey(1)] {
+                    let text = SettingsViewModel.localizedString(key, locale: locale)
+                    XCTAssertFalse(text.isEmpty, "\(code): \(key)")
+                    XCTAssertNotEqual(text, key, "\(code): \(key) is not translated")
+                }
+            }
+        }
+        XCTAssertEqual(ConjugationTense.aorist.infoKey, "drill.tenseInfo.aorist")
+        XCTAssertEqual(ConjugationTense.aorist.exampleKey(1), "drill.tenseInfo.aorist.example2")
+        XCTAssertEqual(SettingsViewModel.localizedString(ConjugationTense.aorist.exampleKey(0), locale: Locale(identifier: "en")),
+                       "Yesterday I wrote a letter.")
+
+        let verb = Self.verb(present: ["μένω", "μένεις"])
+        let english = DrillText.tenseInfo(.present, verb: verb, locale: Locale(identifier: "en"))
+        XCTAssertEqual(english, DrillText.TenseInfo(explanation: "What happens now, or happens regularly.",
+                                                    example: "Πίνουμε καφέ κάθε πρωί.",
+                                                    translation: "We drink coffee every morning."))
+        let greek = DrillText.tenseInfo(.present, verb: verb, locale: Locale(identifier: "el"))
+        XCTAssertEqual(greek.example, "Πίνουμε καφέ κάθε πρωί.")
+        XCTAssertNil(greek.translation, "no translation line in a Greek UI")
+        XCTAssertNotEqual(greek.explanation, english.explanation)
+    }
+
+    /// Arabic: the Greek example starts with U+200F and is isolated, as
+    /// 0131's feedback lines are; VoiceOver reads the ⓘ as "About <tense>".
+    func testArabicAndTheButtonsLabel() {
+        let ar = Locale(identifier: "ar")
+        let info = DrillText.tenseInfo(.aorist, verb: Self.verb(present: ["τρέχω"]), locale: ar)
+        XCTAssertEqual(info.example, "\u{200F}\u{2068}Χθες έγραψα ένα γράμμα.\u{2069}")
+        XCTAssertEqual(info.translation, "كتبتُ أمس رسالة.")
+        XCTAssertEqual(DrillText.tenseInfoLabel(.aorist, locale: Locale(identifier: "en")), "About Aorist")
+        XCTAssertEqual(DrillText.tenseInfoLabel(.subjunctiveSimple, locale: Locale(identifier: "en")),
+                       "About Subjunctive: simple form")
+        XCTAssertEqual(DrillText.tenseInfoLabel(.aorist, locale: ar).unicodeScalars.first, "\u{200F}")
+    }
+
+    /// The rule on made-up forms: a word of an example counts when it is
+    /// the last word of a form (the auxiliary έχω of έχω γράψει does not),
+    /// whatever its case, punctuation or normalization.
+    func testExampleRule() {
+        let present = ConjugationTense.present.examples
+        XCTAssertEqual(ConjugationTense.firstExample(present, avoiding: []), 0)
+        XCTAssertEqual(ConjugationTense.firstExample(present, avoiding: ["μένω", "μένεις"]), 1, "Μένω, capitalised")
+        XCTAssertEqual(ConjugationTense.firstExample(present, avoiding: ["πίνουμε"]), 0)
+        XCTAssertNil(ConjugationTense.firstExample(present, avoiding: ["μένω", "πίνουμε"]), "both have a form")
+        XCTAssertEqual(ConjugationTense.firstExample(present, avoiding: ["μέν", "μενω"]), 0, "whole words, accents kept")
+        XCTAssertNil(ConjugationTense.firstExample(present, avoiding: ["θα μένω", "να πίνουμε"]), "the last word")
+
+        let perfect = ConjugationTense.perfect.examples
+        XCTAssertEqual(ConjugationTense.firstExample(perfect, avoiding: ["έχω γράψει"]), 0, "έχω is the auxiliary")
+        XCTAssertEqual(ConjugationTense.firstExample(perfect, avoiding: ["έχω δει"]), 1)
+        XCTAssertEqual(ConjugationTense.firstExample(perfect, avoiding: ["έχω"]), 1, "έχω the verb")
+
+        let imperative = ConjugationTense.imperativeSimple.examples
+        XCTAssertEqual(ConjugationTense.firstExample(imperative, avoiding: ["πόρτα"]), 1, "πόρτα, without its comma")
+        XCTAssertNil(ConjugationTense.firstExample(imperative, avoiding: ["παρακαλώ", "ανοίξτε"]), "Ανοίξτε, capitalised")
+        XCTAssertNil(ConjugationTense.firstExample(ConjugationTense.imperativeContinuous.examples,
+                                                   avoiding: ["πίνε", "μέρα"]), "μέρα, without its !")
+        // NFC on both sides: a decomposed form, a decomposed example.
+        XCTAssertEqual(ConjugationTense.firstExample(present, avoiding: ["με\u{0301}νω"]), 1)
+        XCTAssertEqual(ConjugationTense.firstExample(["Με\u{0301}νω εδώ."], avoiding: ["μένω"]), nil)
+        XCTAssertEqual(ConjugationTense.exampleWord("«Έχω,"), "έχω")
+    }
+
+    /// A made-up verb: its forms in every tense and voice count, generated
+    /// θα, να and έχω forms included.
+    func testExampleRuleOnMadeUpVerbs() {
+        // γράψω, its dependent stem, makes θα γράψω: the future's first example.
+        let grafo = Self.verb(present: ["γράφω", "γράφεις"], dependent: ["γράψω"])
+        XCTAssertEqual(ConjugationTense.future.exampleIndex(avoiding: grafo), 1)
+        XCTAssertEqual(ConjugationTense.aorist.exampleIndex(avoiding: grafo), 0, "έγραψα is no form of this one")
+        // πίνε, an imperative, rules out the continuous imperative's first;
+        // πίνεις its continuous subjunctive's second, which is not reached.
+        let pino = Self.verb(present: ["πίνω", "πίνεις", "πίνουμε"], imperative: ["πίνε"])
+        XCTAssertEqual(ConjugationTense.imperativeContinuous.exampleIndex(avoiding: pino), 1)
+        XCTAssertEqual(ConjugationTense.subjunctiveContinuous.exampleIndex(avoiding: pino), 0)
+        // The present's examples: μένω in the active, πίνουμε in the passive.
+        let both = Self.verb(present: ["μένω"], passivePresent: ["πίνουμε"])
+        XCTAssertNil(ConjugationTense.present.exampleIndex(avoiding: both), "any voice counts: no example")
+        XCTAssertNil(DrillText.tenseInfo(.present, verb: both, locale: Locale(identifier: "en")).example)
+        XCTAssertNil(DrillText.tenseInfo(.present, verb: both, locale: Locale(identifier: "en")).translation)
+    }
+
+    /// The real pool (the three Greek lists of the pack, `PackFixtures`) at
+    /// every tense up to B2: the example shown never has a form of the
+    /// asked verb, and an example skipped has one. The verbs and tenses
+    /// left with no example are listed here. έχω, whose forms are in both
+    /// examples of the perfect tenses, is in the pool and is never asked
+    /// them: it has no aorist, so no perfect.
+    func testThePoolsExamplesHaveNoFormOfTheVerb() async throws {
+        await DictAppTests.waitForHostAppLaunch()
+        tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        let db = DatabaseService.shared
+        try await db.setup(userPath: tempDir.appendingPathComponent("user.sqlite").path,
+                           dictionaryURL: try TestDictionary.bundledURL(), packFiles: try PackFixtures.all())
+        let verbs = try await db.drillVerbs(lists: DrillScope.lists.map(\.id), meaningsLang: "eng")
+        XCTAssertGreaterThan(verbs.count, 500)
+        // Independent of the rule's own code: lowercased letters in NFC.
+        func word(_ text: Substring) -> String {
+            String(text.precomposedStringWithCanonicalMapping.lowercased().filter(\.isLetter))
+        }
+        var failures: [String] = []
+        var withoutExample: [String] = []
+        var asked = 0
+        for verb in verbs {
+            let forms = Set(verb.cells.values.flatMap { $0.values.flatMap(\.forms) }
+                .compactMap { $0.split(separator: " ").last.map(word) })
+            func hasForm(_ example: String) -> Bool { example.split(separator: " ").contains { forms.contains(word($0)) } }
+            let tenses = Set(ConjugationQuestionBuilder.questions(verb: verb, level: .b2).map(\.facet.tense))
+            for tense in ConjugationTense.allCases where tenses.contains(tense) {
+                asked += 1
+                guard let index = tense.exampleIndex(avoiding: verb) else {
+                    withoutExample.append("\(verb.word) \(tense.rawValue)")
+                    if !tense.examples.allSatisfy(hasForm) {
+                        failures.append("\(verb.word) \(tense.rawValue): no example, yet one has no form")
+                    }
+                    continue
+                }
+                if hasForm(tense.examples[index]) {
+                    failures.append("\(verb.word) \(tense.rawValue): \(tense.examples[index])")
+                }
+                if !tense.examples[..<index].allSatisfy(hasForm) {
+                    failures.append("\(verb.word) \(tense.rawValue): an earlier example has no form")
+                }
+            }
+        }
+        print("#329: \(asked) verb tenses of \(verbs.count) verbs; no example: \(withoutExample)")
+        let echo = try XCTUnwrap(verbs.first { $0.word == "έχω" }, "έχω in the pool")
+        for tense in [ConjugationTense.perfect, .pluperfect, .futurePerfect] {
+            XCTAssertNil(tense.exampleIndex(avoiding: echo), "both \(tense.rawValue) examples have a form of έχω")
+            XCTAssertFalse(ConjugationQuestionBuilder.questions(verb: echo, level: .b2).contains { $0.facet.tense == tense },
+                           "έχω is never asked the \(tense.rawValue)")
+        }
+        XCTAssertEqual(failures, [])
+        XCTAssertEqual(withoutExample, Self.withoutExample, "the verbs and tenses with no example changed")
+    }
+
+    /// The pool's verbs and tenses whose two examples both have a form of
+    /// the verb, so the popover shows no example (#329).
+    private static let withoutExample: [String] = []
+
+    /// A made-up verb: εγώ and εσύ of the present, and so on.
+    private static func verb(present: [String], dependent: [String] = [], imperative: [String] = [],
+                             passivePresent: [String] = []) -> DrillVerb {
+        func forms(_ slot: ParadigmLayout.FiniteSlot, _ list: [String], into voice: inout ParadigmLayout.VoiceForms) {
+            for (form, person) in zip(list, Person.allCases) { voice.add(form, to: .finite(slot, person)) }
+        }
+        var active = ParadigmLayout.VoiceForms()
+        forms(.present, present, into: &active)
+        forms(.dependent, dependent, into: &active)
+        for (form, person) in zip(imperative, [Person.secondSingular, .secondPlural]) {
+            active.add(form, to: .finite(.imperativeContinuous, person))
+        }
+        var voices: [ParadigmLayout.Voice: ParadigmLayout.VoiceForms] = [.active: active]
+        if !passivePresent.isEmpty {
+            var passive = ParadigmLayout.VoiceForms()
+            forms(.present, passivePresent, into: &passive)
+            voices[.passive] = passive
+        }
+        return DrillVerb(word: present[0], citation: present[0], translation: "", listLevel: nil, rank: nil, seq: 0,
+                         mainVoice: .active, voices: voices, isImpersonal: false)
     }
 }
 

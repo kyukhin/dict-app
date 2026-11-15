@@ -1082,6 +1082,8 @@ final class ConjugationRunViewModel: ObservableObject {
     private(set) var plan: [DrillItem] = []
     private var index = 0
     private var shownAt = Date()
+    /// When the ⓘ popover opened (#329); nil while it is closed.
+    private var tenseInfoOpenedAt: Date?
     private var pendingWrite: Task<Void, Never>?
     private var isStarted = false
     private var answeredBefore = 0
@@ -1174,6 +1176,7 @@ final class ConjugationRunViewModel: ObservableObject {
                                   rightAnswer: question.options[question.rightIndex], chosen: chosenOption)
         player.play(outcome)
         answered += 1
+        tenseInfo(isOpen: false)
         let seconds = min(max(clock.now().timeIntervalSince(shownAt), 0), 3_600)
         let record = plan[index].answer(outcome, runID: runID, durationMs: Int(seconds * 1000))
         if !outcome.isRight {
@@ -1205,6 +1208,18 @@ final class ConjugationRunViewModel: ObservableObject {
         speaker.stop()
     }
 
+    /// The ⓘ popover opened or closed (#329). The time it stays open is not
+    /// the answer's: closing it moves the question's start on by that time.
+    func tenseInfo(isOpen: Bool) {
+        let now = clock.now()
+        if isOpen {
+            if tenseInfoOpenedAt == nil { tenseInfoOpenedAt = now }
+        } else if let opened = tenseInfoOpenedAt {
+            shownAt = shownAt.addingTimeInterval(max(now.timeIntervalSince(opened), 0))
+            tenseInfoOpenedAt = nil
+        }
+    }
+
     /// Builds and shows the question of `plan[index]`, skipping an item that
     /// builds none (not expected: the planner only plans questions); after
     /// the last, the summary.
@@ -1223,6 +1238,7 @@ final class ConjugationRunViewModel: ObservableObject {
                 position = index + 1
                 total = plan.count
                 shownAt = clock.now()
+                tenseInfoOpenedAt = nil
                 phase = .question
                 return
             }

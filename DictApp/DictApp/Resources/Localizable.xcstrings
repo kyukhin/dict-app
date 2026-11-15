@@ -17513,6 +17513,1338 @@
         }
       }
     },
+    "drill.a11y.tenseInfo %@": {
+      "comment": "VoiceOver: the ⓘ button after the drill's tense line (#329); the argument is the tense's title.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "About %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "О форме: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Acerca de %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "حول %@"
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Πληροφορίες: %@"
+          }
+        }
+      }
+    },
+    "drill.tenseInfo.present": {
+      "comment": "Conjugation drill, the ⓘ popover (#329): what the present form is for, in one or two sentences. The Greek text has no verb form, which could give an answer away.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "What happens now, or happens regularly."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "То, что происходит сейчас или регулярно."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lo que pasa ahora o con regularidad."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ما يحدث الآن أو بانتظام."
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Πράξη στο παρόν ή συνήθεια."
+          }
+        }
+      }
+    },
+    "drill.tenseInfo.present.example1": {
+      "comment": "Conjugation drill, the ⓘ popover (#329): the translation of the Greek example \"Μένω στην Αθήνα.\". Not shown in a Greek UI.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "I live in Athens."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Я живу в Афинах."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vivo en Atenas."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أعيش في أثينا."
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Μένω στην Αθήνα."
+          }
+        }
+      }
+    },
+    "drill.tenseInfo.present.example2": {
+      "comment": "Conjugation drill, the ⓘ popover (#329): the translation of the Greek example \"Πίνουμε καφέ κάθε πρωί.\". Not shown in a Greek UI.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "We drink coffee every morning."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Мы пьём кофе каждое утро."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tomamos café cada mañana."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "نشرب القهوة كل صباح."
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Πίνουμε καφέ κάθε πρωί."
+          }
+        }
+      }
+    },
+    "drill.tenseInfo.imperfect": {
+      "comment": "Conjugation drill, the ⓘ popover (#329): what the imperfect form is for, in one or two sentences. The Greek text has no verb form, which could give an answer away.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A past action that went on for a while or was repeated: was doing, used to do."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Действие в прошлом, которое длилось или повторялось: делал."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Una acción pasada que duró un tiempo o se repetía: hacía, solía hacer."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "فعل في الماضي استمر مدةً أو تكرر: كان يفعل، اعتاد أن يفعل."
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Πράξη στο παρελθόν με διάρκεια ή επανάληψη."
+          }
+        }
+      }
+    },
+    "drill.tenseInfo.imperfect.example1": {
+      "comment": "Conjugation drill, the ⓘ popover (#329): the translation of the Greek example \"Διάβαζα όταν ήρθες.\". Not shown in a Greek UI.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "I was reading when you came."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Я читал, когда ты пришёл."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Estaba leyendo cuando llegaste."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "كنت أقرأ عندما جئت."
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Διάβαζα όταν ήρθες."
+          }
+        }
+      }
+    },
+    "drill.tenseInfo.imperfect.example2": {
+      "comment": "Conjugation drill, the ⓘ popover (#329): the translation of the Greek example \"Παίζαμε στο πάρκο κάθε μέρα.\". Not shown in a Greek UI.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "We used to play in the park every day."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Мы каждый день играли в парке."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jugábamos en el parque todos los días."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "كنا نلعب في الحديقة كل يوم."
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Παίζαμε στο πάρκο κάθε μέρα."
+          }
+        }
+      }
+    },
+    "drill.tenseInfo.aorist": {
+      "comment": "Conjugation drill, the ⓘ popover (#329): what the aorist form is for, in one or two sentences. The Greek text has no verb form, which could give an answer away.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "One finished action in the past: did."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Одно законченное действие в прошлом: сделал."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Una acción terminada en el pasado: hice."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "فعل واحد انتهى في الماضي: فعلَ."
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Μία ολοκληρωμένη πράξη στο παρελθόν."
+          }
+        }
+      }
+    },
+    "drill.tenseInfo.aorist.example1": {
+      "comment": "Conjugation drill, the ⓘ popover (#329): the translation of the Greek example \"Χθες έγραψα ένα γράμμα.\". Not shown in a Greek UI.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yesterday I wrote a letter."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вчера я написал письмо."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ayer escribí una carta."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "كتبتُ أمس رسالة."
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Χθες έγραψα ένα γράμμα."
+          }
+        }
+      }
+    },
+    "drill.tenseInfo.aorist.example2": {
+      "comment": "Conjugation drill, the ⓘ popover (#329): the translation of the Greek example \"Πήγαμε στη θάλασσα.\". Not shown in a Greek UI.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "We went to the sea."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Мы съездили на море."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fuimos al mar."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ذهبنا إلى البحر."
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Πήγαμε στη θάλασσα."
+          }
+        }
+      }
+    },
+    "drill.tenseInfo.future": {
+      "comment": "Conjugation drill, the ⓘ popover (#329): what the future form is for, in one or two sentences. The Greek text has no verb form, which could give an answer away.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "One action in the future, as a whole: will do."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Одно действие в будущем, целиком: сделаю."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Una acción futura, vista como un todo: haré."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "فعل واحد في المستقبل، كاملًا: سيفعل."
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Μία πράξη στο μέλλον, ως σύνολο."
+          }
+        }
+      }
+    },
+    "drill.tenseInfo.future.example1": {
+      "comment": "Conjugation drill, the ⓘ popover (#329): the translation of the Greek example \"Αύριο θα σου γράψω.\". Not shown in a Greek UI.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "I'll write to you tomorrow."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Завтра я тебе напишу."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mañana te escribiré."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "سأكتب إليك غدًا."
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Αύριο θα σου γράψω."
+          }
+        }
+      }
+    },
+    "drill.tenseInfo.future.example2": {
+      "comment": "Conjugation drill, the ⓘ popover (#329): the translation of the Greek example \"Θα φάμε στις οκτώ.\". Not shown in a Greek UI.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "We'll eat at eight."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Мы поедим в восемь."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comeremos a las ocho."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "سنأكل في الثامنة."
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Θα φάμε στις οκτώ."
+          }
+        }
+      }
+    },
+    "drill.tenseInfo.futureContinuous": {
+      "comment": "Conjugation drill, the ⓘ popover (#329): what the futureContinuous form is for, in one or two sentences. The Greek text has no verb form, which could give an answer away.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "An action in the future that goes on or repeats: will be doing."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Действие в будущем, которое будет длиться или повторяться: буду делать."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Una acción futura que durará o se repetirá: estaré haciendo."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "فعل في المستقبل يستمر أو يتكرر: سيظل يفعل."
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Πράξη στο μέλλον με διάρκεια ή επανάληψη."
+          }
+        }
+      }
+    },
+    "drill.tenseInfo.futureContinuous.example1": {
+      "comment": "Conjugation drill, the ⓘ popover (#329): the translation of the Greek example \"Θα διαβάζω όλο το βράδυ.\". Not shown in a Greek UI.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "I'll be reading all evening."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Я буду читать весь вечер."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Estaré leyendo toda la noche."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "سأظل أقرأ طوال المساء."
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Θα διαβάζω όλο το βράδυ."
+          }
+        }
+      }
+    },
+    "drill.tenseInfo.futureContinuous.example2": {
+      "comment": "Conjugation drill, the ⓘ popover (#329): the translation of the Greek example \"Θα σου τηλεφωνώ κάθε μέρα.\". Not shown in a Greek UI.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "I'll call you every day."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Я буду звонить тебе каждый день."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Te llamaré todos los días."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "سأتصل بك كل يوم."
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Θα σου τηλεφωνώ κάθε μέρα."
+          }
+        }
+      }
+    },
+    "drill.tenseInfo.subjunctiveSimple": {
+      "comment": "Conjugation drill, the ⓘ popover (#329): what the subjunctiveSimple form is for, in one or two sentences. The Greek text has no verb form, which could give an answer away.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The form after να: what someone wants, has or plans to do. The simple form is for one action."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Форма после να: то, что хотят, должны или собираются сделать. Простая форма для одного действия."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La forma después de να: lo que alguien quiere, tiene o piensa hacer. La forma puntual es para una sola acción."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الصيغة بعد να: ما يريد المرء أن يفعله أو يجب عليه أو ينوي فعله. الصيغة البسيطة لفعل واحد."
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Η μορφή μετά το να: για επιθυμία, υποχρέωση ή σχέδιο. Η στιγμιαία μορφή για μία πράξη."
+          }
+        }
+      }
+    },
+    "drill.tenseInfo.subjunctiveSimple.example1": {
+      "comment": "Conjugation drill, the ⓘ popover (#329): the translation of the Greek example \"Θέλω να σου πω κάτι.\". Not shown in a Greek UI.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "I want to tell you something."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Я хочу тебе кое-что сказать."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quiero decirte algo."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أريد أن أقول لك شيئًا."
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Θέλω να σου πω κάτι."
+          }
+        }
+      }
+    },
+    "drill.tenseInfo.subjunctiveSimple.example2": {
+      "comment": "Conjugation drill, the ⓘ popover (#329): the translation of the Greek example \"Πρέπει να φύγουμε τώρα.\". Not shown in a Greek UI.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "We have to leave now."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нам надо уйти сейчас."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tenemos que irnos ahora."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يجب أن نغادر الآن."
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Πρέπει να φύγουμε τώρα."
+          }
+        }
+      }
+    },
+    "drill.tenseInfo.subjunctiveContinuous": {
+      "comment": "Conjugation drill, the ⓘ popover (#329): what the subjunctiveContinuous form is for, in one or two sentences. The Greek text has no verb form, which could give an answer away.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The form after να for an action that goes on or repeats."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Форма после να для действия, которое длится или повторяется."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La forma después de να para una acción que dura o se repite."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الصيغة بعد να لفعل يستمر أو يتكرر."
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Η μορφή μετά το να για πράξη με διάρκεια ή επανάληψη."
+          }
+        }
+      }
+    },
+    "drill.tenseInfo.subjunctiveContinuous.example1": {
+      "comment": "Conjugation drill, the ⓘ popover (#329): the translation of the Greek example \"Μου αρέσει να διαβάζω.\". Not shown in a Greek UI.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "I like reading."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Я люблю читать."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Me gusta leer."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أحب القراءة."
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Μου αρέσει να διαβάζω."
+          }
+        }
+      }
+    },
+    "drill.tenseInfo.subjunctiveContinuous.example2": {
+      "comment": "Conjugation drill, the ⓘ popover (#329): the translation of the Greek example \"Πρέπει να πίνεις πολύ νερό.\". Not shown in a Greek UI.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "You should drink a lot of water."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Тебе надо пить много воды."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Debes beber mucha agua."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عليك أن تشرب الكثير من الماء."
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Πρέπει να πίνεις πολύ νερό."
+          }
+        }
+      }
+    },
+    "drill.tenseInfo.imperativeSimple": {
+      "comment": "Conjugation drill, the ⓘ popover (#329): what the imperativeSimple form is for, in one or two sentences. The Greek text has no verb form, which could give an answer away.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A request or an order to do something once: do it!"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Просьба или приказ сделать что-то один раз: сделай!"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Una petición o una orden de hacer algo una vez: ¡hazlo!"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "طلب أو أمر بفعل شيء مرة واحدة: افعلْه!"
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Παράκληση ή εντολή για μία πράξη, μία φορά."
+          }
+        }
+      }
+    },
+    "drill.tenseInfo.imperativeSimple.example1": {
+      "comment": "Conjugation drill, the ⓘ popover (#329): the translation of the Greek example \"Κλείσε την πόρτα, σε παρακαλώ.\". Not shown in a Greek UI.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Close the door, please."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Закрой дверь, пожалуйста."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cierra la puerta, por favor."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أغلق الباب من فضلك."
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Κλείσε την πόρτα, σε παρακαλώ."
+          }
+        }
+      }
+    },
+    "drill.tenseInfo.imperativeSimple.example2": {
+      "comment": "Conjugation drill, the ⓘ popover (#329): the translation of the Greek example \"Ανοίξτε τα βιβλία σας.\". Not shown in a Greek UI.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open your books."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Откройте книги."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abran sus libros."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "افتحوا كتبكم."
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ανοίξτε τα βιβλία σας."
+          }
+        }
+      }
+    },
+    "drill.tenseInfo.imperativeContinuous": {
+      "comment": "Conjugation drill, the ⓘ popover (#329): what the imperativeContinuous form is for, in one or two sentences. The Greek text has no verb form, which could give an answer away.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A request or advice to do something regularly or keep doing it: keep doing it!"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Просьба или совет делать что-то регулярно или продолжать: делай!"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Una petición o un consejo de hacer algo con regularidad o seguir haciéndolo: ¡sigue haciéndolo!"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "طلب أو نصيحة بفعل شيء بانتظام أو بالاستمرار فيه: واصلْ فعله!"
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Παράκληση ή συμβουλή για πράξη τακτική ή συνεχή."
+          }
+        }
+      }
+    },
+    "drill.tenseInfo.imperativeContinuous.example1": {
+      "comment": "Conjugation drill, the ⓘ popover (#329): the translation of the Greek example \"Πίνε πολύ νερό.\". Not shown in a Greek UI.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Drink a lot of water."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Пей много воды."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bebe mucha agua."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اشرب الكثير من الماء."
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Πίνε πολύ νερό."
+          }
+        }
+      }
+    },
+    "drill.tenseInfo.imperativeContinuous.example2": {
+      "comment": "Conjugation drill, the ⓘ popover (#329): the translation of the Greek example \"Διαβάζετε κάθε μέρα!\". Not shown in a Greek UI.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Read every day!"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Читайте каждый день!"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "¡Lean todos los días!"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اقرؤوا كل يوم!"
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Διαβάζετε κάθε μέρα!"
+          }
+        }
+      }
+    },
+    "drill.tenseInfo.perfect": {
+      "comment": "Conjugation drill, the ⓘ popover (#329): what the perfect form is for, in one or two sentences. The Greek text has no verb form, which could give an answer away.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A past action that matters now: have done."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Действие в прошлом, результат которого важен сейчас: уже сделал."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Una acción pasada que importa ahora: he hecho."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "فعل في الماضي نتيجته مهمة الآن: قد فعلَ."
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Πράξη στο παρελθόν με αποτέλεσμα σημαντικό τώρα."
+          }
+        }
+      }
+    },
+    "drill.tenseInfo.perfect.example1": {
+      "comment": "Conjugation drill, the ⓘ popover (#329): the translation of the Greek example \"Έχω δει αυτή την ταινία.\". Not shown in a Greek UI.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "I have seen this film."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Я уже видел этот фильм."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "He visto esta película."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لقد شاهدتُ هذا الفيلم."
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Έχω δει αυτή την ταινία."
+          }
+        }
+      }
+    },
+    "drill.tenseInfo.perfect.example2": {
+      "comment": "Conjugation drill, the ⓘ popover (#329): the translation of the Greek example \"Έχουμε φάει.\". Not shown in a Greek UI.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "We have eaten."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Мы уже поели."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hemos comido."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لقد أكلنا."
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Έχουμε φάει."
+          }
+        }
+      }
+    },
+    "drill.tenseInfo.pluperfect": {
+      "comment": "Conjugation drill, the ⓘ popover (#329): what the pluperfect form is for, in one or two sentences. The Greek text has no verb form, which could give an answer away.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "An action finished before another moment in the past: had done."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Действие, которое закончилось раньше другого момента в прошлом: к тому времени уже сделал."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Una acción terminada antes de otro momento del pasado: había hecho."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "فعل انتهى قبل لحظة أخرى في الماضي: كان قد فعلَ."
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Πράξη ολοκληρωμένη πριν από άλλη στιγμή του παρελθόντος."
+          }
+        }
+      }
+    },
+    "drill.tenseInfo.pluperfect.example1": {
+      "comment": "Conjugation drill, the ⓘ popover (#329): the translation of the Greek example \"Είχα φάει όταν ήρθες.\". Not shown in a Greek UI.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "I had eaten when you came."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Когда ты пришёл, я уже поел."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Había comido cuando llegaste."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "كنتُ قد أكلت عندما جئت."
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Είχα φάει όταν ήρθες."
+          }
+        }
+      }
+    },
+    "drill.tenseInfo.pluperfect.example2": {
+      "comment": "Conjugation drill, the ⓘ popover (#329): the translation of the Greek example \"Το τρένο είχε φύγει.\". Not shown in a Greek UI.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The train had left."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Поезд уже ушёл."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El tren se había ido."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "كان القطار قد غادر."
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Το τρένο είχε φύγει."
+          }
+        }
+      }
+    },
+    "drill.tenseInfo.futurePerfect": {
+      "comment": "Conjugation drill, the ⓘ popover (#329): what the futurePerfect form is for, in one or two sentences. The Greek text has no verb form, which could give an answer away.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "An action that will be finished by some moment in the future: will have done."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Действие, которое закончится к какому-то моменту в будущем: к тому времени уже сделаю."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Una acción que estará terminada en algún momento del futuro: habré hecho."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "فعل سينتهي بحلول لحظة ما في المستقبل: سيكون قد فعلَ."
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Πράξη ολοκληρωμένη ως κάποια στιγμή του μέλλοντος."
+          }
+        }
+      }
+    },
+    "drill.tenseInfo.futurePerfect.example1": {
+      "comment": "Conjugation drill, the ⓘ popover (#329): the translation of the Greek example \"Ως το βράδυ θα έχω τελειώσει.\". Not shown in a Greek UI.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "By evening I will have finished."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "К вечеру я уже закончу."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Para la noche habré terminado."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "سأكون قد انتهيتُ بحلول المساء."
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ως το βράδυ θα έχω τελειώσει."
+          }
+        }
+      }
+    },
+    "drill.tenseInfo.futurePerfect.example2": {
+      "comment": "Conjugation drill, the ⓘ popover (#329): the translation of the Greek example \"Θα έχουμε φύγει πριν έρθεις.\". Not shown in a Greek UI.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "We will have left before you come."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Мы уйдём до того, как ты придёшь."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nos habremos ido antes de que vengas."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "سنكون قد غادرنا قبل أن تأتي."
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Θα έχουμε φύγει πριν έρθεις."
+          }
+        }
+      }
+    },
     "examples.title": {
       "comment": "Definition: title of the Examples section, real sentences with the word from Tatoeba (#178).",
       "extractionState": "manual",

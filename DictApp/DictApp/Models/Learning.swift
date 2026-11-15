@@ -1087,6 +1087,67 @@ enum ConjugationTense: String, CaseIterable, Sendable {
     }
 }
 
+// MARK: - What a form is for (0132, #329)
+
+/// The ⓘ after the drill's tense line (#329): what the tense is for and
+/// one Greek example. The examples are Greek in every UI language, so
+/// they live here; the explanations and the examples' translations are
+/// UI strings, `drill.tenseInfo.<tense>`, `.example1` and `.example2`.
+extension ConjugationTense {
+    /// Two Greek examples with different verbs; the popover shows the first
+    /// with no form of the asked verb (`exampleIndex(avoiding:)`).
+    var examples: [String] {
+        switch self {
+        case .present: return ["Μένω στην Αθήνα.", "Πίνουμε καφέ κάθε πρωί."]
+        case .imperfect: return ["Διάβαζα όταν ήρθες.", "Παίζαμε στο πάρκο κάθε μέρα."]
+        case .aorist: return ["Χθες έγραψα ένα γράμμα.", "Πήγαμε στη θάλασσα."]
+        case .future: return ["Αύριο θα σου γράψω.", "Θα φάμε στις οκτώ."]
+        case .futureContinuous: return ["Θα διαβάζω όλο το βράδυ.", "Θα σου τηλεφωνώ κάθε μέρα."]
+        case .subjunctiveSimple: return ["Θέλω να σου πω κάτι.", "Πρέπει να φύγουμε τώρα."]
+        case .subjunctiveContinuous: return ["Μου αρέσει να διαβάζω.", "Πρέπει να πίνεις πολύ νερό."]
+        case .imperativeSimple: return ["Κλείσε την πόρτα, σε παρακαλώ.", "Ανοίξτε τα βιβλία σας."]
+        case .imperativeContinuous: return ["Πίνε πολύ νερό.", "Διαβάζετε κάθε μέρα!"]
+        case .perfect: return ["Έχω δει αυτή την ταινία.", "Έχουμε φάει."]
+        case .pluperfect: return ["Είχα φάει όταν ήρθες.", "Το τρένο είχε φύγει."]
+        case .futurePerfect: return ["Ως το βράδυ θα έχω τελειώσει.", "Θα έχουμε φύγει πριν έρθεις."]
+        }
+    }
+
+    /// The catalog key of what the tense is for: `drill.tenseInfo.aorist`.
+    var infoKey: String { "drill.tenseInfo.\(rawValue)" }
+
+    /// The catalog key of `examples[index]`'s translation:
+    /// `drill.tenseInfo.aorist.example1`.
+    func exampleKey(_ index: Int) -> String { "\(infoKey).example\(index + 1)" }
+
+    /// The first example with no form of `verb`, in any tense or voice the
+    /// drill knows (`DrillVerb.cells`, generated forms included); nil when
+    /// every example has one.
+    func exampleIndex(avoiding verb: DrillVerb) -> Int? {
+        Self.firstExample(examples, avoiding: verb.cells.values.flatMap { $0.values.flatMap(\.forms) })
+    }
+
+    /// The first of `examples` none of whose words is the last word of one
+    /// of `forms` (έγραψα; γράψει of έχω γράψει), words compared lowercased,
+    /// without punctuation, in NFC; nil when every example has one.
+    static func firstExample(_ examples: [String], avoiding forms: some Sequence<String>) -> Int? {
+        let taken = Set(forms.compactMap { form in
+            form.split(whereSeparator: \.isWhitespace).last.map { exampleWord(String($0)) }
+        })
+        return examples.firstIndex { example in
+            !example.split(whereSeparator: \.isWhitespace).contains { taken.contains(exampleWord(String($0))) }
+        }
+    }
+
+    /// A word as the example rule compares it: lowercased, without
+    /// punctuation, in NFC.
+    static func exampleWord(_ word: String) -> String {
+        let letters = word.precomposedStringWithCanonicalMapping.lowercased().unicodeScalars
+            .filter { !CharacterSet.punctuationCharacters.contains($0) }
+        return String(String.UnicodeScalarView(letters)).precomposedStringWithCanonicalMapping
+    }
+}
+
 /// A tense in a voice: one drill card per verb (0131, "For E5"), a
 /// `CardKind.conjugation` card whose `CardKey.facet` is `rawValue`.
 struct ConjugationFacet: Hashable, Sendable {
@@ -1236,12 +1297,15 @@ struct DrillVerb: Equatable, Sendable {
     let mainVoice: Voice
     /// Only the voices drilled.
     let voices: [Voice: ParadigmLayout.VoiceForms]
-    /// Every finite form of the main voice is in the third person: only
-    /// αυτός is asked.
+    /// Every finite form of the main voice is in the third person
+    /// (πρέπει), or the list gives the word in the third person (υπάρχει,
+    /// #330): only αυτός is asked, offered and shown.
     let isImpersonal: Bool
     /// Every non-empty cell of the drilled voices, generated forms included
     /// (`ConjugationTense.forms`), with its forms folded: computed once, so
-    /// building questions folds nothing.
+    /// building questions folds nothing. An impersonal verb has its αυτός
+    /// cells only, so its options and its tense table never use another
+    /// person (#330).
     let cells: [ConjugationFacet: [Person: Cell]]
 
     struct Cell: Equatable, Sendable {
@@ -1266,7 +1330,7 @@ struct DrillVerb: Equatable, Sendable {
         for (voice, voiceForms) in voices {
             let lacksDependent = ConjugationTense.lacksDependent(voiceForms)
             for tense in ConjugationTense.allCases {
-                for person in tense.persons {
+                for person in tense.persons where !isImpersonal || person == .thirdSingular {
                     let forms = tense.forms(voiceForms, person, lacksDependent: lacksDependent)
                     guard !forms.isEmpty else { continue }
                     let keys = forms.map(ConjugationQuestionBuilder.fold)
@@ -1318,8 +1382,13 @@ struct DrillVerb: Equatable, Sendable {
     ///   (ντύνομαι in ντύνω's): the word itself, passive as its main voice.
     ///   Active (πάω in πηγαίνω's): the table's lemma, as if it was given.
     ///   Neither (a participle listed as a verb): no verb.
+    /// - `listTerm`, the list item's term: when it gives the main voice's
+    ///   present αυτός (υπάρχει for υπάρχω, "(δεν) πειράζει" for πειράζω), the
+    ///   verb is impersonal and cited as listed; when it gives the passive εγώ
+    ///   of a verb whose active has only the third person (νοιάζομαι), the
+    ///   verb is that passive, in every person (#330).
     static func make(word: String, paradigm: LemmaParadigm, translation: String,
-                     listLevel: Int? = nil, rank: Int? = nil, seq: Int = 0) -> DrillVerb? {
+                     listLevel: Int? = nil, rank: Int? = nil, seq: Int = 0, listTerm: String? = nil) -> DrillVerb? {
         guard paradigm.pos == "verb" else { return nil }
         let word = word.precomposedStringWithCanonicalMapping
         let all = ParadigmLayout.voiceForms(paradigm.cells)
@@ -1330,7 +1399,7 @@ struct DrillVerb: Equatable, Sendable {
             return match.voice
         })
         let key: String
-        let main: Voice
+        var main: Voice
         var voices: [Voice: ParadigmLayout.VoiceForms] = [:]
         if !paradigm.isLinked || linkedVoices.contains(.active) {
             key = paradigm.word
@@ -1338,6 +1407,16 @@ struct DrillVerb: Equatable, Sendable {
             voices[main] = all[main]
             let passivePresent = Person.allCases.contains { !(all[.passive]?.forms(.present, $0).isEmpty ?? true) }
             if main == .active && passivePresent { voices[.passive] = all[.passive] }
+            // #330: listed by its passive εγώ while its active has only the
+            // third person (νοιάζομαι; νοιάζει, νοιάζουν), the verb is that
+            // passive, in every person, as for a verb with passive forms only.
+            let activePersons = all[.active]?.persons ?? []
+            if main == .active, let listTerm, let passive = all[.passive], !activePersons.isEmpty,
+               activePersons.isSubset(of: [.thirdSingular, .thirdPlural]),
+               passive.forms(.present, .firstSingular).contains(where: { listWord($0) == listWord(listTerm) }) {
+                main = .passive
+                voices = [.passive: passive]
+            }
         } else if linkedVoices.contains(.passive) {
             key = word
             main = .passive
@@ -1346,12 +1425,50 @@ struct DrillVerb: Equatable, Sendable {
             return nil
         }
         let persons = voices[main]?.persons ?? []
-        let isImpersonal = !persons.isEmpty && persons.isSubset(of: [.thirdSingular, .thirdPlural])
-        let cited = voices[main]?.forms(.present, isImpersonal ? .thirdSingular : .firstSingular).first
+        var isImpersonal = !persons.isEmpty && persons.isSubset(of: [.thirdSingular, .thirdPlural])
+        var cited = voices[main]?.forms(.present, isImpersonal ? .thirdSingular : .firstSingular).first
+        if let listTerm, let given = thirdPerson(listTerm: listTerm, voices[main]) {
+            isImpersonal = true
+            cited = given
+        }
         let verb = DrillVerb(word: key, citation: cited ?? key, translation: translation, listLevel: listLevel,
                              rank: rank, seq: seq, mainVoice: main, voices: voices, isImpersonal: isImpersonal)
         // Levels add up, so B2 has every question a lower level has.
         return ConjugationQuestionBuilder.hasQuestion(verb: verb, level: .b2) ? verb : nil
+    }
+
+    /// The present αυτός form of `voice` that a list term gives (#330): the
+    /// term without its parenthesised parts, punctuation and case
+    /// ("(δεν) πειράζει" → πειράζει); nil when it gives another form.
+    static func thirdPerson(listTerm: String, _ voice: ParadigmLayout.VoiceForms?) -> String? {
+        let given = listWord(listTerm)
+        return voice?.forms(.present, .thirdSingular).first { listWord($0) == given }
+    }
+
+    /// Whether a list term gives `verb` in its plain form, its citation or
+    /// another form of its present εγώ (υπάρχω; προτιμώ for προτιμάω;
+    /// "(Σε/Σας) παρακαλώ!" for παρακαλώ), not in the third person (#330).
+    /// The pool prefers such a word: υπάρχω, listed after υπάρχει, makes
+    /// the verb whole.
+    static func isPlainForm(listTerm: String, of verb: DrillVerb) -> Bool {
+        let main = verb.voices[verb.mainVoice]
+        guard thirdPerson(listTerm: listTerm, main) == nil else { return false }
+        let given = listWord(listTerm)
+        return ([verb.citation] + (main?.forms(.present, .firstSingular) ?? [])).contains { listWord($0) == given }
+    }
+
+    /// A list term as `thirdPerson(listTerm:_:)` compares it: without
+    /// parenthesised parts and punctuation, lowercased, in NFC, its words
+    /// joined by one space.
+    static func listWord(_ term: String) -> String {
+        var depth = 0
+        var kept = String.UnicodeScalarView()
+        for scalar in term.precomposedStringWithCanonicalMapping.lowercased().unicodeScalars {
+            if scalar == "(" { depth += 1; continue }
+            if scalar == ")" { depth = max(depth - 1, 0); continue }
+            if depth == 0 && !CharacterSet.punctuationCharacters.contains(scalar) { kept.append(scalar) }
+        }
+        return String(kept).split(whereSeparator: \.isWhitespace).joined(separator: " ")
     }
 
     /// The pool with each passive drilled once (#169): an active verb drops
@@ -2604,10 +2721,69 @@ enum DrillText {
         return "\u{200F}" + (labels + [isolated(slot.person.pronoun)]).joined(separator: " · ")
     }
 
-    /// The tense line as VoiceOver reads it: "Aorist, εγώ".
-    static func tenseLabel(_ question: ConjugationQuestion, locale: Locale) -> AttributedString {
-        spoken(tenseLabels(question, locale: locale).map { ($0, false) } + [(question.person.pronoun, true)],
-               locale: locale)
+    /// The question's tense line on screen (#329): the form's name, "Aorist";
+    /// "Present · passive" for the passive of a verb with both voices. The
+    /// person has a line of its own (`personLabel`). A composed Arabic line
+    /// starts with U+200F.
+    static func formName(_ question: ConjugationQuestion, locale: Locale) -> String {
+        let labels = tenseLabels(question, locale: locale)
+        let line = labels.joined(separator: " · ")
+        return isRightToLeft(locale) && labels.count > 1 ? "\u{200F}" + line : line
+    }
+
+    /// The form's name alone, as its element reads with VoiceOver off (UI
+    /// tests): "Aorist"; "Present, passive".
+    static func formLabel(_ question: ConjugationQuestion, locale: Locale) -> AttributedString {
+        spoken(tenseLabels(question, locale: locale).map { ($0, false) }, locale: locale)
+    }
+
+    /// The form's name, the person and the "passive" note as VoiceOver
+    /// reads them, in one stop as before #329: "Aorist, εγώ"; "Present,
+    /// passive, εσύ" for γράφομαι; "Aorist, εγώ, passive" for έρχομαι.
+    static func promptLabel(_ question: ConjugationQuestion, locale: Locale) -> AttributedString {
+        let note = question.showsPassiveNote ? [(localized("drill.passiveNote", locale), false)] : []
+        return spoken(tenseLabels(question, locale: locale).map { ($0, false) } + [(question.person.pronoun, true)]
+                      + note, locale: locale)
+    }
+
+    /// The person line, "εγώ", in the Greek voice.
+    static func personLabel(_ person: Person) -> AttributedString {
+        spoken([(person.pronoun, true)], locale: Locale(identifier: "el"))
+    }
+
+    /// "About Aorist" (`drill.a11y.tenseInfo`): the ⓘ after the form's
+    /// name (#329), as VoiceOver reads it.
+    static func tenseInfoLabel(_ tense: ConjugationTense, locale: Locale) -> String {
+        let mark = isRightToLeft(locale) ? "\u{200F}" : ""
+        return mark + String(format: localized("drill.a11y.tenseInfo %@", locale), locale: locale,
+                             tense.title(locale: locale))
+    }
+
+    /// What the ⓘ popover shows (#329).
+    struct TenseInfo: Equatable {
+        /// What the tense is for, in the UI language.
+        let explanation: String
+        /// The Greek example as shown: in Arabic it starts with U+200F and
+        /// is isolated (FSI…PDI), as the feedback lines are (0131). Nil when
+        /// both examples have a form of the asked verb.
+        let example: String?
+        /// The example in the UI language; nil in a Greek UI or with no example.
+        let translation: String?
+    }
+
+    /// The popover of `tense` asked of `verb`: the explanation, then the
+    /// first example with no form of the verb (`exampleIndex(avoiding:)`)
+    /// and its translation.
+    static func tenseInfo(_ tense: ConjugationTense, verb: DrillVerb, locale: Locale) -> TenseInfo {
+        let explanation = localized(tense.infoKey, locale)
+        guard let index = tense.exampleIndex(avoiding: verb) else {
+            return TenseInfo(explanation: explanation, example: nil, translation: nil)
+        }
+        let greek = tense.examples[index]
+        let example = isRightToLeft(locale) ? "\u{200F}" + isolated(greek) : greek
+        let isGreekUI = locale.language.languageCode?.identifier == "el"
+        return TenseInfo(explanation: explanation, example: example,
+                         translation: isGreekUI ? nil : localized(tense.exampleKey(index), locale))
     }
 
     /// A row of the tense table as VoiceOver reads it: "εγώ, γράφτηκα / γράφηκα".

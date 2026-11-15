@@ -49,6 +49,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - [#297] The Grammar list shows no level header while only A1 exists, gives the level in its subtitle ("17 topics · A1") and ends with an "A2 · Coming soon" row that opens nothing.
 - [#298] "New words from" is now "Learning from" in five languages, and its row on the Learn tab shows the checked lists ("Greek A1, A2").
 - [#291] Settings → Learning → Sound theme offers six themes for the learning sounds, Classic, Cheerful, Retro, Grumpy, Silly and Meme, each synthesized in code; choosing one plays its right-answer sound.
+- [#329] In the conjugation drill an ⓘ after the form's name explains what the form is for, with a Greek example that has no form of the asked verb and its translation; the person stands on its own line in the accent colour.
 
 ### Changed
 - [#138] Every dictionary is searchable right after install, with no "Preparing dictionaries" bar: the app reads the bundled dictionaries in place and keeps your history, saved words and imports in a small database of their own.
@@ -64,6 +65,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - [#315] Reading Mode is a light bulb that lights up yellow when on, and turning it on shows "The screen stays on" for 2 seconds.
 
 ### Fixed
+- [#330] The conjugation drill asks, offers and shows impersonal verbs only in αυτός, also verbs the lists give only in the third person such as επιτρέπεται, and list nouns such as φορά no longer enter it as verbs.
 - [#138] History and Recent words reopen a word in the dictionary it was read in.
 - [#202] The speaker button reads each word in its own language (Russian, Spanish, Arabic, Greek or English) and is hidden when the device has no voice for that language.
 - [#213] Search, imports and My words keep working when the system invalidates the open dictionary file.

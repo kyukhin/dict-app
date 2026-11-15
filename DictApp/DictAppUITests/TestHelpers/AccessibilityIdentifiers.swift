@@ -352,12 +352,23 @@ struct AccessibilityIdentifiers {
         static let needsGreek = "drill_needs_greek"
         static let downloadGreek = "drill_download_greek"
         static let downloadProgress = "drill_download_progress"
-        /// A question: the verb, its translation, the tense line (its label
-        /// "Aorist, εγώ") and the note of a verb with passive forms only.
+        /// A question: the verb, its translation, the tense line (the
+        /// form's name, its label "Aorist"; "Present, passive"), the person
+        /// on its own line (#329, its label "εγώ") and the note of a verb
+        /// with passive forms only.
         static let promptVerb = "drill_prompt_verb"
         static let promptTranslation = "drill_prompt_translation"
         static let promptTense = "drill_prompt_tense"
+        static let promptPerson = "drill_prompt_person"
         static let passiveNote = "drill_passive_note"
+        /// #329: the ⓘ after the form's name ("About Aorist") and its
+        /// popover: what the form is for, a Greek example, its translation
+        /// (none in a Greek UI).
+        static let tenseInfo = "drill_tense_info"
+        static let tenseInfoPopover = "drill_tense_info_popover"
+        static let tenseInfoText = "drill_tense_info_text"
+        static let tenseInfoExample = "drill_tense_info_example"
+        static let tenseInfoTranslation = "drill_tense_info_translation"
         /// The whole tense after an answer; a row `drill_tense_row_1sg`
         /// reads "εγώ, έγραψα", and the asked one has the value `asked`.
         static let tenseTable = "drill_tense_table"
