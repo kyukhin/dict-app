@@ -5791,8 +5791,10 @@ extension DictAppTests {
 
     /// Keys whose translation is spelled as in English, per language.
     private static let sameAsEnglishKeys: [String: Set<String>] = [
-        // #180: "Software" is the Spanish word too.
-        "es": cefrLevelKeys.union(["common.no", "credits.software.section"]), "ru": cefrLevelKeys, "ar": cefrLevelKeys,
+        // #180: "Software" is the Spanish word too; #291: so are "Retro" and "Meme".
+        "es": cefrLevelKeys.union(["common.no", "credits.software.section", "settings.learning.soundTheme.retro",
+                                   "settings.learning.soundTheme.meme"]),
+        "ru": cefrLevelKeys, "ar": cefrLevelKeys,
     ]
 
     /// The multiset of `%@` / `%lld` specifiers (with positional index) in a
@@ -18668,6 +18670,27 @@ final class LearningSettingsTests: XCTestCase {
         XCTAssertFalse(store.keys.contains("learning_language"))
     }
 
+    /// #291: `learning_sound_theme`, Classic when absent or unknown, cleared
+    /// by `-resetData`.
+    func testSoundThemeDefaultsToClassic() {
+        let (settings, store) = service()
+        XCTAssertEqual(settings.learningSoundTheme, .classic)
+        XCTAssertEqual(store.writeLog, [], "reading the default writes nothing")
+        XCTAssertEqual(SoundTheme.allCases.map(\.rawValue), ["classic", "cheerful", "retro", "grumpy", "silly", "meme"])
+        for theme in SoundTheme.allCases {
+            settings.learningSoundTheme = theme
+            XCTAssertEqual(store.string(forKey: "learning_sound_theme"), theme.rawValue)
+            XCTAssertEqual(settings.learningSoundTheme, theme)
+        }
+        store.set("disco", forKey: "learning_sound_theme")
+        XCTAssertEqual(settings.learningSoundTheme, .classic, "an unknown theme is Classic")
+
+        settings.learningSoundTheme = .grumpy
+        settings.resetLearning()
+        XCTAssertFalse(store.keys.contains("learning_sound_theme"), "-resetData clears it")
+        XCTAssertEqual(settings.learningSoundTheme, .classic)
+    }
+
     /// `learning_via`: a JSON object, learned language → via, kept when the
     /// language is stopped.
     func testViaIsStoredPerLearnedLanguage() {
@@ -27048,13 +27071,15 @@ final class ExampleDataTests: XCTestCase {
 // runs and `ExerciseRunViewModel` on a temp user database over
 // `ExerciseFixture`'s dictionary or the bundled file.
 
-/// What `FeedbackPlayer` would have played.
+/// What `FeedbackPlayer` would have played, and in which theme (#291).
 @MainActor
 final class RecordingFeedbackSink: FeedbackSink {
     private(set) var played: [FeedbackSound] = []
+    private(set) var themes: [SoundTheme] = []
 
-    func play(_ sound: FeedbackSound) {
+    func play(_ sound: FeedbackSound, theme: SoundTheme) {
         played.append(sound)
+        themes.append(theme)
     }
 }
 
@@ -27835,8 +27860,8 @@ final class TrainerPlannerTests: XCTestCase {
 @MainActor
 final class FeedbackPlayerTests: XCTestCase {
     /// A real player at volume 0: the tests load and "play" it silently.
-    nonisolated static let mutedPlayer: @Sendable (FeedbackSound) -> AVAudioPlayer? = { sound in
-        let player = try? AVAudioPlayer(data: ToneSynth.wav(sound))
+    nonisolated static let mutedPlayer: @Sendable (FeedbackSound, SoundTheme) -> AVAudioPlayer? = { sound, theme in
+        let player = try? AVAudioPlayer(data: ToneSynth.wav(sound, theme: theme))
         player?.volume = 0
         return player
     }
@@ -27948,20 +27973,66 @@ final class FeedbackPlayerTests: XCTestCase {
     func testTonesPlayOffTheMainThread() {
         let queue = DispatchQueue(label: "FeedbackPlayerTests.tones")
         let tones = TonePlayer(queue: queue, makePlayer: Self.mutedPlayer)
-        XCTAssertEqual(tones.loadedSounds, [], "nothing loads before a play")
+        XCTAssertEqual(tones.loadedSounds(), [], "nothing loads before a play")
 
         queue.suspend()
         let start = Date()
-        tones.play(.wrong)
-        tones.play(.wrong)
+        tones.play(.wrong, theme: .classic)
+        tones.play(.wrong, theme: .classic)
         XCTAssertLessThan(Date().timeIntervalSince(start), 1, "play does not wait for its queue")
         queue.resume()
 
-        XCTAssertEqual(tones.loadedSounds, [.wrong], "the queue loaded the sound asked, and only it")
+        XCTAssertEqual(tones.loadedSounds(), [.wrong], "the queue loaded the sound asked, and only it")
 
         let all = TonePlayer(queue: queue, makePlayer: Self.mutedPlayer)
-        FeedbackSound.allCases.forEach { all.play($0) }
-        XCTAssertEqual(all.loadedSounds, Set(FeedbackSound.allCases), "all six, on the queue")
+        FeedbackSound.allCases.forEach { all.play($0, theme: .classic) }
+        XCTAssertEqual(all.loadedSounds(), Set(FeedbackSound.allCases), "all six, on the queue")
+    }
+
+    /// #291: the player plays the chosen theme's sounds, Classic by default,
+    /// from the next sound on.
+    func testPlaysTheChosenTheme() {
+        let settings = SettingsService(store: InMemoryKeyValueStore())
+        let sink = RecordingFeedbackSink()
+        let player = FeedbackPlayer(settings: settings, sink: sink)
+        player.play(Outcome.right)
+        settings.learningSoundTheme = .meme
+        player.play(Outcome.wrong)
+        player.playRunEnd(answeredBefore: 15, answeredAfter: 25, goal: 20, isDailyLesson: false)
+        settings.learningSoundTheme = .cheerful
+        player.play(.pairRight)
+        XCTAssertEqual(sink.played, [.right, .wrong, .goalReached, .pairRight])
+        XCTAssertEqual(sink.themes, [.classic, .meme, .meme, .cheerful])
+
+        settings.learningSounds = false
+        player.play(FeedbackSound.right)
+        XCTAssertEqual(sink.played.count, 4, "Sounds off: no theme plays")
+    }
+
+    /// #291: a player per theme and sound, made once on the queue from its
+    /// theme's data.
+    func testTonesAreCachedPerTheme() {
+        final class Made: @unchecked Sendable {
+            private let lock = NSLock()
+            private var calls: [String] = []
+            func append(_ call: String) { lock.withLock { calls.append(call) } }
+            var all: [String] { lock.withLock { calls } }
+        }
+        let made = Made()
+        let tones = TonePlayer(queue: DispatchQueue(label: "FeedbackPlayerTests.themes")) { sound, theme in
+            made.append("\(theme.rawValue)-\(sound.rawValue)")
+            return Self.mutedPlayer(sound, theme)
+        }
+        tones.play(.right, theme: .classic)
+        tones.play(.right, theme: .retro)
+        tones.play(.right, theme: .retro)
+        tones.play(.wrong, theme: .meme)
+
+        XCTAssertEqual(tones.loadedSounds(.classic), [.right])
+        XCTAssertEqual(tones.loadedSounds(.retro), [.right])
+        XCTAssertEqual(tones.loadedSounds(.meme), [.wrong])
+        XCTAssertEqual(tones.loadedSounds(.silly), [])
+        XCTAssertEqual(made.all, ["classic-right", "retro-right", "meme-wrong"], "each made once, with its theme")
     }
 
     /// QA, PR #281: a player is made on the tones' queue, never on the
@@ -27982,24 +28053,130 @@ final class FeedbackPlayerTests: XCTestCase {
         let key = DispatchSpecificKey<Bool>()
         queue.setSpecific(key: key, value: true)
         let made = Made()
-        let tones = TonePlayer(queue: queue) { sound in
+        let tones = TonePlayer(queue: queue) { sound, theme in
             made.append((sound, Thread.isMainThread, DispatchQueue.getSpecific(key: key) == true))
             // Right has no player, as when its data fails; wrong has one.
-            return sound == .right ? nil : Self.mutedPlayer(sound)
+            return sound == .right ? nil : Self.mutedPlayer(sound, theme)
         }
 
         queue.suspend()
-        tones.play(.right)
-        tones.play(.wrong)
-        tones.play(.right)
-        tones.play(.wrong)
+        tones.play(.right, theme: .classic)
+        tones.play(.wrong, theme: .classic)
+        tones.play(.right, theme: .classic)
+        tones.play(.wrong, theme: .classic)
         XCTAssertEqual(made.all.count, 0, "nothing is made on the caller's thread")
         queue.resume()
 
-        XCTAssertEqual(tones.loadedSounds, [.wrong], "the sounds with a player")
+        XCTAssertEqual(tones.loadedSounds(), [.wrong], "the sounds with a player")
         XCTAssertEqual(made.all.map(\.sound), [.right, .wrong, .right], "in order; wrong is kept, right tried again")
         XCTAssertFalse(made.all.contains { $0.onMain }, "never the main thread")
         XCTAssertTrue(made.all.allSatisfy(\.onQueue), "always the tones' queue")
+    }
+}
+
+/// #291: every theme's six sounds (0131, Sounds) are 16-bit mono 44.1 kHz
+/// WAVs of their recipes' lengths (the candidates script's, to the sample),
+/// peaking at most 0.7, the themes after Classic at an RMS of at most 0.24,
+/// silent at the end, under 2 s, the same on every call; Classic's samples
+/// are #300's.
+final class ToneSynthTests: XCTestCase {
+    /// Each theme's sounds' lengths in samples.
+    static let counts: [SoundTheme: [FeedbackSound: Int]] = [
+        .classic: [.right: 14_994, .wrong: 20_727, .pairRight: 6_615, .pairWrong: 6_615,
+                   .lessonComplete: 32_634, .goalReached: 41_454],
+        .cheerful: [.right: 14_994, .wrong: 18_081, .pairRight: 5_292, .pairWrong: 6_174,
+                    .lessonComplete: 46_303, .goalReached: 61_740],
+        .retro: [.right: 12_789, .wrong: 16_758, .pairRight: 3_087, .pairWrong: 3_969,
+                 .lessonComplete: 28_664, .goalReached: 39_249],
+        .grumpy: [.right: 15_435, .wrong: 19_845, .pairRight: 4_410, .pairWrong: 6_174,
+                  .lessonComplete: 37_925, .goalReached: 44_100],
+        .silly: [.right: 15_434, .wrong: 14_553, .pairRight: 3_528, .pairWrong: 4_410,
+                 .lessonComplete: 28_224, .goalReached: 46_746],
+        .meme: [.right: 26_460, .wrong: 64_827, .pairRight: 6_615, .pairWrong: 6_615,
+                .lessonComplete: 44_982, .goalReached: 51_597],
+    ]
+
+    /// SHA-256 of Classic's WAVs as #300 made them (master `fa7b3ed`), the
+    /// same bytes as the candidates script's.
+    static let classicHashes: [FeedbackSound: String] = [
+        .right: "2a790bd43c661ea394c93c671b3d61ac4d9bbade242689b336ec10b855280a22",
+        .wrong: "0860fcb2dd21a70cc9dfb053b15750b895606725c871b3663142021c289fe7fb",
+        .lessonComplete: "636ff4a4464c3bf17c4187ba8ded2f64e4f231cc094a7340bf36fe7a8ebb435b",
+        .goalReached: "6de389bf289653869b236738352d6611a63c5d9dc41135d28a846760aed83f93",
+        .pairRight: "c346b55602c4710711c11a731a2ddcd33b282455cca2d38819002cafc4b24db0",
+        .pairWrong: "9f8bc790cedf47b93941aad5b7ed1e17a0b3ff6a2ebf1c5bb72949e6bfbad11c",
+    ]
+
+    /// The samples of a WAV, after checking its 44-byte header: PCM, mono,
+    /// 44.1 kHz, 16-bit.
+    private func samples(_ data: Data, _ name: String, file: StaticString = #filePath,
+                         line: UInt = #line) -> [Int16] {
+        let bytes = [UInt8](data)
+        guard bytes.count >= 44 else {
+            XCTFail("\(name): no header", file: file, line: line)
+            return []
+        }
+        func u16(_ at: Int) -> UInt16 { UInt16(bytes[at]) | UInt16(bytes[at + 1]) << 8 }
+        func u32(_ at: Int) -> UInt32 { UInt32(u16(at)) | UInt32(u16(at + 2)) << 16 }
+        func text(_ range: Range<Int>) -> String { String(decoding: bytes[range], as: UTF8.self) }
+        XCTAssertEqual(text(0..<4), "RIFF", name, file: file, line: line)
+        XCTAssertEqual(Int(u32(4)), bytes.count - 8, name, file: file, line: line)
+        XCTAssertEqual(text(8..<16), "WAVEfmt ", name, file: file, line: line)
+        XCTAssertEqual(u16(20), 1, "\(name): PCM", file: file, line: line)
+        XCTAssertEqual(u16(22), 1, "\(name): mono", file: file, line: line)
+        XCTAssertEqual(u32(24), 44_100, name, file: file, line: line)
+        XCTAssertEqual(u32(28), 88_200, "\(name): bytes per second", file: file, line: line)
+        XCTAssertEqual(u16(32), 2, "\(name): block align", file: file, line: line)
+        XCTAssertEqual(u16(34), 16, "\(name): bits per sample", file: file, line: line)
+        XCTAssertEqual(text(36..<40), "data", name, file: file, line: line)
+        XCTAssertEqual(Int(u32(40)), bytes.count - 44, name, file: file, line: line)
+        return stride(from: 44, to: bytes.count, by: 2).map { Int16(bitPattern: u16($0)) }
+    }
+
+    func testEveryThemeIsAValidWAV() throws {
+        XCTAssertEqual(Set(Self.counts.keys), Set(SoundTheme.allCases))
+        for theme in SoundTheme.allCases {
+            XCTAssertEqual(Set(Self.counts[theme]?.keys ?? [:].keys), Set(FeedbackSound.allCases), "\(theme)")
+            for sound in FeedbackSound.allCases {
+                let name = "\(theme)-\(sound)"
+                let data = ToneSynth.wav(sound, theme: theme)
+                XCTAssertEqual(data, ToneSynth.wav(sound, theme: theme), "\(name): equal across two calls")
+                let pcm = samples(data, name)
+                XCTAssertEqual(pcm.count, Self.counts[theme]?[sound], "\(name): the recipe's length")
+                XCTAssertLessThan(pcm.count, 2 * 44_100, "\(name): under 2 s")
+                let peak = pcm.map { abs(Int($0)) }.max() ?? 0
+                XCTAssertLessThanOrEqual(peak, Int(0.7 * 32_767), "\(name): a peak of at most 0.7")
+                XCTAssertGreaterThan(peak, Int(0.3 * 32_767), "\(name): audible")
+                if theme != .classic {
+                    let rms = (pcm.map { Double($0) * Double($0) }.reduce(0, +) / Double(pcm.count)).squareRoot()
+                    XCTAssertLessThanOrEqual(rms / 32_767, 0.2401, "\(name): an RMS of at most 0.24")
+                }
+                XCTAssertLessThan(abs(Int(pcm.last ?? 0)), 50, "\(name): faded out, silent at the end")
+                let player = try AVAudioPlayer(data: data)
+                XCTAssertEqual(player.duration, Double(pcm.count) / 44_100, accuracy: 0.001, name)
+            }
+        }
+        let all = SoundTheme.allCases.flatMap { theme in FeedbackSound.allCases.map { ToneSynth.wav($0, theme: theme) } }
+        XCTAssertEqual(Set(all).count, 36, "36 different sounds")
+    }
+
+    /// Classic is #300's sounds, to the byte: its default too.
+    func testClassicIsUnchanged() {
+        for sound in FeedbackSound.allCases {
+            let hash = SHA256.hash(data: ToneSynth.wav(sound, theme: .classic)).map { String(format: "%02x", $0) }.joined()
+            XCTAssertEqual(hash, Self.classicHashes[sound], "\(sound)")
+            XCTAssertEqual(ToneSynth.wav(sound), ToneSynth.wav(sound, theme: .classic), "\(sound): Classic by default")
+        }
+    }
+
+    /// The seeded noise is xorshift32, so the drums and the cymbal are the
+    /// same on every call: the script's first values from its default seed.
+    func testNoiseIsTheScriptsXorshift() {
+        var noise = ToneSynth.Noise()
+        let first = (0..<3).map { _ in noise.next() }
+        XCTAssertEqual(first, [0.7589328567306199, 0.09065111544479199, -0.21186212599829868])
+        var drum = ToneSynth.Noise(seed: 3)
+        XCTAssertEqual(drum.next(), -0.9996222988700598, "the drum's seed")
     }
 }
 
@@ -30110,6 +30287,29 @@ final class LearningSettingsViewModelTests: LearningReminderTestCase {
     private func model() -> LearningSettingsViewModel {
         LearningSettingsViewModel(settings: settings, db: db, languages: languages, reminder: reminder(),
                                   clock: clock.clock, supportsHaptics: true)
+    }
+
+    /// #291: the section shows the stored theme, Classic by default;
+    /// choosing one stores it and plays its Right sound once. Loading
+    /// plays nothing.
+    func testChoosingASoundThemePlaysItsRightSound() async throws {
+        let sink = RecordingFeedbackSink()
+        let vm = LearningSettingsViewModel(settings: settings, db: db, languages: languages, reminder: reminder(),
+                                           clock: clock.clock, supportsHaptics: true,
+                                           player: FeedbackPlayer(settings: settings, sink: sink))
+        XCTAssertEqual(vm.soundTheme, .classic, "Classic by default")
+        await vm.load(locale: Locale(identifier: "en"))
+        XCTAssertEqual(sink.played, [], "loading plays nothing")
+
+        vm.chooseSoundTheme(.retro)
+        XCTAssertEqual(vm.soundTheme, .retro)
+        XCTAssertEqual(settings.learningSoundTheme, .retro, "stored")
+        XCTAssertEqual(sink.played, [.right], "its Right sound")
+        XCTAssertEqual(sink.themes, [.retro], "in the theme chosen")
+
+        vm.chooseSoundTheme(.retro)
+        XCTAssertEqual(sink.themes, [.retro, .retro], "chosen again: heard again")
+        XCTAssertEqual(model().soundTheme, .retro, "a new section reads it")
     }
 
     /// The section reads each key and writes it on a change.

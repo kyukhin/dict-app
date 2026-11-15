@@ -48,6 +48,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - [#295] Each pair tab holds only its language: Today, mistakes, the trainers, a Grammar section with the topics and the Greek conjugation drill, its lists, its My words and its Statistics.
 - [#297] The Grammar list shows no level header while only A1 exists, gives the level in its subtitle ("17 topics · A1") and ends with an "A2 · Coming soon" row that opens nothing.
 - [#298] "New words from" is now "Learning from" in five languages, and its row on the Learn tab shows the checked lists ("Greek A1, A2").
+- [#291] Settings → Learning → Sound theme offers six themes for the learning sounds, Classic, Cheerful, Retro, Grumpy, Silly and Meme, each synthesized in code; choosing one plays its right-answer sound.
 
 ### Changed
 - [#138] Every dictionary is searchable right after install, with no "Preparing dictionaries" bar: the app reads the bundled dictionaries in place and keeps your history, saved words and imports in a small database of their own.

@@ -339,17 +339,27 @@ enum FeedbackSound: String, CaseIterable, Sendable {
     case pairWrong
 }
 
+/// The sound themes (0131, Sounds; #291): each has its own six sounds.
+/// Settings → Learning → Sound theme; Classic, #300's sounds, by default.
+enum SoundTheme: String, CaseIterable, Sendable {
+    case classic, cheerful, retro, grumpy, silly, meme
+
+    /// Its name in the catalog, "Cheerful". A plain `String` key: an
+    /// interpolated literal would look up the format key "….%@".
+    var titleKey: LocalizedStringKey { LocalizedStringKey("settings.learning.soundTheme." + rawValue) }
+}
+
 /// Where the feedback sounds go: `TonePlayer` in the app, a recorder in
 /// tests, which records what would have played.
 @MainActor
 protocol FeedbackSink: AnyObject {
-    func play(_ sound: FeedbackSound)
+    func play(_ sound: FeedbackSound, theme: SoundTheme)
 }
 
 /// A sink that plays nothing (see `FeedbackPlayer.isMuted`).
 @MainActor
 final class SilentFeedbackSink: FeedbackSink {
-    func play(_ sound: FeedbackSound) {}
+    func play(_ sound: FeedbackSound, theme: SoundTheme) {}
 }
 
 /// Plays the feedback sounds and decides on the haptics, from the Sounds
@@ -374,10 +384,10 @@ final class FeedbackPlayer {
         self.sink = sink ?? (Self.isMuted ? SilentFeedbackSink() : TonePlayer())
     }
 
-    /// A sound, unless Sounds is off.
+    /// A sound of the chosen theme, unless Sounds is off.
     func play(_ sound: FeedbackSound) {
         guard settings.learningSounds else { return }
-        sink.play(sound)
+        sink.play(sound, theme: settings.learningSoundTheme)
     }
 
     /// The sound of an answer. `accent` counts as right.
@@ -408,60 +418,81 @@ final class FeedbackPlayer {
 @MainActor
 final class TonePlayer: FeedbackSink {
     private let queue: DispatchQueue
-    /// A sound's player, made on `queue`: its `wav`. Tests pass their own,
-    /// which sees the thread it runs on.
-    private let makePlayer: @Sendable (FeedbackSound) -> AVAudioPlayer?
-    /// Used on `queue` only.
-    nonisolated(unsafe) private var players: [FeedbackSound: AVAudioPlayer] = [:]
+    /// A theme's sound's player, made on `queue`: its `wav`. Tests pass
+    /// their own, which sees the thread it runs on.
+    private let makePlayer: @Sendable (FeedbackSound, SoundTheme) -> AVAudioPlayer?
+    /// Each theme's players. Used on `queue` only.
+    nonisolated(unsafe) private var players: [SoundTheme: [FeedbackSound: AVAudioPlayer]] = [:]
     nonisolated(unsafe) private var isSessionSet = false
 
     init(queue: DispatchQueue = DispatchQueue(label: "com.kyukhin.DictApp.TonePlayer", qos: .userInitiated),
-         makePlayer: @escaping @Sendable (FeedbackSound) -> AVAudioPlayer? = {
-             try? AVAudioPlayer(data: ToneSynth.wav($0))
+         makePlayer: @escaping @Sendable (FeedbackSound, SoundTheme) -> AVAudioPlayer? = {
+             try? AVAudioPlayer(data: ToneSynth.wav($0, theme: $1))
          }) {
         self.queue = queue
         self.makePlayer = makePlayer
     }
 
-    func play(_ sound: FeedbackSound) {
+    func play(_ sound: FeedbackSound, theme: SoundTheme) {
         queue.async { [self] in
             if !isSessionSet {
                 isSessionSet = true
                 try? AVAudioSession.sharedInstance().setCategory(.ambient)
             }
-            if players[sound] == nil {
-                players[sound] = makePlayer(sound)
-                players[sound]?.prepareToPlay()
+            if players[theme]?[sound] == nil {
+                players[theme, default: [:]][sound] = makePlayer(sound, theme)
+                players[theme]?[sound]?.prepareToPlay()
             }
-            guard let player = players[sound] else { return }
+            guard let player = players[theme]?[sound] else { return }
             player.currentTime = 0
             player.play()
         }
     }
 
-    /// The sounds with a player, once `queue` has handled the plays asked
-    /// so far (tests).
-    nonisolated var loadedSounds: Set<FeedbackSound> {
-        queue.sync { Set(players.keys) }
+    /// A theme's sounds with a player, once `queue` has handled the plays
+    /// asked so far (tests).
+    nonisolated func loadedSounds(_ theme: SoundTheme = .classic) -> Set<FeedbackSound> {
+        queue.sync { players[theme].map { Set($0.keys) } ?? [] }
     }
 }
 
 // MARK: - The sounds (#300)
 
 /// Synthesizes the learning sounds (0131, Sounds): a port of the voices of
-/// kyukhin's candidates script, with one recipe per sound. 44.1 kHz 16-bit
-/// mono, scaled to a 0.7 peak with a 10 ms fade-out. Pure.
+/// kyukhin's candidates scripts, with one recipe per sound and theme.
+/// 44.1 kHz 16-bit mono, scaled to a 0.7 peak with a 10 ms fade-out; the
+/// themes after Classic also keep their RMS at most 0.24, so a square wave
+/// is no louder than a bell (#291). Pure.
 enum ToneSynth {
     static let sampleRate = 44_100
     /// The voices of a note.
     enum Voice { case bell, marimba, soft, fm }
+    /// The waves of `osc`: a zero-mean pulse with its duty cycle, or a saw.
+    enum Wave { case pulse(duty: Double), saw }
+    /// How a `sweep` moves from its first frequency to its last.
+    enum Curve { case exponential, linear }
 
-    /// The WAV file of a sound.
-    nonisolated static func wav(_ sound: FeedbackSound) -> Data {
-        wav(samples(sound))
+    /// The RMS cap of the themes after Classic.
+    static let rmsCap = 0.24
+
+    /// The WAV file of a theme's sound.
+    nonisolated static func wav(_ sound: FeedbackSound, theme: SoundTheme = .classic) -> Data {
+        theme == .classic ? wav(samples(sound)) : wav(samples(sound, theme: theme), rmsCap: rmsCap)
     }
 
-    /// The recipes: variant 1 of each case (kyukhin, 2026-11-10).
+    /// The recipes of a theme (kyukhin picked the six themes, 2026-11-15).
+    nonisolated static func samples(_ sound: FeedbackSound, theme: SoundTheme) -> [Double] {
+        switch theme {
+        case .classic: samples(sound)
+        case .cheerful: cheerful(sound)
+        case .retro: retro(sound)
+        case .grumpy: grumpy(sound)
+        case .silly: silly(sound)
+        case .meme: meme(sound)
+        }
+    }
+
+    /// Classic, the recipes of #300: variant 1 of each case (kyukhin, 2026-11-10).
     nonisolated static func samples(_ sound: FeedbackSound) -> [Double] {
         switch sound {
         case .right:
@@ -477,6 +508,104 @@ enum ToneSynth {
             return tone("A6", 0.15, .fm, 14)
         case .pairWrong:
             return tone("D4", 0.15, .soft, 14, bend: -0.1)
+        }
+    }
+
+    /// Marimba and bells.
+    nonisolated static func cheerful(_ sound: FeedbackSound) -> [Double] {
+        switch sound {
+        case .right:
+            mix(["C6", "E6", "G6"].map { tone($0, 0.22, .marimba, 9) }, offsets: [0, 0.06, 0.12])
+        case .wrong:
+            sequence(tone("E5", 0.12, .marimba, 8), tone("C5", 0.25, .marimba, 6), gap: 0.02)
+        case .pairRight:
+            tone("G6", 0.12, .marimba, 16)
+        case .pairWrong:
+            tone("C5", 0.14, .marimba, 14)
+        case .lessonComplete:
+            mix(["C5", "E5", "G5", "C6", "E6"].map { tone($0, 0.3, .marimba, 8) } + [tone("G6", 0.7, .bell, 4)],
+                offsets: [0, 0.07, 0.14, 0.21, 0.28, 0.35])
+        case .goalReached:
+            mix(["G5", "C6", "E6", "G6"].map { tone($0, 0.9, .bell, 3) } + [tone("C7", 1, .bell, 2.5)],
+                offsets: [0, 0.08, 0.16, 0.24, 0.4])
+        }
+    }
+
+    /// Pulse waves, as an 8-bit game console played them.
+    nonisolated static func retro(_ sound: FeedbackSound) -> [Double] {
+        switch sound {
+        case .right:
+            sequence(osc("C6", 0.07, .pulse(duty: 0.25), 2), osc("G6", 0.22, .pulse(duty: 0.25), 6))
+        case .wrong:
+            osc("A3", 0.38, .pulse(duty: 0.5), 3, bend: -0.5)
+        case .pairRight:
+            osc("E6", 0.07, .pulse(duty: 0.25), 10)
+        case .pairWrong:
+            osc("C4", 0.09, .pulse(duty: 0.5), 10, bend: -0.2)
+        case .lessonComplete:
+            sequence(["C5", "E5", "G5", "C6", "E6", "G6"].map { osc($0, 0.05, .pulse(duty: 0.25), 2) }
+                     + [osc("C7", 0.35, .pulse(duty: 0.25), 4)])
+        case .goalReached:
+            sequence(["G5", "G5", "G5"].map { osc($0, 0.09, .pulse(duty: 0.5), 3) }
+                     + [osc("C6", 0.5, .pulse(duty: 0.5), 2.5, vibrato: 0.01)], gap: 0.03)
+        }
+    }
+
+    /// Low, muffled saws.
+    nonisolated static func grumpy(_ sound: FeedbackSound) -> [Double] {
+        switch sound {
+        case .right:
+            sequence(osc("C3", 0.09, .saw, 6, lowpass: 0.1), osc("F3", 0.18, .saw, 6, lowpass: 0.1), gap: 0.04)
+        case .wrong:
+            mix([osc("A2", 0.45, .saw, 1.5, lowpass: 0.35), osc("A#2", 0.45, .saw, 1.5, lowpass: 0.35)])
+        case .pairRight:
+            osc("G2", 0.1, .saw, 12, lowpass: 0.12)
+        case .pairWrong:
+            mix([osc("A2", 0.14, .saw, 6, lowpass: 0.35), osc("A#2", 0.14, .saw, 6, lowpass: 0.35)])
+        case .lessonComplete:
+            sequence(["E3", "D3", "E3"].map { osc($0, 0.13, .saw, 5, lowpass: 0.12) }
+                     + [osc("A3", 0.35, .saw, 4, lowpass: 0.12)], gap: 0.03)
+        case .goalReached:
+            mix(["C3", "G3", "C4"].map { osc($0, 1, .saw, 1.5, attack: 0.15, lowpass: 0.1) })
+        }
+    }
+
+    /// Slides and bloops (kyukhin: no fart, for the age rating).
+    nonisolated static func silly(_ sound: FeedbackSound) -> [Double] {
+        switch sound {
+        case .right:
+            sweep(260, 620, 0.35, decay: 5, vibrato: 0.12, vibratoHz: 14)
+        case .wrong:
+            sequence(sweep(300, 820, 0.1, decay: 18), sweep(210, 600, 0.15, decay: 14), gap: 0.04)
+        case .pairRight:
+            sweep(1_200, 1_900, 0.08, decay: 10)
+        case .pairWrong:
+            sweep(250, 680, 0.1, decay: 20)
+        case .lessonComplete:
+            sequence(sweep(450, 1_600, 0.6, decay: 0.5, vibrato: 0.02, vibratoHz: 6, curve: .linear), pop(0.04))
+        case .goalReached:
+            sequence(["C5", "E5", "G5"].map { osc($0, 0.16, .saw, 2, vibrato: 0.02, lowpass: 0.25) }
+                     + [osc("C6", 0.5, .saw, 1.5, vibrato: 0.03, lowpass: 0.25)], gap: 0.02)
+        }
+    }
+
+    /// A sad trombone, a drum roll, a horn.
+    nonisolated static func meme(_ sound: FeedbackSound) -> [Double] {
+        switch sound {
+        case .right:
+            sequence(osc("C5", 0.12, .saw, 3, attack: 0.01, lowpass: 0.15),
+                     osc("G5", 0.4, .saw, 2, attack: 0.01, lowpass: 0.15), gap: 0.04)
+        case .wrong:
+            sequence(trombone("G4", 0.22), trombone("F#4", 0.22), trombone("F4", 0.22), trombone("E4", 0.65, last: true),
+                     gap: 0.04)
+        case .pairRight:
+            sweep(1_800, 300, 0.15, decay: 6)
+        case .pairWrong:
+            drum(400, 150, 0.15, seed: 5)
+        case .lessonComplete:
+            mix([sequence(drum(), drum(200, 70, 0.2, seed: 9)), cymbal()], offsets: [0, 0.42])
+        case .goalReached:
+            sequence(horn(0.18), horn(0.18), horn(0.6), gap: 0.07)
         }
     }
 
@@ -526,14 +655,134 @@ enum ToneSynth {
         }
     }
 
+    // MARK: Voices of the themes (#291)
+
+    /// The envelope of `osc` and `sweep` at sample `i` of `n`: a linear
+    /// attack, an exponential decay, and a linear release over the last 20 ms.
+    nonisolated static func envelope(_ i: Int, _ n: Int, attack: Double, decay: Double) -> Double {
+        let rate = Double(sampleRate)
+        let t = Double(i) / rate
+        let left = Double(n - i) / rate
+        return min(1, t / attack) * exp(-decay * t) * min(1, left / 0.02)
+    }
+
+    /// A note of a pulse or saw wave: `decay` is the envelope's rate,
+    /// `bend` the relative pitch change over the note, `lowpass` the
+    /// coefficient of a one-pole low-pass filter over the result.
+    nonisolated static func osc(_ freq: Double, _ seconds: Double, _ wave: Wave, _ decay: Double = 4,
+                                bend: Double = 0, vibrato: Double = 0, vibratoHz: Double = 6,
+                                attack: Double = 0.004, lowpass a: Double? = nil) -> [Double] {
+        let rate = Double(sampleRate)
+        let n = Int(rate * seconds)
+        var phase = 0.0
+        let out = (0..<n).map { i in
+            let t = Double(i) / rate
+            let f = freq * (1 + bend * t / seconds) * (1 + vibrato * sin(2 * .pi * vibratoHz * t))
+            phase = (phase + f / rate).truncatingRemainder(dividingBy: 1)
+            let s: Double
+            switch wave {
+            case .pulse(let duty): s = 2 * (phase < duty ? 1 - duty : -duty)
+            case .saw: s = 2 * phase - 1
+            }
+            return s * envelope(i, n, attack: attack, decay: decay)
+        }
+        return a.map { lowpass(out, $0) } ?? out
+    }
+
+    /// `osc` of a note name like "A#2".
+    nonisolated static func osc(_ name: String, _ seconds: Double, _ wave: Wave, _ decay: Double = 4,
+                                bend: Double = 0, vibrato: Double = 0, vibratoHz: Double = 6,
+                                attack: Double = 0.004, lowpass a: Double? = nil) -> [Double] {
+        osc(frequency(name), seconds, wave, decay, bend: bend, vibrato: vibrato, vibratoHz: vibratoHz,
+            attack: attack, lowpass: a)
+    }
+
+    /// A sine sliding from `f0` to `f1` Hz.
+    nonisolated static func sweep(_ f0: Double, _ f1: Double, _ seconds: Double, decay: Double = 4,
+                                  vibrato: Double = 0, vibratoHz: Double = 12,
+                                  curve: Curve = .exponential) -> [Double] {
+        let rate = Double(sampleRate)
+        let n = Int(rate * seconds)
+        var phase = 0.0
+        return (0..<n).map { i in
+            let x = Double(i) / Double(n)
+            var f = curve == .exponential ? f0 * pow(f1 / f0, x) : f0 + (f1 - f0) * x
+            f *= 1 + vibrato * sin(2 * .pi * vibratoHz * Double(i) / rate)
+            phase = (phase + f / rate).truncatingRemainder(dividingBy: 1)
+            return sin(2 * .pi * phase) * envelope(i, n, attack: 0.004, decay: decay)
+        }
+    }
+
+    /// A one-pole low-pass filter with coefficient `a`.
+    nonisolated static func lowpass(_ xs: [Double], _ a: Double) -> [Double] {
+        var y = 0.0
+        return xs.map { x in
+            y += a * (x - y)
+            return y
+        }
+    }
+
+    /// Seeded white noise in -1...1, xorshift32, so every call gives the
+    /// same samples.
+    struct Noise {
+        private var state: UInt32
+
+        init(seed: UInt32 = 0x2545_F491) {
+            state = seed
+        }
+
+        mutating func next() -> Double {
+            state ^= state << 13
+            state ^= state >> 17
+            state ^= state << 5
+            return Double(state) / Double(0x7FFF_FFFF) - 1
+        }
+    }
+
+    /// A drum: a falling sine with a click of noise.
+    nonisolated static func drum(_ f0: Double = 180, _ f1: Double = 55, _ seconds: Double = 0.25,
+                                 seed: UInt32 = 3) -> [Double] {
+        var noise = Noise(seed: seed)
+        let rate = Double(sampleRate)
+        return sweep(f0, f1, seconds, decay: 14).enumerated().map { i, body in
+            body + noise.next() * exp(-120 * Double(i) / rate) * 0.6
+        }
+    }
+
+    /// A cymbal: noise without its low frequencies.
+    nonisolated static func cymbal(_ seconds: Double = 0.6, decay: Double = 5, seed: UInt32 = 11) -> [Double] {
+        var noise = Noise(seed: seed)
+        let raw = (0..<Int(Double(sampleRate) * seconds)).map { _ in noise.next() }
+        let low = lowpass(raw, 0.25)
+        return raw.indices.map { i in (raw[i] - low[i]) * envelope(i, raw.count, attack: 0.002, decay: decay) }
+    }
+
+    /// A horn: three muffled saws, a little out of tune.
+    nonisolated static func horn(_ seconds: Double) -> [Double] {
+        mix([349, 370, 698].map { osc(Double($0), seconds, .saw, 0.5, attack: 0.01, lowpass: 0.3) })
+    }
+
+    /// A trombone's note; the last one wobbles and sags.
+    nonisolated static func trombone(_ name: String, _ seconds: Double, last: Bool = false) -> [Double] {
+        osc(name, seconds, .saw, last ? 1.5 : 1, bend: last ? -0.03 : 0, vibrato: last ? 0.03 : 0, vibratoHz: 5,
+            attack: 0.04, lowpass: 0.08)
+    }
+
+    // MARK: Assembly
+
     /// The parts one after another, each followed by `gap` seconds of silence.
     nonisolated static func sequence(_ parts: [Double]..., gap: Double = 0) -> [Double] {
+        sequence(parts, gap: gap)
+    }
+
+    nonisolated static func sequence(_ parts: [[Double]], gap: Double = 0) -> [Double] {
         parts.flatMap { $0 + [Double](repeating: 0, count: Int(Double(sampleRate) * gap)) }
     }
 
-    /// The voices added together, each starting at its offset in seconds.
-    nonisolated static func mix(_ voices: [[Double]], offsets: [Double]) -> [Double] {
-        let starts = offsets.map { Int($0 * Double(sampleRate)) }
+    /// The voices added together, each starting at its offset in seconds
+    /// (all at 0 without offsets).
+    nonisolated static func mix(_ voices: [[Double]], offsets: [Double]? = nil) -> [Double] {
+        let starts = (offsets ?? voices.map { _ in 0 }).map { Int($0 * Double(sampleRate)) }
         var out = [Double](repeating: 0, count: zip(voices, starts).map { $0.count + $1 }.max() ?? 0)
         for (voice, start) in zip(voices, starts) {
             for (i, s) in voice.enumerated() { out[start + i] += s }
@@ -541,11 +790,28 @@ enum ToneSynth {
         return out
     }
 
-    /// 16-bit mono PCM: scaled to a 0.7 peak, the last 10 ms faded out.
-    nonisolated static func wav(_ samples: [Double]) -> Data {
+    /// The sum of `xs`, compensated (Neumaier), as the candidates script's
+    /// Python sums them.
+    nonisolated static func sum(_ xs: [Double]) -> Double {
+        var total = 0.0, compensation = 0.0
+        for x in xs {
+            let t = total + x
+            compensation += abs(total) >= abs(x) ? (total - t) + x : (x - t) + total
+            total = t
+        }
+        return total + compensation
+    }
+
+    /// 16-bit mono PCM: scaled to a 0.7 peak, or less to keep the RMS at
+    /// most `rmsCap`, the last 10 ms faded out.
+    nonisolated static func wav(_ samples: [Double], rmsCap: Double? = nil) -> Data {
         let rate = sampleRate
         let peak = samples.map(abs).max() ?? 1
-        let gain = 0.7 / (peak == 0 ? 1 : peak)
+        var gain = 0.7 / (peak == 0 ? 1 : peak)
+        if let rmsCap, !samples.isEmpty {
+            let rms = pow(sum(samples.map { $0 * $0 }) / Double(samples.count), 0.5)
+            gain = min(gain, rmsCap / (rms == 0 ? 1 : rms))
+        }
         let fade = rate / 100
         var pcm: [Int16] = []
         pcm.reserveCapacity(samples.count)

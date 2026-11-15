@@ -511,6 +511,10 @@ struct AccessibilityIdentifiers {
         static let order = "settings_learning_order"
         static let answerMode = "settings_learning_answer_mode"
         static let sounds = "settings_learning_sounds"
+        /// #291: the Sound theme row, shown while Sounds is on, and a theme
+        /// on its screen (`classic`, `retro`).
+        static let soundTheme = "settings_sound_theme"
+        static func soundThemeOption(_ theme: String) -> String { "settings_sound_theme_\(theme)" }
         /// #331: Speak words.
         static let speakWords = "settings_speak_words"
         static let haptics = "settings_learning_haptics"

@@ -1,7 +1,7 @@
 # Learning words with spaced repetition
 
 > Spec written by Claude (AI) for LibreDict.
-> Status: Implemented, with a revision for epic #292 (tickets #293, #295, #296, #298, #299; #297 is in 0133) and for #300, approved by kyukhin on 2026-11-10 and built (PRs #303, #304, #305); the rest approved by kyukhin on 2026-11-04 · Epic: #131, revised by #292 · Tickets: #157, #158, #159, #160, #161, #162; #293, #295, #296, #298, #299, #300; #331 · Updated: 2026-11-15
+> Status: Implemented, with a revision for epic #292 (tickets #293, #295, #296, #298, #299; #297 is in 0133) and for #300, approved by kyukhin on 2026-11-10 and built (PRs #303, #304, #305); the rest approved by kyukhin on 2026-11-04 · Epic: #131, revised by #292 · Tickets: #157, #158, #159, #160, #161, #162; #293, #295, #296, #298, #299, #300; #331; #291 (sound themes, kyukhin 2026-11-15) · Updated: 2026-11-15
 
 Read [0000-overview.md](0000-overview.md) and [0129-dictionary-file.md](0129-dictionary-file.md) first. This epic is designed together with [0166-learning-statistics.md](0166-learning-statistics.md) (E10, #166), which computes the daily goal, the streak and every number from this epic's answer log. Word lists are E3 (#130, [0130-word-lists.md](0130-word-lists.md), drafted at the same time). This spec follows E3's interface ("For E4 and E10" there); "Depends on E3" records how, and the three points where it differs. The conjugation drill (E5, #132) reuses the cards, the scheduler and the log ("For E5"). The pair tabs of #292 also change 0130, 0132, 0133 and 0166 where they describe the Learn tab.
 
@@ -208,6 +208,21 @@ kyukhin, 2026-11-09/10: learning should sound playful, in the spirit of ICQ in i
 - One Sounds setting (Settings → Learning) covers all six, on by default. The ring/silent switch mutes them and other audio keeps playing, as today.
 - Each sound is the variant kyukhin picks from the candidates (Open question 10).
 
+**Sound themes** (#291, kyukhin 2026-11-15). Each theme has its own six sounds, all synthesized in code; the table above is Classic, the default.
+
+| Theme | Its sounds |
+|---|---|
+| Classic | #300's FM chimes and bells (the table above) |
+| Cheerful | marimba notes, rising chords, bells for the goal |
+| Retro | 8-bit pulse waves, a falling buzz when wrong |
+| Grumpy | low, muffled saws, a sour cluster when wrong |
+| Silly | slides and bloops, a slide and a pop at the lesson's end (no fart: the age rating, kyukhin) |
+| Meme | a sad trombone when wrong, a drum roll and cymbal at the lesson's end, a horn for the goal |
+
+- Settings → Learning → Sound theme chooses it, shown while Sounds is on (Settings, below). The row shows the chosen theme as its value and opens a list of the six, the chosen one checked, as iOS's ringtone list. A tap chooses a theme and plays its Right sound once, through the same player as the answers, so the silent switch mutes it; the list stays open, so the themes can be heard one after another.
+- The theme applies from the next sound. Sounds off silences every theme.
+- Meme's Pairs wrong and Lesson complete start on a drum hit, at full level from the first sample; every other sound starts silent.
+
 ### Daily session (#161; #296)
 
 Start runs the session in the chosen language:
@@ -266,6 +281,7 @@ A Learning section replaces the "Coming Soon" stub in Settings:
 | New words order | By frequency / Random | By frequency | The order of new words from a list |
 | Typed answers | Strict accents / Lenient / Multiple choice | Lenient (Decisions) | Production on the 1-day rung or higher |
 | Sounds | on / off | on | The six learning sounds (Sounds, above) |
+| Sound theme (#291) | Classic, Cheerful, Retro, Grumpy, Silly, Meme; shown while Sounds is on | Classic | The six sounds' theme; choosing one plays its Right sound (Sounds, above) |
 | Speak words (#331) | on / off | on | A question speaks the word it shows as it appears (Exercises, above) |
 | Haptics | on / off, hidden on devices without haptics | on | The feedback haptics |
 | Daily reminder | off / a time | off, 19:00 | Below |
@@ -335,6 +351,7 @@ A change applies from the next question. Words already started keep their cards.
 - 2026-11-10 (kyukhin, #298): "New words from" becomes "Learning from", with the checked lists as the row's value ("Greek A1, A2").
 - 2026-11-10 (kyukhin, #299): a wrong choice also shows what the chosen option means: recognition, production with options, match the pairs, and the drill's form with its person and tense. Typed answers are unchanged.
 - 2026-11-10 (kyukhin, #300): learning gets its own sounds, synthesized in code in the spirit of ICQ, never ICQ's own: right, wrong, lesson complete, daily goal reached, pairs right, pairs wrong. One Sounds setting, as today. The variants are kyukhin's pick (Open question 10).
+- 2026-11-15 (kyukhin, #291): sound themes in 2.0: Classic (#300's sounds, the default), Cheerful, Retro, Grumpy, Silly and Meme, picked from the candidates of `theme_sounds.py`, each with the six sounds, synthesized in code. Silly has no fart (the age rating).
 
 ### Out of scope
 
@@ -673,6 +690,10 @@ A word's meaning is in the meanings language of its language's pair (`LearningPa
 - **Sounds**: short sounds generated in code as WAV data, played by `AVAudioPlayer` on a serial queue of their own, never the main thread: starting the audio output can block for seconds (15 s when the audio system stalls), and the run must not freeze. The audio session category is `.ambient`, set once: the silent switch mutes the sounds and the user's music keeps playing. There is no sound file, so no license and no Xcode step. QA checks that the speaker button (#202) still speaks.
   - Until #300: two tones (right: two rising notes; wrong: one low note, about 0.2 s each).
   - #300: `FeedbackSound` has six cases, `right`, `wrong`, `lessonComplete`, `goalReached`, `pairRight`, `pairWrong`. `FeedbackPlayer.play(_ sound:)` plays any of them when Sounds is on; `play(_ outcome:)` stays for right and wrong. `ToneSynth` (pure, `nonisolated`, in `LearningService.swift`) replaces `TonePlayer.wav`: a Swift port of the voices of `make_sounds.py` (bell, marimba, soft, FM, the pop; notes in sequence and mixed with offsets), 44.1 kHz 16-bit mono, scaled to a 0.7 peak with a 10 ms fade-out, with one recipe per sound, the variant kyukhin picks (Open question 10). `TonePlayer` makes a sound's data and player on its queue at its first play, as today; the longest candidate lasts about 1 s (44,100 samples), a few milliseconds to synthesize. The Python script is not committed: the Swift recipes are the source.
+  - #291, sound themes: `SoundTheme` (`classic`, `cheerful`, `retro`, `grumpy`, `silly`, `meme`; `titleKey` names it) is stored as `learning_sound_theme` (Settings keys). `FeedbackPlayer.play(_ sound:)` reads it at each play and passes it on: `FeedbackSink.play(_:theme:)`. `TonePlayer` keeps a player per theme and sound (`players[theme][sound]`), each made on its queue at its first play, as before; `loadedSounds(_ theme:)` lists a theme's (tests).
+  - `ToneSynth.wav(_ sound:theme:)` (default Classic) and `samples(_:theme:)`: Classic is `samples(_:)` and `wav(_:)` unchanged, byte for byte (`ToneSynthTests.testClassicIsUnchanged` pins their SHA-256). The other themes are `cheerful`, `retro`, `grumpy`, `silly`, `meme`, one recipe per sound, a Swift port of kyukhin's candidates script `theme_sounds.py` (2026-11-15), which imports `make_sounds.py`'s voices; neither is committed, the Swift recipes are the source. The port gives the script's WAVs to the byte (checked once, all 36).
+  - New voices, as the script has them: `osc` (a pulse wave, zero-mean with its duty cycle, or a saw, with bend, vibrato and an envelope: a linear attack, an exponential decay, a 20 ms linear release), `sweep` (a sine sliding from one frequency to another, exponential or linear), `lowpass` (one pole), `Noise` (xorshift32, seeded: 3, 5 and 9 for the drums, 11 for the cymbal, so every call gives the same samples), `drum` (a falling sweep and a click of noise), `cymbal` (high-passed noise), `horn` (three saws at 349, 370 and 698 Hz), `trombone` (a muffled saw; the last note wobbles and sags). `mix` without offsets starts every voice at 0; `sequence` also takes an array.
+  - The themes after Classic are scaled to a 0.7 peak, or less to keep the RMS at most 0.24 (`wav(_:rmsCap:)`, the script's `write_even`), so a pulse wave is no louder than a bell; then the 10 ms fade-out. The RMS sums the squares with Neumaier's compensation, as Python's `sum` does. The longest sound, Meme's Wrong, lasts 1.47 s (64,827 samples).
 - **Speak words** (#331):
   - The decision is pure: `SpeechService.questionWord(_:lang:exercise:speakWords:voiceOverRunning:hasVoice:) -> SpeechTarget?` (`SpeechService.swift`). `recognition` and `conjugation` give the word in `SpeechService.voiceLanguages[lang]` when the device has that voice; `productionChoice`, `productionTyped` and `match` give nil, and so does any question with Speak words off, with VoiceOver running (`UIAccessibility.isVoiceOverRunning`, read as the question appears) or without a voice.
   - `QuestionSpeaker` (`@MainActor`, `SpeechService.swift`) applies it: `speak(_ question: Question)` takes `word.term` in `word.key.lang`, what the speaker button reads; `speak(_ question: ConjugationQuestion)` takes `verb.citation` in Greek. A question without a word stops the one before; `stop()` stops it. It speaks through a `WordSpeechSink`: `SystemWordSpeechSink` (`SpeechService.shared`), or `SilentWordSpeechSink` when `FeedbackPlayer.isMuted` (XCTest, `-muteSounds`), so tests never make a sound.
@@ -697,6 +718,7 @@ A word's meaning is in the meanings language of its language's pair (`LearningPa
 | `learning_new_order` | `frequency`, `random` | `frequency` |
 | `learning_answer_mode` | `strict`, `lenient`, `choice` | `lenient` |
 | `learning_sounds`, `learning_haptics` | `1`, `0`; `learning_sounds` covers the six sounds of #300 | `1` |
+| `learning_sound_theme` (#291) | `classic`, `cheerful`, `retro`, `grumpy`, `silly`, `meme`; an unknown value reads as `classic` | absent = `classic` |
 | `learning_speak_words` (#331) | `1`, `0`: Speak words | `1` |
 | `learning_reminder` | minutes after midnight, absent = off | absent |
 | `learning_languages` | JSON array of ISO 639-3 codes: the pair tabs' order (#293). A chosen language is appended, a drag rewrites the array, Stop learning removes the language | absent = none: the picker |
@@ -776,7 +798,7 @@ A word's meaning is in the meanings language of its language's pair (`LearningPa
 | My words | `my_words_list`, `my_words_item_<word>` |
 | Run | `exercise_view`, `exercise_close`, `exercise_progress`, `exercise_prompt` (#331: on Recognition, value: the word spoken as the question appeared, empty for none), `exercise_new_badge`, `exercise_option_<0…3>`, `exercise_answer_field`, `exercise_check`, `exercise_dont_know`, `exercise_feedback` (value `right`, `accent`, `wrong`), `exercise_you_chose` (#299, also in the drill), `exercise_continue`, `run_summary`, `run_summary_done` |
 | Match | `match_view`, `match_word_<0…4>`, `match_meaning_<0…4>`, `match_timer`, `match_mismatch` (#299), `match_next_round`, `match_done` |
-| Settings | `settings_learning_languages`, `learning_language_row_<lang>`, `learning_language_via_<lang>` (value: the via code; a menu with two or more pairs), `learning_language_limited_<lang>` (the warning of a limited pair), `learning_language_stop_<lang>`, `learning_language_add`, `settings_learning_new_per_day`, `settings_learning_new_words_from`, `settings_learning_goal`, `settings_learning_order`, `settings_learning_answer_mode`, `settings_learning_sounds`, `settings_speak_words` (#331), `settings_learning_haptics`, `settings_learning_reminder`, `settings_learning_reminder_time` |
+| Settings | `settings_learning_languages`, `learning_language_row_<lang>`, `learning_language_via_<lang>` (value: the via code; a menu with two or more pairs), `learning_language_limited_<lang>` (the warning of a limited pair), `learning_language_stop_<lang>`, `learning_language_add`, `settings_learning_new_per_day`, `settings_learning_new_words_from`, `settings_learning_goal`, `settings_learning_order`, `settings_learning_answer_mode`, `settings_learning_sounds`, `settings_sound_theme` (#291: the row, while Sounds is on; label "Sound theme, Classic"), `settings_sound_theme_<theme>` (#291: a theme on its screen, `settings_sound_theme_retro`; the chosen one has the selected trait), `settings_speak_words` (#331), `settings_learning_haptics`, `settings_learning_reminder`, `settings_learning_reminder_time` |
 
 ### Strings
 
@@ -802,6 +824,14 @@ A word's meaning is in the meanings language of its language's pair (`LearningPa
 | `exercise.youChose` | You chose: %1$@ · %2$@ |
 | `settings.learning.speakWords` | Speak words (#331) |
 
+- #291 (English; the implementing agent writes all five languages):
+
+| Key | en |
+|---|---|
+| `settings.learning.soundTheme` | Sound theme (the row and its screen's title) |
+| `settings.learning.soundTheme.classic`, `.cheerful`, `.retro`, `.grumpy`, `.silly`, `.meme` | Classic · Cheerful · Retro · Grumpy · Silly · Meme |
+
+  Spanish keeps "Retro" and "Meme" as in English (`sameAsEnglishKeys`).
 - Reused by #293: `settings.learning.addLanguage` ("+" and the sheet's last row), `settings.learning.stopLanguage` (the menu item), its `.title` and `.message` (the alert), `settings.learning.languages` (the sheet's title), `learn.viaLanguage` (the tab name: the language's name, " · ", "via Russian"; the separator is not translated). `learn.language`, the switch's label, goes.
 - Languages (English; the alerts' Yes and No reuse the catalog's existing buttons):
 
@@ -860,6 +890,7 @@ A word's meaning is in the meanings language of its language's pair (`LearningPa
 | `Resources/Localizable.xcstrings` | The keys above, 0130's and 0133's |
 
 - **#331** adds no file either: `SpeechService.swift` (`questionWord`, `speakWord`, the queue, `QuestionSpeaker` and its sinks), `SettingsService.swift` (`learningSpeakWords`), `SettingsViewModel.swift` and `SettingsView.swift` (the switch), `LearnViewModel.swift` (`spokenWord`, `leave()` in the two runs), `ExerciseView.swift` (the words' value, `.onDisappear`), `Localizable.xcstrings` (one key).
+- **#291** adds no app file either: `SoundTheme`, the themes' recipes and voices and `TonePlayer`'s per-theme players in `Services/LearningService.swift`; `learningSoundTheme` in `Services/SettingsService.swift`; `soundTheme` and `chooseSoundTheme` in `LearningSettingsViewModel` (`ViewModels/SettingsViewModel.swift`); the row and `SoundThemePickerView` in `Views/SettingsView.swift`; the strings. The UI suite `SoundThemeFlowTests.swift` is in the synchronized folder.
 
 ### Tickets, order and sizes
 
@@ -954,6 +985,9 @@ Unit classes go in `DictAppTests.swift`. Async tests, and classes that are mostl
 | #300: Sounds off in Settings: none plays | Unit `FeedbackPlayerTests.testSoundAndHapticsFollowTheSettings`, over the six |
 | #331: which questions speak, and what; Speak words defaults to on | Unit `QuestionWordTests` (pure): `testRecognitionAndTheDrillSpeakTheirWord` (γράφω and πρέπει el-GR, house en-US, casa es-ES), `testProductionAndMatchSpeakNothing` (only recognition and conjugation speak), `testNothingWhenOffWithVoiceOverOrWithoutAVoice` (off, VoiceOver, no Greek voice, `und`, an empty word). `QuestionSpeakerTests`: `testSpeakWordsIsOnByDefault` (`learning_speak_words` absent reads on, written `1`/`0`, cleared by `resetLearning`), `testRecognitionSpeaksItsWordProductionStops`, `testVoiceOverSpeaksNothing`, `testTestsAreMuted`. `ExerciseRunViewModelTests.testRecognitionSpeaksItsWordAsItAppears` (`due` fixture: each recognition question speaks its word once and `spokenWord` is it; the summary stops it; the Production trainer speaks nothing; a run left while loading speaks nothing), `ConjugationRunViewModelTests.testDrillSpeaksTheCitedVerb` (γράφω and πρέπει; the next question speaks again; `leave()` stops; off: nothing) |
 | #331: switch on, a Recognition and a drill question speak their word; switch off, nothing is spoken | UI `ExerciseFlowTests.testRecognitionSpeaksItsWord` (`exercise_prompt`'s value is the word, for two questions; a Production question's is empty), `ConjugationDrillFlowTests.testDrillSpeaksItsVerb` (`drill_prompt_verb`'s value is the verb, for two questions), `ExerciseFlowTests.testSpeakWordsOffSpeaksNothing` (`settings_speak_words` reads on, turned off: the Recognition and drill values are empty). UI tests launch with `-muteSounds` (`LibreDictApp`), so the app records the word and speaks nothing. QA: on a device, a word is heard as each Recognition and drill question appears and stops on Continue and on close; the silent switch mutes it; music keeps playing; VoiceOver on: no word; the speaker button (#202) still speaks |
+| #291: every theme's sounds are 16-bit mono 44.1 kHz, peak at most 0.7, silent at the end, equal across two calls; Classic's samples are unchanged | Unit `ToneSynthTests.testEveryThemeIsAValidWAV` (the 36: the header, the script's length to the sample, under 2 s, a peak of at most 0.7, an RMS of at most 0.24 after Classic, the last sample silent, `AVAudioPlayer` reads them, all 36 differ), `testClassicIsUnchanged` (SHA-256 of #300's WAVs), `testNoiseIsTheScriptsXorshift` (the script's first values) |
+| #291: the setting defaults to Classic; the player plays the chosen theme | Unit `LearningSettingsTests.testSoundThemeDefaultsToClassic` (the key and its values, an unknown value, `-resetData`), `FeedbackPlayerTests.testPlaysTheChosenTheme` (`FeedbackSink` gets each sound with the theme of the moment; Sounds off: none), `testTonesAreCachedPerTheme` (a player per theme and sound, made once), `LearningSettingsViewModelTests.testChoosingASoundThemePlaysItsRightSound` (stored, Right plays once in the theme chosen, loading plays nothing). QA: kyukhin hears each theme on a device; the silent switch mutes the preview |
+| #291: the picker shows with Sounds on and hides with Sounds off; the chosen theme survives a relaunch | UI `SoundThemeFlowTests.testPickerShowsWithSoundsOn` (Classic on the row; Sounds off hides it, on brings it back), `testChosenThemeSurvivesARelaunch` (the six names, Retro checked, named on the row, after a relaunch too) |
 | #320: no English list word with a known part of speech shows a WordNet sense of another part of speech, unless WordNet has no section of its part of speech (30 list words, some mistagged in the list, such as weep as a noun; they keep the first sense, as before) | Unit `GlossTests.testWordNetSenseOfTheListPartOfSpeech` (pure: a noun-then-verb entry gives its verb sense to be-, do-, have-verb and verb, and its noun sense to any list with noun, in any order; an adjective satellite is an adjective; no section, an unknown part of speech or another dictionary: the first sense), `LearningStoreTests.testWordNetMeaningIsOfTheListPartOfSpeech`, `LearningStoreTests.testNewListWordsInMatchThePairsTakeTheListPartOfSpeech` (match the pairs, words not yet in learning) (the shipped files, English via English: be, was, do, have and well take the sense of their list part of speech; afraid, back, home, kind and all are unchanged; `wordChoices` reads the same), `StatisticsViewModelTests.testHardestWordMeaningIsOfTheListPartOfSpeech` (was among the hardest words reads as the verb), `GlossTests.testExampleLeftoversDropped` (pure: attributions, empty separators, an example that lost a quote, a trailing `e.g.,`; dates, balanced quotes and a lone or listed "e.g." kept). Review: kyukhin checks the before/after list of every English list word whose meaning changes |
 
 ## Open questions
@@ -1034,3 +1068,4 @@ Unit classes go in `DictAppTests.swift`. Async tests, and classes that are mostl
 - 2026-11-12: Review fixes (CodeRabbit, PRs #303, #305): a load commits the pair tabs in the current order, so a drag while they load is kept; a continued lesson reads its cards before it takes the lesson's answers, so a failed read shows the error, not a summary. Tests added.
 - 2026-11-13: #320: in English WordNet a list word's meaning is WordNet's first sense only when its part of speech is one of the list's, else the first sense of the first section, in WordNet's order, that is (was read "beryllium", the noun Be). The list's order is alphabetical, so it decides nothing. A list determiner reads as WordNet's adjective. `Gloss.short` also drops the attributions, empty `; ;`, half-quoted examples and trailing `e.g.,` that the build left in WordNet glosses (93 English list words showed them). E10's hardest words pass the part of speech too. 1,073 of the 8,647 English list items change in English via English; the other pairs' list words do not, and outside WordNet only two meanings lose a trailing comma. Meanings and Test plan updated.
 - 2026-11-15 (kyukhin, #331): a question speaks the word it shows on its own as it appears: Recognition its word, the conjugation drill its verb, in the word's voice; Production and match the pairs speak nothing. A new question, the summary, closing the run and leaving its screen stop it; nothing with VoiceOver running or without a voice. Speak words in Settings → Learning, on by default (`learning_speak_words`). The decision is the pure `SpeechService.questionWord`; `QuestionSpeaker` speaks through `SpeechService` on a queue of its own, in the `.ambient` session, and is silent under tests. The spoken word is the accessibility value of `exercise_prompt` and `drill_prompt_verb` for UI tests. Exercises, Settings, Feedback, Settings keys, Identifiers, Strings, Code map and Test plan updated.
+- 2026-11-15 (kyukhin, #291): sound themes. Settings → Learning → Sound theme, shown while Sounds is on, offers Classic (#300's sounds, the default), Cheerful, Retro, Grumpy, Silly and Meme; choosing one plays its Right sound. `ToneSynth` ports the recipes and voices of `theme_sounds.py` (pulse, saw, sweep, low-pass, seeded noise, drum, cymbal, horn, trombone; the RMS cap), to the script's bytes; Classic is unchanged. New key `learning_sound_theme`, ids `settings_sound_theme` and `settings_sound_theme_<theme>`, 7 strings. Sounds, Settings, Decisions, Feedback, Settings keys, Identifiers, Strings, Code map, Test plan.
