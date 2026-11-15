@@ -301,6 +301,8 @@ final class SettingsService {
         static let newOrder = "learning_new_order"
         static let answerMode = "learning_answer_mode"
         static let sounds = "learning_sounds"
+        /// #291: the sounds' theme.
+        static let soundTheme = "learning_sound_theme"
         static let haptics = "learning_haptics"
         /// #331: Speak words.
         static let speakWords = "learning_speak_words"
@@ -312,7 +314,7 @@ final class SettingsService {
         static let lists = "learning_lists"
         /// E5's "Tenses up to" (0132).
         static let drillTenses = "learning_drill_tenses"
-        static let all = [newPerDay, dailyGoal, newOrder, answerMode, sounds, haptics, speakWords,
+        static let all = [newPerDay, dailyGoal, newOrder, answerMode, sounds, soundTheme, haptics, speakWords,
                           reminder, languages, language, via, lists, drillTenses]
     }
 
@@ -341,6 +343,12 @@ final class SettingsService {
     var learningSounds: Bool {
         get { store.string(forKey: LearningKey.sounds) != "0" }
         set { store.set(newValue ? "1" : "0", forKey: LearningKey.sounds) }
+    }
+
+    /// The sounds' theme (#291); Classic when absent or unknown.
+    var learningSoundTheme: SoundTheme {
+        get { SoundTheme(rawValue: store.string(forKey: LearningKey.soundTheme) ?? "") ?? .classic }
+        set { store.set(newValue.rawValue, forKey: LearningKey.soundTheme) }
     }
 
     var learningHaptics: Bool {

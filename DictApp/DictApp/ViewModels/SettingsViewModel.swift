@@ -576,6 +576,8 @@ final class LearningSettingsViewModel: ObservableObject {
     @Published var sounds: Bool {
         didSet { if sounds != oldValue { settings.learningSounds = sounds } }
     }
+    /// The sounds' theme (#291), changed through `chooseSoundTheme`.
+    @Published private(set) var soundTheme: SoundTheme
     @Published var haptics: Bool {
         didSet { if haptics != oldValue { settings.learningHaptics = haptics } }
     }
@@ -599,12 +601,16 @@ final class LearningSettingsViewModel: ObservableObject {
     private let languageService: LearningLanguageService
     private let reminder: LearningReminder
     private let clock: LearningClock
+    /// Plays a theme's Right sound when it is chosen (#291).
+    private let player: FeedbackPlayer
 
     init(settings: SettingsService = .shared, db: DatabaseService = .shared,
          languages: LearningLanguageService? = nil, reminder: LearningReminder? = nil,
          clock: LearningClock = LearningClock(),
-         supportsHaptics: Bool = CHHapticEngine.capabilitiesForHardware().supportsHaptics) {
+         supportsHaptics: Bool = CHHapticEngine.capabilitiesForHardware().supportsHaptics,
+         player: FeedbackPlayer? = nil) {
         self.settings = settings
+        self.player = player ?? .shared
         self.db = db
         self.languageService = languages ?? .shared
         self.reminder = reminder ?? .shared
@@ -615,6 +621,7 @@ final class LearningSettingsViewModel: ObservableObject {
         newOrder = settings.learningNewOrder
         answerMode = settings.learningAnswerMode
         sounds = settings.learningSounds
+        soundTheme = settings.learningSoundTheme
         haptics = settings.learningHaptics
         speakWords = settings.learningSpeakWords
         reminderOn = settings.learningReminder != nil
@@ -632,6 +639,7 @@ final class LearningSettingsViewModel: ObservableObject {
         newOrder = settings.learningNewOrder
         answerMode = settings.learningAnswerMode
         sounds = settings.learningSounds
+        soundTheme = settings.learningSoundTheme
         haptics = settings.learningHaptics
         speakWords = settings.learningSpeakWords
         reminderOn = settings.learningReminder != nil
@@ -705,6 +713,16 @@ final class LearningSettingsViewModel: ObservableObject {
             errorMessage = error.localizedDescription
         }
         await load(locale: locale)
+    }
+
+    // MARK: Sound theme
+
+    /// A theme chosen in Settings: stored, then its Right sound plays once,
+    /// as an answer's would, so the user hears it (#291).
+    func chooseSoundTheme(_ theme: SoundTheme) {
+        soundTheme = theme
+        settings.learningSoundTheme = theme
+        player.play(FeedbackSound.right)
     }
 
     // MARK: Reminder

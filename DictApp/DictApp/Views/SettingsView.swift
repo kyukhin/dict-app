@@ -229,7 +229,8 @@ private struct UILanguagePickerView: View {
 
 /// The Learning section: the learned languages, new words per day, E3's
 /// Learning from (0130, #154, #298), the daily goal, the new words order, typed
-/// answers, sounds, Speak words (#331), haptics and the daily reminder.
+/// answers, sounds with their theme (#291), Speak words (#331), haptics and the
+/// daily reminder.
 struct LearningSettingsSection: View {
     @ObservedObject var vm: LearningSettingsViewModel
     @Environment(\.locale) private var locale
@@ -286,6 +287,19 @@ struct LearningSettingsSection: View {
 
             Toggle("settings.learning.sounds", isOn: $vm.sounds)
                 .accessibilityIdentifier("settings_learning_sounds")
+            // #291: the sounds' theme, while Sounds is on.
+            if vm.sounds {
+                NavigationLink {
+                    SoundThemePickerView(vm: vm)
+                } label: {
+                    LabeledContent {
+                        Text(vm.soundTheme.titleKey)
+                    } label: {
+                        Text("settings.learning.soundTheme")
+                    }
+                }
+                .accessibilityIdentifier("settings_sound_theme")
+            }
             Toggle("settings.learning.speakWords", isOn: $vm.speakWords)
                 .accessibilityIdentifier("settings_speak_words")
             if vm.supportsHaptics {
@@ -321,6 +335,35 @@ struct LearningSettingsSection: View {
                 }
             }
         }
+    }
+}
+
+/// Settings → Learning → Sound theme (#291): the six themes, the chosen
+/// one checked. A tap chooses a theme and plays its Right sound; the list
+/// stays, so the themes can be heard one after another, as iOS's ringtones.
+struct SoundThemePickerView: View {
+    @ObservedObject var vm: LearningSettingsViewModel
+
+    var body: some View {
+        List(SoundTheme.allCases, id: \.self) { theme in
+            Button {
+                vm.chooseSoundTheme(theme)
+            } label: {
+                HStack {
+                    Text(theme.titleKey)
+                        .foregroundStyle(.primary)
+                    Spacer()
+                    if theme == vm.soundTheme {
+                        Image(systemName: "checkmark")
+                            .foregroundStyle(.tint)
+                            .accessibilityHidden(true)
+                    }
+                }
+            }
+            .accessibilityIdentifier("settings_sound_theme_\(theme.rawValue)")
+            .accessibilityAddTraits(theme == vm.soundTheme ? .isSelected : [])
+        }
+        .navigationTitle("settings.learning.soundTheme")
     }
 }
 

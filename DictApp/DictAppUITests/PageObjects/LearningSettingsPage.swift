@@ -17,6 +17,8 @@ class LearningSettingsPage: BasePage {
     var order: XCUIElement { app.buttons[IDs.order].firstMatch }
     var answerMode: XCUIElement { app.buttons[IDs.answerMode].firstMatch }
     var sounds: XCUIElement { app.switches[IDs.sounds].firstMatch }
+    var soundTheme: XCUIElement { app.buttons[IDs.soundTheme].firstMatch }
+    func soundThemeOption(_ theme: String) -> XCUIElement { app.buttons[IDs.soundThemeOption(theme)].firstMatch }
     /// #331: Speak words.
     var speakWords: XCUIElement { app.switches[IDs.speakWords].firstMatch }
     var haptics: XCUIElement { app.switches[IDs.haptics].firstMatch }
@@ -81,6 +83,13 @@ class LearningSettingsPage: BasePage {
         item.tap()
         XCTAssertTrue(waitForLabel(of: picker, containing: option), "\(picker.identifier) shows \(option)",
                       file: file, line: line)
+    }
+
+    /// Opens Settings → Learning → Sound theme (#291).
+    @discardableResult
+    func openSoundTheme(file: StaticString = #filePath, line: UInt = #line) -> Bool {
+        reveal(soundTheme, file: file, line: line).tap()
+        return soundThemeOption("classic").waitForExistence(timeout: TestData.Timeouts.medium)
     }
 
     /// Opens Settings → Learning → Languages.
