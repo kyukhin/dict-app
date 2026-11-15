@@ -17,6 +17,8 @@ class LearningSettingsPage: BasePage {
     var order: XCUIElement { app.buttons[IDs.order].firstMatch }
     var answerMode: XCUIElement { app.buttons[IDs.answerMode].firstMatch }
     var sounds: XCUIElement { app.switches[IDs.sounds].firstMatch }
+    /// #331: Speak words.
+    var speakWords: XCUIElement { app.switches[IDs.speakWords].firstMatch }
     var haptics: XCUIElement { app.switches[IDs.haptics].firstMatch }
     var reminder: XCUIElement { app.switches[IDs.reminder].firstMatch }
     var reminderTime: XCUIElement { element(IDs.reminderTime) }

@@ -229,7 +229,7 @@ private struct UILanguagePickerView: View {
 
 /// The Learning section: the learned languages, new words per day, E3's
 /// Learning from (0130, #154, #298), the daily goal, the new words order, typed
-/// answers, sounds, haptics and the daily reminder.
+/// answers, sounds, Speak words (#331), haptics and the daily reminder.
 struct LearningSettingsSection: View {
     @ObservedObject var vm: LearningSettingsViewModel
     @Environment(\.locale) private var locale
@@ -286,6 +286,8 @@ struct LearningSettingsSection: View {
 
             Toggle("settings.learning.sounds", isOn: $vm.sounds)
                 .accessibilityIdentifier("settings_learning_sounds")
+            Toggle("settings.learning.speakWords", isOn: $vm.speakWords)
+                .accessibilityIdentifier("settings_speak_words")
             if vm.supportsHaptics {
                 Toggle("settings.learning.haptics", isOn: $vm.haptics)
                     .accessibilityIdentifier("settings_learning_haptics")

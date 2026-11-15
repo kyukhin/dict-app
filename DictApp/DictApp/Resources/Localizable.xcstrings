@@ -12617,6 +12617,42 @@
         }
       }
     },
+    "settings.learning.speakWords": {
+      "comment": "Settings, Learning: a question speaks the word it shows as it appears (#331).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Speak words"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Произносить слова"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pronunciar palabras"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "نطق الكلمات"
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Εκφώνηση λέξεων"
+          }
+        }
+      }
+    },
     "settings.learning.haptics": {
       "comment": "Settings, Learning: the answer feedback haptics.",
       "extractionState": "manual",

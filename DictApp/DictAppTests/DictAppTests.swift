@@ -6913,6 +6913,143 @@ final class SpeechTargetTests: XCTestCase {
     }
 }
 
+// MARK: - Issue #331: the word a question speaks
+
+/// Records what `QuestionSpeaker` would have spoken, and each stop.
+@MainActor
+final class RecordingWordSpeechSink: WordSpeechSink {
+    enum Event: Equatable {
+        case speak(SpeechTarget)
+        case stop
+    }
+
+    private(set) var events: [Event] = []
+
+    /// The words spoken, in order.
+    var spoken: [SpeechTarget] {
+        events.compactMap { event in
+            if case let .speak(word) = event { return word }
+            return nil
+        }
+    }
+
+    func speak(_ word: SpeechTarget) { events.append(.speak(word)) }
+    func stop() { events.append(.stop) }
+}
+
+/// `SpeechService.questionWord` (pure): which questions speak, and what.
+final class QuestionWordTests: XCTestCase {
+    private func word(_ word: String, lang: String = "ell", _ exercise: ExerciseKind, speakWords: Bool = true,
+                      voiceOver: Bool = false, hasVoice: (String) -> Bool = { _ in true }) -> SpeechTarget? {
+        SpeechService.questionWord(word, lang: lang, exercise: exercise, speakWords: speakWords,
+                                   voiceOverRunning: voiceOver, hasVoice: hasVoice)
+    }
+
+    /// Recognition speaks its word, the drill its cited verb, each in its
+    /// language's voice.
+    func testRecognitionAndTheDrillSpeakTheirWord() {
+        XCTAssertEqual(word("γράφω", .recognition), SpeechTarget(text: "γράφω", language: "el-GR"))
+        XCTAssertEqual(word("house", lang: "eng", .recognition), SpeechTarget(text: "house", language: "en-US"))
+        XCTAssertEqual(word("casa", lang: "spa", .recognition), SpeechTarget(text: "casa", language: "es-ES"))
+        XCTAssertEqual(word("πρέπει", .conjugation), SpeechTarget(text: "πρέπει", language: "el-GR"))
+    }
+
+    /// Production, choice and typed, and match the pairs speak nothing:
+    /// their words are options or answers.
+    func testProductionAndMatchSpeakNothing() {
+        for exercise in [ExerciseKind.productionChoice, .productionTyped, .match] {
+            XCTAssertNil(word("γράφω", exercise), "\(exercise)")
+        }
+        XCTAssertEqual(Set(ExerciseKind.allCases.filter { word("γράφω", $0) != nil }), [.recognition, .conjugation])
+    }
+
+    /// Speak words off, VoiceOver running, no voice for the language (#202),
+    /// a language without a voice code and an empty word: silence.
+    func testNothingWhenOffWithVoiceOverOrWithoutAVoice() {
+        for exercise in [ExerciseKind.recognition, .conjugation] {
+            XCTAssertNil(word("γράφω", exercise, speakWords: false), "Speak words off")
+            XCTAssertNil(word("γράφω", exercise, voiceOver: true), "VoiceOver reads the question itself")
+            XCTAssertNil(word("γράφω", exercise, hasVoice: { $0 != "el-GR" }), "no Greek voice")
+            XCTAssertNil(word("γράφω", lang: "und", exercise), "Other: no voice code")
+            XCTAssertNil(word("", exercise), "no word")
+        }
+        var asked: [String] = []
+        _ = word("γράφω", .recognition, hasVoice: { asked.append($0); return true })
+        XCTAssertEqual(asked, ["el-GR"], "the voice is checked for the word's language")
+    }
+}
+
+/// `QuestionSpeaker`: a question speaks its word through the sink and by
+/// the setting at that moment; a question without one stops the word
+/// before it.
+@MainActor
+final class QuestionSpeakerTests: XCTestCase {
+    private let today = LearningFixture.today
+    private let grafo = WordChoice(key: LearningFixture.grafo, term: "γράφω", endings: "-εις", meaning: "write",
+                                   partOfSpeech: "verb")
+    private let candidates = [("τρέχω", "run"), ("πίνω", "drink"), ("νερό", "water"), ("σπίτι", "house")]
+        .map { WordChoice(key: WordKey(lang: "ell", word: $0.0), term: $0.0, meaning: $0.1, partOfSpeech: "verb") }
+
+    private func question(_ kind: CardKind, step: Int = 0, mode: AnswerMode = .lenient) throws -> Question {
+        var rng = SplitMix64(seed: 1)
+        let card = LearningFixture.card(kind, step: step, due: today, last: today.adding(days: -1))
+        return try XCTUnwrap(QuestionBuilder.build(card: card, word: grafo, candidates: candidates, mode: mode,
+                                                   meaningsLang: "eng", rng: &rng))
+    }
+
+    /// The switch is on by default (#331).
+    func testSpeakWordsIsOnByDefault() {
+        let store = InMemoryKeyValueStore()
+        let settings = SettingsService(store: store)
+        XCTAssertTrue(settings.learningSpeakWords)
+        XCTAssertNil(store.string(forKey: "learning_speak_words"), "reading the default writes nothing")
+        settings.learningSpeakWords = false
+        XCTAssertEqual(store.string(forKey: "learning_speak_words"), "0")
+        XCTAssertFalse(settings.learningSpeakWords)
+        settings.learningSpeakWords = true
+        XCTAssertEqual(store.string(forKey: "learning_speak_words"), "1")
+        settings.learningSpeakWords = false
+        settings.resetLearning()
+        XCTAssertNil(store.string(forKey: "learning_speak_words"), "-resetData clears it")
+        XCTAssertTrue(settings.learningSpeakWords)
+    }
+
+    func testRecognitionSpeaksItsWordProductionStops() throws {
+        let settings = SettingsService(store: InMemoryKeyValueStore())
+        let sink = RecordingWordSpeechSink()
+        let speaker = QuestionSpeaker(settings: settings, sink: sink, voiceOverRunning: { false }, hasVoice: { _ in true })
+        let greek = SpeechTarget(text: "γράφω", language: "el-GR")
+
+        XCTAssertEqual(speaker.speak(try question(.recognition)), greek)
+        XCTAssertNil(speaker.speak(try question(.production)), "production as a choice")
+        XCTAssertNil(speaker.speak(try question(.production, step: 2)), "production typed")
+        XCTAssertEqual(try question(.production, step: 2).input, .typed)
+        XCTAssertEqual(sink.events, [.speak(greek), .stop, .stop], "a question without a word stops the one before")
+
+        settings.learningSpeakWords = false
+        XCTAssertNil(speaker.speak(try question(.recognition)), "Speak words off")
+        speaker.stop()
+        XCTAssertEqual(sink.events, [.speak(greek), .stop, .stop, .stop, .stop])
+    }
+
+    func testVoiceOverSpeaksNothing() throws {
+        var voiceOver = true
+        let sink = RecordingWordSpeechSink()
+        let speaker = QuestionSpeaker(settings: SettingsService(store: InMemoryKeyValueStore()), sink: sink,
+                                      voiceOverRunning: { voiceOver }, hasVoice: { _ in true })
+        XCTAssertNil(speaker.speak(try question(.recognition)))
+        voiceOver = false
+        XCTAssertEqual(speaker.speak(try question(.recognition)), SpeechTarget(text: "γράφω", language: "el-GR"),
+                       "VoiceOver is read at each question")
+        XCTAssertEqual(sink.spoken.count, 1)
+    }
+
+    /// Under XCTest the app's speaker is silent, as its sounds are.
+    func testTestsAreMuted() {
+        XCTAssertTrue(FeedbackPlayer.isMuted)
+    }
+}
+
 // MARK: - Issue #140: the dictionary file's format
 
 /// The bundled `dictionaries.sqlite` as `Scripts/build_dictionaries.py`
@@ -36317,5 +36454,96 @@ extension GrammarTopicsViewModelTests {
             let locale = Locale(identifier: code)
             XCTAssertNotEqual(GrammarTopicsViewModel.comingSoonText("A2", locale: locale), "A2 · Coming soon", code)
         }
+    }
+}
+
+extension ExerciseRunViewModelTests {
+    /// #331: each recognition question speaks its word as it appears (the
+    /// prompt's value), a production question nothing; the summary stops
+    /// the word, and a run left speaks no later question.
+    func testRecognitionSpeaksItsWordAsItAppears() async throws {
+        _ = try await db.writeLearningFixture("due", today: today)
+        func make(_ kind: CardKind, _ sink: RecordingWordSpeechSink) -> ExerciseRunViewModel {
+            ExerciseRunViewModel(run: .trainer(kind), lang: "ell", meaningsLang: "eng", db: db, settings: settings,
+                                 languages: languages, clock: TestClock("2026-11-04T12:00:00Z").clock,
+                                 player: FeedbackPlayer(settings: settings, sink: RecordingFeedbackSink()),
+                                 speaker: QuestionSpeaker(settings: settings, sink: sink, voiceOverRunning: { false },
+                                                          hasVoice: { _ in true }),
+                                 seed: 159, answerHints: true)
+        }
+
+        let sink = RecordingWordSpeechSink()
+        let vm = make(.recognition, sink)
+        await vm.start()
+        var asked: [String] = []
+        while vm.phase == .question, let question = vm.question {
+            guard asked.count < 30 else { XCTFail("the run does not end"); break }
+            asked.append(question.word.term)
+            XCTAssertEqual(vm.spokenWord, question.word.term, "the prompt's value")
+            XCTAssertEqual(sink.events.last, .speak(SpeechTarget(text: question.word.term, language: "el-GR")),
+                           "spoken as it appears")
+            await vm.choose(try XCTUnwrap(question.rightIndex))
+            await vm.next()
+        }
+        XCTAssertEqual(vm.phase, .summary)
+        XCTAssertEqual(sink.spoken.map(\.text), asked, "each question once")
+        XCTAssertEqual(sink.events.last, .stop, "the summary stops the word")
+        XCTAssertEqual(vm.spokenWord, "")
+
+        let production = RecordingWordSpeechSink()
+        let typed = make(.production, production)
+        await typed.start()
+        XCTAssertNotNil(typed.question)
+        XCTAssertEqual(typed.spokenWord, "")
+        XCTAssertEqual(production.spoken, [], "production speaks nothing")
+
+        let left = RecordingWordSpeechSink()
+        let closed = make(.recognition, left)
+        closed.leave()
+        await closed.start()
+        XCTAssertNotNil(closed.question, "a run closed while it loads still loads")
+        XCTAssertEqual(left.spoken, [], "but speaks nothing")
+        XCTAssertEqual(left.events.first, .stop)
+    }
+}
+
+extension ConjugationRunViewModelTests {
+    /// #331: each drill question speaks its verb as the prompt cites it
+    /// (πρέπει, an impersonal verb, too); closing the run stops it.
+    func testDrillSpeaksTheCitedVerb() async throws {
+        for word in ["γράφω", "πρέπει"] {
+            let sink = RecordingWordSpeechSink()
+            let verb = try await Fixture.verb(word)
+            let vm = ConjugationRunViewModel(mode: .verb(verb, level: .a1), db: db, settings: settings,
+                                             clock: TestClock("2026-11-04T12:00:00Z").clock,
+                                             player: FeedbackPlayer(settings: settings, sink: RecordingFeedbackSink()),
+                                             speaker: QuestionSpeaker(settings: settings, sink: sink,
+                                                                      voiceOverRunning: { false },
+                                                                      hasVoice: { _ in true }),
+                                             seed: 168, answerHints: true, length: 2)
+            await vm.start()
+            let question = try XCTUnwrap(vm.question)
+            XCTAssertEqual(question.verb.citation, word)
+            XCTAssertEqual(vm.spokenWord, word, "the verb's value")
+            XCTAssertEqual(sink.spoken, [SpeechTarget(text: word, language: "el-GR")])
+            await vm.choose(question.rightIndex)
+            await vm.next()
+            XCTAssertEqual(sink.spoken.count, 2, "\(word): the next question speaks again")
+            vm.leave()
+            XCTAssertEqual(sink.events.last, .stop, "closing stops the verb")
+        }
+
+        settings.learningSpeakWords = false
+        let off = RecordingWordSpeechSink()
+        let vm = ConjugationRunViewModel(mode: .verb(try await Fixture.verb("γράφω"), level: .a1), db: db,
+                                         settings: settings, clock: TestClock("2026-11-04T12:00:00Z").clock,
+                                         player: FeedbackPlayer(settings: settings, sink: RecordingFeedbackSink()),
+                                         speaker: QuestionSpeaker(settings: settings, sink: off,
+                                                                  voiceOverRunning: { false }, hasVoice: { _ in true }),
+                                         seed: 168, answerHints: true, length: 2)
+        await vm.start()
+        XCTAssertNotNil(vm.question)
+        XCTAssertEqual(vm.spokenWord, "")
+        XCTAssertEqual(off.spoken, [], "Speak words off")
     }
 }

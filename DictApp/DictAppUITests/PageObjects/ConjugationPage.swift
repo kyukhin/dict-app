@@ -47,6 +47,11 @@ final class ConjugationPage: BasePage {
     var promptTranslation: XCUIElement { element(IDs.promptTranslation) }
     var promptTense: XCUIElement { element(IDs.promptTense) }
     var passiveNote: XCUIElement { element(IDs.passiveNote) }
+    /// #331: the verb the question spoke as it appeared, the verb's value
+    /// (NFC); empty when it spoke nothing.
+    var spokenVerb: String {
+        ((promptVerb.value as? String) ?? "").precomposedStringWithCanonicalMapping
+    }
     var tenseTable: XCUIElement { element(IDs.tenseTable) }
 
     func tenseRow(_ person: String) -> XCUIElement { element(IDs.tenseRow(person)) }

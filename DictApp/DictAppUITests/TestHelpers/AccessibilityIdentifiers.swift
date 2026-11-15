@@ -511,6 +511,8 @@ struct AccessibilityIdentifiers {
         static let order = "settings_learning_order"
         static let answerMode = "settings_learning_answer_mode"
         static let sounds = "settings_learning_sounds"
+        /// #331: Speak words.
+        static let speakWords = "settings_speak_words"
         static let haptics = "settings_learning_haptics"
         static let reminder = "settings_learning_reminder"
         static let reminderTime = "settings_learning_reminder_time"

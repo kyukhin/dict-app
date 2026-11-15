@@ -487,6 +487,9 @@ final class ExerciseRunViewModel: ObservableObject {
     @Published var showsExampleSheet = false
     /// What the sheet shows, kept until it opens again.
     @Published private(set) var exampleSheet: ExampleSheetContent?
+    /// #331: the word the question spoke as it appeared; empty for none.
+    /// The prompt's accessibility value, for UI tests.
+    @Published private(set) var spokenWord = ""
 
     let run: Run
     /// The chosen language: a run never mixes languages.
@@ -505,6 +508,10 @@ final class ExerciseRunViewModel: ObservableObject {
     private let languages: LearningLanguageService
     private let clock: LearningClock
     private let player: FeedbackPlayer
+    /// #331: speaks a recognition question's word as it appears.
+    private let speaker: QuestionSpeaker
+    /// The run's screen went: no word is spoken any more.
+    private var isLeft = false
     /// The answers a continued lesson had before this sitting: the plan
     /// holds only its items left (#296).
     private var base = 0
@@ -541,6 +548,7 @@ final class ExerciseRunViewModel: ObservableObject {
     init(run: Run, lang: String, meaningsLang: String?, db: DatabaseService = .shared,
          settings: SettingsService = .shared, languages: LearningLanguageService? = nil,
          clock: LearningClock = LearningClock(), player: FeedbackPlayer? = nil, reminder: LearningReminder? = nil,
+         speaker: QuestionSpeaker? = nil,
          seed: UInt64? = LearningLaunchOptions.seed, answerHints: Bool = LearningLaunchOptions.answerHints) {
         self.run = run
         self.lang = lang
@@ -550,6 +558,7 @@ final class ExerciseRunViewModel: ObservableObject {
         self.languages = languages ?? .shared
         self.clock = clock
         self.player = player ?? .shared
+        self.speaker = speaker ?? .shared
         // The app's reminder works on the app's settings; a test's own
         // settings get none unless it brings one.
         self.reminder = reminder ?? (settings === SettingsService.shared ? .shared : nil)
@@ -684,6 +693,13 @@ final class ExerciseRunViewModel: ObservableObject {
         player.haptic(for: outcome)
     }
 
+    /// #331: the run is closed or its screen went: the word stops, and no
+    /// later question speaks.
+    func leave() {
+        isLeft = true
+        speaker.stop()
+    }
+
     /// The bar's Example button (0134, #178): the sheet with the question's
     /// examples, once it is answered. Nothing for a word without examples.
     func showExamples() {
@@ -705,11 +721,14 @@ final class ExerciseRunViewModel: ObservableObject {
         feedback = nil
         showsExampleSheet = false
         typed = ""
+        speaker.stop()
+        spokenWord = ""
         while index < plan.count {
             let card = plan[index].card
             if let word = words[card.key.word], let built = await build(card, word) {
                 sheetExamples = await shownExamples(of: built.word.key)
                 question = built
+                if !isLeft { spokenWord = speaker.speak(built)?.text ?? "" }
                 position = base + index + 1
                 total = base + plan.count
                 shownAt = clock.now()
@@ -1034,6 +1053,9 @@ final class ConjugationRunViewModel: ObservableObject {
     /// A passive facet has one only for a verb with passive forms only.
     @Published private(set) var ruleTopic: GrammarTopicSummary?
     @Published var errorMessage: String?
+    /// #331: the verb the question spoke as it appeared; empty for none.
+    /// The verb's accessibility value, for UI tests.
+    @Published private(set) var spokenWord = ""
 
     let mode: Mode
     /// The meanings language of Greek's pair: the translation's voice.
@@ -1050,6 +1072,10 @@ final class ConjugationRunViewModel: ObservableObject {
     private let languages: LearningLanguageService
     private let clock: LearningClock
     private let player: FeedbackPlayer
+    /// #331: speaks each question's verb as it appears.
+    private let speaker: QuestionSpeaker
+    /// The run's screen went: no verb is spoken any more.
+    private var isLeft = false
     /// The answer that reaches today's goal cancels today's reminder (#162).
     private let reminder: LearningReminder?
     private var rng: SplitMix64
@@ -1065,7 +1091,7 @@ final class ConjugationRunViewModel: ObservableObject {
 
     init(mode: Mode, meaningsLang: String = "eng", db: DatabaseService = .shared, settings: SettingsService = .shared,
          languages: LearningLanguageService? = nil, clock: LearningClock = LearningClock(),
-         player: FeedbackPlayer? = nil, reminder: LearningReminder? = nil,
+         player: FeedbackPlayer? = nil, reminder: LearningReminder? = nil, speaker: QuestionSpeaker? = nil,
          seed: UInt64? = LearningLaunchOptions.seed, answerHints: Bool = LearningLaunchOptions.answerHints,
          length: Int? = LearningLaunchOptions.drillLength) {
         self.mode = mode
@@ -1075,6 +1101,7 @@ final class ConjugationRunViewModel: ObservableObject {
         self.languages = languages ?? .shared
         self.clock = clock
         self.player = player ?? .shared
+        self.speaker = speaker ?? .shared
         // As in `ExerciseRunViewModel`: the app's reminder on the app's settings.
         self.reminder = reminder ?? (settings === SettingsService.shared ? .shared : nil)
         self.rng = SplitMix64(seed: seed ?? UInt64.random(in: .min ... .max))
@@ -1171,6 +1198,13 @@ final class ConjugationRunViewModel: ObservableObject {
         player.haptic(for: outcome)
     }
 
+    /// #331: the run is closed or its screen went: the verb stops, and no
+    /// later question speaks.
+    func leave() {
+        isLeft = true
+        speaker.stop()
+    }
+
     /// Builds and shows the question of `plan[index]`, skipping an item that
     /// builds none (not expected: the planner only plans questions); after
     /// the last, the summary.
@@ -1178,9 +1212,12 @@ final class ConjugationRunViewModel: ObservableObject {
         question = nil
         feedback = nil
         ruleTopic = nil
+        speaker.stop()
+        spokenWord = ""
         while index < plan.count {
             if let built = plan[index].question(rng: &rng) {
                 question = built
+                if !isLeft { spokenWord = speaker.speak(built)?.text ?? "" }
                 ruleTopic = GrammarLinks.ruleTopic(verb: built.verb, facet: built.facet, topics: grammarTopics,
                                                    links: grammarLinks)
                 position = index + 1
