@@ -892,8 +892,23 @@ final class ArabicLocalizationTests: XCTestCase {
         XCTAssertTrue(drill.waitForQuestion(), "a question")
         let window = app.windows.firstMatch.frame
         XCTAssertGreaterThan(drill.promptVerb.frame.midX, window.midX, "RTL: the verb on the right")
-        XCTAssertTrue(drill.promptTense.label.contains("\u{060C} "), "the Arabic comma: \(drill.promptTense.label)")
-        let asked = try XCTUnwrap(drill.askedPerson, drill.promptTense.label)
+        // #329: the person on its own line under the form's name, both on
+        // the right; the ⓘ left of the name; its popover explains the form
+        // in Arabic, the Greek example after U+200F and isolated.
+        let asked = try XCTUnwrap(drill.askedPerson, drill.promptPerson.label)
+        XCTAssertGreaterThanOrEqual(drill.promptPerson.frame.minY, drill.promptTense.frame.maxY - 2, "its own line")
+        XCTAssertGreaterThan(drill.promptPerson.frame.midX, window.midX, "RTL: the person on the right")
+        XCTAssertLessThan(drill.tenseInfoButton.frame.midX, drill.promptTense.frame.minX, "RTL: ⓘ left of the name")
+        XCTAssertEqual(drill.tenseInfoButton.label.unicodeScalars.first, "\u{200F}", drill.tenseInfoButton.label)
+        drill.openTenseInfo()
+        XCTAssertTrue(drill.tenseInfoText.label.unicodeScalars.contains { (0x0600...0x06FF).contains($0.value) },
+                      "Arabic: \(drill.tenseInfoText.label)")
+        let example = drill.tenseInfoExample.label
+        XCTAssertEqual(example.unicodeScalars.first, "\u{200F}", example)
+        XCTAssertTrue(example.contains("\u{2068}") && example.hasSuffix("\u{2069}"), "isolated: \(example)")
+        XCTAssertTrue(drill.tenseInfoTranslation.exists, "its Arabic translation")
+        attachScreenshot("conjugation tense info (ar)")
+        drill.closeTenseInfo()
         drill.answer(right: true)
         XCTAssertTrue(drill.tenseTable.waitForExistence(timeout: TestData.Timeouts.medium), "the whole tense")
         let row = drill.tenseRow(asked)

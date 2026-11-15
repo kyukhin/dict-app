@@ -669,8 +669,19 @@ final class GreekLocalizationTests: XCTestCase {
         XCTAssertTrue(drill.waitForQuestion(), "a question")
         let titles = ["Ενεστώτας", "Αόριστος", "Μέλλοντας: στιγμιαία μορφή", "Προστακτική: στιγμιαία μορφή",
                       "Υποτακτική: στιγμιαία μορφή"]
-        XCTAssertTrue(titles.contains { drill.promptTense.label.hasPrefix($0 + ", ") }, drill.promptTense.label)
+        XCTAssertTrue(titles.contains(drill.promptTense.label), drill.promptTense.label)
+        XCTAssertNotNil(drill.askedPerson, "the person's own line (#329): \(drill.promptPerson.label)")
         attachScreenshot("18-conjugation-question")
+        // #329: ⓘ reads "Πληροφορίες: <form>"; its popover explains the form
+        // in Greek and shows the Greek example with no translation line.
+        XCTAssertEqual(drill.tenseInfoButton.label, "Πληροφορίες: " + drill.promptTense.label)
+        drill.openTenseInfo()
+        XCTAssertFalse(drill.tenseInfoText.label.isEmpty, "the explanation")
+        XCTAssertTrue(drill.tenseInfoExample.exists, "the Greek example")
+        XCTAssertFalse(drill.tenseInfoTranslation.exists, "no translation in a Greek UI")
+        attachScreenshot("18b-conjugation-tense-info")
+        try assertNoEnglishLeak(on: "Conjugation tense info")
+        drill.closeTenseInfo()
         drill.answer(right: true)
         XCTAssertTrue(drill.tenseTable.waitForExistence(timeout: TestData.Timeouts.medium), "the whole tense")
         attachScreenshot("19-conjugation-tense")

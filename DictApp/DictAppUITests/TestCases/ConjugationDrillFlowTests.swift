@@ -11,7 +11,8 @@ import XCTest
 /// installed from the committed assets unless a test removes it. Most tests
 /// answer a few questions (`-drillLength`); `testSessionOfFifteen` answers
 /// the default 15. Rule after an answer opens the grammar topic of the
-/// question's tense in a sheet (0133, #174).
+/// question's tense in a sheet (0133, #174). The ⓘ after the tense line
+/// explains the form in a popover, and the person has its own line (#329).
 final class ConjugationDrillFlowTests: XCTestCase {
 
     private typealias IDs = AccessibilityIdentifiers.Conjugation
@@ -33,6 +34,7 @@ final class ConjugationDrillFlowTests: XCTestCase {
         if name.contains("testWholeTenseAfterEachAnswer") { return greekA1 + ["-drillLength", "3"] }
         if name.contains("testWrongFormShowsItsSlot") { return greekA1 + ["-drillLength", "3"] }
         if name.contains("testDrillSpeaksItsVerb") { return greekA1 + ["-drillLength", "2"] }
+        if name.contains("testTenseInfoExplainsTheForm") { return greekA1 + ["-drillLength", "2"] }
         if name.contains("testSessionOfFifteen") { return greekA1 }
         if name.contains("testPassiveNote") || name.contains("testPractiseFromDefinition") {
             return ["-learningLanguages", "ell", "-drillLength", "3"]
@@ -94,7 +96,7 @@ final class ConjugationDrillFlowTests: XCTestCase {
     }
 
     /// Answers every question right (or as `right(n)` says, n from 0) until
-    /// the summary; returns each question's tense line and verb.
+    /// the summary; returns each question's form name and verb.
     @discardableResult
     private func answerAll(_ drill: ConjugationPage, limit: Int = 20, right: (Int) -> Bool = { _ in true },
                            each: (Int) -> Void = { _ in }) -> [(tense: String, verb: String)] {
@@ -141,7 +143,7 @@ final class ConjugationDrillFlowTests: XCTestCase {
         let asked = answerAll(drill)
         XCTAssertEqual(asked.count, 5)
         for item in asked {
-            XCTAssertTrue(Self.a1Titles.contains { item.tense.hasPrefix($0 + ",") }, "an A1 tense: \(item.tense)")
+            XCTAssertTrue(Self.a1Titles.contains(item.tense), "an A1 tense: \(item.tense)")
         }
         XCTAssertTrue(drill.run.summary.waitForExistence(timeout: TestData.Timeouts.medium), "the summary")
         XCTAssertEqual(drill.run.summaryValue(AccessibilityIdentifiers.Exercise.summaryExercises), "5")
@@ -207,7 +209,7 @@ final class ConjugationDrillFlowTests: XCTestCase {
         let asked = answerAll(drill)
         XCTAssertEqual(asked.count, 4)
         XCTAssertTrue(asked.contains { item in
-            item.tense.contains(", passive, ") || !Self.a1Titles.contains { item.tense.hasPrefix($0 + ",") }
+            item.tense.hasSuffix(", passive") || !Self.a1Titles.contains(item.tense)
         }, "a B2 drill asks a tense or voice beyond A1: \(asked.map(\.tense))")
     }
 
@@ -259,6 +261,54 @@ final class ConjugationDrillFlowTests: XCTestCase {
         XCTAssertTrue(drill.waitForQuestion(), "question 2")
         XCTAssertEqual(drill.answer(right: true), "right")
         XCTAssertFalse(drill.run.youChose.exists, "a right answer shows none")
+    }
+
+    /// #329: the person on its own line, under the form's name; ⓘ after
+    /// the name ("About Aorist") opens a popover by the button with what
+    /// the form is for, a Greek example and its English translation.
+    /// Closing it leaves the same question: the verb, the options, the person.
+    func testTenseInfoExplainsTheForm() throws {
+        let drill = openConjugation()
+        drill.start()
+        XCTAssertTrue(drill.waitForQuestion(), "a question")
+        let tense = drill.promptTense.label
+        XCTAssertTrue(Self.a1Titles.contains(tense), "the form's name alone: \(tense)")
+        let person = drill.promptPerson
+        XCTAssertTrue(person.exists, "the person's line")
+        XCTAssertNotNil(drill.askedPerson, "a Greek pronoun: \(person.label)")
+        XCTAssertGreaterThanOrEqual(person.frame.minY, drill.promptTense.frame.maxY - 2, "under the form's name")
+        let info = drill.tenseInfoButton
+        XCTAssertTrue(info.exists, "the ⓘ")
+        XCTAssertEqual(info.label, "About " + tense)
+        XCTAssertGreaterThan(info.frame.midX, drill.promptTense.frame.maxX, "after the name")
+        let verb = drill.promptVerb.label
+        let options = (0..<4).map { drill.run.option($0).label }
+        let asked = person.label
+
+        drill.openTenseInfo()
+        XCTAssertFalse(drill.tenseInfoText.label.isEmpty, "what the form is for")
+        XCTAssertTrue(drill.tenseInfoExample.exists, "a Greek example")
+        XCTAssertTrue(drill.tenseInfoExample.label.unicodeScalars.contains { (0x0370...0x03FF).contains($0.value) },
+                      drill.tenseInfoExample.label)
+        XCTAssertTrue(drill.tenseInfoTranslation.exists, "its English translation")
+        let popover = drill.tenseInfoPopover.frame
+        XCTAssertTrue(abs(popover.minY - info.frame.maxY) < 60 || abs(info.frame.minY - popover.maxY) < 60,
+                      "a popover by the ⓘ: \(popover) and \(info.frame)")
+        attachScreenshot("conjugation tense info")
+        drill.closeTenseInfo()
+
+        XCTAssertFalse(drill.run.feedback.exists, "closing answers nothing")
+        XCTAssertEqual(drill.promptVerb.label, verb, "the same question")
+        XCTAssertEqual((0..<4).map { drill.run.option($0).label }, options, "the same options")
+        XCTAssertEqual(drill.promptPerson.label, asked, "the person shows")
+        XCTAssertEqual(drill.answer(right: true), "right")
+    }
+
+    private func attachScreenshot(_ name: String) {
+        let attachment = XCTAttachment(screenshot: app.screenshot())
+        attachment.name = name
+        attachment.lifetime = .keepAlways
+        add(attachment)
     }
 
     /// No `-drillLength`: 15 questions, then the summary with the run by tense.

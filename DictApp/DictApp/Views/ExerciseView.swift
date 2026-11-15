@@ -947,7 +947,8 @@ struct ConjugationRunView: View {
                     VStack(alignment: .leading, spacing: 24) {
                         ConjugationQuestionView(question: question, meaningsLang: vm.meaningsLang,
                                                 feedback: vm.feedback, answerHints: vm.answerHints,
-                                                spokenWord: vm.spokenWord) { option in
+                                                spokenWord: vm.spokenWord,
+                                                onTenseInfo: { vm.tenseInfo(isOpen: $0) }) { option in
                             Task { await vm.choose(option) }
                         }
                         if let error = vm.errorMessage {
@@ -1012,9 +1013,12 @@ struct GrammarRuleSheet: View {
 
 /// "γράφω · to write · Aorist · εγώ" and four forms (0132, "A question"):
 /// the verb as grammar books cite it, in the Greek voice; its translation
-/// in the meanings language; the tense line, with the small "passive" note
-/// of a verb with passive forms only, which VoiceOver reads after the
-/// person; then E4's options.
+/// in the meanings language; the tense line, the form's name with an ⓘ
+/// that explains it in a popover (#329); the person on a line of its own;
+/// the small "passive" note of a verb with passive forms only; then E4's
+/// options. With VoiceOver on, the name, the person and the note are one
+/// stop as before #329 ("Aorist, εγώ, passive"), and the ⓘ is the next;
+/// otherwise (UI tests) each is an element of its own.
 struct ConjugationQuestionView: View {
     let question: ConjugationQuestion
     let meaningsLang: String
@@ -1023,8 +1027,13 @@ struct ConjugationQuestionView: View {
     /// #331: the verb spoken as the question appeared, the verb's
     /// accessibility value; empty for none.
     var spokenWord = ""
+    /// The ⓘ popover opened (true) or closed: its time is not the answer's.
+    var onTenseInfo: (Bool) -> Void = { _ in }
     let onChoose: (Int) -> Void
     @Environment(\.locale) private var locale
+    @Environment(\.layoutDirection) private var layoutDirection
+    @Environment(\.accessibilityVoiceOverEnabled) private var voiceOver
+    @State private var showsTenseInfo = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 24) {
@@ -1041,29 +1050,72 @@ struct ConjugationQuestionView: View {
                         .fixedSize(horizontal: false, vertical: true)
                         .accessibilityIdentifier("drill_prompt_translation")
                 }
-                ViewThatFits(in: .horizontal) {
-                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(alignment: .firstTextBaseline, spacing: 4) {
                         tenseLine
-                        passiveNote
+                        tenseInfoButton
                     }
-                    VStack(alignment: .leading, spacing: 4) {
-                        tenseLine
-                        passiveNote
-                    }
+                    personLine
+                    passiveNote
                 }
             }
+            // The ⓘ comes after the prompt, not between the form's name and
+            // the person.
+            .accessibilityElement(children: .contain)
             ChoiceOptions(options: question.options.map { Question.Option(text: $0) }, lang: ConjugationPlanner.lang,
                           rightIndex: question.rightIndex, feedback: feedback, answerHints: answerHints,
                           onChoose: onChoose)
         }
+        .onChange(of: showsTenseInfo) { _, isOpen in
+            onTenseInfo(isOpen)
+        }
     }
 
     private var tenseLine: some View {
-        Text(verbatim: DrillText.tenseLine(question, locale: locale))
+        Text(verbatim: DrillText.formName(question, locale: locale))
             .font(.headline)
             .fixedSize(horizontal: false, vertical: true)
-            .accessibilityLabel(Text(DrillText.tenseLabel(question, locale: locale)))
+            // With VoiceOver on, this one stop also reads the person and the
+            // note, which it then skips.
+            .accessibilityLabel(Text(voiceOver ? DrillText.promptLabel(question, locale: locale)
+                                               : DrillText.formLabel(question, locale: locale)))
             .accessibilityIdentifier("drill_prompt_tense")
+    }
+
+    /// ⓘ: what the form is for, in a popover, also on iPhone; on iPad it
+    /// points at the button.
+    private var tenseInfoButton: some View {
+        Button {
+            showsTenseInfo = true
+        } label: {
+            Image(systemName: "info.circle")
+                .font(.headline)
+                // A 44 pt target, wider with large text, that does not push
+                // the person line down.
+                .frame(minWidth: 44, minHeight: 44)
+                .contentShape(Rectangle())
+                .padding(.vertical, -11)
+        }
+        .buttonStyle(.borderless)
+        .accessibilityLabel(Text(verbatim: DrillText.tenseInfoLabel(question.facet.tense, locale: locale)))
+        .accessibilitySortPriority(-1)
+        .accessibilityIdentifier("drill_tense_info")
+        .popover(isPresented: $showsTenseInfo) {
+            TenseInfoView(info: DrillText.tenseInfo(question.facet.tense, verb: question.verb, locale: locale))
+                .environment(\.locale, locale)
+                .environment(\.layoutDirection, layoutDirection)
+                .presentationCompactAdaptation(.popover)
+        }
+    }
+
+    /// The person, εγώ … αυτοί, on its own line in the accent colour.
+    private var personLine: some View {
+        Text(verbatim: question.person.pronoun)
+            .font(.headline)
+            .foregroundStyle(Color.accentColor)
+            .accessibilityLabel(Text(DrillText.personLabel(question.person)))
+            .accessibilityHidden(voiceOver)
+            .accessibilityIdentifier("drill_prompt_person")
     }
 
     @ViewBuilder
@@ -1072,8 +1124,51 @@ struct ConjugationQuestionView: View {
             Text("drill.passiveNote")
                 .font(.caption)
                 .foregroundStyle(.secondary)
+                .accessibilityHidden(voiceOver)
                 .accessibilityIdentifier("drill_passive_note")
         }
+    }
+}
+
+/// The ⓘ popover of the drill's tense line (#329): what the form is for,
+/// then a Greek example, in the Greek voice and left to right also in
+/// Arabic, with its translation in the UI language (none in Greek).
+struct TenseInfoView: View {
+    let info: DrillText.TenseInfo
+
+    var body: some View {
+        // Large text can make it taller than the screen: it scrolls then.
+        ViewThatFits(in: .vertical) {
+            content
+            ScrollView { content }
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("drill_tense_info_popover")
+    }
+
+    private var content: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(verbatim: info.explanation)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier("drill_tense_info_text")
+            if let example = info.example {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(AttributedString.learning(example, lang: ConjugationPlanner.lang))
+                        .font(.body.italic())
+                        .fixedSize(horizontal: false, vertical: true)
+                        .accessibilityIdentifier("drill_tense_info_example")
+                    if let translation = info.translation {
+                        Text(verbatim: translation)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .accessibilityIdentifier("drill_tense_info_translation")
+                    }
+                }
+            }
+        }
+        .multilineTextAlignment(.leading)
+        .padding()
+        .frame(width: 300, alignment: .leading)
     }
 }
 

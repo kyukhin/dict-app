@@ -1739,13 +1739,16 @@ actor DatabaseService {
     /// headword, else the term) in the forms schema `forms`, if any, and
     /// whether that lemma has cells of its own: the `wordlist_item`
     /// primary-key prefix, then the `lemma` unique index. A word with no
-    /// verb lemma stays for the link rule (αγαπώ → αγαπάω). Arguments: the
-    /// series, the levels.
+    /// verb lemma stays for the link rule (αγαπώ → αγαπάω), unless it is a
+    /// lemma of another part of speech (`other_pos`: φορά, a noun, #330).
+    /// Arguments: the series, the levels.
     static func drillItemsSQL(lists: String, forms: String, levelCount: Int) -> String {
         """
-        SELECT COALESCE(i.headword, i.term) AS word, i.translation, i.level_ord, i.rank, i.seq,
+        SELECT COALESCE(i.headword, i.term) AS word, i.term, i.translation, i.level_ord, i.rank, i.seq,
                l.id AS lemma_id, l.word AS lemma_word,
-               EXISTS (SELECT 1 FROM \(forms).paradigm p WHERE p.lemma_id = l.id) AS has_cells
+               EXISTS (SELECT 1 FROM \(forms).paradigm p WHERE p.lemma_id = l.id) AS has_cells,
+               EXISTS (SELECT 1 FROM \(forms).lemma o
+                       WHERE o.lang = 'ell' AND o.word = COALESCE(i.headword, i.term) AND o.pos <> 'verb') AS other_pos
         FROM \(lists).wordlist_item i
         LEFT JOIN \(forms).lemma l ON l.lang = 'ell' AND l.word = COALESCE(i.headword, i.term) AND l.pos = 'verb'
         WHERE i.series = ? AND i.level_ord IN (\(placeholders(levelCount)))
@@ -1772,9 +1775,11 @@ actor DatabaseService {
     /// and list order. Each list word takes its table by the Definition rule
     /// for a verb: its verb lemma's own cells, else its single link
     /// (`linkedLemmasSQL`, `chooseLink`, `linkFits`), as `inflection(for:)`
-    /// does, also for a word with no verb lemma; then `DrillVerb.make`. Two
-    /// words with one verb are one: the lowest level, then the best rank,
-    /// wins. An active verb whose passive is a list word of its own drops
+    /// does, also for a word with no verb lemma that is no lemma of another
+    /// part of speech (φορά, χώρα: nouns, never verbs, #330); then
+    /// `DrillVerb.make`. Two words with one verb are one: the word in the
+    /// verb's plain form wins (υπάρχω over υπάρχει, #330), else the lowest
+    /// level, then the best rank. An active verb whose passive is a list word of its own drops
     /// that passive (`DrillVerb.droppingSharedPassives`, #169). No list: no
     /// verb, and nothing is read.
     ///
@@ -1807,9 +1812,13 @@ actor DatabaseService {
         let levels = keepsTranslation.keys.sorted()
         guard !levels.isEmpty else { return [] }
 
-        // 1. The list items, each with its verb lemma, if any.
+        // 1. The list items, each with its verb lemma, if any. A word that is
+        // a lemma of another part of speech and of no verb is not a verb:
+        // φορά (a noun) never takes φοράω's table (#330).
         struct Item {
             let word: String
+            /// As listed: υπάρχει for the word υπάρχω (#330).
+            let term: String
             let lemma: InflectionLookup.Lemma?
             let hasCells: Bool
             let translation: String
@@ -1820,11 +1829,12 @@ actor DatabaseService {
         let items = try Row.fetchAll(db, sql: drillItemsSQL(lists: listsSchema, forms: formsSchema,
                                                             levelCount: levels.count),
                                      arguments: StatementArguments([DrillScope.series]) + StatementArguments(levels))
+            .filter { (row: Row) in row["lemma_id"] as Int64? != nil || !(row["other_pos"] as Bool) }
             .map { (row: Row) -> Item in
                 let level: Int = row["level_ord"]
                 let translation: String = keepsTranslation[level] == true ? row["translation"] : ""
                 let lemmaID: Int64? = row["lemma_id"]
-                return Item(word: row["word"],
+                return Item(word: row["word"], term: row["term"],
                             lemma: lemmaID.map { InflectionLookup.Lemma(id: $0, word: row["lemma_word"], pos: "verb") },
                             hasCells: row["has_cells"], translation: translation, level: level,
                             rank: row["rank"], seq: row["seq"])
@@ -1874,9 +1884,11 @@ actor DatabaseService {
         }
 
         // 4. The verbs, each word once: the items are in level, rank and
-        // list order, so the first item of a word wins.
+        // list order, so the first item of a word wins, unless a later one
+        // gives the verb's plain form (υπάρχω after υπάρχει, πειράζω after
+        // πειράζει, #330): then that one does, and the verb is whole.
         var verbs: [DrillVerb] = []
-        var words = Set<String>()
+        var known: [String: (position: Int, isPlain: Bool)] = [:]
         for item in items {
             guard let table = tables[item.word], let tableCells = cells[table.lemma.id] else { continue }
             if table.isLinked,
@@ -1884,10 +1896,21 @@ actor DatabaseService {
             let paradigm = LemmaParadigm(word: table.lemma.word, pos: table.lemma.pos, cells: tableCells,
                                          isLinked: table.isLinked)
             guard let verb = DrillVerb.make(word: item.word, paradigm: paradigm, translation: item.translation,
-                                            listLevel: item.level, rank: item.rank, seq: item.seq),
-                  words.insert(verb.word).inserted else { continue }
-            verbs.append(verb)
+                                            listLevel: item.level, rank: item.rank, seq: item.seq, listTerm: item.term)
+            else { continue }
+            let isPlain = DrillVerb.isPlainForm(listTerm: item.term, of: verb)
+            if let first = known[verb.word] {
+                guard isPlain, !first.isPlain else { continue }
+                verbs[first.position] = verb
+                known[verb.word] = (first.position, true)
+            } else {
+                known[verb.word] = (verbs.count, isPlain)
+                verbs.append(verb)
+            }
         }
+        // A plain form taken from a later item brings its level, rank and
+        // list order: the pool's order is the items'.
+        verbs.sort { ($0.listLevel ?? .max, $0.rank ?? .max, $0.seq) < ($1.listLevel ?? .max, $1.rank ?? .max, $1.seq) }
         return DrillVerb.droppingSharedPassives(verbs)
     }
 

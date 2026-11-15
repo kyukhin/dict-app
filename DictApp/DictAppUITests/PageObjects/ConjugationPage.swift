@@ -46,23 +46,27 @@ final class ConjugationPage: BasePage {
     var promptVerb: XCUIElement { element(IDs.promptVerb) }
     var promptTranslation: XCUIElement { element(IDs.promptTranslation) }
     var promptTense: XCUIElement { element(IDs.promptTense) }
+    var promptPerson: XCUIElement { element(IDs.promptPerson) }
     var passiveNote: XCUIElement { element(IDs.passiveNote) }
     /// #331: the verb the question spoke as it appeared, the verb's value
     /// (NFC); empty when it spoke nothing.
     var spokenVerb: String {
         ((promptVerb.value as? String) ?? "").precomposedStringWithCanonicalMapping
     }
+    var tenseInfoButton: XCUIElement { app.buttons[IDs.tenseInfo].firstMatch }
+    var tenseInfoPopover: XCUIElement { element(IDs.tenseInfoPopover) }
+    var tenseInfoText: XCUIElement { element(IDs.tenseInfoText) }
+    var tenseInfoExample: XCUIElement { element(IDs.tenseInfoExample) }
+    var tenseInfoTranslation: XCUIElement { element(IDs.tenseInfoTranslation) }
     var tenseTable: XCUIElement { element(IDs.tenseTable) }
 
     func tenseRow(_ person: String) -> XCUIElement { element(IDs.tenseRow(person)) }
     func summaryTense(_ tense: String) -> XCUIElement { element(IDs.summaryTense(tense)) }
 
-    /// The person the question asks, from the tense line's last word.
+    /// The person the question asks (`1sg`), from its own line (#329).
     var askedPerson: String? {
-        let words = promptTense.label.unicodeScalars.filter { !["\u{200F}", "\u{2068}", "\u{2069}"].contains($0) }
-        let label = String(String.UnicodeScalarView(words))
-        guard let last = label.split(whereSeparator: { $0 == " " || $0 == "," || $0 == "\u{060C}" }).last else { return nil }
-        return Self.persons[String(last)]
+        let words = promptPerson.label.unicodeScalars.filter { !["\u{200F}", "\u{2068}", "\u{2069}"].contains($0) }
+        return Self.persons[String(String.UnicodeScalarView(words)).trimmingCharacters(in: .whitespaces)]
     }
 
     // MARK: - Definition
@@ -100,6 +104,26 @@ final class ConjugationPage: BasePage {
             Thread.sleep(forTimeInterval: 0.15)
         } while Date() < deadline
         return false
+    }
+
+    /// ⓘ: opens the popover of the question's form (#329).
+    func openTenseInfo() {
+        XCTAssertTrue(tenseInfoButton.waitForExistence(timeout: TestData.Timeouts.medium), "the ⓘ")
+        tenseInfoButton.tap()
+        XCTAssertTrue(tenseInfoPopover.waitForExistence(timeout: TestData.Timeouts.medium), "the popover")
+    }
+
+    /// Closes the popover with a tap outside it: on the dimming region the
+    /// system adds, else near the bottom of the screen, where the run has
+    /// nothing before the answer.
+    func closeTenseInfo() {
+        let outside = app.otherElements["PopoverDismissRegion"].firstMatch
+        if outside.exists {
+            outside.tap()
+        } else {
+            app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.95)).tap()
+        }
+        XCTAssertTrue(tenseInfoPopover.waitForNonExistence(timeout: TestData.Timeouts.medium), "the popover closes")
     }
 
     /// Answers the question shown, right or wrong, and returns the outcome
