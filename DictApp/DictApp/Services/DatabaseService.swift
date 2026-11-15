@@ -175,15 +175,20 @@ enum Search {
 
     /// One row of a base search query: the entry, and whether it matched the
     /// query's key exactly (the first ranking term) or as a prefix (the
-    /// second, `isPrefixMatch`).
+    /// second, `isPrefixMatch`), or else matched the headword column
+    /// anywhere (`inHeadword`).
     struct RankedEntry: Equatable, Sendable {
         let entry: DictionaryEntry
         let isExact: Bool
         var isPrefix = false
+        /// The FTS query matched the headword column, at a later word too
+        /// (cream finds ice cream), which no prefix test sees. Set only on
+        /// rows neither exact nor a prefix match (follow-up 4).
+        var inHeadword = false
 
         /// Issue #325: the query matched the headword, not only the
         /// definition text.
-        var matchesHeadword: Bool { isExact || isPrefix }
+        var matchesHeadword: Bool { isExact || isPrefix || inHeadword }
     }
 
     /// Issue #325: whether a row's `word_normalized` starts with one of the
@@ -1056,18 +1061,53 @@ actor DatabaseService {
 
     /// Rows matching the query, ranked by `ranking` and cut to its limit,
     /// each with `is_exact`: whether its `word_normalized` is the folded or
-    /// the raw key (#142), and whether it starts with one (#325).
+    /// the raw key (#142), whether it starts with one (#325), and else
+    /// whether the query matched its headword column (`headwordMatches`).
     private static func rankedEntries(
         _ db: Database, schemas: DictionarySchemas, fts: (match: String, rankKey: String, rawKey: String),
         sources: [String]?, excluding ids: [Int64] = [], withImports: Bool, ranking: Ranking, exactOnly: Bool = false
     ) throws -> [Search.RankedEntry] {
         guard let query = rankedQuery(schemas: schemas, fts: fts, sources: sources, excluding: ids,
                                       withImports: withImports, ranking: ranking, exactOnly: exactOnly) else { return [] }
-        return try Row.fetchAll(db, sql: query.sql, arguments: query.arguments).map { row in
+        var rows = try Row.fetchAll(db, sql: query.sql, arguments: query.arguments).map { row in
             Search.RankedEntry(entry: try DictionaryEntry(row: row), isExact: row["is_exact"],
                                isPrefix: Search.isPrefixMatch(wordNormalized: row["word_normalized"],
                                                               keys: [fts.rankKey, fts.rawKey]))
         }
+        let others = rows.filter { !$0.matchesHeadword }.compactMap(\.entry.id)
+        let inHeadword = try headwordMatches(db, schemas: schemas, match: fts.match, ids: others, sources: sources,
+                                             withImports: withImports)
+        for index in rows.indices where rows[index].entry.id.map(inHeadword.contains) == true {
+            rows[index].inHeadword = true
+        }
+        return rows
+    }
+
+    /// Follow-up 4 (CodeRabbit, PR #326): the ids among `ids` whose headword
+    /// column matches `match`, the FTS query under a `word_normalized`
+    /// column filter, read from the same files (and imports) as the search.
+    /// The side of a row comes from this, the ranking keeps its prefix
+    /// term. One query: the column's matches are read once and the ids
+    /// checked against them (`rowid IN (…)` with MATCH runs the FTS query
+    /// once per id). Ids are unique across the files and the imports.
+    private static func headwordMatches(
+        _ db: Database, schemas: DictionarySchemas, match: String, ids: [Int64], sources: [String]?,
+        withImports: Bool
+    ) throws -> Set<Int64> {
+        guard !ids.isEmpty else { return [] }
+        var stores = schemas.files(holding: sources).map { (fts: "\($0).entries_fts", match: "entries_fts") }
+        if withImports {
+            stores.append((fts: "imported_fts", match: "imported_fts"))
+        }
+        guard !stores.isEmpty else { return [] }
+        let columnMatch = "word_normalized : (" + match + ")"
+        let union = stores.map { "SELECT rowid FROM \($0.fts) WHERE \($0.match) MATCH ?" }
+            .joined(separator: " UNION ALL ")
+        let sql = "WITH asked(id) AS (VALUES " + ids.map { _ in "(?)" }.joined(separator: ", ") + ") "
+            + "SELECT id FROM asked WHERE id IN (" + union + ")"
+        var arguments = StatementArguments(ids)
+        arguments += StatementArguments(Array(repeating: columnMatch, count: stores.count))
+        return Set(try Int64.fetchAll(db, sql: sql, arguments: arguments))
     }
 
     /// Each bucket's ranked rows with its whole exact group (0136, "Search

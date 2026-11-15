@@ -168,8 +168,8 @@ struct FormMatch: Hashable, Sendable {
 struct SearchResult: Identifiable, Hashable, Sendable {
     let entry: DictionaryEntry
     var formMatch: FormMatch?
-    /// Issue #325: the headword starts with the query, i.e. the row is an
-    /// exact or a prefix match (`Search.RankedEntry.matchesHeadword`).
+    /// Issue #325: the query matched the headword: an exact or a prefix
+    /// match, or any of its words (`Search.RankedEntry.matchesHeadword`).
     var matchesHeadword: Bool
 
     init(entry: DictionaryEntry, formMatch: FormMatch? = nil, matchesHeadword: Bool = false) {
