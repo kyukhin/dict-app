@@ -302,6 +302,8 @@ final class SettingsService {
         static let answerMode = "learning_answer_mode"
         static let sounds = "learning_sounds"
         static let haptics = "learning_haptics"
+        /// #331: Speak words.
+        static let speakWords = "learning_speak_words"
         static let reminder = "learning_reminder"
         static let languages = "learning_languages"
         static let language = "learning_language"
@@ -310,7 +312,7 @@ final class SettingsService {
         static let lists = "learning_lists"
         /// E5's "Tenses up to" (0132).
         static let drillTenses = "learning_drill_tenses"
-        static let all = [newPerDay, dailyGoal, newOrder, answerMode, sounds, haptics,
+        static let all = [newPerDay, dailyGoal, newOrder, answerMode, sounds, haptics, speakWords,
                           reminder, languages, language, via, lists, drillTenses]
     }
 
@@ -344,6 +346,12 @@ final class SettingsService {
     var learningHaptics: Bool {
         get { store.string(forKey: LearningKey.haptics) != "0" }
         set { store.set(newValue ? "1" : "0", forKey: LearningKey.haptics) }
+    }
+
+    /// #331: a question speaks the word it shows as it appears; on by default.
+    var learningSpeakWords: Bool {
+        get { store.string(forKey: LearningKey.speakWords) != "0" }
+        set { store.set(newValue ? "1" : "0", forKey: LearningKey.speakWords) }
     }
 
     /// The daily reminder's time in minutes after midnight; nil = off.

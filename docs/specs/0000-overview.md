@@ -1,7 +1,7 @@
 # LibreDict overview
 
 > Spec written by Claude (AI) for LibreDict.
-> Status: Approved by kyukhin on 2026-10-27 · Epic: — · Tickets: — · Updated: 2026-11-13
+> Status: Approved by kyukhin on 2026-10-27 · Epic: — · Tickets: — · Updated: 2026-11-15
 
 This spec describes the app as shipped in 1.4.0 (tag `v1.4.0`, master `f0f806e`), plus the v2.0.0 changes merged since (see History). Read it before any design, development, testing or review task, then read the spec of your epic. It describes the code as it is now. The last sections list what v2.0.0 will change. Paths are relative to the repo root. Links work from this folder.
 
@@ -51,6 +51,7 @@ LibreDict is a free offline dictionary for iPhone and iPad. It has no account, n
 - The bookmark star and the Bookmarks tab read and write My words, keyed by `EntryKey` `(source, word)`, never by a row id (#138). A key that no longer resolves stays stored and the tab skips it.
 - TTS (`AVSpeechSynthesizer`) reads each headword in its source's headword language (#202). `SpeechService.language(forSource:)` takes the first language of `DictionaryGrouping.parse` and maps it to a voice: `eng` en-US, `rus` ru-RU, `spa` es-ES, `arb` ar-SA, `ell` el-GR. So `freedict-eng-spa`, `freedict-eng-ell` and `wordnet-eng-ell` speak English. Imports declare no language and get `en-US`, unless the file is named like a bundled source ID.
 - The speaker reads the search target (#325, kyukhin 2026-11-13), decided by the pure `SpeechService.target(for:side:)`. When the query matched the headword (an exact or prefix row, or a lemma row: `SearchResult.side`, which Search passes to Definition) and the source's translation language (`translationLanguage(forSource:)`, the second language of `DictionaryGrouping.parse`) has a voice code and differs from the headword's, it reads the first sense line in that language: `Gloss.short`, as Learn shows a meaning (no part-of-speech headers or examples, a WordNet sense's words before " — ", at most 80 characters). hello in En–El reads "εμπρός, γεία σας, γεία σου", γεια and έγραψα (γράφω) in El–En read "hello" and "write". Otherwise it reads the headword: a match only in the definition (exquisite → φίνα), WordNet, an import or an unknown (`und`) translation language, and an entry opened from History, My words, a list or Learn. The button's accessibility value is the text it reads.
+- Learning speaks the word a Recognition or drill question shows as it appears, in its voice, unless Speak words is off or VoiceOver runs (#331, [0131](0131-learning.md)). `SpeechService` speaks on a serial queue of its own, never the main thread; the automatic words use the `.ambient` session, as the learning sounds do.
 - The review prompt (#12) needs at least 5 Definition views and 30 s, then 10 min, then 60 min of cumulative active time. It fires at most once per session and three times per install, and Apple decides whether it shows. `-disableReviewPrompt` turns it off.
 - On a fresh install or after an update, Search appears at once with every dictionary searchable: the app reads the bundled file in place, nothing is unpacked (#138).
 - The first launch after an upgrade from 1.x moves History, bookmarks (as My words) and imported dictionaries out of the old database, then deletes it (#139). Search works during the move; History, the Bookmarks tab and Dictionary Order wait for it.
@@ -221,7 +222,7 @@ These tests prove today's behaviour. A feature spec maps its acceptance criteria
 | Dictionary info, import | `DictionaryInfoDetailTests`, `SettingsViewModelPairTests` (#105), `DictAppTests` | `DictionaryInfoTests`, `ImportDictionaryTests` |
 | Localization | `DictAppTests` (#88), `ArabicBidiOrderTests` | `SpanishLocalizationTests`, `ArabicLocalizationTests`, `GreekLocalizationTests` |
 | Reading Mode, review, version | `ReadingModeServiceTests`, `ReviewRequestServiceTests`, `DictAppTests` | `ReadingModeTests`, `VersionDisplayTests`, `ReportBugFlowTests` |
-| Speaker (TTS) language | `SpeechLanguageTests` (#202), `SpeechTargetTests` (the search target, #325) | `ArabicLocalizationTests`, `GreekLocalizationTests` (the button is present), `SpeakerTargetTests` (hello: En–El reads the Greek translation, WordNet hello, the En–El entry reopened from History hello, #325) |
+| Speaker (TTS) language | `SpeechLanguageTests` (#202), `SpeechTargetTests` (the search target, #325), `QuestionWordTests` and `QuestionSpeakerTests` (learning's words, #331) | `ArabicLocalizationTests`, `GreekLocalizationTests` (the button is present), `SpeakerTargetTests` (hello: En–El reads the Greek translation, WordNet hello, the En–El entry reopened from History hello, #325) |
 | Navigation, iPad | — | `NavigationTests`, `iPadSpecificTests` |
 
 ### Unit tests
@@ -319,3 +320,4 @@ The specs of these epics will replace parts of this overview:
 - 2026-11-12: #315: Reading Mode is a light bulb instead of a book, and turning it on shows "The screen stays on" for about 2 s (Screens). UI tests launch with `-keepReadingModeHint` to keep the hint up, as a tap's wait for the app to idle takes most of the 2 s (launch arguments).
 - 2026-11-13: #325 (kyukhin): the speaker reads the search target: from a Search row that matched the headword, the first sense line of the translation in its language; otherwise the headword, as before (Screens, Rules worth knowing, test plan). A Search row carries the side it matched (0136, "Search path" step 5).
 - 2026-11-08: #180: Credits moves under the version, names WordNet's license, credits GRDB.swift with its MIT text and lists the licenses with links (Screens, Why).
+- 2026-11-15: #331 (kyukhin): learning speaks the word a Recognition or drill question shows as it appears (0131); speech runs on its own queue, the automatic words in the `.ambient` session (Rules worth knowing, test plan).

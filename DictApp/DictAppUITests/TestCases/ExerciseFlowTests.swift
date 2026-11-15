@@ -29,6 +29,9 @@ final class ExerciseFlowTests: XCTestCase {
         if name.contains("testProductionTrainer") {
             return ["-learningFixture", "due", "-learning_answer_mode", "choice"]
         }
+        if name.contains("testSpeakWordsOffSpeaksNothing") {
+            return ["-learningFixture", "due", "-learningLists", "ky-ell-a1", "-drillLength", "2"]
+        }
         return ["-learningFixture", "due"]
     }
 
@@ -266,5 +269,53 @@ final class ExerciseFlowTests: XCTestCase {
         for item in asked {
             XCTAssertEqual(item.answer, Self.greekMeanings[item.prompt], "\(item.prompt)'s meaning, in English")
         }
+    }
+
+    // MARK: - #331: Speak words
+
+    /// Speak words is on by default: each Recognition question speaks its
+    /// word as it appears (the prompt's value is the word spoken); a
+    /// Production question speaks nothing.
+    func testRecognitionSpeaksItsWord() throws {
+        let run = learnPage.openTrainer()
+        guard let first = nextPrompt(run, after: nil) else { return }
+        XCTAssertEqual(run.spokenWord, first.precomposedStringWithCanonicalMapping, "\(first) is spoken")
+        run.choose(right: true)
+        XCTAssertEqual(run.waitForFeedback(), "right")
+        run.tapContinue()
+        guard let second = nextPrompt(run, after: first) else { return }
+        XCTAssertEqual(run.spokenWord, second.precomposedStringWithCanonicalMapping, "the next word, \(second)")
+        run.closeButton.tap()
+        XCTAssertTrue(learnPage.waitForHome(), "closed")
+
+        let production = learnPage.openTrainer(production: true)
+        guard let meaning = nextPrompt(production, after: nil) else { return }
+        XCTAssertEqual(production.spokenWord, "", "Production (\(meaning)) speaks nothing")
+    }
+
+    /// Settings → Learning → Speak words, on by default, turned off: neither
+    /// a Recognition question nor a drill question speaks.
+    func testSpeakWordsOffSpeaksNothing() throws {
+        tabBarPage.tapSettingsTab()
+        let settings = LearningSettingsPage(app: app)
+        settings.reveal(settings.speakWords)
+        XCTAssertEqual(settings.speakWords.label, "Speak words")
+        XCTAssertEqual(settings.speakWords.value as? String, "1", "on by default")
+        settings.speakWords.switches.firstMatch.tap()
+        let off = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == '0'"), object: settings.speakWords)
+        XCTAssertEqual(XCTWaiter.wait(for: [off], timeout: TestData.Timeouts.medium), .completed, "Speak words off")
+
+        learnPage = tabBarPage.tapLearnTab()
+        XCTAssertTrue(learnPage.waitForHome(), "the Learn home")
+        let run = learnPage.openTrainer()
+        guard let word = nextPrompt(run, after: nil) else { return }
+        XCTAssertEqual(run.spokenWord, "", "Recognition (\(word)) speaks nothing")
+        run.closeButton.tap()
+        XCTAssertTrue(learnPage.waitForHome(), "closed")
+
+        let drill = learnPage.openConjugation()
+        drill.start()
+        XCTAssertTrue(drill.waitForQuestion(), "a drill question")
+        XCTAssertEqual(drill.spokenVerb, "", "the drill (\(drill.promptVerb.label)) speaks nothing")
     }
 }

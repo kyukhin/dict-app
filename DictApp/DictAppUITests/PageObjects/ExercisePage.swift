@@ -54,6 +54,12 @@ class ExercisePage: BasePage {
         options.first { ($0.value as? String) == "answer" }
     }
 
+    /// #331: what the question spoke as it appeared, the prompt's value
+    /// (NFC); empty when it spoke nothing.
+    var spokenWord: String {
+        ((prompt.value as? String) ?? "").precomposedStringWithCanonicalMapping
+    }
+
     /// The feedback bar's text: "Right!", "Right answer: write", "Mind the accent: γράφω".
     var feedbackText: String {
         feedback.staticTexts.allElementsBoundByIndex.map(\.label).joined(separator: " ")

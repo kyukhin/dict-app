@@ -579,6 +579,10 @@ final class LearningSettingsViewModel: ObservableObject {
     @Published var haptics: Bool {
         didSet { if haptics != oldValue { settings.learningHaptics = haptics } }
     }
+    /// #331: Speak words.
+    @Published var speakWords: Bool {
+        didSet { if speakWords != oldValue { settings.learningSpeakWords = speakWords } }
+    }
     /// The reminder's switch; on at once when tapped, back off if iOS denies it.
     @Published private(set) var reminderOn: Bool
     /// The reminder's time in minutes after midnight, 19:00 until set.
@@ -612,6 +616,7 @@ final class LearningSettingsViewModel: ObservableObject {
         answerMode = settings.learningAnswerMode
         sounds = settings.learningSounds
         haptics = settings.learningHaptics
+        speakWords = settings.learningSpeakWords
         reminderOn = settings.learningReminder != nil
         reminderTime = settings.learningReminder ?? LearningReminder.defaultTime
     }
@@ -628,6 +633,7 @@ final class LearningSettingsViewModel: ObservableObject {
         answerMode = settings.learningAnswerMode
         sounds = settings.learningSounds
         haptics = settings.learningHaptics
+        speakWords = settings.learningSpeakWords
         reminderOn = settings.learningReminder != nil
         reminderTime = settings.learningReminder ?? reminderTime
         do {

@@ -32,6 +32,7 @@ final class ConjugationDrillFlowTests: XCTestCase {
         if name.contains("testTensesUpToIsRemembered") { return greekA1 + ["-drillLength", "4"] }
         if name.contains("testWholeTenseAfterEachAnswer") { return greekA1 + ["-drillLength", "3"] }
         if name.contains("testWrongFormShowsItsSlot") { return greekA1 + ["-drillLength", "3"] }
+        if name.contains("testDrillSpeaksItsVerb") { return greekA1 + ["-drillLength", "2"] }
         if name.contains("testSessionOfFifteen") { return greekA1 }
         if name.contains("testPassiveNote") || name.contains("testPractiseFromDefinition") {
             return ["-learningLanguages", "ell", "-drillLength", "3"]
@@ -447,6 +448,22 @@ final class ConjugationDrillFlowTests: XCTestCase {
         }
         XCTAssertFalse(without.isEmpty, "a question without a topic; asked \(with)")
         XCTAssertFalse(with.isEmpty, "a question with a topic; asked \(without)")
+    }
+
+    /// #331: Speak words is on by default: each drill question speaks its
+    /// verb as the prompt cites it (the verb's value is the word spoken).
+    func testDrillSpeaksItsVerb() throws {
+        let drill = openConjugation()
+        drill.start()
+        for n in 1...2 {
+            XCTAssertTrue(drill.waitForQuestion(), "question \(n)")
+            let verb = drill.promptVerb.label.precomposedStringWithCanonicalMapping
+            XCTAssertFalse(verb.isEmpty)
+            XCTAssertEqual(drill.spokenVerb, verb, "question \(n) speaks \(verb)")
+            XCTAssertEqual(drill.answer(right: true), "right")
+            drill.run.tapContinue()
+        }
+        XCTAssertTrue(drill.run.summary.waitForExistence(timeout: TestData.Timeouts.medium), "the summary")
     }
 
     /// No Greek pack (`-resetPacks`): "Download Greek to practise
