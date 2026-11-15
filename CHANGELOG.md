@@ -77,6 +77,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - [#325] The speaker reads what the search found: hello opened from the English–Greek dictionary reads its Greek translation, and a word found through its translation reads the word itself.
 - [#314] Greek search finds 17 verbs the dictionaries spell with their other present form, such as ξεκινάω, ρωτάω and their forms, which now show ξεκινώ and ρωτώ.
 - [#320] In English via English, a list word's meaning is a WordNet sense of its own part of speech, so "was" reads as the verb be, not "beryllium", and most meanings lose the example and author text the dictionary build left in them.
+- [#325, #331] The speaker reads the translation of a word found by a later word of its headword (cream → ice cream), a learning word no longer plays after its run is closed, and VoiceOver turned on mid-question reads the word once.
 - [#181] Localization pass for 2.0: the typed answer's placeholder writes the language in lower case ("στα ελληνικά"), the Russian Import and the Greek Paste screens no longer truncate their titles, the Languages rows and the Learning steppers stack at the largest text sizes instead of breaking words, and the Spanish daily goal, the Greek "learning" badge and the Arabic strict-accents option use the app's own terms.
 
 ### Tests / CI

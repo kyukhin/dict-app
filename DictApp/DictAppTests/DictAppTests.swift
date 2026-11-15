@@ -6913,6 +6913,82 @@ final class SpeechTargetTests: XCTestCase {
         XCTAssertEqual(preferred.first { $0.entry.word.precomposedStringWithCanonicalMapping == "φίνα" }?.side,
                        .definition, "preferred mode")
     }
+
+    /// Follow-up 4 (CodeRabbit, PR #326): cream finds En–El's ice cream by a
+    /// later word of its headword, which no prefix test sees: the row
+    /// matched the headword and reads its translation, παγωτό. parfait,
+    /// found through "ice cream" in its definition, still reads itself.
+    @MainActor
+    func testLaterWordOfAHeadwordMatchesTheHeadword() async throws {
+        await DictAppTests.waitForHostAppLaunch()
+        let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+        let db = DatabaseService.shared
+        try await db.setup(userPath: tempDir.appendingPathComponent("user.sqlite").path,
+                           dictionaryURL: try TestDictionary.bundledURL(), packFiles: try PackFixtures.all())
+
+        let enEl: Set<String> = ["freedict-eng-ell", "wordnet-eng-ell"]
+        let relevance = try await db.searchResults(query: "cream", enabledSources: enEl)
+        let preferred = try await db.searchPreferredResults(query: "cream", groups: [enEl.sorted()], enabledSources: enEl)
+        for (mode, results) in [("relevance", relevance), ("preferred", preferred)] {
+            let iceCream = try XCTUnwrap(results.first { $0.entry.source == "freedict-eng-ell" && $0.entry.word == "ice cream" },
+                                         mode)
+            XCTAssertEqual(iceCream.side, .headword, mode)
+            XCTAssertEqual(SpeechService.target(for: iceCream.entry, side: iceCream.side),
+                           SpeechTarget(text: "παγωτό", language: "el-GR"), mode)
+            let parfait = try XCTUnwrap(results.first { $0.entry.source == "wordnet-eng-ell" && $0.entry.word == "parfait" },
+                                        mode)
+            XCTAssertEqual(parfait.side, .definition, "\(mode): found through its definition")
+        }
+    }
+}
+
+/// Follow-up 4 (CodeRabbit, PR #332): `SpeechService`'s queue, on a queue
+/// of the test's own and a recorder instead of the voice.
+final class SpeechQueueTests: XCTestCase {
+    private let grafo = SpeechTarget(text: "γράφω", language: "el-GR")
+    private let trecho = SpeechTarget(text: "τρέχω", language: "el-GR")
+
+    /// A run closed before its word plays stays silent: `stop()` drops the
+    /// words queued before it, not those asked after it.
+    func testStopSilencesTheWordsQueuedBeforeIt() {
+        let queue = DispatchQueue(label: "SpeechQueueTests.stop")
+        var spoken: [String] = []
+        let service = SpeechService(queue: queue, setAmbient: {}, utter: { text, _ in spoken.append(text) })
+        queue.suspend()
+        service.speakWord(grafo)
+        service.stop()
+        service.speakWord(trecho)
+        queue.resume()
+        queue.sync {}
+        XCTAssertEqual(spoken, ["τρέχω"], "γράφω was queued before the stop")
+        service.speakWord(grafo)
+        queue.sync {}
+        XCTAssertEqual(spoken, ["τρέχω", "γράφω"])
+    }
+
+    /// The ambient session counts as set only once it was: a failure skips
+    /// that word, and the next word tries again.
+    func testAmbientSessionIsSetOnceItSucceeds() {
+        let queue = DispatchQueue(label: "SpeechQueueTests.ambient")
+        var attempts = 0
+        var fails = true
+        var spoken: [String] = []
+        let service = SpeechService(queue: queue, setAmbient: {
+            attempts += 1
+            if fails { throw CocoaError(.featureUnsupported) }
+        }, utter: { text, _ in spoken.append(text) })
+        service.speakWord(grafo)
+        queue.sync {}
+        XCTAssertEqual(spoken, [], "no ambient session: the word is skipped")
+        fails = false
+        service.speakWord(trecho)
+        service.speakWord(grafo)
+        queue.sync {}
+        XCTAssertEqual(spoken, ["τρέχω", "γράφω"])
+        XCTAssertEqual(attempts, 2, "tried again, then set once")
+    }
 }
 
 // MARK: - Issue #331: the word a question speaks
@@ -27597,6 +27673,17 @@ final class GlossTests: XCTestCase {
         XCTAssertEqual(Gloss.short(definition: "1. for example, for instance, e.g. — as an example"),
                        "for example, for instance, e.g.", "a lemma list keeps its e.g.")
     }
+
+    /// Follow-up 4 (CodeRabbit, PR #322): with an odd number of quotes the
+    /// cut starts at the unmatched one, the last, so balanced quotes before
+    /// it stay.
+    func testUnmatchedQuoteIsTheLast() {
+        XCTAssertEqual(Gloss.dropExamples("a \"quoted\" term; usage example\""), "a \"quoted\" term")
+        XCTAssertEqual(Gloss.dropExamples("a \"quoted\" term, usage example\""), "a \"quoted\" term, usage example",
+                       "no `;` before it: only the unmatched quote goes")
+        XCTAssertEqual(Gloss.dropExamples("close in; darkness enclosed him\""), "close in")
+        XCTAssertEqual(Gloss.dropExamples("hora punta, hora \"peak\""), "hora punta, hora \"peak\"", "balanced")
+    }
 }
 
 /// `AnswerChecker`: strict, lenient and the folding rules (0131, "Typed
@@ -34448,6 +34535,30 @@ final class DrillTenseInfoTests: XCTestCase {
         XCTAssertNil(DrillText.tenseInfo(.present, verb: both, locale: Locale(identifier: "en")).translation)
     }
 
+    /// Follow-up 4 (CodeRabbit, PR #335): a whole table made impersonal (a
+    /// list word in the third person, #330) keeps every person for the
+    /// example rule, though its questions, options and tense rows are αυτός
+    /// only: Μένω, εγώ, rules out the present's first example.
+    func testImpersonalVerbAvoidsEveryPerson() throws {
+        let present = ["μένω", "μένεις", "μένει", "μένουμε", "μένετε", "μένουν"]
+        let dependent = ["μείνω", "μείνεις", "μείνει", "μείνουμε", "μείνετε", "μείνουν"]
+        let meno = Self.verb(present: present, dependent: dependent, impersonal: true)
+        XCTAssertEqual(meno.citation, "μένει")
+        XCTAssertEqual(Set(meno.cells.values.flatMap(\.keys)), [.thirdSingular], "αυτός cells only")
+        XCTAssertEqual(ConjugationTense.present.exampleIndex(avoiding: meno), 1, "μένω is no αυτός form, yet counts")
+
+        let questions = ConjugationQuestionBuilder.questions(verb: meno, level: .b2)
+        XCTAssertFalse(questions.isEmpty)
+        XCTAssertEqual(Set(questions.flatMap(\.persons)), [.thirdSingular], "asked in αυτός only")
+        let future = try XCTUnwrap(questions.first { $0.facet.tense == .future })
+        var rng = LearningOrder.SplitMix64(seed: 1)
+        let question = try XCTUnwrap(ConjugationQuestionBuilder.build(verb: meno, facet: future.facet,
+                                                                      person: .thirdSingular, level: .b2, rng: &rng))
+        let thirdSingular = Set(meno.cells.values.compactMap { $0[.thirdSingular] }.flatMap(\.forms))
+        XCTAssertTrue(Set(question.options).isSubset(of: thirdSingular), "options: αυτός forms, \(question.options)")
+        XCTAssertEqual(question.tenseRows.map(\.person), [.thirdSingular], "the tense table: αυτός only")
+    }
+
     /// The real pool (the three Greek lists of the pack, `PackFixtures`) at
     /// every tense up to B2: the example shown never has a form of the
     /// asked verb, and an example skipped has one. The verbs and tenses
@@ -34471,8 +34582,10 @@ final class DrillTenseInfoTests: XCTestCase {
         var withoutExample: [String] = []
         var asked = 0
         for verb in verbs {
-            let forms = Set(verb.cells.values.flatMap { $0.values.flatMap(\.forms) }
-                .compactMap { $0.split(separator: " ").last.map(word) })
+            // Every person of the drilled voices, an impersonal verb's too.
+            let forms = Set(verb.voices.values.flatMap { voice in
+                ConjugationTense.allCases.flatMap { tense in tense.persons.flatMap { tense.forms(voice, $0) } }
+            }.compactMap { $0.split(separator: " ").last.map(word) })
             func hasForm(_ example: String) -> Bool { example.split(separator: " ").contains { forms.contains(word($0)) } }
             let tenses = Set(ConjugationQuestionBuilder.questions(verb: verb, level: .b2).map(\.facet.tense))
             for tense in ConjugationTense.allCases where tenses.contains(tense) {
@@ -34509,7 +34622,7 @@ final class DrillTenseInfoTests: XCTestCase {
 
     /// A made-up verb: εγώ and εσύ of the present, and so on.
     private static func verb(present: [String], dependent: [String] = [], imperative: [String] = [],
-                             passivePresent: [String] = []) -> DrillVerb {
+                             passivePresent: [String] = [], impersonal: Bool = false) -> DrillVerb {
         func forms(_ slot: ParadigmLayout.FiniteSlot, _ list: [String], into voice: inout ParadigmLayout.VoiceForms) {
             for (form, person) in zip(list, Person.allCases) { voice.add(form, to: .finite(slot, person)) }
         }
@@ -34525,8 +34638,8 @@ final class DrillTenseInfoTests: XCTestCase {
             forms(.present, passivePresent, into: &passive)
             voices[.passive] = passive
         }
-        return DrillVerb(word: present[0], citation: present[0], translation: "", listLevel: nil, rank: nil, seq: 0,
-                         mainVoice: .active, voices: voices, isImpersonal: false)
+        return DrillVerb(word: present[0], citation: impersonal ? present[2] : present[0], translation: "",
+                         listLevel: nil, rank: nil, seq: 0, mainVoice: .active, voices: voices, isImpersonal: impersonal)
     }
 }
 
@@ -37195,7 +37308,7 @@ extension ExerciseRunViewModelTests {
         await closed.start()
         XCTAssertNotNil(closed.question, "a run closed while it loads still loads")
         XCTAssertEqual(left.spoken, [], "but speaks nothing")
-        XCTAssertEqual(left.events.first, .stop)
+        XCTAssertEqual(left.events, [.stop], "and stops only on leaving: never the word of the run after it")
     }
 }
 
@@ -37223,6 +37336,10 @@ extension ConjugationRunViewModelTests {
             XCTAssertEqual(sink.spoken.count, 2, "\(word): the next question speaks again")
             vm.leave()
             XCTAssertEqual(sink.events.last, .stop, "closing stops the verb")
+            let events = sink.events
+            await vm.choose(try XCTUnwrap(vm.question).rightIndex)
+            await vm.next()
+            XCTAssertEqual(sink.events, events, "\(word): a departed run never stops the verb of the run after it")
         }
 
         settings.learningSpeakWords = false

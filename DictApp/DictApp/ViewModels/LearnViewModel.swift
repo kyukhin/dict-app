@@ -721,7 +721,9 @@ final class ExerciseRunViewModel: ObservableObject {
         feedback = nil
         showsExampleSheet = false
         typed = ""
-        speaker.stop()
+        // A departed run never stops the word of the run after it;
+        // `leave()` stopped its own.
+        if !isLeft { speaker.stop() }
         spokenWord = ""
         while index < plan.count {
             let card = plan[index].card
@@ -1227,7 +1229,9 @@ final class ConjugationRunViewModel: ObservableObject {
         question = nil
         feedback = nil
         ruleTopic = nil
-        speaker.stop()
+        // A departed run never stops the verb of the run after it;
+        // `leave()` stopped its own.
+        if !isLeft { speaker.stop() }
         spokenWord = ""
         while index < plan.count {
             if let built = plan[index].question(rng: &rng) {

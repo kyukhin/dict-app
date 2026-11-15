@@ -3,6 +3,7 @@
 // #325) and the words learning speaks as a question appears (#331).
 
 import AVFoundation
+import os
 import UIKit
 
 final class SpeechService {
@@ -12,9 +13,17 @@ final class SpeechService {
     /// Issue #331: speech starts on a serial queue of its own, never the
     /// main thread, as the learning sounds do (0131, Feedback): starting the
     /// audio output can block for seconds.
-    private let queue = DispatchQueue(label: "com.kyukhin.DictApp.SpeechService", qos: .userInitiated)
-    /// Used on `queue` only.
+    private let queue: DispatchQueue
+    /// Used on `queue` only: set once `setAmbient` succeeded.
     private var isAmbientSet = false
+    /// Puts the audio session in `.ambient`; can throw.
+    private let setAmbient: () throws -> Void
+    /// Speaks on `queue`; nil: the synthesizer. Tests record instead.
+    private let utterHook: ((_ text: String, _ language: String) -> Void)?
+    /// Follow-up 4: counts `stop()` calls. A `speakWord` speaks only while
+    /// the count is the one of its call, so a stop silences the words
+    /// queued before it. Read and written from any thread.
+    private let generation = OSAllocatedUnfairLock(initialState: 0)
 
     /// Issue #202: BCP 47 voice per ISO 639-3 headword language of the bundled sources.
     static let voiceLanguages: [String: String] = [
@@ -68,7 +77,15 @@ final class SpeechService {
         AVSpeechSynthesisVoice(language: language) != nil
     }
 
-    private init() {}
+    /// The app uses `shared`; unit tests pass their own queue, session step
+    /// and `utter` recorder.
+    init(queue: DispatchQueue = DispatchQueue(label: "com.kyukhin.DictApp.SpeechService", qos: .userInitiated),
+         setAmbient: @escaping () throws -> Void = { try AVAudioSession.sharedInstance().setCategory(.ambient) },
+         utter: ((_ text: String, _ language: String) -> Void)? = nil) {
+        self.queue = queue
+        self.setAmbient = setAmbient
+        utterHook = utter
+    }
 
     /// Speaks nothing when the device has no voice for `language`: the default
     /// voice would read the word in another language (#202). Stops what
@@ -81,18 +98,28 @@ final class SpeechService {
 
     /// Issue #331: a word learning speaks by itself, in the `.ambient`
     /// session the learning sounds use (0131, Feedback), set once: the
-    /// silent switch mutes it and the user's music keeps playing.
+    /// silent switch mutes it and the user's music keeps playing. If the
+    /// session cannot be set, the word is skipped and the next one tries
+    /// again; a `stop()` after the call skips it too (follow-up 4).
     func speakWord(_ word: SpeechTarget) {
+        let asked = generation.withLock { $0 }
         queue.async { [self] in
             if !isAmbientSet {
-                isAmbientSet = true
-                try? AVAudioSession.sharedInstance().setCategory(.ambient)
+                do {
+                    try setAmbient()
+                    isAmbientSet = true
+                } catch {
+                    return
+                }
             }
+            guard generation.withLock({ $0 }) == asked else { return }
             utter(word.text, language: word.language)
         }
     }
 
+    /// Stops what is spoken, and the words `speakWord` queued before.
     func stop() {
+        generation.withLock { $0 += 1 }
         queue.async { [self] in
             synthesizer.stopSpeaking(at: .immediate)
         }
@@ -100,6 +127,10 @@ final class SpeechService {
 
     /// On `queue`.
     private func utter(_ text: String, language: String) {
+        if let utterHook {
+            utterHook(text, language)
+            return
+        }
         guard let voice = AVSpeechSynthesisVoice(language: language) else { return }
         synthesizer.stopSpeaking(at: .immediate)
         let utterance = AVSpeechUtterance(string: text)

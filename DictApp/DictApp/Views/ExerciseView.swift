@@ -167,7 +167,8 @@ struct RunHeader: View {
 
 /// The word (large) with its endings, its part of speech, a speaker button
 /// when the device has a voice (#202), and up to 4 meanings. The word's
-/// accessibility value is what it spoke as it appeared (#331).
+/// accessibility value is what it spoke as it appeared (#331), none while
+/// VoiceOver runs.
 struct RecognitionQuestion: View {
     let question: Question
     let feedback: AnswerFeedback?
@@ -175,6 +176,7 @@ struct RecognitionQuestion: View {
     /// #331: the word spoken as the question appeared; empty for none.
     var spokenWord = ""
     let onChoose: (Int) -> Void
+    @Environment(\.accessibilityVoiceOverEnabled) private var voiceOver
 
     var body: some View {
         VStack(alignment: .leading, spacing: 24) {
@@ -184,7 +186,8 @@ struct RecognitionQuestion: View {
                     LearnWordText(term: question.prompt, endings: question.promptEndings, lang: question.promptLanguage)
                         .font(.largeTitle.bold())
                         .fixedSize(horizontal: false, vertical: true)
-                        .accessibilityValue(Text(verbatim: spokenWord))
+                        // VoiceOver turned on mid-question would read the word twice.
+                        .accessibilityValue(Text(verbatim: voiceOver ? "" : spokenWord))
                         .accessibilityIdentifier("exercise_prompt")
                     Spacer()
                     if let voice = SpeechService.voiceLanguages[question.word.key.lang], SpeechService.hasVoice(for: voice) {
@@ -1041,7 +1044,8 @@ struct ConjugationQuestionView: View {
                 Text(AttributedString.learning(question.verb.citation, lang: ConjugationPlanner.lang))
                     .font(.largeTitle.bold())
                     .fixedSize(horizontal: false, vertical: true)
-                    .accessibilityValue(Text(verbatim: spokenWord))
+                    // VoiceOver turned on mid-question would read the verb twice.
+                    .accessibilityValue(Text(verbatim: voiceOver ? "" : spokenWord))
                     .accessibilityIdentifier("drill_prompt_verb")
                 if !question.verb.translation.isEmpty {
                     Text(AttributedString.learning(question.verb.translation, lang: meaningsLang))

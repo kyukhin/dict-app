@@ -1120,11 +1120,18 @@ extension ConjugationTense {
     /// `drill.tenseInfo.aorist.example1`.
     func exampleKey(_ index: Int) -> String { "\(infoKey).example\(index + 1)" }
 
-    /// The first example with no form of `verb`, in any tense or voice the
-    /// drill knows (`DrillVerb.cells`, generated forms included); nil when
-    /// every example has one.
+    /// The first example with no form of `verb`, in any tense, voice or
+    /// person the drill knows (`forms(_:_:)` of every person of its drilled
+    /// voices, generated forms included); nil when every example has one.
+    /// Every person also for an impersonal verb, whose `cells`, questions
+    /// and options keep αυτός only (follow-up 4).
     func exampleIndex(avoiding verb: DrillVerb) -> Int? {
-        Self.firstExample(examples, avoiding: verb.cells.values.flatMap { $0.values.flatMap(\.forms) })
+        Self.firstExample(examples, avoiding: verb.voices.values.flatMap { voice in
+            let lacksDependent = Self.lacksDependent(voice)
+            return Self.allCases.flatMap { tense in
+                tense.persons.flatMap { tense.forms(voice, $0, lacksDependent: lacksDependent) }
+            }
+        })
     }
 
     /// The first of `examples` none of whose words is the last word of one
@@ -1872,14 +1879,16 @@ enum Gloss {
     /// text and trailing `;` or `,`. "deserving or inciting pity; ; ; -
     /// Galsworthy" → "deserving or inciting pity". Balanced quotes stay
     /// (`hora "peak"`), and so does a lone "e.g." (π.χ.) or one in a lemma
-    /// list before " — ", which runs before the split.
+    /// list before " — ", which runs before the split. With an odd count the
+    /// unmatched quote is the last one, so quotes paired before it stay
+    /// (`a "quoted" term; usage example"` → `a "quoted" term`).
     static func dropExamples(_ sense: String) -> String {
         var sense = sense
-        if sense.filter({ $0 == "\"" }).count % 2 == 1, let quote = sense.firstIndex(of: "\"") {
+        if sense.filter({ $0 == "\"" }).count % 2 == 1, let quote = sense.lastIndex(of: "\"") {
             if let semicolon = sense[..<quote].lastIndex(of: ";") {
                 sense = String(sense[..<semicolon])
             } else {
-                sense.removeAll { $0 == "\"" }
+                sense.remove(at: quote)
             }
         }
         for (pattern, replacement) in [(#";\s*-[^;]*"#, ""), (#";(\s*;)+"#, ";"), (#"[\s;,]+e\.g\.[\s;,]*$"#, ""),
