@@ -50,6 +50,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - [#298] "New words from" is now "Learning from" in five languages, and its row on the Learn tab shows the checked lists ("Greek A1, A2").
 - [#291] Settings → Learning → Sound theme offers six themes for the learning sounds, Classic, Cheerful, Retro, Grumpy, Silly and Meme, each synthesized in code; choosing one plays its right-answer sound.
 - [#329] In the conjugation drill an ⓘ after the form's name explains what the form is for, with a Greek example that has no form of the asked verb and its translation; the person stands on its own line in the accent colour.
+- [#340] A seventh sound theme, Mellstroy, plays Mellstroy's recorded voice (used with his permission), a random clip each time, and greets the start of a daily lesson; a new sound or closing a run stops a clip still playing.
 
 ### Changed
 - [#138] Every dictionary is searchable right after install, with no "Preparing dictionaries" bar: the app reads the bundled dictionaries in place and keeps your history, saved words and imports in a small database of their own.

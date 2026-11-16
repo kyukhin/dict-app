@@ -518,6 +518,9 @@ final class ExerciseRunViewModel: ObservableObject {
     private let speaker: QuestionSpeaker
     /// The run's screen went: no word is spoken any more.
     private var isLeft = false
+    /// A lesson continued (#296): its first question appeared before, so
+    /// it plays no Lesson started (#340).
+    private var isResumed = false
     /// The answers a continued lesson had before this sitting: the plan
     /// holds only its items left (#296).
     private var base = 0
@@ -619,6 +622,7 @@ final class ExerciseRunViewModel: ObservableObject {
     /// run takes nothing of the lesson, so it shows the error, not a summary.
     private func resume(_ kept: KeptLesson) async throws {
         let states = try await db.cardStates(kept.items.map(\.card))
+        isResumed = true
         runID = kept.runID
         base = kept.answered
         answered = kept.answered
@@ -702,10 +706,11 @@ final class ExerciseRunViewModel: ObservableObject {
     }
 
     /// #331: the run is closed or its screen went: the word stops, and no
-    /// later question speaks.
+    /// later question speaks. #340: so does the sound still playing.
     func leave() {
         isLeft = true
         speaker.stop()
+        player.stop()
     }
 
     /// The bar's Example button (0134, #178): the sheet with the question's
@@ -738,7 +743,16 @@ final class ExerciseRunViewModel: ObservableObject {
             if let word = words[card.key.word], let built = await build(card, word) {
                 sheetExamples = await shownExamples(of: built.word.key)
                 question = built
-                if !isLeft { spokenWord = speaker.speak(built)?.text ?? "" }
+                if run == .session, answered == 0, !isResumed, !isLeft {
+                    // #340: a daily lesson's first question plays Lesson
+                    // started (Mellstroy's only); its word waits for the
+                    // clip's end, so they never overlap. Without a clip,
+                    // the word is spoken at once.
+                    let shown = index
+                    player.play(.lessonStarted) { [weak self] in self?.speakWord(at: shown) }
+                } else {
+                    speakWord(at: index)
+                }
                 position = base + index + 1
                 total = base + plan.count
                 shownAt = clock.now()
@@ -760,6 +774,13 @@ final class ExerciseRunViewModel: ObservableObject {
         phase = .summary
     }
 
+    /// #331: speaks the word of the question shown at `shown`, while it
+    /// still waits for its answer and the run is not left.
+    private func speakWord(at shown: Int) {
+        guard !isLeft, index == shown, feedback == nil, let question else { return }
+        spokenWord = speaker.speak(question)?.text ?? ""
+    }
+
     /// The summary's numbers from this run's log rows (`reviewRows(run:)`),
     /// as Today's come from the day's, and the daily goal.
     private func loadSummary() async {
@@ -770,8 +791,11 @@ final class ExerciseRunViewModel: ObservableObject {
             goalProgress = progress
             var isLesson = false
             if case .session = run { isLesson = true }
-            player.playRunEnd(answeredBefore: answeredBefore, answeredAfter: progress.answered,
-                              goal: progress.goal, isDailyLesson: isLesson)
+            // #340: no end sound once the run is left.
+            if !isLeft {
+                player.playRunEnd(answeredBefore: answeredBefore, answeredAfter: progress.answered,
+                                  goal: progress.goal, isDailyLesson: isLesson)
+            }
         } catch {
             summary = summary ?? ReviewSummary()
             errorMessage = error.localizedDescription
@@ -1233,10 +1257,11 @@ final class ConjugationRunViewModel: ObservableObject {
     }
 
     /// #331: the run is closed or its screen went: the verb stops, and no
-    /// later question speaks.
+    /// later question speaks. #340: so does the sound still playing.
     func leave() {
         isLeft = true
         speaker.stop()
+        player.stop()
     }
 
     /// The ⓘ popover opened or closed (#329). The time it stays open is not
@@ -1296,8 +1321,11 @@ final class ConjugationRunViewModel: ObservableObject {
             let progress = GoalProgress(answered: try await db.answeredCount(on: clock.today),
                                         goal: settings.learningDailyGoal)
             goalProgress = progress
-            player.playRunEnd(answeredBefore: answeredBefore, answeredAfter: progress.answered,
-                              goal: progress.goal, isDailyLesson: false)
+            // #340: no end sound once the drill is left.
+            if !isLeft {
+                player.playRunEnd(answeredBefore: answeredBefore, answeredAfter: progress.answered,
+                                  goal: progress.goal, isDailyLesson: false)
+            }
         } catch {
             summary = summary ?? ReviewSummary()
             errorMessage = error.localizedDescription
@@ -1427,6 +1455,8 @@ final class MatchPairsViewModel: ObservableObject {
     private var feedbackCount = 0
     private var isStarted = false
     private var answeredBefore = 0
+    /// The round's screen went (#340): its end plays no sound.
+    private var isLeft = false
 
     init(lang: String, meaningsLang: String?, db: DatabaseService = .shared, settings: SettingsService = .shared,
          languages: LearningLanguageService? = nil, clock: LearningClock = LearningClock(),
@@ -1482,6 +1512,13 @@ final class MatchPairsViewModel: ObservableObject {
         player.haptic(for: outcome)
     }
 
+    /// #340: the round is closed or its screen went: the sound still
+    /// playing stops, and its end plays none.
+    func leave() {
+        isLeft = true
+        player.stop()
+    }
+
     /// A tap on a tile. A right pair is matched, with the success haptic and
     /// sound, and its word's answer written at once; a wrong pair flashes
     /// red, with the error haptic and sound, and is charged to its word.
@@ -1523,7 +1560,8 @@ final class MatchPairsViewModel: ObservableObject {
                 phase = .finished
             }
             await write.value
-            if round.isComplete, let after = try? await db.answeredCount(on: today) {
+            // #340: no end sound once the round is left during the reads.
+            if round.isComplete, let after = try? await db.answeredCount(on: today), !isLeft {
                 player.playRunEnd(answeredBefore: answeredBefore, answeredAfter: after,
                                   goal: settings.learningDailyGoal, isDailyLesson: false)
             }

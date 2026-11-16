@@ -5793,9 +5793,12 @@ extension DictAppTests {
     private static let sameAsEnglishKeys: [String: Set<String>] = [
         // #180: "Software" is the Spanish word too; #291: so are "Retro" and "Meme".
         "es": cefrLevelKeys.union(["common.no", "credits.software.section", "settings.learning.soundTheme.retro",
-                                   "settings.learning.soundTheme.meme"]),
-        "ru": cefrLevelKeys, "ar": cefrLevelKeys,
+                                   "settings.learning.soundTheme.meme", mellstroy]),
+        "ru": cefrLevelKeys.union([mellstroy]), "ar": cefrLevelKeys.union([mellstroy]), "el": [mellstroy],
     ]
+
+    /// #340: Mellstroy is a name, the same in every language.
+    private static let mellstroy = "settings.learning.soundTheme.mellstroy"
 
     /// The multiset of `%@` / `%lld` specifiers (with positional index) in a
     /// value, sorted so word order does not matter.
@@ -5960,7 +5963,9 @@ extension DictAppTests {
 
             if code == "el" {
                 let greekLetter = try NSRegularExpression(pattern: "[\u{0370}-\u{03FF}\u{1F00}-\u{1FFF}]")
-                for (key, value) in tables.strings where !Self.formatOnlyKeys.contains(key) {
+                // A name spelled as in English (#340: Mellstroy) has none.
+                for (key, value) in tables.strings
+                where !Self.formatOnlyKeys.contains(key) && !(Self.sameAsEnglishKeys["el"]?.contains(key) ?? false) {
                     let range = NSRange(value.startIndex..., in: value)
                     XCTAssertNotNil(greekLetter.firstMatch(in: value, range: range),
                                     "el: '\(key)' has no Greek letter: '\(value)'")
@@ -18752,7 +18757,8 @@ final class LearningSettingsTests: XCTestCase {
         let (settings, store) = service()
         XCTAssertEqual(settings.learningSoundTheme, .classic)
         XCTAssertEqual(store.writeLog, [], "reading the default writes nothing")
-        XCTAssertEqual(SoundTheme.allCases.map(\.rawValue), ["classic", "cheerful", "retro", "grumpy", "silly", "meme"])
+        XCTAssertEqual(SoundTheme.allCases.map(\.rawValue),
+                       ["classic", "cheerful", "retro", "grumpy", "silly", "meme", "mellstroy"])
         for theme in SoundTheme.allCases {
             settings.learningSoundTheme = theme
             XCTAssertEqual(store.string(forKey: "learning_sound_theme"), theme.rawValue)
@@ -27437,9 +27443,31 @@ final class RecordingFeedbackSink: FeedbackSink {
     private(set) var played: [FeedbackSound] = []
     private(set) var themes: [SoundTheme] = []
 
+    /// How many times the sound still playing was stopped (#340).
+    private(set) var stops = 0
+    /// What waits for a sound's end (#340), until `finish()`.
+    private var waiting: [@MainActor @Sendable () -> Void] = []
+
     func play(_ sound: FeedbackSound, theme: SoundTheme) {
         played.append(sound)
         themes.append(theme)
+    }
+
+    /// Records the sound as playing until `finish()` ends it.
+    func play(_ sound: FeedbackSound, theme: SoundTheme, whenDone: @escaping @MainActor @Sendable () -> Void) {
+        play(sound, theme: theme)
+        waiting.append(whenDone)
+    }
+
+    /// The sounds played so far reach their end.
+    func finish() {
+        let done = waiting
+        waiting = []
+        done.forEach { $0() }
+    }
+
+    func stop() {
+        stops += 1
     }
 }
 
@@ -28351,8 +28379,8 @@ final class TrainerPlannerTests: XCTestCase {
 @MainActor
 final class FeedbackPlayerTests: XCTestCase {
     /// A real player at volume 0: the tests load and "play" it silently.
-    nonisolated static let mutedPlayer: @Sendable (FeedbackSound, SoundTheme) -> AVAudioPlayer? = { sound, theme in
-        let player = try? AVAudioPlayer(data: ToneSynth.wav(sound, theme: theme))
+    nonisolated static let mutedPlayer: @Sendable (FeedbackSound, SoundTheme, Int) -> AVAudioPlayer? = {
+        let player = $1.player($0, variant: $2)
         player?.volume = 0
         return player
     }
@@ -28399,8 +28427,9 @@ final class FeedbackPlayerTests: XCTestCase {
     func testToneIsAValidWAV() throws {
         let counts: [FeedbackSound: Int] = [.right: 14_994, .wrong: 20_727, .lessonComplete: 32_634, .goalReached: 41_454,
                                             .pairRight: 6_615, .pairWrong: 6_615]
-        XCTAssertEqual(Set(counts.keys), Set(FeedbackSound.allCases))
-        for sound in FeedbackSound.allCases {
+        XCTAssertEqual(Set(counts.keys), Set(FeedbackSound.allCases).subtracting([.lessonStarted]),
+                       "#340: Classic has no Lesson started")
+        for sound in counts.keys {
             let data = ToneSynth.wav(sound)
             XCTAssertEqual(data, ToneSynth.wav(sound), "\(sound): equal across two calls")
             let bytes = [UInt8](data)
@@ -28477,7 +28506,8 @@ final class FeedbackPlayerTests: XCTestCase {
 
         let all = TonePlayer(queue: queue, makePlayer: Self.mutedPlayer)
         FeedbackSound.allCases.forEach { all.play($0, theme: .classic) }
-        XCTAssertEqual(all.loadedSounds(), Set(FeedbackSound.allCases), "all six, on the queue")
+        XCTAssertEqual(all.loadedSounds(), Set(FeedbackSound.allCases).subtracting([.lessonStarted]),
+                       "all six, on the queue; Classic has no Lesson started (#340)")
     }
 
     /// #291: the player plays the chosen theme's sounds, Classic by default,
@@ -28510,9 +28540,9 @@ final class FeedbackPlayerTests: XCTestCase {
             var all: [String] { lock.withLock { calls } }
         }
         let made = Made()
-        let tones = TonePlayer(queue: DispatchQueue(label: "FeedbackPlayerTests.themes")) { sound, theme in
+        let tones = TonePlayer(queue: DispatchQueue(label: "FeedbackPlayerTests.themes")) { sound, theme, variant in
             made.append("\(theme.rawValue)-\(sound.rawValue)")
-            return Self.mutedPlayer(sound, theme)
+            return Self.mutedPlayer(sound, theme, variant)
         }
         tones.play(.right, theme: .classic)
         tones.play(.right, theme: .retro)
@@ -28544,10 +28574,10 @@ final class FeedbackPlayerTests: XCTestCase {
         let key = DispatchSpecificKey<Bool>()
         queue.setSpecific(key: key, value: true)
         let made = Made()
-        let tones = TonePlayer(queue: queue) { sound, theme in
+        let tones = TonePlayer(queue: queue) { sound, theme, variant in
             made.append((sound, Thread.isMainThread, DispatchQueue.getSpecific(key: key) == true))
             // Right has no player, as when its data fails; wrong has one.
-            return sound == .right ? nil : Self.mutedPlayer(sound, theme)
+            return sound == .right ? nil : Self.mutedPlayer(sound, theme, variant)
         }
 
         queue.suspend()
@@ -28625,10 +28655,14 @@ final class ToneSynthTests: XCTestCase {
     }
 
     func testEveryThemeIsAValidWAV() throws {
-        XCTAssertEqual(Set(Self.counts.keys), Set(SoundTheme.allCases))
-        for theme in SoundTheme.allCases {
-            XCTAssertEqual(Set(Self.counts[theme]?.keys ?? [:].keys), Set(FeedbackSound.allCases), "\(theme)")
-            for sound in FeedbackSound.allCases {
+        // #340: Mellstroy is recorded clips (MellstroyThemeTests), and
+        // Lesson started is its only.
+        let synthesized = SoundTheme.allCases.filter { $0 != .mellstroy }
+        let sounds = FeedbackSound.allCases.filter { $0 != .lessonStarted }
+        XCTAssertEqual(Set(Self.counts.keys), Set(synthesized))
+        for theme in synthesized {
+            XCTAssertEqual(Set(Self.counts[theme]?.keys ?? [:].keys), Set(sounds), "\(theme)")
+            for sound in sounds {
                 let name = "\(theme)-\(sound)"
                 let data = ToneSynth.wav(sound, theme: theme)
                 XCTAssertEqual(data, ToneSynth.wav(sound, theme: theme), "\(name): equal across two calls")
@@ -28647,13 +28681,13 @@ final class ToneSynthTests: XCTestCase {
                 XCTAssertEqual(player.duration, Double(pcm.count) / 44_100, accuracy: 0.001, name)
             }
         }
-        let all = SoundTheme.allCases.flatMap { theme in FeedbackSound.allCases.map { ToneSynth.wav($0, theme: theme) } }
+        let all = synthesized.flatMap { theme in sounds.map { ToneSynth.wav($0, theme: theme) } }
         XCTAssertEqual(Set(all).count, 36, "36 different sounds")
     }
 
     /// Classic is #300's sounds, to the byte: its default too.
     func testClassicIsUnchanged() {
-        for sound in FeedbackSound.allCases {
+        for sound in Self.classicHashes.keys {
             let hash = SHA256.hash(data: ToneSynth.wav(sound, theme: .classic)).map { String(format: "%02x", $0) }.joined()
             XCTAssertEqual(hash, Self.classicHashes[sound], "\(sound)")
             XCTAssertEqual(ToneSynth.wav(sound), ToneSynth.wav(sound, theme: .classic), "\(sound): Classic by default")
@@ -28668,6 +28702,537 @@ final class ToneSynthTests: XCTestCase {
         XCTAssertEqual(first, [0.7589328567306199, 0.09065111544479199, -0.21186212599829868])
         var drum = ToneSynth.Noise(seed: 3)
         XCTAssertEqual(drum.next(), -0.9996222988700598, "the drum's seed")
+    }
+}
+
+// MARK: - The Mellstroy sound theme (0131, Sounds; #340)
+
+/// What the silent test players did, in order: "play mellstroy-wrong-3",
+/// "stop mellstroy-wrong-3".
+final class SoundLog: @unchecked Sendable {
+    private let lock = NSLock()
+    private var events: [String] = []
+    private var players: [SilentAudioPlayer] = []
+
+    func append(_ event: String) { lock.withLock { events.append(event) } }
+    var all: [String] { lock.withLock { events } }
+
+    /// Keeps a player made, so a test can end its sound.
+    func keep(_ player: SilentAudioPlayer) { lock.withLock { players.append(player) } }
+    /// The players made of a sound, "mellstroy-lessonStarted".
+    func players(of sound: String) -> [SilentAudioPlayer] {
+        lock.withLock { players.filter { $0.label.hasPrefix(sound + "-") } }
+    }
+}
+
+/// An `AVAudioPlayer` of a sound's real data that never makes a sound: it
+/// logs its plays and the stops of a playing sound.
+final class SilentAudioPlayer: AVAudioPlayer {
+    var label = ""
+    var log: SoundLog?
+    /// What `play()` returns: false as when the audio output fails.
+    var plays = true
+    private var isOn = false
+
+    override func prepareToPlay() -> Bool { true }
+
+    override func play() -> Bool {
+        isOn = plays
+        log?.append(plays ? "play \(label)" : "failed \(label)")
+        return plays
+    }
+
+    override func stop() {
+        if isOn { log?.append("stop \(label)") }
+        isOn = false
+    }
+
+    override var isPlaying: Bool { isOn }
+
+    /// Its sound reaches its end, as `AVAudioPlayer` tells its delegate;
+    /// also after a stop, so a test sees that no delegate is left to tell.
+    func finish() {
+        isOn = false
+        delegate?.audioPlayerDidFinishPlaying?(self, successfully: true)
+    }
+}
+
+/// Mellstroy's clips are AAC data sets that decode, no longer than kyukhin's
+/// sources, about as loud as Meme with a peak of at most 0.7; a sound picks
+/// a clip at random, never the same twice in a row; a new sound stops the
+/// one still playing; only Mellstroy has Lesson started.
+@MainActor
+final class MellstroyThemeTests: XCTestCase {
+    /// The sources' lengths in seconds (ffprobe, 2026-11-16).
+    static let sourceSeconds: [String: Double] = [
+        "right-1": 0.928833, "right-2": 0.651896, "right-3": 0.928833,
+        "wrong-1": 3.46025, "wrong-2": 3.46025, "wrong-4": 3.46025, "wrong-5": 3.46025, "wrong-6-long": 3.46025,
+        "wrong-7": 3.46025, "lesson-started-1": 7.471208, "lesson-started-2": 7.471208,
+        "lesson-completed-1": 3.46025, "lesson-completed-2": 7.471208, "goal-reached-1": 3.46025,
+    ]
+
+    /// A player whose players are silent, from each variant's real data;
+    /// `plays: false`: their `play()` fails.
+    private func silentTones(_ log: SoundLog, queue: DispatchQueue = DispatchQueue(label: "MellstroyThemeTests.tones"),
+                             plays: Bool = true) -> TonePlayer {
+        TonePlayer(queue: queue) { sound, theme, variant in
+            guard let data = theme.data(sound, variant: variant) else { return nil }
+            let type = theme == .mellstroy ? AVFileType.m4a : AVFileType.wav
+            let player = try? SilentAudioPlayer(data: data, fileTypeHint: type.rawValue)
+            player?.label = "\(theme.rawValue)-\(sound.rawValue)-\(variant)"
+            player?.log = log
+            player?.plays = plays
+            if let player { log.keep(player) }
+            return player
+        }
+    }
+
+    /// The log without the variants: "play mellstroy-wrong".
+    private func sounds(_ log: SoundLog) -> [String] {
+        log.all.map { $0.split(separator: "-").dropLast().joined(separator: "-") }
+    }
+
+    /// Each sound has its clips, 14 in all; each decodes (`AVAudioPlayer`),
+    /// lasts more than 0.3 s and no longer than its source.
+    func testEveryClipDecodesNoLongerThanItsSource() throws {
+        let theme = SoundTheme.mellstroy
+        var names: Set<String> = []
+        for sound in FeedbackSound.allCases {
+            let clips = theme.clips(sound)
+            XCTAssertFalse(clips.isEmpty, "\(sound): Mellstroy has every sound")
+            XCTAssertEqual(theme.variants(sound), clips.count, "\(sound)")
+            for (variant, name) in clips.enumerated() {
+                names.insert(name)
+                XCTAssertTrue(name.hasPrefix("Mellstroy/"), name)
+                let data = try XCTUnwrap(theme.data(sound, variant: variant), "\(name) is in the asset catalog")
+                let player = try AVAudioPlayer(data: data, fileTypeHint: AVFileType.m4a.rawValue)
+                let source = try XCTUnwrap(Self.sourceSeconds[String(name.dropFirst("Mellstroy/".count))], name)
+                XCTAssertGreaterThan(player.duration, 0.3, name)
+                XCTAssertLessThanOrEqual(player.duration, source, "\(name): no longer than its source")
+                XCTAssertNotNil(theme.player(sound, variant: variant), name)
+            }
+            XCTAssertNil(theme.data(sound, variant: clips.count), "\(sound): no variant past the last")
+        }
+        XCTAssertEqual(names.count, Self.sourceSeconds.count, "the 14 clips")
+        XCTAssertEqual(theme.clips(.pairRight), theme.clips(.right), "a pair plays a right clip")
+        XCTAssertEqual(theme.clips(.pairWrong), theme.clips(.wrong), "a wrong pair plays a wrong clip")
+        XCTAssertEqual(SoundTheme.meme.clips(.right), [], "a synthesized theme has no clips")
+    }
+
+    /// Mono AAC at 44.1 kHz, as the script makes them: a peak of at most
+    /// 0.7 and an RMS within 3 dB under to 1 dB over Meme's six sounds'.
+    func testClipsAreMonoAACAsLoudAsMeme() throws {
+        let meme = FeedbackSound.allCases.filter { $0 != .lessonStarted }.flatMap { sound -> [Double] in
+            let bytes = [UInt8](ToneSynth.wav(sound, theme: .meme))
+            return stride(from: 44, to: bytes.count, by: 2).map {
+                Double(Int16(bitPattern: UInt16(bytes[$0]) | UInt16(bytes[$0 + 1]) << 8)) / 32_767
+            }
+        }
+        let memeRMS = (meme.map { $0 * $0 }.reduce(0, +) / Double(meme.count)).squareRoot()
+        XCTAssertEqual(memeRMS, 0.211, accuracy: 0.001, "the script's MEME_RMS")
+
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        for sound in FeedbackSound.allCases {
+            for (variant, name) in SoundTheme.mellstroy.clips(sound).enumerated() {
+                let url = dir.appendingPathComponent("\(sound.rawValue)-\(variant).m4a")
+                try XCTUnwrap(SoundTheme.mellstroy.data(sound, variant: variant), name).write(to: url)
+                let file = try AVAudioFile(forReading: url)
+                XCTAssertEqual(file.fileFormat.channelCount, 1, "\(name): mono")
+                XCTAssertEqual(file.fileFormat.sampleRate, 44_100, name)
+                XCTAssertEqual(file.fileFormat.settings[AVFormatIDKey] as? UInt32, kAudioFormatMPEG4AAC, "\(name): AAC")
+                let buffer = try XCTUnwrap(AVAudioPCMBuffer(pcmFormat: file.processingFormat,
+                                                            frameCapacity: AVAudioFrameCount(file.length)))
+                try file.read(into: buffer)
+                let channel = try XCTUnwrap(buffer.floatChannelData?[0], name)
+                let samples = UnsafeBufferPointer(start: channel, count: Int(buffer.frameLength)).map(Double.init)
+                XCTAssertGreaterThan(samples.count, 0, name)
+                let peak = samples.map(abs).max() ?? 0
+                let rms = (samples.map { $0 * $0 }.reduce(0, +) / Double(samples.count)).squareRoot()
+                XCTAssertLessThanOrEqual(peak, 0.7, "\(name): a peak of at most 0.7")
+                let decibels = 20 * log10(rms / memeRMS)
+                XCTAssertTrue((-3...1).contains(decibels), "\(name): \(decibels) dB from Meme's RMS")
+            }
+        }
+    }
+
+    /// The pick is any variant but the last, each as likely: with one
+    /// variant, always it; before any play, any.
+    func testPickNeverRepeatsTwiceInARow() {
+        XCTAssertEqual(SoundTheme.pick(of: 1, after: 0) { _ in 0 }, 0, "one clip: always it")
+        XCTAssertEqual(SoundTheme.pick(of: 1, after: nil) { _ in 0 }, 0)
+        for count in 2...6 {
+            for last in 0..<count {
+                var asked: Set<Int> = []
+                let picks = (0..<(count - 1)).map { r in
+                    SoundTheme.pick(of: count, after: last) { n in
+                        asked.insert(n)
+                        return r
+                    }
+                }
+                XCTAssertEqual(asked, [count - 1], "\(count) after \(last): one of the others")
+                XCTAssertEqual(Set(picks), Set(0..<count).subtracting([last]), "\(count) after \(last): each other once")
+            }
+            let first = (0..<count).map { r in SoundTheme.pick(of: count, after: nil) { _ in r } }
+            XCTAssertEqual(first, Array(0..<count), "\(count): the first play may be any")
+        }
+    }
+
+    /// 120 wrong answers play the six wrong clips, never one twice in a
+    /// row; the goal's one clip plays every time.
+    func testAClipNeverPlaysTwiceInARow() {
+        let log = SoundLog()
+        let tones = silentTones(log)
+        for _ in 0..<120 {
+            tones.play(.wrong, theme: .mellstroy)
+        }
+        XCTAssertEqual(tones.loadedSounds(.mellstroy), [.wrong])
+        let plays = log.all.filter { $0.hasPrefix("play ") }
+        XCTAssertEqual(plays.count, 120)
+        XCTAssertFalse(zip(plays, plays.dropFirst()).contains { $0 == $1 }, "never the same clip twice in a row")
+        XCTAssertEqual(Set(plays).count, 6, "all six wrong clips")
+
+        let goal = SoundLog()
+        let once = silentTones(goal)
+        (0..<3).forEach { _ in once.play(.goalReached, theme: .mellstroy) }
+        XCTAssertEqual(once.loadedSounds(.mellstroy), [.goalReached])
+        XCTAssertEqual(goal.all.filter { $0.hasPrefix("play ") }, Array(repeating: "play mellstroy-goalReached-0", count: 3))
+    }
+
+    /// A new sound stops the one still playing, whatever its theme; a sound
+    /// the theme does not have stops nothing; `stop()` stops the last.
+    func testANewSoundStopsTheOneStillPlaying() {
+        let log = SoundLog()
+        let tones = silentTones(log)
+        tones.play(.lessonStarted, theme: .mellstroy)
+        tones.play(.right, theme: .mellstroy)
+        tones.play(.lessonStarted, theme: .classic)
+        tones.play(.wrong, theme: .meme)
+        // The plays start before the stop: a stop drops those still queued.
+        XCTAssertEqual(tones.loadedSounds(.meme), [.wrong])
+        tones.stop()
+        tones.stop()
+        XCTAssertEqual(tones.loadedSounds(.classic), [], "Classic has no Lesson started")
+        XCTAssertEqual(sounds(log), ["play mellstroy-lessonStarted", "stop mellstroy-lessonStarted",
+                                     "play mellstroy-right", "stop mellstroy-right",
+                                     "play meme-wrong", "stop meme-wrong"])
+        let all = log.all
+        guard all.count == 6 else { return }
+        XCTAssertEqual(all[1].dropFirst(5), all[0].dropFirst(5), "the clip that played is the one stopped")
+        XCTAssertEqual(all[3].dropFirst(5), all[2].dropFirst(5))
+    }
+
+    /// A caller waiting for a sound's end is called when the clip ends, at
+    /// once when nothing plays (Classic has no Lesson started), and never
+    /// when a new sound or `stop()` cuts the clip.
+    func testWhenDoneAtTheClipsEnd() async {
+        let log = SoundLog()
+        let tones = silentTones(log)
+        let classic = expectation(description: "Classic: at once")
+        tones.play(.lessonStarted, theme: .classic) { classic.fulfill() }
+        let clip = expectation(description: "the clip's end")
+        tones.play(.lessonStarted, theme: .mellstroy) { clip.fulfill() }
+        await fulfillment(of: [classic], timeout: 5)
+        XCTAssertEqual(tones.loadedSounds(.mellstroy), [.lessonStarted])
+        let started = log.players(of: "mellstroy-lessonStarted")
+        XCTAssertEqual(started.count, 1)
+        XCTAssertTrue(started.first?.isPlaying ?? false, "the clip plays")
+        started.first?.finish()
+        await fulfillment(of: [clip], timeout: 5)
+
+        let cut = expectation(description: "a clip cut short")
+        cut.isInverted = true
+        tones.play(.lessonStarted, theme: .mellstroy) { cut.fulfill() }
+        tones.play(.right, theme: .mellstroy)
+        _ = tones.loadedSounds(.mellstroy)
+        log.players(of: "mellstroy-lessonStarted").forEach { $0.finish() }
+        let stopped = expectation(description: "a clip stopped")
+        stopped.isInverted = true
+        tones.play(.lessonStarted, theme: .mellstroy) { stopped.fulfill() }
+        tones.stop()
+        _ = tones.loadedSounds(.mellstroy)
+        log.players(of: "mellstroy-lessonStarted").forEach { $0.finish() }
+        await fulfillment(of: [cut, stopped], timeout: 0.5)
+    }
+
+    /// CodeRabbit, PR #341: a player whose `play()` fails calls its caller
+    /// back at once and only once, so the first question's word is spoken.
+    func testAFailedPlayCallsBackOnce() async throws {
+        let log = SoundLog()
+        let tones = silentTones(log, plays: false)
+        tones.play(.lessonStarted, theme: .mellstroy) { log.append("done") }
+        _ = tones.loadedSounds(.mellstroy)
+        try await Task.sleep(for: .milliseconds(200))
+        XCTAssertEqual(log.all.filter { $0 == "done" }.count, 1, "at once")
+        log.players(of: "mellstroy-lessonStarted").forEach { $0.finish() }
+        try await Task.sleep(for: .milliseconds(200))
+        XCTAssertEqual(log.all.filter { $0 == "done" }.count, 1, "never again: no delegate is left")
+        XCTAssertTrue(log.all.contains { $0.hasPrefix("failed mellstroy-lessonStarted-") })
+    }
+
+    /// CodeRabbit, PR #341: a play asked before `stop()` and still queued
+    /// never starts, and calls no one; a play asked after it does.
+    func testStopDropsThePlaysQueuedBeforeIt() async throws {
+        let queue = DispatchQueue(label: "MellstroyThemeTests.stop")
+        let log = SoundLog()
+        let tones = silentTones(log, queue: queue)
+        queue.suspend()
+        tones.play(.wrong, theme: .mellstroy) { log.append("done") }
+        tones.play(.lessonStarted, theme: .mellstroy)
+        tones.stop()
+        tones.play(.right, theme: .mellstroy)
+        queue.resume()
+        _ = tones.loadedSounds(.mellstroy)
+        try await Task.sleep(for: .milliseconds(200))
+        XCTAssertEqual(sounds(log), ["play mellstroy-right"], "only the play asked after the stop")
+        XCTAssertFalse(log.all.contains("done"), "a dropped play calls no one")
+    }
+
+    /// Only Mellstroy plays Lesson started; Sounds off silences it too;
+    /// `FeedbackPlayer.stop()` reaches the sink.
+    func testOtherThemesPlayNothingWhenALessonStarts() {
+        let settings = SettingsService(store: InMemoryKeyValueStore())
+        let sink = RecordingFeedbackSink()
+        let player = FeedbackPlayer(settings: settings, sink: sink)
+        for theme in SoundTheme.allCases where theme != .mellstroy {
+            settings.learningSoundTheme = theme
+            XCTAssertEqual(theme.variants(.lessonStarted), 0, "\(theme)")
+            XCTAssertNil(theme.data(.lessonStarted, variant: 0), "\(theme)")
+            player.play(.lessonStarted)
+        }
+        XCTAssertEqual(sink.played, [], "only Mellstroy greets a lesson")
+        settings.learningSoundTheme = .mellstroy
+        player.play(.lessonStarted)
+        XCTAssertEqual(sink.played, [.lessonStarted])
+        XCTAssertEqual(sink.themes, [.mellstroy])
+        settings.learningSounds = false
+        player.play(.lessonStarted)
+        XCTAssertEqual(sink.played.count, 1, "Sounds off")
+        XCTAssertEqual(sink.stops, 0)
+        player.stop()
+        XCTAssertEqual(sink.stops, 1)
+    }
+}
+
+extension ExerciseRunViewModelTests {
+    /// #340: a daily lesson's first question plays Lesson started, once,
+    /// and not when the lesson continues or in a trainer; leaving the run
+    /// stops the sound still playing.
+    func testLessonStartedAtTheFirstQuestionLeaveStops() async throws {
+        func make(_ run: ExerciseRunViewModel.Run, _ sink: RecordingFeedbackSink) -> ExerciseRunViewModel {
+            ExerciseRunViewModel(run: run, lang: "ell", meaningsLang: "eng", db: db, settings: settings,
+                                 languages: languages, clock: TestClock("2026-11-04T12:00:00Z").clock,
+                                 player: FeedbackPlayer(settings: settings, sink: sink), seed: 159, answerHints: true)
+        }
+        _ = try await db.writeLearningFixture("due", today: today)
+        settings.learningSoundTheme = .mellstroy
+
+        let lesson = RecordingFeedbackSink()
+        let vm = make(.session, lesson)
+        await vm.start()
+        XCTAssertEqual(vm.phase, .question)
+        XCTAssertEqual(lesson.played, [.lessonStarted], "the lesson's first question")
+        let first = try XCTUnwrap(vm.question)
+        if first.input == .choice {
+            await vm.choose(try XCTUnwrap(first.rightIndex))
+        } else {
+            vm.typed = first.word.term
+            await vm.check()
+        }
+        await vm.next()
+        XCTAssertEqual(vm.phase, .question)
+        XCTAssertEqual(lesson.played, [.lessonStarted, .right], "only at the first question")
+        XCTAssertEqual(lesson.stops, 0)
+        vm.leave()
+        XCTAssertEqual(lesson.stops, 1, "closing the run stops the sound")
+
+        let continued = RecordingFeedbackSink()
+        let again = make(.session, continued)
+        await again.start()
+        XCTAssertEqual(again.phase, .question)
+        XCTAssertEqual(again.answered, 1, "the lesson continues")
+        XCTAssertEqual(continued.played, [], "its first question appeared before")
+
+        let trainer = RecordingFeedbackSink()
+        let trained = make(.trainer(.recognition), trainer)
+        await trained.start()
+        XCTAssertEqual(trained.phase, .question)
+        XCTAssertEqual(trainer.played, [], "a trainer is no daily lesson")
+    }
+}
+
+extension ExerciseRunViewModelTests {
+    /// #340: with Mellstroy, the first question's word waits for the end of
+    /// Lesson started, and is not spoken once the question is answered;
+    /// with Classic (no clip) it is spoken as the question appears.
+    func testFirstWordWaitsForLessonStarted() async throws {
+        // Each part on a day of its own: a new lesson, never a continued one.
+        func make(_ day: String, _ sounds: RecordingFeedbackSink, _ words: RecordingWordSpeechSink) -> ExerciseRunViewModel {
+            ExerciseRunViewModel(run: .session, lang: "ell", meaningsLang: "eng", db: db, settings: settings,
+                                 languages: languages, clock: TestClock("\(day)T12:00:00Z").clock,
+                                 player: FeedbackPlayer(settings: settings, sink: sounds),
+                                 speaker: QuestionSpeaker(settings: settings, sink: words, voiceOverRunning: { false },
+                                                          hasVoice: { _ in true }),
+                                 seed: 159, answerHints: true)
+        }
+        _ = try await db.writeLearningFixture("myWords5", today: today)
+        settings.learningSoundTheme = .mellstroy
+
+        let sounds = RecordingFeedbackSink(), words = RecordingWordSpeechSink()
+        let vm = make("2026-11-04", sounds, words)
+        await vm.start()
+        let question = try XCTUnwrap(vm.question)
+        XCTAssertEqual(question.exercise, .recognition, "a new word's first question speaks its word")
+        XCTAssertEqual(sounds.played, [.lessonStarted])
+        XCTAssertEqual(words.spoken, [], "the word waits for the clip")
+        XCTAssertEqual(vm.spokenWord, "")
+        sounds.finish()
+        XCTAssertEqual(words.spoken, [SpeechTarget(text: question.word.term, language: "el-GR")], "then it is spoken")
+        XCTAssertEqual(vm.spokenWord, question.word.term)
+        vm.leave()
+
+        settings.learningSoundTheme = .classic
+        let classic = RecordingFeedbackSink(), spoken = RecordingWordSpeechSink()
+        let now = make("2026-11-05", classic, spoken)
+        await now.start()
+        let first = try XCTUnwrap(now.question)
+        XCTAssertEqual(first.exercise, .recognition)
+        XCTAssertEqual(classic.played, [], "Classic has no Lesson started")
+        XCTAssertEqual(spoken.spoken, [SpeechTarget(text: first.word.term, language: "el-GR")], "spoken at once")
+        XCTAssertEqual(now.spokenWord, first.word.term)
+        now.leave()
+
+        settings.learningSoundTheme = .mellstroy
+        let early = RecordingFeedbackSink(), unspoken = RecordingWordSpeechSink()
+        let answered = make("2026-11-06", early, unspoken)
+        await answered.start()
+        XCTAssertEqual(early.played, [.lessonStarted])
+        await answered.choose(try XCTUnwrap(answered.question?.rightIndex))
+        early.finish()
+        XCTAssertEqual(unspoken.spoken, [], "answered before the clip ended: no word")
+    }
+
+    /// #340 (QA): a lesson closed at its first question, unanswered, plays
+    /// no Lesson started when it continues; its word is spoken at once.
+    func testContinuedLessonPlaysNoLessonStarted() async throws {
+        func make(_ sounds: RecordingFeedbackSink, _ words: RecordingWordSpeechSink) -> ExerciseRunViewModel {
+            ExerciseRunViewModel(run: .session, lang: "ell", meaningsLang: "eng", db: db, settings: settings,
+                                 languages: languages, clock: TestClock("2026-11-04T12:00:00Z").clock,
+                                 player: FeedbackPlayer(settings: settings, sink: sounds),
+                                 speaker: QuestionSpeaker(settings: settings, sink: words, voiceOverRunning: { false },
+                                                          hasVoice: { _ in true }),
+                                 seed: 159, answerHints: true)
+        }
+        _ = try await db.writeLearningFixture("myWords5", today: today)
+        settings.learningSoundTheme = .mellstroy
+
+        let first = RecordingFeedbackSink()
+        let vm = make(first, RecordingWordSpeechSink())
+        await vm.start()
+        XCTAssertEqual(first.played, [.lessonStarted])
+        XCTAssertEqual(vm.answered, 0)
+        vm.leave()
+
+        let again = RecordingFeedbackSink(), words = RecordingWordSpeechSink()
+        let continued = make(again, words)
+        await continued.start()
+        let question = try XCTUnwrap(continued.question)
+        XCTAssertEqual(continued.answered, 0, "continued at its first question, unanswered")
+        XCTAssertEqual(continued.position, 1)
+        XCTAssertEqual(again.played, [], "a continued lesson plays no Lesson started")
+        XCTAssertEqual(words.spoken, [SpeechTarget(text: question.word.term, language: "el-GR")], "its word at once")
+        await continued.choose(try XCTUnwrap(question.rightIndex))
+        XCTAssertEqual(again.played, [.right])
+    }
+}
+
+extension MatchPairsViewModelTests {
+    /// #340: leaving a round stops the sound still playing.
+    func testLeavingStopsTheSound() {
+        let sink = RecordingFeedbackSink()
+        matchPairs(sink: sink).leave()
+        XCTAssertEqual(sink.stops, 1)
+    }
+
+    /// CodeRabbit, PR #341: a round left before its end plays no end
+    /// sound, though its last pair fills the goal; its answers count.
+    func testLeftRoundPlaysNoEndSound() async throws {
+        _ = try await db.writeLearningFixture("due", today: today)
+        settings.learningDailyGoal = 5
+        let sink = RecordingFeedbackSink()
+        let vm = matchPairs(sink: sink)
+        await vm.start()
+        for index in 0..<4 {
+            try await tapPair(vm, word: index, meaning: index)
+        }
+        vm.leave()
+        try await tapPair(vm, word: 4, meaning: 4)
+        XCTAssertEqual(vm.phase, .finished)
+        XCTAssertEqual(sink.played, Array(repeating: .pairRight, count: 5), "no Daily goal reached")
+        let answered = try await db.answeredCount(on: today)
+        XCTAssertEqual(answered, 5, "the answers count")
+    }
+}
+
+extension ExerciseRunViewModelTests {
+    /// CodeRabbit, PR #341: a run left before its summary loads plays no
+    /// end sound, though it fills the goal.
+    func testLeftRunPlaysNoEndSound() async throws {
+        _ = try await db.writeLearningFixture("due", today: today)
+        settings.learningDailyGoal = 5
+        let sink = RecordingFeedbackSink()
+        let vm = ExerciseRunViewModel(run: .session, lang: "ell", meaningsLang: "eng", db: db, settings: settings,
+                                      languages: languages, clock: TestClock("2026-11-04T12:00:00Z").clock,
+                                      player: FeedbackPlayer(settings: settings, sink: sink), seed: 159,
+                                      answerHints: true)
+        await vm.start()
+        var answers = 0
+        while vm.phase == .question, let question = vm.question {
+            guard answers < 30 else { XCTFail("the run does not end"); break }
+            answers += 1
+            if question.input == .choice {
+                await vm.choose(try XCTUnwrap(question.rightIndex))
+            } else {
+                vm.typed = question.word.term
+                await vm.check()
+            }
+            if vm.position == vm.total { vm.leave() }
+            await vm.next()
+        }
+        XCTAssertEqual(vm.phase, .summary)
+        XCTAssertGreaterThanOrEqual(answers, 5, "the run fills the goal")
+        XCTAssertEqual(sink.played, Array(repeating: FeedbackSound.right, count: answers), "no end sound")
+    }
+}
+
+extension ConjugationRunViewModelTests {
+    /// CodeRabbit, PR #341: a drill left before its summary loads plays no
+    /// end sound, though it fills the goal.
+    func testLeftDrillPlaysNoEndSound() async throws {
+        settings.learningDailyGoal = 5
+        let sink = RecordingFeedbackSink()
+        let vm = run(.verb(try await DrillFixture.verb("γράφω"), level: .a1), length: 5, sink: sink)
+        await vm.start()
+        var answers = 0
+        while vm.phase == .question, let question = vm.question {
+            guard answers < 30 else { XCTFail("the drill does not end"); break }
+            answers += 1
+            await vm.choose(question.rightIndex)
+            if vm.position == vm.total { vm.leave() }
+            await vm.next()
+        }
+        XCTAssertEqual(vm.phase, .summary)
+        XCTAssertEqual(answers, 5)
+        XCTAssertEqual(sink.played, Array(repeating: FeedbackSound.right, count: 5), "no end sound")
+    }
+
+    /// #340: leaving the drill stops the sound still playing.
+    func testLeavingStopsTheSound() async throws {
+        let sink = RecordingFeedbackSink()
+        let vm = run(.verb(try await DrillFixture.verb("γράφω"), level: .a1), sink: sink)
+        vm.leave()
+        XCTAssertEqual(sink.stops, 1)
     }
 }
 

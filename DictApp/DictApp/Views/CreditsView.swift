@@ -16,6 +16,9 @@ struct CreditsView: View {
                     Text(LocalizedStringKey(line.key))
                         .accessibilityIdentifier(line.accessibilityID)
                 }
+                // #340: the Mellstroy sound theme's clips, under no license.
+                Text("credits.dataSources.mellstroy")
+                    .accessibilityIdentifier("credits_mellstroy")
             }
             // #180: the libraries the app links; a row opens its license.
             Section("credits.software.section") {

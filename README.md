@@ -122,4 +122,4 @@ Settings shows the version from `git describe`, so an App Store build must be ar
 
 ## License
 
-The app's code is licensed under the MIT License, see [LICENSE](LICENSE). Dictionary data keeps its original licenses (table above).
+The app's code is licensed under the MIT License, see [LICENSE](LICENSE). Dictionary data keeps its original licenses (table above). The voice clips of the Mellstroy sound theme (`DictApp/Assets.xcassets/Mellstroy/`) are not under the MIT License: they are Mellstroy's voice, used in LibreDict with his permission.

@@ -7,7 +7,9 @@
 import AVFoundation
 import Combine
 import Foundation
+import os
 import SwiftUI
+import UIKit
 import UserNotifications
 
 // MARK: - Clock (#157)
@@ -337,16 +339,67 @@ enum FeedbackSound: String, CaseIterable, Sendable {
     case pairRight
     /// A wrong pair.
     case pairWrong
+    /// A daily lesson's first question appears (#340): Mellstroy's only.
+    case lessonStarted
 }
 
-/// The sound themes (0131, Sounds; #291): each has its own six sounds.
+/// The sound themes (0131, Sounds; #291): each has its own sounds.
 /// Settings → Learning → Sound theme; Classic, #300's sounds, by default.
+/// The first six are synthesized (`ToneSynth`); Mellstroy is recorded clips
+/// (#340).
 enum SoundTheme: String, CaseIterable, Sendable {
-    case classic, cheerful, retro, grumpy, silly, meme
+    case classic, cheerful, retro, grumpy, silly, meme, mellstroy
 
     /// Its name in the catalog, "Cheerful". A plain `String` key: an
     /// interpolated literal would look up the format key "….%@".
     var titleKey: LocalizedStringKey { LocalizedStringKey("settings.learning.soundTheme." + rawValue) }
+
+    /// The clips the theme plays for `sound`, as the asset catalog's data
+    /// sets name them ("Mellstroy/right-1"); empty for a synthesized theme.
+    /// kyukhin's recordings of Mellstroy, used with his permission (#340).
+    func clips(_ sound: FeedbackSound) -> [String] {
+        guard self == .mellstroy else { return [] }
+        let names: [String] = switch sound {
+        case .right, .pairRight: ["right-1", "right-2", "right-3"]
+        case .wrong, .pairWrong: ["wrong-1", "wrong-2", "wrong-4", "wrong-5", "wrong-6-long", "wrong-7"]
+        case .lessonStarted: ["lesson-started-1", "lesson-started-2"]
+        case .lessonComplete: ["lesson-completed-1", "lesson-completed-2"]
+        case .goalReached: ["goal-reached-1"]
+        }
+        return names.map { "Mellstroy/" + $0 }
+    }
+
+    /// How many variants of `sound` the theme picks from: its clips, or the
+    /// one `ToneSynth` makes; 0 when it plays nothing there (`lessonStarted`
+    /// in the synthesized themes).
+    func variants(_ sound: FeedbackSound) -> Int {
+        if self == .mellstroy { return clips(sound).count }
+        return sound == .lessonStarted ? 0 : 1
+    }
+
+    /// A variant's audio: its clip, AAC in an .m4a, or `ToneSynth`'s WAV;
+    /// nil when there is none. Read on `TonePlayer`'s queue.
+    func data(_ sound: FeedbackSound, variant: Int) -> Data? {
+        guard variants(sound) > variant, variant >= 0 else { return nil }
+        guard self == .mellstroy else { return ToneSynth.wav(sound, theme: self) }
+        return NSDataAsset(name: clips(sound)[variant])?.data
+    }
+
+    /// A variant's player; nil when its data is missing or unreadable.
+    func player(_ sound: FeedbackSound, variant: Int) -> AVAudioPlayer? {
+        guard let data = data(sound, variant: variant) else { return nil }
+        let type = self == .mellstroy ? AVFileType.m4a : AVFileType.wav
+        return try? AVAudioPlayer(data: data, fileTypeHint: type.rawValue)
+    }
+
+    /// The variant to play: one at random, never `last` while there is
+    /// another (#340). `random(n)` gives a number in `0..<n`. Pure.
+    static func pick(of count: Int, after last: Int?, random: (Int) -> Int) -> Int {
+        guard count > 1 else { return 0 }
+        guard let last, (0..<count).contains(last) else { return random(count) }
+        let other = random(count - 1)
+        return other < last ? other : other + 1
+    }
 }
 
 /// Where the feedback sounds go: `TonePlayer` in the app, a recorder in
@@ -354,12 +407,27 @@ enum SoundTheme: String, CaseIterable, Sendable {
 @MainActor
 protocol FeedbackSink: AnyObject {
     func play(_ sound: FeedbackSound, theme: SoundTheme)
+    /// Plays `sound` and calls `whenDone` on the main actor once it has
+    /// played to its end, at once when nothing plays; never when a new
+    /// sound or `stop()` cuts it (#340).
+    func play(_ sound: FeedbackSound, theme: SoundTheme, whenDone: @escaping @MainActor @Sendable () -> Void)
+    /// Stops the sound still playing (#340).
+    func stop()
+}
+
+extension FeedbackSink {
+    /// A sink that waits for nothing: done at once.
+    func play(_ sound: FeedbackSound, theme: SoundTheme, whenDone: @escaping @MainActor @Sendable () -> Void) {
+        play(sound, theme: theme)
+        whenDone()
+    }
 }
 
 /// A sink that plays nothing (see `FeedbackPlayer.isMuted`).
 @MainActor
 final class SilentFeedbackSink: FeedbackSink {
     func play(_ sound: FeedbackSound, theme: SoundTheme) {}
+    func stop() {}
 }
 
 /// Plays the feedback sounds and decides on the haptics, from the Sounds
@@ -384,10 +452,28 @@ final class FeedbackPlayer {
         self.sink = sink ?? (Self.isMuted ? SilentFeedbackSink() : TonePlayer())
     }
 
-    /// A sound of the chosen theme, unless Sounds is off.
+    /// A sound of the chosen theme, unless Sounds is off or the theme has
+    /// none (`lessonStarted` outside Mellstroy, #340).
     func play(_ sound: FeedbackSound) {
         guard settings.learningSounds else { return }
-        sink.play(sound, theme: settings.learningSoundTheme)
+        let theme = settings.learningSoundTheme
+        guard theme.variants(sound) > 0 else { return }
+        sink.play(sound, theme: theme)
+    }
+
+    /// `play(_:)`, then `whenDone` once the sound has played to its end; at
+    /// once when none plays (Sounds off, a theme without it). Never when a
+    /// new sound or `stop()` cuts it (#340: a question's word waits for
+    /// Mellstroy's Lesson started).
+    func play(_ sound: FeedbackSound, whenDone: @escaping @MainActor @Sendable () -> Void) {
+        let theme = settings.learningSoundTheme
+        guard settings.learningSounds, theme.variants(sound) > 0 else { return whenDone() }
+        sink.play(sound, theme: theme, whenDone: whenDone)
+    }
+
+    /// The run closed: the sound still playing stops (#340).
+    func stop() {
+        sink.stop()
     }
 
     /// The sound of an answer. `accent` counts as right.
@@ -409,50 +495,123 @@ final class FeedbackPlayer {
     }
 }
 
-/// Plays the learning sounds, generated in code as WAV data (`ToneSynth`),
-/// so there is no sound file to license. The audio session is `.ambient`,
-/// set once: the silent switch mutes them and the user's music keeps
-/// playing. The players work on `queue`, never the main thread: acquiring
-/// the audio output blocks until it runs, 15 s at a time when a
+/// Plays the learning sounds: generated in code as WAV data (`ToneSynth`),
+/// or, for Mellstroy, its recorded clips (#340), one variant at random,
+/// never the same twice in a row. A new sound stops the one still playing,
+/// and `stop()` stops it when a run closes. The audio session is
+/// `.ambient`, set once: the silent switch mutes them and the user's music
+/// keeps playing. The players work on `queue`, never the main thread:
+/// acquiring the audio output blocks until it runs, 15 s at a time when a
 /// simulator's audio stalls, and the run must not freeze meanwhile.
 @MainActor
 final class TonePlayer: FeedbackSink {
     private let queue: DispatchQueue
-    /// A theme's sound's player, made on `queue`: its `wav`. Tests pass
+    /// A theme's sound's variant's player, made on `queue`. Tests pass
     /// their own, which sees the thread it runs on.
-    private let makePlayer: @Sendable (FeedbackSound, SoundTheme) -> AVAudioPlayer?
-    /// Each theme's players. Used on `queue` only.
-    nonisolated(unsafe) private var players: [SoundTheme: [FeedbackSound: AVAudioPlayer]] = [:]
+    private let makePlayer: @Sendable (FeedbackSound, SoundTheme, Int) -> AVAudioPlayer?
+    /// Each theme's players, by sound and variant. Used on `queue` only.
+    nonisolated(unsafe) private var players: [SoundTheme: [FeedbackSound: [Int: AVAudioPlayer]]] = [:]
+    /// The variant each theme's sound played last. Used on `queue` only.
+    nonisolated(unsafe) private var lastVariant: [SoundTheme: [FeedbackSound: Int]] = [:]
+    /// The player of the last sound, which may still play. Used on `queue` only.
+    nonisolated(unsafe) private var current: AVAudioPlayer?
+    /// `current`'s delegate while a caller waits for its end. Used on `queue` only.
+    nonisolated(unsafe) private var ending: ClipEnd?
+    /// Counts `stop()` calls: a play starts only while the count is the one
+    /// of its call, so a stop also drops the plays queued before it (as
+    /// `SpeechService` drops its words, #331). Read and written from any thread.
+    private let stops = OSAllocatedUnfairLock(initialState: 0)
     nonisolated(unsafe) private var isSessionSet = false
 
     init(queue: DispatchQueue = DispatchQueue(label: "com.kyukhin.DictApp.TonePlayer", qos: .userInitiated),
-         makePlayer: @escaping @Sendable (FeedbackSound, SoundTheme) -> AVAudioPlayer? = {
-             try? AVAudioPlayer(data: ToneSynth.wav($0, theme: $1))
+         makePlayer: @escaping @Sendable (FeedbackSound, SoundTheme, Int) -> AVAudioPlayer? = {
+             $1.player($0, variant: $2)
          }) {
         self.queue = queue
         self.makePlayer = makePlayer
     }
 
     func play(_ sound: FeedbackSound, theme: SoundTheme) {
+        start(sound, theme: theme, whenDone: nil)
+    }
+
+    func play(_ sound: FeedbackSound, theme: SoundTheme, whenDone: @escaping @MainActor @Sendable () -> Void) {
+        start(sound, theme: theme, whenDone: whenDone)
+    }
+
+    private func start(_ sound: FeedbackSound, theme: SoundTheme, whenDone: (@MainActor @Sendable () -> Void)?) {
+        let asked = stops.withLock { $0 }
         queue.async { [self] in
+            let count = theme.variants(sound)
+            guard count > 0 else { return ClipEnd.call(whenDone) }
             if !isSessionSet {
                 isSessionSet = true
                 try? AVAudioSession.sharedInstance().setCategory(.ambient)
             }
-            if players[theme]?[sound] == nil {
-                players[theme, default: [:]][sound] = makePlayer(sound, theme)
-                players[theme]?[sound]?.prepareToPlay()
+            let variant = SoundTheme.pick(of: count, after: lastVariant[theme]?[sound]) { Int.random(in: 0..<$0) }
+            if players[theme]?[sound]?[variant] == nil {
+                players[theme, default: [:]][sound, default: [:]][variant] = makePlayer(sound, theme, variant)
+                players[theme]?[sound]?[variant]?.prepareToPlay()
             }
-            guard let player = players[theme]?[sound] else { return }
+            guard let player = players[theme]?[sound]?[variant] else { return ClipEnd.call(whenDone) }
+            // A stop since the call: the run is closed, nothing starts.
+            guard stops.withLock({ $0 }) == asked else { return }
+            lastVariant[theme, default: [:]][sound] = variant
+            current?.delegate = nil
+            current?.stop()
+            ending = whenDone.map(ClipEnd.init)
+            player.delegate = ending
             player.currentTime = 0
-            player.play()
+            current = player
+            guard player.play() else {
+                // Nothing plays: the caller goes on at once, and only once.
+                player.delegate = nil
+                ending = nil
+                current = nil
+                return ClipEnd.call(whenDone)
+            }
+        }
+    }
+
+    func stop() {
+        stops.withLock { $0 += 1 }
+        queue.async { [self] in
+            current?.delegate = nil
+            current?.stop()
+            current = nil
+            ending = nil
         }
     }
 
     /// A theme's sounds with a player, once `queue` has handled the plays
     /// asked so far (tests).
     nonisolated func loadedSounds(_ theme: SoundTheme = .classic) -> Set<FeedbackSound> {
-        queue.sync { players[theme].map { Set($0.keys) } ?? [] }
+        queue.sync { Set((players[theme] ?? [:]).filter { !$0.value.isEmpty }.keys) }
+    }
+}
+
+/// A player's delegate that calls back on the main actor when its sound
+/// has played to its end (#340). `AVAudioPlayer` does not call it after
+/// `stop()`, and `TonePlayer` clears it before cutting a sound.
+final class ClipEnd: NSObject, AVAudioPlayerDelegate {
+    private let whenDone: @MainActor @Sendable () -> Void
+
+    init(_ whenDone: @escaping @MainActor @Sendable () -> Void) {
+        self.whenDone = whenDone
+    }
+
+    /// Calls `whenDone`, if any, on the main actor.
+    static func call(_ whenDone: (@MainActor @Sendable () -> Void)?) {
+        guard let whenDone else { return }
+        Task { @MainActor in whenDone() }
+    }
+
+    func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
+        Self.call(whenDone)
+    }
+
+    func audioPlayerDecodeErrorDidOccur(_ player: AVAudioPlayer, error: Error?) {
+        Self.call(whenDone)
     }
 }
 
@@ -481,6 +640,8 @@ enum ToneSynth {
     }
 
     /// The recipes of a theme (kyukhin picked the six themes, 2026-11-15).
+    /// `lessonStarted` is Mellstroy's only, so a synthesized theme's is
+    /// empty, never played (`SoundTheme.variants`).
     nonisolated static func samples(_ sound: FeedbackSound, theme: SoundTheme) -> [Double] {
         switch theme {
         case .classic: samples(sound)
@@ -489,6 +650,8 @@ enum ToneSynth {
         case .grumpy: grumpy(sound)
         case .silly: silly(sound)
         case .meme: meme(sound)
+        // Recorded clips (#340): nothing to synthesize.
+        case .mellstroy: []
         }
     }
 
@@ -508,6 +671,8 @@ enum ToneSynth {
             return tone("A6", 0.15, .fm, 14)
         case .pairWrong:
             return tone("D4", 0.15, .soft, 14, bend: -0.1)
+        case .lessonStarted:
+            return []
         }
     }
 
@@ -528,6 +693,8 @@ enum ToneSynth {
         case .goalReached:
             mix(["G5", "C6", "E6", "G6"].map { tone($0, 0.9, .bell, 3) } + [tone("C7", 1, .bell, 2.5)],
                 offsets: [0, 0.08, 0.16, 0.24, 0.4])
+        case .lessonStarted:
+            []
         }
     }
 
@@ -548,6 +715,8 @@ enum ToneSynth {
         case .goalReached:
             sequence(["G5", "G5", "G5"].map { osc($0, 0.09, .pulse(duty: 0.5), 3) }
                      + [osc("C6", 0.5, .pulse(duty: 0.5), 2.5, vibrato: 0.01)], gap: 0.03)
+        case .lessonStarted:
+            []
         }
     }
 
@@ -567,6 +736,8 @@ enum ToneSynth {
                      + [osc("A3", 0.35, .saw, 4, lowpass: 0.12)], gap: 0.03)
         case .goalReached:
             mix(["C3", "G3", "C4"].map { osc($0, 1, .saw, 1.5, attack: 0.15, lowpass: 0.1) })
+        case .lessonStarted:
+            []
         }
     }
 
@@ -586,6 +757,8 @@ enum ToneSynth {
         case .goalReached:
             sequence(["C5", "E5", "G5"].map { osc($0, 0.16, .saw, 2, vibrato: 0.02, lowpass: 0.25) }
                      + [osc("C6", 0.5, .saw, 1.5, vibrato: 0.03, lowpass: 0.25)], gap: 0.02)
+        case .lessonStarted:
+            []
         }
     }
 
@@ -606,6 +779,8 @@ enum ToneSynth {
             mix([sequence(drum(), drum(200, 70, 0.2, seed: 9)), cymbal()], offsets: [0, 0.42])
         case .goalReached:
             sequence(horn(0.18), horn(0.18), horn(0.6), gap: 0.07)
+        case .lessonStarted:
+            []
         }
     }
 

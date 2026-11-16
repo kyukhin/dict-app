@@ -790,6 +790,10 @@ final class ArabicLocalizationTests: XCTestCase {
         XCTAssertTrue(app.scrollToElement(tatoeba), "the Tatoeba line")
         XCTAssertTrue(UITestHelpers.visible(tatoeba.label).hasPrefix("جمل الأمثلة: Tatoeba (tatoeba.org)"),
                       "Arabic, Tatoeba and its license untranslated; got '\(tatoeba.label)'")
+        // #340: Arabic, the name Mellstroy in Latin letters.
+        let mellstroy = app.staticTexts[IDs.mellstroy]
+        XCTAssertTrue(app.scrollToElement(mellstroy), "the Mellstroy line")
+        XCTAssertEqual(UITestHelpers.visible(mellstroy.label), "سمة الأصوات Mellstroy: صوت Mellstroy، يُستخدم بإذنه")
         attachScreenshot("credits (ar)")
         let grdb = app.descendants(matching: .any)[IDs.grdb].firstMatch
         XCTAssertTrue(app.scrollToElement(grdb), "the GRDB.swift row")

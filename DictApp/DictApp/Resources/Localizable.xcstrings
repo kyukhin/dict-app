@@ -12869,6 +12869,42 @@
         }
       }
     },
+    "settings.learning.soundTheme.mellstroy": {
+      "comment": "Settings, Learning, Sound theme: the theme name (#340), voice clips of Mellstroy. A name: never translated.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mellstroy"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mellstroy"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mellstroy"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mellstroy"
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mellstroy"
+          }
+        }
+      }
+    },
     "settings.learning.speakWords": {
       "comment": "Settings, Learning: a question speaks the word it shows as it appears (#331).",
       "extractionState": "manual",
@@ -19657,6 +19693,42 @@
           "stringUnit": {
             "state": "translated",
             "value": "Γραμματικός κανόνας: %@"
+          }
+        }
+      }
+    },
+    "credits.dataSources.mellstroy": {
+      "comment": "Credits: the Mellstroy sound theme's voice clips (#340), used with permission, under no license. Mellstroy is a name: not translated.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mellstroy sound theme: the voice of Mellstroy, used with permission"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Звуковая тема Mellstroy: голос Mellstroy, используется с разрешения"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tema de sonidos Mellstroy: la voz de Mellstroy, usada con permiso"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "سمة الأصوات Mellstroy: صوت Mellstroy، يُستخدم بإذنه"
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Θέμα ήχων Mellstroy: η φωνή του Mellstroy, με την άδειά του"
           }
         }
       }
