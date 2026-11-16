@@ -66,6 +66,7 @@ from typing import Callable, Iterable
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import inputs  # noqa: E402
 from build_greek import normalize_greek  # noqa: E402  (the one Greek folding, #87)
+from build_wordlists import cleaned_variants  # noqa: E402  (0130's cleaned spellings)
 
 SCHEMA = """
 -- One row per Tatoeba sentence used as an example.
@@ -132,7 +133,17 @@ NATIVE_LEVEL = "5"
 # gate's ranking (0136), never shipped.
 FREQUENCY_KEY = "frequencywords/el_50k.txt"
 GREEK_DICTIONARIES = ("freedict-ell-eng", "wordnet-ell-eng")
+GREEK_LISTS = "ky-ell"
 ENGLISH_LISTS = "cefr-eng"
+# #339: the cornerstone words Kirill reviewed (articles, pronouns, particles,
+# numbers), reported with their examples and how many show the word's own form.
+CORNERSTONE = (
+    "ο", "η", "το", "οι", "τα", "ένας", "μία", "ένα", "εγώ", "εσύ", "αυτός", "αυτή", "αυτό", "εμείς", "εσείς",
+    "αυτοί", "αυτές", "αυτά", "με", "σε", "τον", "την", "μας", "σας", "τους", "τις", "μου", "σου", "του", "της",
+    "δικός", "ποιος", "ποια", "ποιο", "πότε", "πόσος", "πόσο", "ή", "πως", "εκείνος", "κανένας", "καμία",
+    "κανένα", "όλος", "να", "δεν", "μην", "ας", "στο", "στη(ν)", "στον", "στα", "στους", "στις", "ότι", "όταν",
+    "επειδή", "τρεις", "τρία", "τέσσερις", "τέσσερα", "δεκατρείς", "δεκατρία", "δεκατέσσερις", "δεκατέσσερα",
+)
 
 DATA_SOURCE = {
     "id": "tatoeba",
@@ -249,30 +260,75 @@ def subset_paths(folder: str) -> dict[str, dict[str, Path]]:
 # Keys: Greek through the forms tables, English through morphy
 # ---------------------------------------------------------------------------
 
-class GreekWords:
-    """The Greek forms and headwords (spec, Pipeline step 4)."""
+def term_spellings(term: str) -> list[str]:
+    """#339: the spellings of a one-word list term that a token can have:
+    the term and its cleaned spellings (0130, linking rule 2), each one
+    token. στη(ν) is στη and στην, Γεια! is Γεια; a term with a space,
+    such as (ένα) σωρό, has none."""
+    if any(c.isspace() for c in term):
+        return []
+    return [s for s in dict.fromkeys([term, *cleaned_variants(term)]) if WORD.fullmatch(s)]
 
-    def __init__(self, reader: sqlite3.Connection):
+
+def own_forms(term: str) -> frozenset[str]:
+    """The highlighted forms (lowercase NFC) that are the list term's own."""
+    return frozenset(nfc(s.lower()) for s in term_spellings(term))
+
+
+class GreekWords:
+    """The Greek forms, headwords and list words (spec, Pipeline step 4)."""
+
+    def __init__(self, reader: sqlite3.Connection, list_rule: bool = True):
         self.lemmas_of: dict[str, set[str]] = collections.defaultdict(set)  # lowercase NFC form -> lemma words
+        self.verbs_of: dict[str, set[str]] = collections.defaultdict(set)  # the same, verb lemmas only
         queries = (
-            "SELECT word, word FROM lemma WHERE lang = 'ell'",
-            "SELECT p.form, l.word FROM paradigm p JOIN lemma l ON l.id = p.lemma_id WHERE l.lang = 'ell'",
-            "SELECT f.form, l.word FROM form_link f JOIN lemma l ON l.id = f.lemma_id WHERE l.lang = 'ell'",
+            "SELECT word, word, pos FROM lemma WHERE lang = 'ell'",
+            "SELECT p.form, l.word, l.pos FROM paradigm p JOIN lemma l ON l.id = p.lemma_id WHERE l.lang = 'ell'",
+            "SELECT f.form, l.word, l.pos FROM form_link f JOIN lemma l ON l.id = f.lemma_id WHERE l.lang = 'ell'",
         )
         for sql in queries:
-            for form, word in reader.execute(sql):
+            for form, word, pos in reader.execute(sql):
                 self.lemmas_of[nfc(form.lower())].add(nfc(word))
+                if pos == "verb":
+                    self.verbs_of[nfc(form.lower())].add(nfc(word))
+        self.verbs = {nfc(word) for (word,) in reader.execute(
+            "SELECT word FROM lemma WHERE lang = 'ell' AND pos = 'verb'")}
         self.headwords = {nfc(word) for (word,) in reader.execute(
             f"SELECT word FROM entries WHERE source IN ({','.join('?' * len(GREEK_DICTIONARIES))})",
             GREEK_DICTIONARIES)}
+        # #339: the one-word terms of the Greek lists, by spelling. Without
+        # `list_rule`, the keys as before #339 (the report compares both).
+        self.terms_of: dict[str, set[str]] = collections.defaultdict(set)
+        self.terms: set[str] = set()  # the one-word terms
+        if list_rule:
+            for (term,) in reader.execute("SELECT term FROM wordlist_item WHERE series = ?", (GREEK_LISTS,)):
+                for spelling in term_spellings(nfc(term)):
+                    self.terms_of[spelling].add(nfc(term))
+                    self.terms.add(nfc(term))
 
     def keys(self, token: str) -> set[str]:
-        """The lemmas the token is a cell, the word or a link page of, and the
-        token itself, as written or lowercased, when it is a headword."""
+        """A token that is a one-word term of the Greek lists, as written or
+        lowercased (#339), keys that term, the token itself when it is a
+        headword, and of its lemmas only the verbs: αυτό keys αυτό, not
+        αυτός; πάω keys πάω and πηγαίνω. Any other token keys the lemmas it
+        is a cell, the word or a link page of, and itself, as written or
+        lowercased, when it is a headword."""
         lower = nfc(token.lower())
-        keys = set(self.lemmas_of.get(lower, ()))
-        keys.update(w for w in (token, lower) if w in self.headwords)
+        keys = {w for w in (token, lower) if w in self.headwords}
+        terms = self.terms_of.get(token, set()) | self.terms_of.get(lower, set())
+        if terms:
+            keys |= terms | self.verbs_of.get(lower, set())
+        else:
+            keys |= self.lemmas_of.get(lower, set())
         return {word_key(k) for k in keys}
+
+    def own(self, key: str) -> tuple[frozenset[str], bool]:
+        """A key's own forms, which its examples keep (#339), and whether
+        they come first: a list word's spellings, first unless the word is a
+        verb; none for other keys."""
+        if key not in self.terms:
+            return frozenset(), False
+        return own_forms(key), key not in self.verbs
 
 
 class EnglishWords:
@@ -403,14 +459,29 @@ def rank(lang: str, native: bool, translations: int, words: int, sid: int) -> tu
             else (-translations, 0 if native else 1, short, sid))
 
 
-def choose(occurrences: list[tuple[tuple, int, int, int, str]], limit: int = PER_WORD) -> list:
+def choose(occurrences: list[tuple[tuple, int, int, int, str]], limit: int = PER_WORD,
+           own: frozenset[str] = frozenset(), own_first: bool = False) -> list:
     """Up to `limit` occurrences (rank, sid, start, length, form): one
-    sentence per new form first, then the rest, each in rank order."""
+    sentence per new form first, then the rest, each in rank order. With
+    `own_first` (a Greek list word that is no verb, #339) the sentences of
+    its `own` forms come first, in rank order, and other forms only fill up:
+    ο shows ο, not των, τη, τες. Otherwise, when the per-form pass leaves
+    out every `own` form (a verb's), the best own-form sentence leads and
+    the last pick drops: λέω shows λέω."""
+    if own_first and own:
+        mine = heapq.nsmallest(limit, (o for o in occurrences if o[4] in own))
+        if mine:
+            others = [o for o in occurrences if o[4] not in own]
+            return mine + (choose(others, limit - len(mine)) if len(mine) < limit else [])
     best: dict[str, tuple] = {}
     for o in occurrences:
         if o[4] not in best or o[0] < best[o[4]][0]:
             best[o[4]] = o
     chosen = sorted(best.values())[:limit]
+    if own and not any(o[4] in own for o in chosen):
+        mine = [o for form, o in best.items() if form in own]
+        if mine:
+            chosen = [min(mine)] + chosen[:limit - 1]
     if len(chosen) < limit:
         taken = {o[1] for o in chosen}
         rest = [o for o in heapq.nsmallest(limit + len(chosen), occurrences) if o[1] not in taken]
@@ -418,10 +489,11 @@ def choose(occurrences: list[tuple[tuple, int, int, int, str]], limit: int = PER
     return chosen
 
 
-def build_language(lang: str, subset: Subset, keys_of: Callable[[str], Iterable[str]]) -> Result:
+def build_language(lang: str, subset: Subset, keys_of: Callable[[str], Iterable[str]],
+                   own_of: Callable[[str], tuple[frozenset[str], bool]] | None = None) -> Result:
     """Spec, Pipeline steps 1 to 5 for the sentences of one language."""
     result = candidates(lang, subset)
-    result.occurrences, result.words = index(result, keys_of)
+    result.occurrences, result.words = index(result, keys_of, own_of)
     return result
 
 
@@ -487,10 +559,12 @@ def candidates(lang: str, subset: Subset) -> Result:
     return result
 
 
-def index(result: Result, keys_of: Callable[[str], Iterable[str]]) -> tuple[dict[str, int], dict[str, list]]:
+def index(result: Result, keys_of: Callable[[str], Iterable[str]],
+          own_of: Callable[[str], tuple[frozenset[str], bool]] | None = None) -> tuple[dict[str, int], dict[str, list]]:
     """Steps 4 and 5: every key's candidate count and its chosen examples
     (sentence id, form start, form length, form). A sentence counts once per
-    key, highlighted at its first token that gives the key."""
+    key, highlighted at its first token that gives the key. `own_of` gives
+    a key's own forms, which `choose` keeps (#339)."""
     found: dict[str, list] = collections.defaultdict(list)
     for c in result.candidates.values():
         seen = set()
@@ -499,8 +573,11 @@ def index(result: Result, keys_of: Callable[[str], Iterable[str]]) -> tuple[dict
                 if key not in seen:
                     seen.add(key)
                     found[key].append((c.rank, c.id, start, length, nfc(tok.lower())))
-    return ({key: len(occ) for key, occ in found.items()},
-            {key: [(o[1], o[2], o[3], o[4]) for o in choose(found[key])] for key in sorted(found)})
+    words = {}
+    for key in sorted(found):
+        own, own_first = own_of(key) if own_of else (frozenset(), False)
+        words[key] = [(o[1], o[2], o[3], o[4]) for o in choose(found[key], own=own, own_first=own_first)]
+    return {key: len(occ) for key, occ in found.items()}, words
 
 
 @dataclass
@@ -696,9 +773,55 @@ def byline(sentence_author: str, translation_author: str | None) -> str:
     return ", ".join(names) + " · Tatoeba"
 
 
+def list_rule_section(r: Result, greek: GreekWords, before: tuple[dict[str, int], dict[str, list]],
+                      plain: dict[str, list]) -> list[str]:
+    """#339: the Greek keys under the list-word rule against the keys
+    without it, on the same candidates; the list words' own forms (`plain`:
+    the choice without keeping them); the cornerstone words."""
+    occ_before, words_before = before
+    leading = sorted(k for k in r.words if r.words[k] != plain.get(k))
+    keys = set(words_before) | set(r.words)
+    gained = sorted(k for k in keys if k not in words_before)
+    lost = sorted(k for k in keys if k not in r.words)
+    changed = sorted(k for k in keys if k in words_before and k in r.words and words_before[k] != r.words[k])
+    losers = sorted(((occ_before.get(k, 0) - r.occurrences.get(k, 0), k) for k in keys),
+                    key=lambda x: (-x[0], x[1]))
+    losers = [(n, k) for n, k in losers if n > 0][:20]
+    terms = sorted(greek.terms)
+    with_one = [t for t in terms if r.words.get(word_key(t))]
+    three = [t for t in with_one if len(r.words[word_key(t)]) >= 3]
+    all_own = [t for t in with_one if all(c[3] in own_forms(t) for c in r.words[word_key(t)])]
+    out = ["", "### List words (#339)", "",
+           "A token that is a one-word term of the Greek lists, as written or lowercased, keys that term, itself "
+           "when it is a headword, and of its lemmas only the verbs (αυτό keys αυτό, not αυτός; πάω keys πάω and "
+           "πηγαίνω). Other tokens key their lemmas and themselves as headwords, as before. A term's spellings are "
+           "the term and its cleaned spellings (στη(ν): στη, στην). A list word that is no verb shows its own forms "
+           "first; a verb keeps one sentence per form, and its own form leads when that pass leaves it out.", "",
+           f"- One-word terms of `{GREEK_LISTS}`: {len(terms):,}; with an example: {len(with_one):,}; with 3 or "
+           f"more: {len(three):,}; every example in the term's own form: {len(all_own):,}",
+           f"- List words whose examples differ from the plain per-form choice: {len(leading):,}; "
+           f"non-verbs, own forms first: {sum(1 for k in leading if k not in greek.verbs):,}; verbs whose "
+           "dropped own form leads: " + (", ".join(k for k in leading if k in greek.verbs) or "none"),
+           f"- Keys against the rule without list words, on the same candidates: {len(words_before):,} before, "
+           f"{len(r.words):,} now; gain examples (none before): {len(gained):,}; lose them all: {len(lost):,}; "
+           f"change them: {len(changed):,}",
+           "", "**The 20 keys that lose the most candidate sentences**, candidates and examples before → now:", "",
+           ", ".join(f"{k} ({occ_before.get(k, 0):,} → {r.occurrences.get(k, 0):,}; "
+                     f"{len(words_before.get(k, ()))} → {len(r.words.get(k, ()))})" for _, k in losers) or "None.",
+           "", f"**Keys that lose every example ({len(lost):,})**: " + (", ".join(lost) or "none") + ".",
+           "", "**The cornerstone words**: examples, how many show the word's own form, and the forms shown.", "",
+           "| Word | Candidates | Examples | Own form | Forms |", "|---|---|---|---|---|"]
+    for t in CORNERSTONE:
+        chosen = r.words.get(word_key(t), [])
+        own = own_forms(t)
+        out.append(f"| {cell(t)} | {r.occurrences.get(word_key(t), 0):,} | {len(chosen)} | "
+                   f"{sum(1 for c in chosen if c[3] in own)} | {cell(', '.join(c[3] for c in chosen)) or '—'} |")
+    return out
+
+
 def report(folder: str, pins: dict, results: list[Result], english: EnglishWords,
            ambiguity: list[tuple], skipped: collections.Counter, verbs: dict, hashes: dict, sizes: dict,
-           gates: list) -> str:
+           gates: list, list_rule: list[str]) -> str:
     folder_pin = pins[folder]
     out = ["# Example sentences: QA report", "",
            "Written by `Scripts/build_examples.py` on every build of the examples step "
@@ -750,6 +873,7 @@ def report(folder: str, pins: dict, results: list[Result], english: EnglishWords
                     "", f"**Top-{TOP_VERBS} verbs with fewer than 3 examples ({len(verbs['missing'])})**, "
                     "with their count:", "",
                     ", ".join(f"{w} ({n})" for w, n in verbs["missing"]) or "None."]
+            out += list_rule
         else:
             words = english.list_words
             with_one = sum(1 for w in words if w in r.words)
@@ -823,8 +947,10 @@ def run(writer: sqlite3.Connection, reader: sqlite3.Connection, cache_dir: Path,
                            "build_wordlists")
     subsets = {lang: read_subset(paths[lang]) for lang in SUBSETS}
     print(f"  subset {folder}: " + ", ".join(f"{lang} {len(s.sentences):,} sentences" for lang, s in subsets.items()))
-    results = [build_language("ell", subsets["ell"], greek.keys),
+    results = [build_language("ell", subsets["ell"], greek.keys, greek.own),
                build_language("eng", subsets["eng"], english.keys)]
+    list_rule = list_rule_section(results[0], greek, index(results[0], GreekWords(reader, list_rule=False).keys),
+                                  index(results[0], greek.keys)[1])
     variants = {"guess": (english, results[1].words)}
     for rule in EnglishWords.AMBIGUITY_RULES[1:]:
         variant = EnglishWords(reader, rule)
@@ -886,8 +1012,8 @@ def run(writer: sqlite3.Connection, reader: sqlite3.Connection, cache_dir: Path,
          "0", not failures["references"]),
     ]
     report_path.parent.mkdir(parents=True, exist_ok=True)
-    report_path.write_text(report(folder, pins, results, english, ambiguity, skipped, verbs, hashes, sizes, gates),
-                           encoding="utf-8")
+    report_path.write_text(report(folder, pins, results, english, ambiguity, skipped, verbs, hashes, sizes, gates,
+                                  list_rule), encoding="utf-8")
 
     print("  " + ", ".join(f"{t} {hashes[t][0]:,}" for t in TABLES) + f"; {total:,} bytes")
     for name, measured, needed, ok in gates:
@@ -943,7 +1069,8 @@ def fixture_reader(folder: Path) -> sqlite3.Connection:
     """An in-memory file with the tables the step reads, filled from the
     fixture's `lexicon.tsv`: `lemma` (word, pos, cells), `link` (page,
     lemma), `headword`, `exception` (form, pos, base), `morphy` (word,
-    pos_mask) and `list` (term) lines."""
+    pos_mask) and `list` (term, and the series when not the English
+    lists') lines."""
     from build_dictionaries import SCHEMA as CORE_SCHEMA
     import build_forms
     import build_morphy
@@ -976,7 +1103,7 @@ def fixture_reader(folder: Path) -> sqlite3.Connection:
             conn.execute("INSERT INTO morphy_lemma(word, pos_mask) VALUES (?, ?)", (rest[0], int(rest[1])))
         elif kind == "list":
             conn.execute("INSERT INTO wordlist_item(series, term, seq, sort_key) VALUES (?, ?, 0, ?)",
-                         (ENGLISH_LISTS, rest[0], rest[0]))
+                         (rest[1] if len(rest) > 1 else ENGLISH_LISTS, rest[0], rest[0]))
         else:
             raise RuntimeError(f"lexicon.tsv: unknown line kind {kind!r}")
     return conn
@@ -989,7 +1116,7 @@ def self_check() -> int:
     subsets = {lang: read_subset({part: FIXTURE / f"{lang}-{part}.tsv" for part in PARTS}) for lang in SUBSETS}
     runs = []
     for _ in range(2):
-        results = [build_language("ell", subsets["ell"], greek.keys),
+        results = [build_language("ell", subsets["ell"], greek.keys, greek.own),
                    build_language("eng", subsets["eng"], english.keys)]
         rows = rows_of(results)
         conn = new_database(":memory:")
@@ -1012,6 +1139,8 @@ def self_check() -> int:
 
     ell, eng = results
     keys = {"ell": greek.keys, "eng": english.keys}
+    # #339: the keys without the list-word rule, on the same candidates.
+    unruled = index(ell, GreekWords(reader, list_rule=False).keys)[1]
     failures = output_failures(rows, results, subsets, keys)
     # The output gates on rows they must refuse: the tagged sentence stored
     # as an orphan without English, a translation of no stored sentence, a
@@ -1026,10 +1155,12 @@ def self_check() -> int:
     def order(lang: str) -> list[int]:
         return [r[-1] for r in sorted(rank(lang, *case) for case in ranks)]
 
-    def chosen(occurrences: list[tuple[int, str]]) -> list[int]:
+    def chosen(occurrences: list[tuple[int, str]], own: frozenset[str] = frozenset(),
+               own_first: bool = False) -> list[int]:
         """The ids `choose` keeps of (rank, form) occurrences, given in
         reverse rank order; the id is 100 + rank."""
-        return [o[1] for o in choose([((r,), 100 + r, 0, 1, f) for r, f in reversed(occurrences)])]
+        return [o[1] for o in choose([((r,), 100 + r, 0, 1, f) for r, f in reversed(occurrences)],
+                                     own=own, own_first=own_first)]
 
     verbs = [f"v{i}" for i in range(TOP_VERBS)]
     passing = {**{w: 3 for w in verbs[:424]}, verbs[424]: 5, **{w: 2 for w in verbs[425:]}}
@@ -1054,6 +1185,13 @@ def self_check() -> int:
         ("a harmless maintenance tag does not block (@change audio)", 107 in stored),
         ("πότε and ποτέ stay apart (exact, not folded)", forms_of("ell", "πότε") == ["πότε"]
          and forms_of("ell", "ποτέ") == ["ποτέ"]),
+        ("#339: a Greek list word keys itself, not its lemma: Η keys η, and ο keeps only το",
+         forms_of("ell", "η") == ["η"] and forms_of("ell", "ο") == ["το"]
+         and sorted(c[3] for c in unruled["ο"]) == ["η", "το"]),
+        ("#339: a list word that is a verb's form keys the verb too (πάω → πηγαίνω, Γράφω → γράφω)",
+         forms_of("ell", "πάω") == ["πάω"] and "γράφω" in forms_of("ell", "γράφω")),
+        ("#339: a list word's optional part: στην keys στη(ν)", forms_of("ell", "στη(ν)") == ["στην"]
+         and term_spellings("στη(ν)") == ["στη", "στην"] and term_spellings("(ένα) σωρό") == []),
         ("a native speaker's Russian translation wins over a lower id", translation(116, "rus") == 318),
         ("Arabic is stored as arb, Spanish as spa", translation(116, "arb") == 417 and translation(116, "spa") == 418),
         ("went, going and gone key go, one sentence per form first",
@@ -1078,6 +1216,16 @@ def self_check() -> int:
         ("choice: one sentence per new form first, in rank order, up to 5",
          chosen([(1, "x"), (2, "x"), (3, "x"), (4, "y"), (5, "z"), (6, "w"), (7, "v"), (8, "u")])
          == [101, 104, 105, 106, 107]),
+        ("#339 choice: a non-verb list word's own forms come first, other forms fill up",
+         chosen([(1, "x"), (2, "y"), (3, "u"), (4, "z"), (5, "u"), (6, "w"), (7, "u")], frozenset({"u"}), True)
+         == [103, 105, 107, 101, 102]
+         and chosen([(i, "u") for i in range(1, 8)], frozenset({"u"}), True) == [101, 102, 103, 104, 105]
+         and chosen([(1, "x"), (2, "y")], frozenset({"u"}), True) == [101, 102]),
+        ("#339 choice: a verb's own form, left out by the per-form pass, leads; the last pick drops",
+         chosen([(1, "x"), (2, "y"), (3, "z"), (4, "w"), (5, "v"), (6, "u"), (7, "u")], frozenset({"u"}))
+         == [106, 101, 102, 103, 104]
+         and chosen([(1, "x"), (2, "y"), (3, "z"), (4, "w"), (5, "v"), (6, "u")], frozenset({"v"}))
+         == [101, 102, 103, 104, 105]),
         ("choice: then the rest in rank order, each sentence once",
          chosen([(1, "x"), (2, "x"), (3, "x"), (4, "x"), (5, "x"), (6, "x"), (7, "y")]) == [101, 107, 102, 103, 104]
          and chosen([(1, "x"), (2, "x")]) == [101, 102]),

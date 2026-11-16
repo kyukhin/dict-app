@@ -19956,11 +19956,10 @@ final class WordListDataTests: XCTestCase {
     /// #130, #152: Greek A1, A2 and B1 in the Greek pack with their counts;
     /// `word_count` equals the rows; every row of the committed CSVs is a
     /// word of its level (the lowest of the rows it merges with) and of no
-    /// other list. The counts are 1,457, 756 and 2,435, not the spec's
-    /// 1,458, 758 and 2,436 measured on Kirill's files as they were: with the
-    /// Latin lookalikes fixed, Ισραηλινός merges into ισραηλινός and A2's
-    /// κεφαλαίο γράμμα is A1's; with 7 and 9 spelled as in A1 (Kirill,
-    /// 2026-11-06), A2's εννέα and B1's επτά are A1's too.
+    /// other list. The counts are 1,506, 743 and 2,434: the cornerstone
+    /// words of #339 moved to and added in A1 (Kirill, 2026-11-17), on top of
+    /// #152's fixes (Ισραηλινός merges into ισραηλινός, A2's κεφαλαίο γράμμα,
+    /// εννέα and B1's επτά are A1's).
     func testGreekListsAndCounts() throws {
         let file = try BundledDictionary(url: try PackFixtures.file(.ell)).read { db in
             (lists: try GRDB.Row.fetchAll(db, sql: "SELECT * FROM wordlist ORDER BY level_ord"),
@@ -19976,9 +19975,9 @@ final class WordListDataTests: XCTestCase {
         XCTAssertEqual(file.lists.map { $0["id"] as String }, WordListData.greekLists.map(\.rawValue))
         XCTAssertEqual(file.lists.map { $0["level"] as String }, WordListData.levels)
         XCTAssertEqual(file.lists.map { $0["level_ord"] as Int }, [1, 2, 3])
-        XCTAssertEqual(file.lists.map { $0["word_count"] as Int }, [1_457, 756, 2_435])
+        XCTAssertEqual(file.lists.map { $0["word_count"] as Int }, [1_506, 743, 2_434])
         XCTAssertEqual(file.lists.map { $0["word_count"] as Int }, file.rows, "word_count equals the rows")
-        XCTAssertEqual(file.rows.reduce(0, +), 4_648)
+        XCTAssertEqual(file.rows.reduce(0, +), 4_683)
         for list in file.lists {
             XCTAssertEqual(list["lang"] as String, "ell")
             XCTAssertEqual(list["series"] as String, "ky-ell")
@@ -19995,7 +19994,7 @@ final class WordListDataTests: XCTestCase {
 
         // Every CSV row: its word is its own term, or its lowercase twin.
         let rows = try WordListData.levels.flatMap(WordListData.rows)
-        XCTAssertEqual(rows.count, 4_717)
+        XCTAssertEqual(rows.count, 4_741)
         let terms = Set(rows.map(\.term))
         var lowest: [String: Int] = [:]
         for row in rows {
@@ -20015,12 +20014,12 @@ final class WordListDataTests: XCTestCase {
         XCTAssertEqual(wrongLevel, [], "a word sits at the lowest level of its rows")
     }
 
-    /// #130, #152: at least 84% of the 4,648 words have a headword, and
+    /// #130, #152: at least 84% of the 4,683 words have a headword, and
     /// every headword opens its entry.
     func testGreekLinkRate() async throws {
         try await open()
         let items = try await greekItems()
-        XCTAssertEqual(items.count, 4_648)
+        XCTAssertEqual(items.count, 4_683)
         let linked = items.filter { $0.headword != nil }
         XCTAssertGreaterThanOrEqual(Double(linked.count) / Double(items.count), 0.84,
                                     "\(linked.count) of \(items.count) linked")
@@ -20057,6 +20056,102 @@ final class WordListDataTests: XCTestCase {
         XCTAssertEqual(Set(items.map(\.term)).intersection(overridden), overridden, "every override names a word")
     }
 
+    /// #339 (kyukhin's reviewed rows): the articles and particles are A1
+    /// words; the pronouns, articles and numbers come one row per gender
+    /// without endings, so no other gender is taken (#337's gate): "he"
+    /// takes only αυτός, "she" only αυτή. The weak pronouns open the entry a
+    /// learner expects: τις opens αυτός, never the archaic τίς; στο … στις
+    /// open none. εκείνη (A2) and the misspelt τρείς (B1) are gone.
+    func testCornerstoneWordsAreA1AndSplitByGender() async throws {
+        try await open()
+        let all = try await greekItems()
+        let items = Dictionary(all.map { ($0.term, $0) }, uniquingKeysWith: { first, _ in first })
+        XCTAssertEqual(all.count, items.count, "one row per term")
+        for term in ["ο", "η", "το", "οι", "τα", "ένας", "μία", "ένα", "δεν", "να", "μην", "ή"] {
+            XCTAssertEqual(items[term]?.levelOrder, 1, "\(term) is an A1 word")
+        }
+        XCTAssertNil(items["εκείνη"])
+        XCTAssertNil(items["τρείς"])
+
+        let he = try XCTUnwrap(items["αυτός"]), she = try XCTUnwrap(items["αυτή"])
+        XCTAssertEqual(he.translation, "he; this [masculine]")
+        XCTAssertEqual(she.translation, "she; this [feminine]")
+        let gendered = ["αυτός", "αυτή", "αυτό", "αυτοί", "αυτές", "αυτά", "ποιος", "ποια", "ποιο", "κανένας", "καμία",
+                        "κανένα", "ένας", "μία", "ένα", "τρεις", "τρία", "τέσσερις", "τέσσερα"]
+        for term in gendered {
+            let item = try XCTUnwrap(items[term], term)
+            XCTAssertEqual(item.endings, "", "\(term): one gender per row")
+            XCTAssertNil(GenderForms.endings(item.endings, lang: "ell"), "\(term): no other genders to take")
+        }
+        // The question's other forms are none without endings (the gate above).
+        XCTAssertEqual(AnswerChecker.check("αυτός", expected: he.term, lang: "ell", mode: .lenient), .right)
+        XCTAssertEqual(AnswerChecker.check("αυτή", expected: he.term, lang: "ell", mode: .lenient), .wrong)
+        XCTAssertEqual(AnswerChecker.check("αυτό", expected: he.term, lang: "ell", mode: .lenient), .wrong)
+        XCTAssertEqual(AnswerChecker.check("αυτή", expected: she.term, lang: "ell", mode: .strict), .right)
+        XCTAssertEqual(AnswerChecker.check("αυτός", expected: she.term, lang: "ell", mode: .lenient), .wrong)
+
+        let expected: [String: String?] = [
+            "η": "ο", "οι": "ο", "τα": "ο", "μία": "ένας", "αυτή": "αυτός", "αυτά": "αυτός", "τον": "αυτός",
+            "την": "αυτός", "του": "αυτός", "της": "αυτός", "τους": "αυτός", "τις": "αυτός", "μας": "εμείς",
+            "σας": "εσείς", "μου": "μου", "σου": "σου", "ή": "ή", "δεκατέσσερις": "δεκατέσσερα",
+            "στο": nil, "στη(ν)": nil, "στον": nil, "στα": nil, "στους": nil, "στις": nil,
+        ]
+        for (term, headword) in expected {
+            XCTAssertEqual(try XCTUnwrap(items[term], term).headword, headword, term)
+        }
+        let them = try XCTUnwrap(items["τις"])
+        let entry = try await db.entry(for: them, sourceOrder: ["freedict-ell-eng", "wordnet-ell-eng"])
+        XCTAssertEqual(entry?.word, "αυτός", "τις opens αυτός, not the archaic pronoun τίς")
+    }
+
+    /// #339, 0134 Pipeline step 4: a Greek token that is a one-word list term
+    /// keys that term, so a cornerstone word's examples never highlight
+    /// another list word (ο no longer shows η, τον or τα), and each of them
+    /// shows its own form (στη(ν): στη or στην). A list word that is no verb
+    /// shows its own form first, so every example is in it but where Tatoeba
+    /// has fewer: πόσος 2 of 5, δεκατρείς 2 of 3. Tatoeba has all of them.
+    func testCornerstoneExamplesShowTheirOwnForm() async throws {
+        try await open()
+        func spellings(_ term: String) -> Set<String> {
+            Set(([term] + ListLinking.cleanedVariants(of: term)).filter(ListLinking.isOneWord)
+                .map { $0.precomposedStringWithCanonicalMapping.lowercased() })
+        }
+        let listForms = Set(try await greekItems().flatMap { spellings($0.term) })
+        let words = ["ο", "η", "το", "οι", "τα", "ένας", "μία", "ένα", "εγώ", "εσύ", "αυτός", "αυτή", "αυτό", "εμείς",
+                     "εσείς", "αυτοί", "αυτές", "αυτά", "με", "σε", "τον", "την", "μας", "σας", "τους", "τις", "μου",
+                     "σου", "του", "της", "δικός", "ποιος", "ποια", "ποιο", "πότε", "πόσος", "πόσο", "ή", "πως",
+                     "εκείνος", "κανένας", "καμία", "κανένα", "όλος", "να", "δεν", "μην", "ας", "στο", "στη(ν)",
+                     "στον", "στα", "στους", "στις", "ότι", "όταν", "επειδή", "τρεις", "τρία", "τέσσερις", "τέσσερα",
+                     "δεκατρείς", "δεκατρία", "δεκατέσσερις", "δεκατέσσερα"]
+        XCTAssertEqual(words.count, 65, "the 66 reviewed rows but εκείνη")
+        var noOwnForm: [String] = [], otherListWord: [String] = [], notAllOwn: [String] = []
+        var ownAfterFallback: [String] = []
+        for word in words {
+            let examples = try await db.examples(for: WordKey(lang: "ell", word: word))
+            let own = spellings(word)
+            let forms = examples.map { example in
+                String(String.UnicodeScalarView(Array(example.text.unicodeScalars)[example.form]))
+                    .precomposedStringWithCanonicalMapping.lowercased()
+            }
+            if !forms.contains(where: own.contains) { noOwnForm.append("\(word): \(forms)") }
+            let owned = forms.filter(own.contains).count
+            if owned < forms.count { notAllOwn.append("\(word): \(owned) of \(forms.count)") }
+            if let fallback = forms.firstIndex(where: { !own.contains($0) }),
+               forms[fallback...].contains(where: own.contains) {
+                ownAfterFallback.append("\(word): \(forms)")
+            }
+            for form in forms where listForms.contains(form) && !own.contains(form) {
+                otherListWord.append("\(word): \(form)")
+            }
+        }
+        XCTAssertEqual(noOwnForm, [], "every cornerstone word shows its own form")
+        XCTAssertEqual(otherListWord, [], "no cornerstone word shows another list word")
+        XCTAssertEqual(notAllOwn, ["πόσος: 2 of 5", "δεκατρείς: 2 of 3"], "others only fill up")
+        XCTAssertEqual(ownAfterFallback, [], "no own-form example after another form")
+        let article = try await db.examples(for: WordKey(lang: "ell", word: "ο"))
+        XCTAssertEqual(article.count, 5)
+    }
+
     /// #152, #153: every word has a frequency rank or is in the report's
     /// list of unranked words, Greek in the Greek pack, English in the
     /// English lists pack.
@@ -20074,15 +20169,17 @@ final class WordListDataTests: XCTestCase {
         }
     }
 
-    /// #130: the first 20 new words of Greek A1 by frequency hold the most
-    /// frequent verbs, whatever the install's seed.
+    /// #130: the first 40 new words of Greek A1 by frequency hold the most
+    /// frequent verbs, whatever the install's seed. #339: A1's articles and
+    /// pronouns, each ranked by its own form, put θέλω 35th, and the shuffle
+    /// keeps a word within its run of 10.
     func testGreekA1FirstTwentyHoldTheFrequentVerbs() async throws {
         try await open()
         for seed in 1...20 {
             try await setInstallSeed(seed)
-            let first = try await db.nextNewWords(in: "ell", from: ["ky-ell-a1"], count: 20, excluding: [],
+            let first = try await db.nextNewWords(in: "ell", from: ["ky-ell-a1"], count: 40, excluding: [],
                                                   order: .frequency)
-            XCTAssertEqual(first.count, 20)
+            XCTAssertEqual(first.count, 40)
             XCTAssertTrue(Set(["είμαι", "έχω", "θέλω"]).isSubset(of: first.map(\.term)), "seed \(seed): \(first.map(\.term))")
         }
     }
@@ -20096,7 +20193,7 @@ final class WordListDataTests: XCTestCase {
             try await setInstallSeed(seed)
             let words = try await db.nextNewWords(in: "ell", from: ["ky-ell-a1"], count: 10_000, excluding: [],
                                                   order: .frequency)
-            XCTAssertEqual(words.count, 1_457)
+            XCTAssertEqual(words.count, 1_506)
             XCTAssertLessThan(abs(Self.kendallTau(Array(words.prefix(100)))), 0.2, "seed \(seed)")
             XCTAssertEqual(LearningOrderTests.neighbourPairs(words), [], "seed \(seed)")
         }
@@ -20110,12 +20207,12 @@ final class WordListDataTests: XCTestCase {
         let lists: Set<WordListID> = ["ky-ell-a1", "ky-ell-a2"]
         let frequency = try await db.nextNewWords(in: "ell", from: lists, count: 10_000, excluding: [], order: .frequency)
         let random = try await db.nextNewWords(in: "ell", from: lists, count: 10_000, excluding: [], order: .random)
-        XCTAssertEqual(random.count, 1_457 + 756)
+        XCTAssertEqual(random.count, 1_506 + 743)
         XCTAssertEqual(Set(random.map(\.key)), Set(frequency.map(\.key)))
         XCTAssertNotEqual(random.map(\.key), frequency.map(\.key))
         XCTAssertNotEqual(Set(random.prefix(20).map(\.key)), Set(frequency.prefix(20).map(\.key)),
                           "random does not start with the most frequent words")
-        XCTAssertEqual(random.map(\.levelOrder), Array(repeating: 1, count: 1_457) + Array(repeating: 2, count: 756))
+        XCTAssertEqual(random.map(\.levelOrder), Array(repeating: 1, count: 1_506) + Array(repeating: 2, count: 743))
     }
 
     /// #152 (spec, "List data"): merged rows combine as the spec says, for
@@ -20186,7 +20283,8 @@ final class WordListDataTests: XCTestCase {
     /// έχει, λέω above είπα. Ranks run 1…n once over the 47,749 keys, which
     /// are folded as the app folds a word to look it up (#155). A list
     /// word's rank is its headword's, or when unlinked the first of its term
-    /// and cleaned spellings that has one.
+    /// and cleaned spellings that has one; a word linked to another word
+    /// takes its own term's rank first (#339).
     func testGreekWordRanks() throws {
         let file = try BundledDictionary(url: try PackFixtures.file(.ell)).read { db in
             (langs: try String.fetchAll(db, sql: "SELECT DISTINCT lang FROM word_rank"),
@@ -20210,7 +20308,9 @@ final class WordListDataTests: XCTestCase {
         for item in file.items {
             let expected: Int?
             if let headword = item.headword {
-                expected = ranks[Search.foldGreek(headword)]
+                // #339: a word linked to another word ranks by its own term first.
+                expected = (headword != item.term ? ranks[Search.foldGreek(item.term)] : nil)
+                    ?? ranks[Search.foldGreek(headword)]
             } else {
                 expected = ([item.term] + ListLinking.cleanedVariants(of: item.term)).lazy
                     .compactMap { ranks[Search.foldGreek($0)] }.first
@@ -20218,7 +20318,7 @@ final class WordListDataTests: XCTestCase {
             if item.rank != expected { wrong.append("\(item.term): \(item.rank.map(String.init) ?? "-"), expected \(expected.map(String.init) ?? "-")") }
         }
         XCTAssertEqual(wrong, [])
-        XCTAssertGreaterThan(file.items.filter { $0.rank != nil }.count, 3_700, "80% of the 4,648 words ranked")
+        XCTAssertGreaterThan(file.items.filter { $0.rank != nil }.count, 3_700, "80% of the 4,683 words ranked")
     }
 
     /// #152: Credits name Kirill's lists and FrequencyWords in the five UI
@@ -25427,10 +25527,11 @@ final class DrillVerbPoolTests: XCTestCase {
 
     /// Third-person list words whose verb the lists also give in its plain
     /// form, so the verb is drilled whole, with that word's citation,
-    /// translation and level (#330, kyukhin 2026-11-15).
+    /// translation and level (#330, kyukhin 2026-11-15). In frequency order:
+    /// πειράζει ranks by its own form since #339.
     private static let mergedThirdPerson = ["υπάρχει → υπάρχω (υπάρχω)", "(μου) αρέσει → αρέσω (αρέσω)",
                                             "βρέχει → βρέχω (βρέχω)", "αστράφτει → αστράφτω (αστράφτω)",
-                                            "πειράζει → πειράζω (πειράζω)", "(δεν) πειράζει → πειράζω (πειράζω)"]
+                                            "(δεν) πειράζει → πειράζω (πειράζω)", "πειράζει → πειράζω (πειράζω)"]
 
     /// Impersonal verbs' αυτός cells that never build a question (#330).
     private static let droppedImpersonal: [String] = []
@@ -27818,6 +27919,9 @@ final class AnswerCheckerTests: XCTestCase {
         XCTAssertEqual(check("κάνω ένα λάθος", "κάνω (ένα) λάθος", .strict), .right)
         XCTAssertEqual(check("look", "look (at)", lang: "eng", .strict), .right, "at the end")
         XCTAssertEqual(check("look at", "look (at)", lang: "eng", .strict), .right)
+        XCTAssertEqual(check("στη", "στη(ν)", .strict), .right, "#339: inside a word")
+        XCTAssertEqual(check("στην", "στη(ν)", .strict), .right)
+        XCTAssertEqual(check("στο", "στη(ν)", .lenient), .wrong)
 
         let forms = Set(AnswerChecker.expectedForms("(ξ) ψ (ω)").map { AnswerChecker.normalize($0, lang: "ell") })
         XCTAssertEqual(forms, ["ξ ψ ω", "ξ ψ", "ψ ω", "ψ"], "each part optional on its own")
@@ -34638,19 +34742,19 @@ final class ListImportTests: XCTestCase {
     }
 
     /// #130, #155: each of Kirill's committed CSVs imports alone without
-    /// edits: 0 broken rows, 1,457 / 758 / 2,436 words (A1 with 39 merged),
+    /// edits: 0 broken rows, 1,506 / 745 / 2,435 words (A1 with 29 merged),
     /// levels kept. Alone, the A2 and B1 files keep the words the built
     /// lists merge into a lower level.
     func testKirillsFilesImport() async throws {
         var builtLower = Set<String>()
-        for (index, (level, count)) in [("A1", 1_457), ("A2", 758), ("B1", 2_436)].enumerated() {
+        for (index, (level, count)) in [("A1", 1_506), ("A2", 745), ("B1", 2_435)].enumerated() {
             let parse = try ImportFixture.parseKirill(level)
             XCTAssertEqual(parse.broken, [], level)
             XCTAssertEqual(parse.words.count, count, level)
             XCTAssertEqual(parse.columns, [.term, .translation, .level, .endings], level)
             XCTAssertEqual(parse.delimiter, .comma, level)
             XCTAssertEqual(ListText.guessLanguage(parse.words), "ell", level)
-            if level == "A1" { XCTAssertEqual(parse.merged, 39) }
+            if level == "A1" { XCTAssertEqual(parse.merged, 29) }
             let preview = try await db.prepareListImport(parse, lang: "ell")
             let id = try await db.saveUserList(preview, title: "ky-ell-\(level.lowercased())")
             let items = try await db.wordListItems(id)
@@ -34665,7 +34769,7 @@ final class ListImportTests: XCTestCase {
             builtLower.formUnion(built)
         }
         let lists = try await db.wordLists().filter { $0.kind == .user }
-        XCTAssertEqual(lists.map(\.count), [2_436, 758, 1_457], "newest first, with their counts")
+        XCTAssertEqual(lists.map(\.count), [2_435, 745, 1_506], "newest first, with their counts")
     }
 
     /// #155: Kirill's three files imported in the app link each word to the
@@ -34792,7 +34896,7 @@ final class ListImportTests: XCTestCase {
             let parse = try ListText.parse(ListText.text(of: data))
             let preview = try await db.prepareListImport(parse, lang: "ell")
             previewTimes.append(milliseconds(ContinuousClock.now - start))
-            XCTAssertEqual(preview.words.count, 2_436)
+            XCTAssertEqual(preview.words.count, 2_435)
             start = ContinuousClock.now
             try await db.saveUserList(preview, title: "B1 \(run)")
             saveTimes.append(milliseconds(ContinuousClock.now - start))

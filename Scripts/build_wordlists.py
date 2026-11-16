@@ -30,7 +30,9 @@ The step, per series:
      rules of the app's `ListLinking` (exact, cleaned, near, form), then
      applies `Scripts/data/wordlists/links.tsv`, the reviewed overrides;
   4. ranks it: the `word_rank` of its headword, or when unlinked of the
-     first of its term and cleaned spellings that has one;
+     first of its term and cleaned spellings that has one; a Greek word
+     linked to another word ranks by its own term when that has a rank
+     (#339: η by η, not by ο);
   5. writes `wordlist` and `wordlist_item`, checks the gates and writes the
      QA report `Scripts/reports/wordlists-qa.md`.
 
@@ -524,7 +526,15 @@ def word_ranks(conn: sqlite3.Connection, cache_dir: Path, series: Series) -> tup
 
 
 def rank_of(word: Word, lang: str, ranks: dict[str, int]) -> int | None:
+    """The rank of its headword, or when unlinked of the first of its term
+    and cleaned spellings that has one. A Greek word linked to another word
+    (η to ο, αυτή to αυτός) ranks by its own term's key when that has one
+    (#339, kyukhin 2026-11-17): each form by its own frequency."""
     if word.headword is not None:
+        if lang == "ell" and word.term != word.headword:
+            own = ranks.get(rank_key(lang, word.term))
+            if own is not None:
+                return own
         return ranks.get(rank_key(lang, word.headword))
     for spelling in [word.term, *cleaned_variants(word.term)]:
         rank = ranks.get(rank_key(lang, spelling))

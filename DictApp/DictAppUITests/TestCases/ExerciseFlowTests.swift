@@ -32,9 +32,9 @@ final class ExerciseFlowTests: XCTestCase {
         if name.contains("testSpeakWordsOffSpeaksNothing") {
             return ["-learningFixture", "due", "-learningLists", "ky-ell-a1", "-drillLength", "2"]
         }
-        // #337: no words in learning; the trainer starts the A1 list's 10 most frequent words.
+        // #337: no words in learning; the trainer starts the A2 list's 10 most frequent words.
         if name.contains("testRightAnswerShowsTheEndings") {
-            return ["-learningLanguages", "ell", "-learningLists", "ky-ell-a1"]
+            return ["-learningLanguages", "ell", "-learningLists", "ky-ell-a2"]
         }
         return ["-learningFixture", "due"]
     }
@@ -150,34 +150,36 @@ final class ExerciseFlowTests: XCTestCase {
     }
 
     /// #337: a word listed with its gender endings shows them in the result:
-    /// Production with the A1 list's new words, which are choices; a wrong
-    /// answer to αυτός, one of the 10 most frequent, reads "Right answer:
-    /// αυτός, -ή, -ό" (on the bar, and on the example sheet a new word
-    /// opens). Typed answers in another gender are unit-tested: no launch
-    /// argument makes a list word's question typed.
+    /// Production with the A2 list's new words, which are choices; a wrong
+    /// answer to τόσος, one of the 10 most frequent, reads "Right answer:
+    /// τόσος, -η, -ο" (on the bar, and on the example sheet a new word
+    /// opens). #339 split αυτός by gender, and A1's first gendered word
+    /// (άλλος) is no longer among its first 10. Typed answers in another
+    /// gender are unit-tested: no launch argument makes a list word's
+    /// question typed.
     func testRightAnswerShowsTheEndings() throws {
         let run = learnPage.openTrainer(production: true)
         var previous: String?
         for _ in 0..<10 {
             guard let prompt = nextPrompt(run, after: previous) else { break }
             let answer = try XCTUnwrap(run.rightOption, "the answer hint for \(prompt)")
-            guard answer.label.hasPrefix("αυτός") else {
+            guard answer.label.hasPrefix("τόσος") else {
                 run.choose(right: true)
                 XCTAssertEqual(run.waitForFeedback(), "right", prompt)
                 previous = prompt
                 run.tapContinue()
                 continue
             }
-            XCTAssertTrue(answer.label.contains("-ή, -ό"), "the option shows the endings: \(answer.label)")
+            XCTAssertTrue(answer.label.contains("-η, -ο"), "the option shows the endings: \(answer.label)")
             run.choose(right: false)
             XCTAssertEqual(run.waitForFeedback(), "wrong", prompt)
             let result = app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "Right answer:"))
-                .matching(NSPredicate(format: "label CONTAINS %@", "αυτός, -ή, -ό")).firstMatch
+                .matching(NSPredicate(format: "label CONTAINS %@", "τόσος, -η, -ο")).firstMatch
             XCTAssertTrue(result.waitForExistence(timeout: TestData.Timeouts.medium),
-                          "Right answer: αυτός, -ή, -ό; the bar reads \(run.feedbackText)")
+                          "Right answer: τόσος, -η, -ο; the bar reads \(run.feedbackText)")
             return
         }
-        XCTFail("αυτός was not asked among the 10 new words")
+        XCTFail("τόσος was not asked among the 10 new words")
     }
 
     /// Strict, set in Settings: the word without its accents is wrong, with

@@ -19,6 +19,24 @@ ky-ell	λαϊκή	-
 ky-ell	εννέα	εννιά
 ky-ell	επτά	εφτά
 ky-ell	οκτώ	οχτώ
+# #339: weak pronouns and articles open the word a learner expects. τα, τους and τις are forms of
+# three lemmas (αυτός, ο, του), so no rule links them; the form rule links τον, την and της to the
+# article ο, and the exact rule του to its own entry ("of, the"), while the lists gloss them as pronouns.
+ky-ell	τα	ο
+ky-ell	τον	αυτός
+ky-ell	την	αυτός
+ky-ell	του	αυτός
+ky-ell	της	αυτός
+ky-ell	τους	αυτός
+ky-ell	τις	αυτός
+# The plural pronouns, forms of αυτός and of του, and the weak forms of εμείς and εσείς.
+ky-ell	αυτοί	αυτός
+ky-ell	αυτές	αυτός
+ky-ell	αυτά	αυτός
+ky-ell	μας	εμείς
+ky-ell	σας	εσείς
+# A number's masculine and feminine without an entry of its own, as τέσσερις links to τέσσερα by form.
+ky-ell	δεκατέσσερις	δεκατέσσερα
 # English forms of be and do: the exact rule links is to IS ("Islamic State" in En–Es), am and are
 # to WordNet's americium and unit of area; no rule links 'm, 're and does.
 cefr-eng	is	be

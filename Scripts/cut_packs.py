@@ -444,6 +444,7 @@ def report(cuts: list[Cut], stub: Cut, assets: dict[str, dict]) -> None:
 # ---------------------------------------------------------------------------
 
 def run(full: Path, work: Path, tag: str | None, verify: bool) -> int:
+    full_build.check_sqlite_version()
     repository, max_packs, bundle_out, pack_outs, pairs = load_map()
     ddl, data_tables, full_tables = schema_of(full)
     with sqlite3.connect(ro_uri(full), uri=True) as conn:

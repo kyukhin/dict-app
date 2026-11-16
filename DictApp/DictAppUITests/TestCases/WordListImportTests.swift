@@ -92,13 +92,13 @@ final class WordListImportTests: XCTestCase {
     // MARK: - Files
 
     /// #130, #155: Kirill's A1 file imports without edits: the preview
-    /// reads "1,457 words · 39 merged · 0 rows with errors", named after the
-    /// file, Greek, comma; Import; the list row shows 1,457 words.
+    /// reads "1,506 words · 29 merged · 0 rows with errors", named after the
+    /// file, Greek, comma; Import; the list row shows 1,506 words.
     func testImportKirillsA1() throws {
         let lists = openLists()
         let page = lists.openImport()
         page.importFile()
-        XCTAssertTrue(page.wait(for: page.summary, toBe: "1,457 words · 39 merged · 0 rows with errors"),
+        XCTAssertTrue(page.wait(for: page.summary, toBe: "1,506 words · 29 merged · 0 rows with errors"),
                       "got \(page.summary.label)")
         XCTAssertEqual(page.name.value as? String, "ky-ell-a1", "named after the file")
         XCTAssertTrue(page.language.label.contains("Greek"), "guessed from the script: \(page.language.label)")
@@ -108,7 +108,7 @@ final class WordListImportTests: XCTestCase {
 
         page.confirm()
         XCTAssertTrue(page.result.waitForExistence(timeout: TestData.Timeouts.long), "the result")
-        XCTAssertTrue(page.result.label.hasPrefix("Imported 1,457 words, "), page.result.label)
+        XCTAssertTrue(page.result.label.hasPrefix("Imported 1,506 words, "), page.result.label)
         XCTAssertTrue(page.result.label.hasSuffix(" found in the dictionaries"), page.result.label)
         page.done()
 
@@ -116,7 +116,7 @@ final class WordListImportTests: XCTestCase {
         XCTAssertTrue(row.waitForExistence(timeout: TestData.Timeouts.medium) || app.scrollToElement(row),
                       "the new list under My lists")
         XCTAssertTrue(app.scrollToElement(row))
-        XCTAssertEqual(lists.importedCounts.firstMatch.label, "1,457 words")
+        XCTAssertEqual(lists.importedCounts.firstMatch.label, "1,506 words")
         XCTAssertTrue(app.staticTexts["ky-ell-a1"].exists, "titled after the file")
     }
 
