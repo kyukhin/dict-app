@@ -1923,6 +1923,9 @@ struct TypedGrade: Hashable, Sendable {
     /// Only the accents were off: "Mind the accent". The answer is wrong in
     /// Strict mode and right (`accent`) in Lenient mode.
     let mindTheAccent: Bool
+    /// #337: right as one of the other forms (another gender), not as the
+    /// word itself: the feedback then shows the word with its endings.
+    var isOtherForm = false
 }
 
 /// Grades typed answers (0131, "Questions and answers"). Case, extra
@@ -1941,15 +1944,22 @@ enum AnswerChecker {
     /// a choice question fall back to a field): equal after `fold` is
     /// `accent`, which counts as right. Anything else, an empty answer
     /// included, is wrong.
-    static func check(_ typed: String, expected: String, lang: String, mode: AnswerMode) -> Outcome {
-        grade(typed, expected: expected, lang: lang, mode: mode).outcome
+    static func check(_ typed: String, expected: String, otherForms: [String] = [], lang: String,
+                      mode: AnswerMode) -> Outcome {
+        grade(typed, expected: expected, otherForms: otherForms, lang: lang, mode: mode).outcome
     }
 
-    static func grade(_ typed: String, expected: String, lang: String, mode: AnswerMode) -> TypedGrade {
+    /// `otherForms` (#337) are right too, by the same rules: the other
+    /// genders of a Greek word listed with its endings (`GenderForms`).
+    static func grade(_ typed: String, expected: String, otherForms: [String] = [], lang: String,
+                      mode: AnswerMode) -> TypedGrade {
         let answer = normalize(typed, lang: lang)
-        let forms = Set(expectedForms(expected).map { normalize($0, lang: lang) }).subtracting([""])
-        guard !answer.isEmpty, !forms.isEmpty else { return TypedGrade(outcome: .wrong, mindTheAccent: false) }
-        if forms.contains(answer) { return TypedGrade(outcome: .right, mindTheAccent: false) }
+        let own = Set(expectedForms(expected).map { normalize($0, lang: lang) }).subtracting([""])
+        guard !answer.isEmpty, !own.isEmpty else { return TypedGrade(outcome: .wrong, mindTheAccent: false) }
+        let forms = own.union(otherForms.map { normalize($0, lang: lang) }).subtracting([""])
+        if forms.contains(answer) {
+            return TypedGrade(outcome: .right, mindTheAccent: false, isOtherForm: !own.contains(answer))
+        }
         guard Set(forms.map(foldNormalized)).contains(foldNormalized(answer)) else {
             return TypedGrade(outcome: .wrong, mindTheAccent: false)
         }
@@ -2011,6 +2021,100 @@ enum AnswerChecker {
             optional += 1
         }
         return forms.map { $0 + rest }
+    }
+}
+
+/// The genders of a Greek word listed with its endings (#337, 0131
+/// "Questions and answers"): αυτός, -ή, -ό is αυτός, αυτή and αυτό, and a
+/// typed answer may give any of them. Pure.
+enum GenderForms {
+    /// The genders, in the order the forms come.
+    static let genders = ["masculine", "feminine", "neuter"]
+
+    /// The endings `fromEndings` replaces: a masculine's, singular or plural.
+    static let masculineEndings = ["ος", "ός", "ύς", "ής", "ης", "οι", "οί", "ων"]
+
+    /// The feminine and neuter endings of a Greek list word, without their
+    /// dashes: "-ή, -ό" and "-ή -ό" give ή and ό. Two endings, one at least
+    /// with a dash, of Greek letters; of merged entries (" / ") the first,
+    /// without a part in parentheses ("-ια (/-ία), -ο"). nil for anything
+    /// else: a noun's article (η, το, ο/η), a noun's feminine (Άγγλος,
+    /// -ίδα), a verb's other present (-ώ), whole words, other languages.
+    static func endings(_ endings: String, lang: String) -> [String]? {
+        guard lang == "ell" else { return nil }
+        var text = endings.precomposedStringWithCanonicalMapping.components(separatedBy: " / ")[0]
+        while let open = text.firstIndex(of: "("), let close = text[open...].firstIndex(of: ")") {
+            text.removeSubrange(open...close)
+        }
+        let tokens = text.split { $0 == "," || $0.isWhitespace }
+        guard tokens.count == 2, tokens.contains(where: { $0.hasPrefix("-") }) else { return nil }
+        let parts = tokens.map { String($0.hasPrefix("-") ? $0.dropFirst() : $0[...]) }
+        guard parts.allSatisfy({ !$0.isEmpty && $0.allSatisfy(isGreekLetter) }) else { return nil }
+        return parts
+    }
+
+    private static func isGreekLetter(_ character: Character) -> Bool {
+        character.isLetter && character.unicodeScalars.allSatisfy {
+            (0x0370...0x03FF).contains($0.value) || (0x1F00...0x1FFF).contains($0.value)
+        }
+    }
+
+    /// The nominative of every gender, the word's first: from the first of
+    /// `tables` (the word's gender tables, `DatabaseService.genderTables`)
+    /// that has them (`fromTable`), else built from its endings
+    /// (`fromEndings`). Empty for a word without gender endings, and for one
+    /// that neither gives.
+    static func forms(of term: String, endings: String, lang: String, tables: [[ParadigmCell]]) -> [String] {
+        guard let parts = self.endings(endings, lang: lang) else { return [] }
+        for cells in tables {
+            let forms = fromTable(term, cells: cells)
+            if !forms.isEmpty { return forms }
+        }
+        let built = fromEndings(term, endings: parts)
+        return built.isEmpty ? [] : [term] + built
+    }
+
+    /// The nominatives of each gender in the number the table has `term` as
+    /// a nominative (αυτός: αυτός, αυτή, αυτό; λίγοι in λίγος's table:
+    /// λίγοι, λίγες, λίγα), so a plural stays wrong for a singular word.
+    /// Hidden (rare, archaic, dated) and degree cells do not count. Empty
+    /// when the table does not have `term` as a nominative, or lacks a gender.
+    static func fromTable(_ term: String, cells: [ParadigmCell]) -> [String] {
+        let nominatives = cells.filter {
+            $0.tags.contains("nominative") && $0.tags.isDisjoint(with: ParadigmLayout.hiddenTags)
+                && !$0.tags.contains("comparative") && !$0.tags.contains("superlative")
+        }
+        guard let number = ["singular", "plural"].first(where: { number in
+            nominatives.contains { $0.form == term && $0.tags.contains(number) }
+        }) else { return [] }
+        var forms: [String] = []
+        for gender in genders {
+            let ofGender = nominatives.filter { $0.tags.contains(number) && $0.tags.contains(gender) }.map(\.form)
+            guard !ofGender.isEmpty else { return [] }
+            for form in ofGender where !forms.contains(form) { forms.append(form) }
+        }
+        return forms
+    }
+
+    /// `endings` put in place of the masculine's ending (`masculineEndings`):
+    /// αγαπημένος, -η, -ο gives αγαπημένη, αγαπημένο; βαθύς, -ιά, -ύ gives
+    /// βαθιά, βαθύ; μερικοί, -ές, -ά gives μερικές, μερικά. An ending of two
+    /// letters or more that starts with the stem's last letter replaces it
+    /// (καινούριος, -ια, ιο: καινούρια, καινούριο). Empty for a word with
+    /// no such ending.
+    static func fromEndings(_ term: String, endings: [String]) -> [String] {
+        let term = term.precomposedStringWithCanonicalMapping
+        guard let masculine = masculineEndings.first(where: { term.hasSuffix($0) && term.count > $0.count })
+        else { return [] }
+        let stem = term.dropLast(masculine.count)
+        return endings.map { ending in
+            var stem = stem
+            if ending.count > 1, let last = stem.last, let first = ending.first,
+               AnswerChecker.fold(String(last), lang: "ell") == AnswerChecker.fold(String(first), lang: "ell") {
+                stem = stem.dropLast()
+            }
+            return String(stem) + ending
+        }
     }
 }
 
@@ -2151,6 +2255,10 @@ struct Question: Hashable, Sendable {
     let options: [Option]
     /// nil for a typed question.
     let rightIndex: Int?
+    /// #337: what a typed answer may give besides the word: a Greek list
+    /// word's genders (`GenderForms`), resolved as the question is built, so
+    /// Check never reads the database. Empty for other words.
+    var otherForms: [String] = []
 
     var isRecognition: Bool { card.key.kind == .recognition }
     /// A card's first question carries the "New word" badge.
@@ -2165,6 +2273,12 @@ struct Question: Hashable, Sendable {
     var optionLanguage: String? { isRecognition ? meaningsLang : word.key.lang }
     /// The option or the word that answers it.
     var rightAnswer: String { isRecognition ? word.meaning : word.term }
+    /// #337: the endings the feedback shows after the word: a production
+    /// question's word listed with its gender endings; empty for others,
+    /// nouns' articles included.
+    var rightEndings: String {
+        !isRecognition && GenderForms.endings(word.endings, lang: word.key.lang) != nil ? word.endings : ""
+    }
 
     var exercise: ExerciseKind {
         if isRecognition { return .recognition }

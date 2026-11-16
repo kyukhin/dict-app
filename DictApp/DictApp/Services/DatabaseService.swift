@@ -1710,6 +1710,44 @@ actor DatabaseService {
         }
     }
 
+    /// #337: the cells of the lemmas spelled as a word whose part of speech
+    /// declines by gender, each lemma's in table order: the `lemma (lang,
+    /// word, pos)` index, then the `paradigm` primary-key prefix.
+    static let genderCellsSQL = """
+        SELECT l.id, p.form, t.tags FROM ell.lemma l
+        JOIN ell.paradigm p ON p.lemma_id = l.id JOIN ell.tagset t ON t.id = p.tagset_id
+        WHERE l.lang = 'ell' AND l.word = ? AND l.pos IN ('adj', 'det', 'pron', 'num')
+        ORDER BY l.id, p.ord
+        """
+
+    /// #337 (0131, "Questions and answers"): the gender tables of a Greek
+    /// word, for `GenderForms.forms`: one per lemma spelled as one of
+    /// `words` (its term, then its headword: λίγος for λίγοι) that is an
+    /// adjective, determiner, pronoun or numeral, in the order of `words`.
+    /// Without the Greek pack, none: its stub has no rows.
+    func genderTables(of words: [String]) async throws -> [[ParadigmCell]] {
+        guard let pool = dbPool else { throw DBError.notConnected }
+        var lemmaWords: [String] = []
+        for word in words.map(\.precomposedStringWithCanonicalMapping) where !lemmaWords.contains(word) {
+            lemmaWords.append(word)
+        }
+        let lookups = lemmaWords
+        return try await read(pool) { db in
+            var tables: [[ParadigmCell]] = []
+            for word in lookups {
+                var lemmas: [Int64] = []
+                var cells: [Int64: [ParadigmCell]] = [:]
+                for row in try Row.fetchAll(db, sql: Self.genderCellsSQL, arguments: [word]) {
+                    let id: Int64 = row["id"]
+                    if cells[id] == nil { lemmas.append(id) }
+                    cells[id, default: []].append(ParadigmCell(form: row["form"], tags: row["tags"] as String))
+                }
+                tables += lemmas.compactMap { cells[$0] }
+            }
+            return tables
+        }
+    }
+
     // MARK: - Example sentences (0134, #178)
     //
     // A word's examples are one primary-key prefix read of `example_word`

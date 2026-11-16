@@ -635,15 +635,28 @@ struct FeedbackBar: View {
             guard let argument else { return format }
             return mark + String(format: format, locale: locale, "\u{2068}\(argument)\u{2069}")
         }
+        // #337: the word with its gender endings, "αυτός, -ή, -ό".
+        let answer = feedback.rightEndings.isEmpty ? feedback.rightAnswer
+            : "\(feedback.rightAnswer), \(feedback.rightEndings)"
         switch feedback.outcome {
         case .right:
-            return (text("exercise.right"), nil, nil)
+            return (text("exercise.right"), feedback.showsRightAnswer ? text("exercise.rightAnswer %@", answer) : nil, nil)
         case .accent:
-            return (text("exercise.right"), text("exercise.mindAccent %@", feedback.rightAnswer), nil)
+            return (text("exercise.right"), text("exercise.mindAccent %@", answer), nil)
         case .wrong:
-            return (text(feedback.mindTheAccent ? "exercise.mindAccent %@" : "exercise.rightAnswer %@", feedback.rightAnswer),
+            return (text(feedback.mindTheAccent ? "exercise.mindAccent %@" : "exercise.rightAnswer %@", answer),
                     nil, feedback.chosen.map { youChose($0, locale: locale) })
         }
+    }
+
+    /// A line of `lines` with the word's endings (#337) in the secondary
+    /// colour, as the options show them.
+    static func styled(_ line: String, endings: String) -> AttributedString {
+        var styled = AttributedString(line)
+        if !endings.isEmpty, let range = styled.range(of: ", \(endings)\u{2069}", options: .backwards) {
+            styled[range].foregroundColor = .secondary
+        }
+        return styled
     }
 
     /// "You chose: water · νερό" (`exercise.youChose`): the text and what it
@@ -684,10 +697,10 @@ private struct FeedbackResultLine: View {
                 .foregroundStyle(isRight ? Color.green : Color.red)
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 4) {
-                Text(verbatim: lines.title)
+                Text(FeedbackBar.styled(lines.title, endings: feedback.rightEndings))
                     .font(.headline)
                 if let detail = lines.detail {
-                    Text(verbatim: detail)
+                    Text(FeedbackBar.styled(detail, endings: feedback.rightEndings))
                         .font(.subheadline)
                 }
                 if let chosen = lines.chosen {
