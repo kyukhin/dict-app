@@ -507,6 +507,8 @@ struct AccessibilityIdentifiers {
         /// Software: the GRDB.swift row, and its license screen's text.
         static let grdb = "credits_software_grdb"
         static let softwareLicenseText = "credits_software_license_text"
+        /// #340: the Mellstroy sound theme's line, last under Data Sources.
+        static let mellstroy = "credits_mellstroy"
         static func line(_ id: String) -> String { "credits_\(id)" }
         static func license(_ id: String) -> String { "credits_license_\(id)" }
     }

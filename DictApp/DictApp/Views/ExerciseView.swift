@@ -1279,6 +1279,10 @@ struct MatchPairsView: View {
         .task {
             await vm.start()
         }
+        // #340: closing the round or leaving its screen stops the sound.
+        .onDisappear {
+            vm.leave()
+        }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("match_view")
     }

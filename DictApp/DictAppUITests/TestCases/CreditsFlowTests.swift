@@ -58,6 +58,10 @@ final class CreditsFlowTests: XCTestCase {
                 XCTAssertTrue(line.label.hasPrefix("The CEFR-J Wordlist Version 1.5."), "the citation: \(line.label)")
             }
         }
+        // #340: the Mellstroy sound theme's voice, used with permission.
+        let mellstroy = app.staticTexts[IDs.mellstroy]
+        XCTAssertTrue(app.scrollToElement(mellstroy), "the Mellstroy line")
+        XCTAssertEqual(mellstroy.label, "Mellstroy sound theme: the voice of Mellstroy, used with permission")
 
         let grdb = app.descendants(matching: .any)[IDs.grdb].firstMatch
         XCTAssertTrue(app.scrollToElement(grdb), "the GRDB.swift row under Software")

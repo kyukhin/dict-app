@@ -49,13 +49,14 @@ final class SoundThemeFlowTests: XCTestCase {
         XCTAssertTrue(page.soundTheme.label.contains("Classic"), page.soundTheme.label)
     }
 
-    /// Retro chosen on the Sound theme screen is checked there and named on
-    /// the row, after a relaunch too.
+    /// The seven themes by name (#340: Mellstroy); Retro chosen on the Sound
+    /// theme screen is checked there and named on the row, after a relaunch
+    /// too.
     func testChosenThemeSurvivesARelaunch() throws {
         var page = openSettings()
         XCTAssertTrue(page.openSoundTheme(), "the Sound theme screen")
         let names = ["classic": "Classic", "cheerful": "Cheerful", "retro": "Retro", "grumpy": "Grumpy",
-                     "silly": "Silly", "meme": "Meme"]
+                     "silly": "Silly", "meme": "Meme", "mellstroy": "Mellstroy"]
         for (theme, name) in names {
             XCTAssertEqual(page.soundThemeOption(theme).label, name, theme)
         }
