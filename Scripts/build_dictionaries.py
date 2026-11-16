@@ -20,6 +20,7 @@ the app: `cut_packs.py` cuts it into the English bundle the app attaches as
 Every input is pinned in `Scripts/inputs.json` and verified before use
 (`inputs.py`), rows go in in a fixed order and nothing stores a timestamp,
 so the same inputs and the same SQLite version give a byte-identical file.
+The version is pinned (`SQLITE_VERSION`): the build fails on another.
 `--verify` rebuilds into a temp file and compares it with `--output`. The
 committed files are checked by `cut_packs.py --verify`.
 
@@ -72,6 +73,17 @@ FULL_FILE_NAME = "dictionaries-full.sqlite"
 # must match (a unit test checks it). A changed table shape bumps both in the
 # same PR; after 2.0 ships, a bump makes users download their packs again.
 FORMAT_VERSION = 4
+# The SQLite library every committed file is written with (0237, "Build and
+# release"): another version writes other bytes, so the build refuses it
+# (#339, kyukhin 2026-11-17: 3.54.1, Homebrew's).
+SQLITE_VERSION = "3.54.1"
+
+
+def check_sqlite_version() -> None:
+    """Fails on any SQLite but `SQLITE_VERSION`."""
+    if sqlite3.sqlite_version != SQLITE_VERSION:
+        sys.exit(f"SQLite {sqlite3.sqlite_version}: the dictionary files are built with SQLite {SQLITE_VERSION} "
+                 "(Scripts/build_dictionaries.py, SQLITE_VERSION), which gives byte-identical files")
 
 # Static data steps (spec, "Adding static data"): module names in Scripts/,
 # run in this order after the dictionaries. Each module has `SCHEMA` (DDL,
@@ -487,6 +499,7 @@ def table_sizes(conn: sqlite3.Connection) -> list[tuple[str, int]]:
 def build(output: Path, cache_dir: Path) -> None:
     """Build the dictionary file at `output`. A failed build leaves the
     file that was there."""
+    check_sqlite_version()
     print(f"Building {output} (SQLite {sqlite3.sqlite_version}, cache {cache_dir})")
     steps = [importlib.import_module(name) for name in STEPS]
     partial = output.with_name(output.name + ".part")

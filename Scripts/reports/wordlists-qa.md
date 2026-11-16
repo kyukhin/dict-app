@@ -6,9 +6,9 @@ Written by `Scripts/build_wordlists.py` on every dictionary build (docs/specs/01
 
 | Input | sha256 |
 |---|---|
-| `Scripts/data/wordlists/ky-ell-a1.csv` | `591d5c1fbe6714e3f9c6c3099f32c196f46eb4afe424badb950a787171c98d7b` |
-| `Scripts/data/wordlists/ky-ell-a2.csv` | `bed81a951a0f2fdc84e6dc071c0ff0b27f9da4326f218f33852178313ee3fdb9` |
-| `Scripts/data/wordlists/ky-ell-b1.csv` | `816a888bc8fb1d16210bf66f5de22bdac35a9027f0ef5f52a8d6e7b96f9829f3` |
+| `Scripts/data/wordlists/ky-ell-a1.csv` | `018156d284508b62b61346799f680bafb65a6d28768e9f42ef2fe3b1a05914cd` |
+| `Scripts/data/wordlists/ky-ell-a2.csv` | `743cbe36b9cdc73e2cb20f648b5ce5974b5fbdbb3f15d64469af0595c8c0e773` |
+| `Scripts/data/wordlists/ky-ell-b1.csv` | `c6a7c42424d2f1fc0ee5b4e0364343cde6076a6da3a0b1ecf6c19c9717c61686` |
 | `openlanguageprofiles/cefrj-vocabulary-profile-1.5.csv` | `b0dd3c635f1c9a4fdf1490c7e5b7c48e8bbe55b652ad0c9860a95f98e10ae498` |
 | `openlanguageprofiles/octanove-vocabulary-profile-c1c2-1.0.csv` | `18c33a407f2f89f7b8de9671c6d45fe3ea0bce45e7d2d7dcaab48d73e0f7b380` |
 | `frequencywords/el_50k.txt` | `7ec8f6de52c38f36a04add5d1613b116aed576e10c5e3b40d0001e8572de978c` |
@@ -19,7 +19,7 @@ Written by `Scripts/build_wordlists.py` on every dictionary build (docs/specs/01
 | Gate | Measured | Needed | |
 |---|---|---|---|
 | Input problems (Latin letters in Greek, Greek letters in Latin words, rows that become no word, rows without a level of their series, bad rows, overrides) | 0 | 0 | ok |
-| ky-ell linked | 88.0% (4,090 of 4,648) | ≥ 84% | ok |
+| ky-ell linked | 88.0% (4,122 of 4,683) | ≥ 84% | ok |
 | cefr-eng linked | 98.6% (8,529 of 8,647) | ≥ 95% | ok |
 | word_count equals rows | all | all | ok |
 | Empty lists | 0 | 0 | ok |
@@ -31,27 +31,27 @@ Written by `Scripts/build_wordlists.py` on every dictionary build (docs/specs/01
 
 | Level | Rows | Words | Linked | Ranked |
 |---|---|---|---|---|
-| A1 | 1,496 | 1,457 | 94.1% | 92.0% |
-| A2 | 777 | 756 | 78.7% | 75.1% |
-| B1 | 2,444 | 2,435 | 87.2% | 75.0% |
-| all | 4,717 | 4,648 | 88.0% | 80.4% |
+| A1 | 1,535 | 1,506 | 93.9% | 92.3% |
+| A2 | 763 | 743 | 78.6% | 74.7% |
+| B1 | 2,443 | 2,434 | 87.3% | 75.0% |
+| all | 4,741 | 4,683 | 88.0% | 80.5% |
 
-69 rows merged into other rows' words (below).
+58 rows merged into other rows' words (below).
 
 ### Link classes
 
 | Level | exact | cleaned | near | form | override | unlinked |
 |---|---|---|---|---|---|---|
-| A1 | 1,330 | 5 | 14 | 19 | 3 | 86 |
-| A2 | 565 | 4 | 8 | 18 | 0 | 161 |
-| B1 | 2,052 | 1 | 2 | 69 | 0 | 311 |
-| all | 3,947 | 10 | 24 | 106 | 3 | 558 |
+| A1 | 1,351 | 5 | 14 | 28 | 16 | 92 |
+| A2 | 555 | 4 | 8 | 17 | 0 | 159 |
+| B1 | 2,052 | 1 | 2 | 69 | 0 | 310 |
+| all | 3,958 | 10 | 24 | 114 | 16 | 561 |
 
 ### A1: the 20 most frequent words, before the shuffle
 
-είμαι, αυτός, σε, και, θα, έχω, με, για, που, πού, κάνω, λέω, τι, από, μπορώ, άλλος, ξέρω, θέλω, όχι, εδώ
+ο, να, είμαι, αυτός, το, του, σε, μου, δεν, και, θα, σου, ένας, έχω, με, για, τις, ή, η, την
 
-### Links to review: cleaned, near, form and override (152)
+### Links to review: cleaned, near, form and override (173)
 
 | Level | Term | Headword | Rule | The rules' link |
 |---|---|---|---|---|
@@ -64,38 +64,60 @@ Written by `Scripts/build_wordlists.py` on every dictionary build (docs/specs/01
 | A1 | Αλεξία | — | override | αλεξία |
 | A1 | Αόριστος | αόριστος | near |  |
 | A1 | (Σαουδική) Αραβία | Αραβία | cleaned |  |
+| A1 | αυτά | αυτός | override | — |
+| A1 | αυτές | αυτός | override | — |
+| A1 | αυτή | αυτός | form |  |
+| A1 | αυτό | αυτός | form |  |
+| A1 | αυτοί | αυτός | override | — |
 | A1 | βραδινό | βραδινός | form |  |
 | A1 | Γεια! | γεια | near |  |
 | A1 | Γυμνάσιο | γυμνάσιο | near |  |
+| A1 | δεκατέσσερις | δεκατέσσερα | override | — |
 | A1 | Δημοτικό σχολείο | δημοτικό σχολείο | near |  |
 | A1 | εννέα | εννιά | override | — |
 | A1 | επτά | εφτά | override | — |
 | A1 | Ευχαριστώ! | ευχαριστώ | near |  |
 | A1 | (Νέα) Ζηλανδία | Νέα Ζηλανδία | cleaned |  |
+| A1 | η | ο | form |  |
 | A1 | κάθετα | κάθετος | form |  |
+| A1 | καμία | κανένας | form |  |
+| A1 | κανένα | κανένας | form |  |
 | A1 | (Τι) κρίμα! | κρίμα | cleaned |  |
 | A1 | λαϊκή | — | override | λαϊκός |
 | A1 | λαχανικά | λαχανικό | form |  |
 | A1 | λίγοι | λίγος | form |  |
 | A1 | Λύκειο | λύκειο | near |  |
 | A1 | Μαθηματικά | μαθηματικά | near |  |
+| A1 | μας | εμείς | override | — |
+| A1 | μία | ένας | form |  |
 | A1 | Μπράβο! | μπράβο | near |  |
 | A1 | ξεχωριστά | ξεχωριστός | form |  |
+| A1 | οι | ο | form |  |
 | A1 | οκτώ | οχτώ | override | — |
 | A1 | όλοι | όλος | form |  |
 | A1 | Ορίστε! | ορίστε | near |  |
 | A1 | (Σε/Σας) παρακαλώ! | παρακαλώ | cleaned |  |
 | A1 | Παρακαλώ! | παρακαλώ | near |  |
 | A1 | πατατάκια | πατατάκι | form |  |
+| A1 | ποια | ποιος | form |  |
 | A1 | ποιανού | ποιος | form |  |
+| A1 | ποιο | ποιος | form |  |
 | A1 | πολλοί | πολύς | form |  |
 | A1 | πόσοι | πόσος | form |  |
+| A1 | σας | εσείς | override | — |
 | A1 | σκάλες | σκάλα | form |  |
 | A1 | σπουδές | σπουδή | form |  |
 | A1 | στολισμένος | στολίζω | form |  |
 | A1 | Συγγνώμη! | συγγνώμη | near |  |
 | A1 | (ένα) σωρό | σωρός | form |  |
+| A1 | τα | ο | override | — |
 | A1 | τέσσερις | τέσσερα | form |  |
+| A1 | την | αυτός | override | ο |
+| A1 | της | αυτός | override | ο |
+| A1 | τις | αυτός | override | — |
+| A1 | τον | αυτός | override | ο |
+| A1 | του | αυτός | override | του |
+| A1 | τους | αυτός | override | — |
 | A1 | υπάρχει | υπάρχω | form |  |
 | A1 | φτηνά | φτηνός | form |  |
 | A1 | Φυσικά! | φυσικά | near |  |
@@ -106,7 +128,6 @@ Written by `Scripts/build_wordlists.py` on every dictionary build (docs/specs/01
 | A2 | Δημαρχείο | δημαρχείο | near |  |
 | A2 | δίκλινο | δίκλινος | form |  |
 | A2 | δίνομαι | δίνω | form |  |
-| A2 | εκείνη | εκείνος | form |  |
 | A2 | ενδιαφέρομαι | ενδιαφέρω | form |  |
 | A2 | Θρησκευτικά | θρησκευτικά | near |  |
 | A2 | καλεσμένος | καλώ | form |  |
@@ -208,7 +229,7 @@ Written by `Scripts/build_wordlists.py` on every dictionary build (docs/specs/01
 | B1 | χορτασμένος | χορταίνω | form |  |
 | B1 | χτενίζομαι | χτενίζω | form |  |
 
-### Unlinked words (558)
+### Unlinked words (561)
 
 | Level | Term | Translation |
 |---|---|---|
@@ -278,7 +299,13 @@ Written by `Scripts/build_wordlists.py` on every dictionary build (docs/specs/01
 | A1 | ρωτάω | to ask |
 | A1 | Σίδνεϋ | Sydney |
 | A1 | σούπερμάρκετ | super market |
+| A1 | στα | to, at, in the [neuter plural] |
 | A1 | στάση λεωφορείου | bus stop |
+| A1 | στη(ν) | to, at, in the [feminine] |
+| A1 | στις | to, at, in the [feminine plural]; at [o'clock] |
+| A1 | στο | to, at, in the [neuter] |
+| A1 | στον | to, at, in the [masculine] |
+| A1 | στους | to, at, in the [masculine plural] |
 | A1 | συστημένο γράμμα | registered letter |
 | A1 | σχολική χρονιά | school year |
 | A1 | ταξιδιωτικό γραφείο | travel agency |
@@ -312,7 +339,6 @@ Written by `Scripts/build_wordlists.py` on every dictionary build (docs/specs/01
 | A2 | ασθενής άνεμος | mild wind |
 | A2 | αστράφτει | it’s lightning |
 | A2 | αστράφτω | to sparkle |
-| A2 | αυτοί | these, they |
 | A2 | αυτόν τον καιρό | at the moment |
 | A2 | αφετηρία λεωφορείου | bus starting point |
 | A2 | βάζω βάρος | to gain weight |
@@ -325,7 +351,6 @@ Written by `Scripts/build_wordlists.py` on every dictionary build (docs/specs/01
 | A2 | γυαλιά ηλίου | sunglasses |
 | A2 | γυρίζω/γυρνάω | to come back |
 | A2 | γύρω | around |
-| A2 | δεκατέσσερις | fourteen |
 | A2 | δουλειές σπιτιού | housework, housekeeping chores |
 | A2 | δραματική ταινία | drama |
 | A2 | δύο φορές | twice |
@@ -735,7 +760,6 @@ Written by `Scripts/build_wordlists.py` on every dictionary build (docs/specs/01
 | B1 | τίνος | whose |
 | B1 | του φούρνου | food cooked in the oven |
 | B1 | τρανός | important, large |
-| B1 | τρείς | three |
 | B1 | τριώροφος | with three floors |
 | B1 | τσικουδιά | tsikoudia, raki |
 | B1 | τυροπιτάκι | handheld individual little cheese pie |
@@ -1689,72 +1713,67 @@ Written by `Scripts/build_wordlists.py` on every dictionary build (docs/specs/01
 | B1 | ωφέλεια |
 | B1 | ωφέλιμος |
 
-### Merged rows (62 words of 131 rows)
+### Merged rows (57 words of 115 rows)
 
 | Level | Word | Rows (level:line term) | Translation | Endings |
 |---|---|---|---|---|
 | A1 | άγνωστος | A1:19 άγνωστος, A1:20 άγνωστος | unknown, stranger; known, unfamiliar | -η, -ο |
-| A1 | αστυνομικός | A1:173 αστυνομικός, A1:174 αστυνομικός | policewoman, police officer; policeman, police officer | η / ο |
-| A1 | Αύγουστος | A1:181 Αύγουστος, A1:204 Αύγουστος | August | ο |
-| A1 | αυστριακός | A1:188 Αυστριακός, A1:189 αυστριακός | Austrian | -ή / -ή, -ό |
-| A1 | αυτός | A1:192 αυτός, A1:193 αυτός | he, she, it (for persons); this (not for persons) | -ή, -ό |
-| A1 | γάμος | A1:276 γάμος, A1:277 γάμος | wedding (ceremony); marriage (institution) | ο |
-| A1 | γιατί | A1:305 γιατί, A1:306 γιατί | [interrogative] why; [causative] because | — |
-| A1 | γλώσσα | A1:315 γλώσσα, A1:316 γλώσσα | language; (body) tongue | η |
-| A1 | γραφείο | A1:332 γραφείο, A1:333 γραφείο | office; (furniture) desk | το |
-| A1 | διευθυντής | A1:409 διευθυντής, A1:410 διευθυντής | director (in general); Headmaster (in school) | -ντρια |
-| A1 | δικός | A1:411 δικός, A1:412 δικός, A1:413 δικός, A1:414 δικός, A1:415 δικός, A1:416 δικός, A1:417 δικός, A1:418 δικός | my, mine; your, yours; his; her, hers; its; our, ours; their, theirs | -ή, -ό / δικοί, -ές, -ά μου / -ή, -ό / δικοί, -ές, -ά σου/σας / -ή, -ό / δικοί, -ές, -ά του / -ή, -ό / δικοί, -ές, -ά της / -ή, -ό / δικοί, -ές, -ά μας / -ή, -ό / δικοί, -ές, -ά σας / -ή, -ό / δικοί, -ές, -ά τους |
-| A1 | δοκιμάζω | A1:427 δοκιμάζω, A1:428 δοκιμάζω | to try (in general); to taste (food) | — |
-| A1 | δύση | A1:440 Δύση, A1:441 δύση | West; sunset | η |
-| A1 | είμαι | A1:454 είμαι, A1:455 είμαι | to be; I am | — |
-| A1 | εννέα | A1:468 εννέα, A2:204 εννέα | nine | εννιά |
-| A1 | επτά | A1:519 επτά, B1:922 επτά | seven | εφτά |
-| A1 | ηθοποιός | A1:540 ηθοποιός, A1:541 ηθοποιός | actress; actor | η / ο |
-| A1 | ισραηλινός | A1:594 ισραηλινός, A1:595 Ισραηλινός | Israeli | -ή, -ό / -ή |
-| A1 | κάποιος | A1:637 κάποιος, A1:638 κάποιος | someone; some, a | -α, -ο |
-| A1 | κάτω | A1:658 κάτω, A1:659 κάτω | down; under | — |
-| A1 | κεφαλαίο γράμμα | A1:669 κεφαλαίο γράμμα, A2:317 κεφαλαίο γράμμα | capital letter | το |
-| A1 | κουζίνα | A1:711 κουζίνα, A1:712 κουζίνα | kitchen (room); cuisine, style of cooking | η |
-| A1 | μέσα | A1:807 μέσα, A1:808 μέσα | (to stay) indoors; in | — |
-| A1 | μέση | A1:810 μέση, A1:811 μέση | (body) waist; middle (place) | η |
-| A1 | μουσικός | A1:848 μουσικός, A1:849 μουσικός | musical; musician | -ή, -ό / ο/η |
-| A1 | μπάνιο | A1:857 μπάνιο, A1:858 μπάνιο | bathroom; bath | το |
-| A1 | πάνω | A1:987 πάνω, A1:988 πάνω | up; on, onto | — |
-| A1 | πίνακας | A1:1049 πίνακας, A1:1050 πίνακας, A1:1051 πίνακας | blackboard (in classroom); schedule; painting, work of art | ο |
-| A1 | ποιος | A1:1074 ποιος, A1:1075 ποιος | (thing) which; (person) who | -α, -ο |
-| A1 | πρόσωπο | A1:1124 πρόσωπο, A1:1125 πρόσωπο | (individual) person, (grammatical) person; (body) face | το |
-| A1 | ρολόι | A1:1147 ρολόι, A1:1148 ρολόι | (wall) clock; (hand) watch | το |
-| A1 | σπίτι | A1:1207 σπίτι, A1:1208 σπίτι | house, residence; (family) home | το |
-| A1 | τρία | A1:1326 τρία, A1:1332 τρία | three | — |
-| A1 | φέτα | A1:1379 φέτα, A1:1380 φέτα | feta cheese; slice | η |
-| A1 | φούρνος | A1:1402 φούρνος, A1:1403 φούρνος | the baker’s, bakery; oven | ο |
+| A1 | αστυνομικός | A1:174 αστυνομικός, A1:175 αστυνομικός | policewoman, police officer; policeman, police officer | η / ο |
+| A1 | Αύγουστος | A1:182 Αύγουστος, A1:209 Αύγουστος | August | ο |
+| A1 | αυστριακός | A1:189 Αυστριακός, A1:190 αυστριακός | Austrian | -ή / -ή, -ό |
+| A1 | γάμος | A1:281 γάμος, A1:282 γάμος | wedding (ceremony); marriage (institution) | ο |
+| A1 | γιατί | A1:310 γιατί, A1:311 γιατί | [interrogative] why; [causative] because | — |
+| A1 | γλώσσα | A1:320 γλώσσα, A1:321 γλώσσα | language; (body) tongue | η |
+| A1 | γραφείο | A1:337 γραφείο, A1:338 γραφείο | office; (furniture) desk | το |
+| A1 | διευθυντής | A1:417 διευθυντής, A1:418 διευθυντής | director (in general); Headmaster (in school) | -ντρια |
+| A1 | δοκιμάζω | A1:428 δοκιμάζω, A1:429 δοκιμάζω | to try (in general); to taste (food) | — |
+| A1 | δύση | A1:441 Δύση, A1:442 δύση | West; sunset | η |
+| A1 | είμαι | A1:456 είμαι, A1:457 είμαι | to be; I am | — |
+| A1 | εννέα | A1:472 εννέα, A2:195 εννέα | nine | εννιά |
+| A1 | επτά | A1:525 επτά, B1:922 επτά | seven | εφτά |
+| A1 | ηθοποιός | A1:548 ηθοποιός, A1:549 ηθοποιός | actress; actor | η / ο |
+| A1 | ισραηλινός | A1:602 ισραηλινός, A1:603 Ισραηλινός | Israeli | -ή, -ό / -ή |
+| A1 | κάποιος | A1:647 κάποιος, A1:648 κάποιος | someone; some, a | -α, -ο |
+| A1 | κάτω | A1:668 κάτω, A1:669 κάτω | down; under | — |
+| A1 | κεφαλαίο γράμμα | A1:679 κεφαλαίο γράμμα, A2:307 κεφαλαίο γράμμα | capital letter | το |
+| A1 | κουζίνα | A1:721 κουζίνα, A1:722 κουζίνα | kitchen (room); cuisine, style of cooking | η |
+| A1 | μέσα | A1:818 μέσα, A1:819 μέσα | (to stay) indoors; in | — |
+| A1 | μέση | A1:821 μέση, A1:822 μέση | (body) waist; middle (place) | η |
+| A1 | μουσικός | A1:862 μουσικός, A1:863 μουσικός | musical; musician | -ή, -ό / ο/η |
+| A1 | μπάνιο | A1:871 μπάνιο, A1:872 μπάνιο | bathroom; bath | το |
+| A1 | πάνω | A1:1006 πάνω, A1:1007 πάνω | up; on, onto | — |
+| A1 | πίνακας | A1:1068 πίνακας, A1:1069 πίνακας, A1:1070 πίνακας | blackboard (in classroom); schedule; painting, work of art | ο |
+| A1 | πρόσωπο | A1:1145 πρόσωπο, A1:1146 πρόσωπο | (individual) person, (grammatical) person; (body) face | το |
+| A1 | ρολόι | A1:1169 ρολόι, A1:1170 ρολόι | (wall) clock; (hand) watch | το |
+| A1 | σπίτι | A1:1231 σπίτι, A1:1232 σπίτι | house, residence; (family) home | το |
+| A1 | φέτα | A1:1418 φέτα, A1:1419 φέτα | feta cheese; slice | η |
+| A1 | φούρνος | A1:1441 φούρνος, A1:1442 φούρνος | the baker’s, bakery; oven | ο |
 | A2 | αίθουσα | A2:14 αίθουσα, A2:15 αίθουσα | classroom; hall | η |
 | A2 | Αλέξανδρος | A2:18 Αλέξανδρος, A2:19 Αλέξανδρος | Alexander; Alexander the Great | ο / ο Μέγας |
-| A2 | διάστημα | A2:134 διάστημα, A2:135 διάστημα | period, time; space | το |
-| A2 | δύο φορές | A2:149 δύο φορές, A2:737 δύο φορές | twice | — |
-| A2 | ειρήνη | A2:169 ειρήνη, A2:170 Ειρήνη | peace; Irene | η |
-| A2 | εκπομπή | A2:176 εκπομπή, A2:182 εκπομπή | show, program | η |
-| A2 | ελεύθερος | A2:191 ελεύθερος, A2:192 ελεύθερος | free; single | -η, -ο / ο ελεύθερη, η |
-| A2 | ένας | A2:199 ένας, A2:200 ένας | one; a/an | μία, ένα / μια, ένα |
-| A2 | έξω | A2:217 έξω, A2:218 έξω | out; outside | — |
-| A2 | κάνω μπάνιο | A2:443 κάνω μπάνιο, A2:444 κάνω μπάνιο | to have/take a bath; to swim, to have a swim | — |
-| A2 | κλειστός | A2:331 κλειστός, A2:332 κλειστός | shut, closed; turned off | ή, -ό |
-| A2 | λειτουργώ | A2:375 λειτουργώ, A2:376 λειτουργώ | to be open; to work, to function | — |
-| A2 | λήγω | A2:381 λήγω, A2:382 λήγω | to expire; to end | — |
-| A2 | μεγαλώνω | A2:415 μεγαλώνω, A2:416 μεγαλώνω | to grow up, to grow old; to get/become bigger | — |
-| A2 | ξένος | A2:475 ξένος, A2:476 ξένος | foreign; stranger | -η, -ο / ο / ξένη η |
-| A2 | ξεπερνάω | A2:477 ξεπερνάω, A2:478 ξεπερνάω | to overcome; to exceed | — |
-| A2 | πετάω | A2:543 πετάω, A2:544 πετάω | to fly; to throw | -ώ |
-| A2 | πνίγομαι | A2:556 πνίγομαι, A2:557 πνίγομαι | to choke, to suffocate; to be drawn | — |
-| A2 | Χρόνια πολλά! | A2:771 Χρόνια πολλά!, A2:772 Χρόνια πολλά! | Merry Christmas!; Happy birthday! | — |
+| A2 | διάστημα | A2:130 διάστημα, A2:131 διάστημα | period, time; space | το |
+| A2 | δύο φορές | A2:145 δύο φορές, A2:723 δύο φορές | twice | — |
+| A2 | ειρήνη | A2:164 ειρήνη, A2:165 Ειρήνη | peace; Irene | η |
+| A2 | εκπομπή | A2:171 εκπομπή, A2:176 εκπομπή | show, program | η |
+| A2 | ελεύθερος | A2:185 ελεύθερος, A2:186 ελεύθερος | free; single | -η, -ο / ο ελεύθερη, η |
+| A2 | έξω | A2:208 έξω, A2:209 έξω | out; outside | — |
+| A2 | κάνω μπάνιο | A2:433 κάνω μπάνιο, A2:434 κάνω μπάνιο | to have/take a bath; to swim, to have a swim | — |
+| A2 | κλειστός | A2:321 κλειστός, A2:322 κλειστός | shut, closed; turned off | ή, -ό |
+| A2 | λειτουργώ | A2:365 λειτουργώ, A2:366 λειτουργώ | to be open; to work, to function | — |
+| A2 | λήγω | A2:371 λήγω, A2:372 λήγω | to expire; to end | — |
+| A2 | μεγαλώνω | A2:405 μεγαλώνω, A2:406 μεγαλώνω | to grow up, to grow old; to get/become bigger | — |
+| A2 | ξένος | A2:465 ξένος, A2:466 ξένος | foreign; stranger | -η, -ο / ο / ξένη η |
+| A2 | ξεπερνάω | A2:467 ξεπερνάω, A2:468 ξεπερνάω | to overcome; to exceed | — |
+| A2 | πετάω | A2:530 πετάω, A2:531 πετάω | to fly; to throw | -ώ |
+| A2 | πνίγομαι | A2:543 πνίγομαι, A2:544 πνίγομαι | to choke, to suffocate; to be drawn | — |
+| A2 | Χρόνια πολλά! | A2:757 Χρόνια πολλά!, A2:758 Χρόνια πολλά! | Merry Christmas!; Happy birthday! | — |
 | B1 | Άρης | B1:295 Άρης, B1:296 Άρης | Mars; Aris, Ares | ο |
 | B1 | γκρινιάρης | B1:514 γκρινιάρης, B1:515 γκρινιάρης | nagging; Ludo (board game) | -α, -ικο / ο |
 | B1 | έκθεση | B1:711 έκθεση, B1:712 έκθεση | essay writing; exhibition, exposition | η |
 | B1 | ελπίδα | B1:742 Ελπίδα, B1:743 ελπίδα | Elpida; hope | η |
 | B1 | ζώνη | B1:946 ζώνη, B1:947 ζώνη | belt; zone, area | η |
 | B1 | καρπός | B1:1092 καρπός, B1:1093 καρπός | wrist; fruit | ο |
-| B1 | υποβρύχιο | B1:2232 υποβρύχιο, B1:2233 υποβρύχιο | submarine; ipovrichio (a kind of spoon sweet, usually vanilla-flavored; it is usually served on ateaspoon and dipped into a glass of cold water) | το |
-| B1 | φανάρι | B1:2253 Φανάρι, B1:2254 φανάρι | Fanari, a neighborhood in Constantinople; traffic light | το |
+| B1 | υποβρύχιο | B1:2231 υποβρύχιο, B1:2232 υποβρύχιο | submarine; ipovrichio (a kind of spoon sweet, usually vanilla-flavored; it is usually served on ateaspoon and dipped into a glass of cold water) | το |
+| B1 | φανάρι | B1:2252 Φανάρι, B1:2253 φανάρι | Fanari, a neighborhood in Constantinople; traffic light | το |
 
 ### Case pairs (6)
 
@@ -4118,6 +4137,6 @@ Copied into a new file and VACUUMed, as they ship.
 | Table | Bytes |
 |---|---|
 | wordlist | 8,192 |
-| wordlist_item | 950,272 |
+| wordlist_item | 954,368 |
 | word_rank | 2,310,144 |
-| total | 3,268,608 |
+| total | 3,272,704 |

@@ -554,7 +554,7 @@ Words:
 
 Related topics: `ell-possessives` Possessives, `ell-imperative` The imperative
 
-Example words in no Greek A1 or A2 list: εσείς.
+Example words in no Greek A1 or A2 list: none.
 
 #### English: Personal pronouns, strong and weak
 
@@ -660,7 +660,7 @@ Words:
 
 Related topics: `ell-pronouns` Personal pronouns, strong and weak
 
-Example words in no Greek A1 or A2 list: σου.
+Example words in no Greek A1 or A2 list: none.
 
 #### English: Possessives
 
@@ -982,7 +982,7 @@ Related topics: `ell-present-1` Present tense: first conjugation
 
 Tenses: present. Classes: verb.conj2.
 
-Example words in no Greek A1 or A2 list: δεν.
+Example words in no Greek A1 or A2 list: none.
 
 #### English: Present tense: second conjugation
 
@@ -1090,7 +1090,7 @@ Words:
 
 Related topics: `ell-present-1` Present tense: first conjugation
 
-Example words in no Greek A1 or A2 list: δεν.
+Example words in no Greek A1 or A2 list: none.
 
 #### English: Negation and question words
 
@@ -1749,7 +1749,7 @@ Related topics: `ell-na-perfective` να + the simple form, `ell-aorist-regular`
 
 Tenses: future. Classes: verb.
 
-Example words in no Greek A1 or A2 list: σου, δεν.
+Example words in no Greek A1 or A2 list: none.
 
 #### English: The future with θα
 
@@ -1876,7 +1876,7 @@ Related topics: `ell-future` The future with θα, `ell-imperative` The imperati
 
 Tenses: subjunctiveSimple. Classes: verb.
 
-Example words in no Greek A1 or A2 list: να, σας.
+Example words in no Greek A1 or A2 list: none.
 
 #### English: να + the simple form
 
@@ -1978,7 +1978,7 @@ Related topics: `ell-na-perfective` να + the simple form
 
 Tenses: imperativeSimple, imperativeContinuous. Classes: verb.
 
-Example words in no Greek A1 or A2 list: σας.
+Example words in no Greek A1 or A2 list: none.
 
 #### English: The imperative
 

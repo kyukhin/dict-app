@@ -317,7 +317,7 @@ final class iPadSpecificTests: XCTestCase {
             XCTAssertTrue(learnPage.waitForHome(timeout: TestData.Timeouts.long), "the Learn home in \(orientation.rawValue)")
             let page = learnPage.tapAllLists()
             XCTAssertTrue(page.row("ky-ell-a1").waitForExistence(timeout: TestData.Timeouts.medium))
-            XCTAssertEqual(page.count("ky-ell-a1").label, "1,457 words")
+            XCTAssertEqual(page.count("ky-ell-a1").label, "1,506 words")
             page.openList("ky-ell-a1")
             XCTAssertTrue(page.learnButton.exists, "Learn this list in \(orientation.rawValue)")
             page.tapWord("αγάπη")

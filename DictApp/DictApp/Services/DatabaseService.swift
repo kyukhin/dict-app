@@ -2286,7 +2286,8 @@ actor DatabaseService {
     /// word of `parse` linked to `lang`'s dictionaries by the rules the
     /// build links a series with (`ListLinking`), and ranked from `lang`'s
     /// `word_rank` as the build ranks: its headword's rank, else its term's
-    /// or its first ranked cleaned spelling's. A language whose pack is not
+    /// or its first ranked cleaned spelling's; a Greek word linked to another
+    /// word takes its own term's rank first (#339). A language whose pack is not
     /// installed reads the stub's empty `word_rank`: its words stay unranked.
     func prepareListImport(_ parse: ListText.Result, lang: String) async throws -> ListImportPreview {
         let pool = try await userPool()
@@ -2296,7 +2297,11 @@ actor DatabaseService {
             let rank = try Self.rankLookup(lang: lang, in: db)
             let words = try parse.words.map { word -> ListImportPreview.Word in
                 let link = try ListLinking.link(word.term, lang: lang, lookup: lookup)
-                let spellings = link.map { [$0.headword] } ?? [word.term] + ListLinking.cleanedVariants(of: word.term)
+                // #339: a Greek word linked to another word ranks by its own
+                // term first (η by η, not by ο), as the build ranks.
+                let spellings = link.map { lang == "ell" && $0.headword != word.term ? [word.term, $0.headword]
+                                                                                      : [$0.headword] }
+                    ?? [word.term] + ListLinking.cleanedVariants(of: word.term)
                 var found: Int?
                 for spelling in spellings where found == nil {
                     found = try rank(spelling)

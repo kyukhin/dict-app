@@ -1,6 +1,7 @@
 lemma	γράφω	verb	γράφω,γράφεις,γράφει,έγραψα,έγραψε,γράψω,γράψε
 lemma	ημέρα	noun	ημέρα,ημέρας,ημέρες,μέρα
 lemma	πηγαίνω	verb	πηγαίνω,πήγα
+lemma	ο	article	ο,η,το,του,της,τον,την,οι,τα
 link	πάω	πηγαίνω
 headword	γράφω
 headword	μέρα
@@ -35,3 +36,8 @@ list	was
 list	be
 list	hope
 list	hop
+list	ο	ky-ell
+list	η	ky-ell
+list	γράφω	ky-ell
+list	πάω	ky-ell
+list	στη(ν)	ky-ell

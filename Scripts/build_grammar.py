@@ -1117,12 +1117,14 @@ def lemmas_of(word: str, data: sqlite3.Connection) -> set[str]:
 
 def list_words(data: sqlite3.Connection, lang: str) -> set[str]:
     """The folded dictionary forms of the language's A1 and A2 list words
-    (E3), empty until #152 fills them: αδερφή gives αδερφη and αδελφη."""
+    (E3), empty until #152 fills them: αδερφή gives αδερφη and αδελφη. A
+    word counts by its term and by its headword (#339: σας links to εσείς)."""
     if not data.execute("SELECT 1 FROM sqlite_master WHERE name = 'wordlist_item'").fetchone():
         return set()
-    return {lemma for (w,) in data.execute(
-        "SELECT COALESCE(headword, term) FROM wordlist_item WHERE level IN ('A1', 'A2') "
-        "AND series IN (SELECT series FROM wordlist WHERE lang = ?)", (lang,)) for lemma in lemmas_of(w, data)}
+    return {lemma for row in data.execute(
+        "SELECT term, headword FROM wordlist_item WHERE level IN ('A1', 'A2') "
+        "AND series IN (SELECT series FROM wordlist WHERE lang = ?)", (lang,))
+        for w in row if w for lemma in lemmas_of(w, data)}
 
 
 def outside_lists(greek_lines: list[str], data: sqlite3.Connection, words: set[str]) -> list[str]:

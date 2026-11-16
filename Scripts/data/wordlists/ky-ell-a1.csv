@@ -163,6 +163,7 @@ A1,άρρωστος,"-η, -ο","sick, ill"
 A1,αρσενικός,"-ή, -ό",masculine
 A1,αρχή,η,"beginning, start"
 A1,αρχίζω,,"to begin, to start"
+A1,ας,,"let's, let"
 A1,ασανσέρ,το,"lift, elevator"
 A1,ασθενής,ο/η,patient
 A1,Ασία,η,Asia
@@ -187,10 +188,14 @@ A1,αυστραλιανός,"-ή, -ό",Australian
 A1,Αυστρία,η,Austria
 A1,Αυστριακός,-ή,Austrian
 A1,αυστριακός,"-ή, -ό",Austrian
+A1,αυτά,,they; these [neuter]
+A1,αυτές,,they; these [feminine]
+A1,αυτή,,she; this [feminine]
 A1,αυτί,το,ear
+A1,αυτό,,it; this [neuter]
+A1,αυτοί,,they; these [masculine]
 A1,αυτοκίνητο,το,car
-A1,αυτός,"-ή, -ό","he, she, it (for persons)"
-A1,αυτός,"-ή, -ό",this (not for persons)
+A1,αυτός,,he; this [masculine]
 A1,αφεντικό,το,boss
 A1,αφήνω,,"to leave, to let"
 A1,αφίσα,η,poster
@@ -360,12 +365,15 @@ A1,δεκαέξι,,sixteen
 A1,δεκαεπτά,,seventeen
 A1,δεκαοκτώ,,eighteen
 A1,δεκαπέντε,,fifteen
-A1,δεκατέσσερα,,fourteen
+A1,δεκατέσσερα,,fourteen [neuter]
+A1,δεκατέσσερις,,"fourteen [masculine, feminine]"
 A1,δέκατος,,tenth
-A1,δεκατρία,,thirteen
+A1,δεκατρείς,,"thirteen [masculine, feminine]"
+A1,δεκατρία,,thirteen [neuter]
 A1,Δεκέμβριος,ο,December
 A1,δελφίνι,το,dolphin
 A1,δέμα,το,package
+A1,δεν,,not [before a verb]
 A1,δέντρο,το,tree
 A1,δεξιά,,right
 A1,Δευτέρα,η,Monday
@@ -408,14 +416,7 @@ A1,διεθνής,"-ής, -ές",international
 A1,διεύθυνση,η,address
 A1,διευθυντής,-ντρια,director (in general)
 A1,διευθυντής,-ντρια,Headmaster (in school)
-A1,δικός,"-ή, -ό / δικοί, -ές, -ά μου","my, mine"
-A1,δικός,"-ή, -ό / δικοί, -ές, -ά σου/σας","your, yours"
-A1,δικός,"-ή, -ό / δικοί, -ές, -ά του",his
-A1,δικός,"-ή, -ό / δικοί, -ές, -ά της","her, hers"
-A1,δικός,"-ή, -ό / δικοί, -ές, -ά του",its
-A1,δικός,"-ή, -ό / δικοί, -ές, -ά μας","our, ours"
-A1,δικός,"-ή, -ό / δικοί, -ές, -ά σας","your, yours"
-A1,δικός,"-ή, -ό / δικοί, -ές, -ά τους","their, theirs"
+A1,δικός,"-ή, -ό","own; mine, yours… [with μου, σου…]"
 A1,δίκαιος,"-η, -ο","just, fair"
 A1,δικηγόρος,ο/η,lawer
 A1,δίνω,,to give
@@ -447,6 +448,7 @@ A1,δώρο,το,present
 A1,δωρεάν,,free of charge
 A1,έβδομος,"-η, -ο",seventh
 A1,εβδομήντα,,seventy
+A1,εγώ,,I
 A1,εδώ,,here
 A1,εικόνα,η,"picture, image"
 A1,είκοσι,,twenty
@@ -455,13 +457,15 @@ A1,είμαι,,to be
 A1,είμαι,,I am
 A1,εκατό,,a hundred / one hundred
 A1,εκεί,,there
-A1,εκείνος,"-η, -ο",that
+A1,εκείνος,"-η, -ο",that [over there]
 A1,έκτος,"-η, -ο",sixth
 A1,Ελλάδα,η,Greece
 A1,Έλληνας,ο/η,Greek
 A1,ελληνικά,,Greek
 A1,ελληνικός,"-ή, -ό",Greek
-A1,ένα,,one
+A1,εμείς,,we
+A1,ένα,,"a, an [neuter]; one [neuter]"
+A1,ένας,,"a, an [masculine]; one [masculine]"
 A1,ένατος,"-η, -ο",ninth
 A1,ενενήντα,,ninety
 A1,ενικός αριθμός,ο,singular number
@@ -469,6 +473,7 @@ A1,εννέα,εννιά,nine
 A1,έντεκα,,eleven
 A1,έξι,,six
 A1,εξήντα,,sixty
+A1,επειδή,,because
 A1,επίθετο,το,adjective
 A1,επιθυμώ,,to wish
 A1,επιλέγω,,to chose
@@ -492,8 +497,9 @@ A1,εργαστήριο,το,"workshop, laboratory"
 A1,έρευνα,η,inquiry
 A1,έρχομαι,,to come
 A1,ερώτηση,η,question
+A1,εσείς,,you [plural or polite]
 A1,εστιατόριο,το,restaurant
-A1,εσύ,,you
+A1,εσύ,,you [singular]
 A1,ετικέτα,η,label
 A1,ετοιμάζομαι,,"to get ready, to be prepared"
 A1,ετοιμάζω,,to prepare
@@ -537,6 +543,8 @@ A1,ζωγραφική,η,painting
 A1,ζωή,η,life
 A1,ζωντανός,"-ή, -ό","alive, living"
 A1,ζώο,το,animal
+A1,ή,,or
+A1,η,,the [feminine]
 A1,ηθοποιός,η,actress
 A1,ηθοποιός,ο,actor
 A1,ηλεκτρικός,"-ή, -ό",electric
@@ -626,11 +634,13 @@ A1,καλύπτω,,to cover
 A1,καλύτερος,"-η, -ο",better
 A1,καλώ,,"to call, to invite"
 A1,καλωσορίζω,,to welcome
+A1,καμία,,"no, any [feminine]"
 A1,Καναδάς,ο,Canada
 A1,καναδικός,"-ή, -ό",Canadian
 A1,Καναδός,-ή,Canadian
 A1,καναπές,ο,sofa
-A1,κανένας,,"no, no one"
+A1,κανένα,,"no, any [neuter]"
+A1,κανένας,,"nobody; no, any [masculine]"
 A1,κανόνας,ο,rule
 A1,κάνω,,to do
 A1,καπέλο,το,hat
@@ -788,10 +798,11 @@ A1,μανάβης,ο,grocer
 A1,μανάβικο,το,the grocery’s
 A1,μαρούλι,το,lettuce
 A1,Μάρτιος,ο,March
+A1,μας,,us [object]; our
 A1,μάτι,το,eye
 A1,μαύρος,"-η, -ο",black
 A1,μαχαίρι,το,knife
-A1,με,,with
+A1,με,,with; me [object]
 A1,μεγάλος,"-η, -ο","big, large"
 A1,μέγεθος,το,size
 A1,μεθαύριο,,the day after tomorrow
@@ -821,10 +832,12 @@ A1,μετρό,το,metro
 A1,μέχρι,,"till, until, to"
 A1,μηδέν,το,zero
 A1,μήλο,το,apple
+A1,μην,,"don't, not [in commands and after να]"
 A1,μήνας,ο,month
 A1,μήνυμα,το,message
 A1,μητέρα,η,mother
 A1,μηχανή,η,machine
+A1,μία,,"a, an [feminine]; one [feminine]"
 A1,μικρός,"-ή, -ό","small, little"
 A1,μιλάω,-ώ,"to talk, to speak"
 A1,μισθός,ο,salary
@@ -843,6 +856,7 @@ A1,μόνος,"-η, -ο","alone, only"
 A1,μονός,"-ή, -ό",single
 A1,μοντέρνος,"-α, -ο",modern
 A1,Μόσχα,η,Moscow
+A1,μου,,my; (to) me
 A1,μουσείο,το,museum
 A1,μουσική,η,music
 A1,μουσικός,"-ή, -ό",musical
@@ -875,6 +889,7 @@ A1,Μύκονος,,Mykonos
 A1,μυρίζω,,to smell
 A1,μύτη,η,nose
 A1,μωρό,το,baby
+A1,να,,"[before a verb] to, that"
 A1,ναι,,yes
 A1,νέος,"-α, -ο",young
 A1,νερό,το,water
@@ -920,12 +935,14 @@ A1,ξοδεύω,,to spend
 A1,ξύδι,το,vinegar
 A1,ξύλο,το,wood
 A1,ξυπνάω,-ώ,to wake up
+A1,ο,,the [masculine]
 A1,ογδόντα,,eighty
 A1,όγδοος,"-η, -ο",eighth
 A1,οδηγός,ο/η,guide
 A1,οδηγώ,,"to drive, to guide"
 A1,οδοντογλυφίδα,η,toothpick
 A1,οδός,η,"street, road, avenue"
+A1,οι,,the [masculine or feminine plural]
 A1,οικογένεια,η,family
 A1,οικογενειακό δέντρο,το,family tree
 A1,οικοδομή,η,building
@@ -936,6 +953,7 @@ A1,Ολλανδός,-ή,Dutch
 A1,ολλανδικός,"-ή, -ό",Dutch
 A1,ολλανδικά,,Dutch
 A1,όλοι,"-ες, -α","all, every"
+A1,όλος,"-η, -ο","the whole, all"
 A1,Όλυμπος,ο,Mount Olympus
 A1,ομάδα,η,team
 A1,όμοιος,"-α, -ο",similar
@@ -954,7 +972,8 @@ A1,όπου,,"where, wherever"
 A1,όπως,,"like, as"
 A1,Ορίστε!,,Here you are!
 A1,όροφος,ο,floor
-A1,όταν,,when
+A1,όταν,,[conjunction] when
+A1,ότι,,[conjunction] that
 A1,Ουγγαρία,η,Hungary
 A1,ούζο,το,ouzo
 A1,Ουκρανία,η,Ukraine
@@ -1070,9 +1089,10 @@ A1,πλυντήριο,το,washing machine
 A1,ποδήλατο,το,bicycle
 A1,πόδι,το/τα,foot / feet
 A1,ποδόσφαιρο,το,football
+A1,ποια,,"who, which [feminine]"
 A1,ποιανού,-ής,(person) whose
-A1,ποιος,"-α, -ο",(thing) which
-A1,ποιος,"-α, -ο",(person) who
+A1,ποιο,,which [neuter]
+A1,ποιος,,"who, which [masculine]"
 A1,πόλη,η,city
 A1,πολλοί,"-ές, -ά","[quantitative] many, a lot of"
 A1,πολύ,,much
@@ -1090,10 +1110,11 @@ A1,πορτογαλικά,,Portuguese
 A1,πορτοκαλής,"-ιά, -ί",orange
 A1,πορτοκάλι,το,orange
 A1,πορτοφόλι,το,wallet
+A1,πόσο,,"[adverb] how much, how"
 A1,πόσοι,"-ες, -α",how many
-A1,πόσος,"-η, -ο",how much
+A1,πόσος,"-η, -ο",how much [before a noun]
 A1,ποτέ,,never
-A1,πότε,,when
+A1,πότε,,[interrogative] when
 A1,ποτήρι,το,glass
 A1,ποτό,το,drink
 A1,που,,"[relative] who, that, which"
@@ -1137,6 +1158,7 @@ A1,Πρωτοχρονιά,η,New Year’s Eve
 A1,πύργος,ο,tower
 A1,πυρετός,ο,fever
 A1,πωλητής,ο/η,"salesperson, shop assistant"
+A1,πως,,"[conjunction] that, in speech"
 A1,πώς,,[interrogative] how
 A1,Πώς σε λένε;,,What’s your name?
 A1,ραδιόφωνο,το,radio
@@ -1165,9 +1187,10 @@ A1,σαμπουάν,το,shampoo
 A1,σαν,,like
 A1,σαπούνι,το,soap
 A1,σαράντα,,fourty
+A1,σας,,you [plural or polite object]; your [plural or polite]
 A1,σβήνω,,"to rub, to erase"
 A1,σβήστρα,η,rubber
-A1,σε,,"at, to"
+A1,σε,,"at, to, in; you [singular object]"
 A1,σειρά,η,order
 A1,σελίδα,,page
 A1,σενάριο,το,scenario
@@ -1195,6 +1218,7 @@ A1,σοβαρά,,seriously
 A1,σοβαρός,"-ή, -ό",serious
 A1,σόι,το,kinship
 A1,σοκολάτα,η,chocolate
+A1,σου,,your [singular]; (to) you
 A1,σουβλάκι,το,souvlaki
 A1,Σουηδία,η,Sweden
 A1,σουηδικά,,Swedish
@@ -1208,17 +1232,23 @@ A1,σπίτι,το,"house, residence"
 A1,σπίτι,το,(family) home
 A1,σπουδάζω,,to study
 A1,σπουδές,οι,"studies, studying"
+A1,στα,,"to, at, in the [neuter plural]"
 A1,σταματάω,-ώ,to stop
 A1,στάση λεωφορείου,η,bus stop
 A1,σταυρόλεξο,το,crossword
 A1,σταφύλι,το,grape
 A1,στέλνω,,to send
+A1,στη(ν),,"to, at, in the [feminine]"
 A1,στήλη,η,column
 A1,στιλό,το,pen
+A1,στις,,"to, at, in the [feminine plural]; at [o'clock]"
 A1,στίχος,ο,verse
+A1,στο,,"to, at, in the [neuter]"
 A1,στολίδι,το,ornament
 A1,στολίζω,,to decorate
 A1,στολισμένος,"-η, -ο",decorated
+A1,στον,,"to, at, in the [masculine]"
+A1,στους,,"to, at, in the [masculine plural]"
 A1,Συγγνώμη!,,Sorry! / Excuse me!
 A1,συγγνώμη,η,apology
 A1,συγγραφέας,ο,author
@@ -1263,6 +1293,7 @@ A1,σχολική χρονιά,η,school year
 A1,σώμα,το,body
 A1,(ένα) σωρό,,a lot of
 A1,σωστός,"-ή, -ό","right, correct"
+A1,τα,,the [neuter plural]; them [neuter object]
 A1,ταβέρνα,η,tavern
 A1,ταινία,η,"movie, film"
 A1,ταιριάζω,,to fit
@@ -1287,7 +1318,8 @@ A1,τελευταίος,"-α, -ο",last
 A1,τέλος,το,end
 A1,τένις,το,tennis
 A1,τέρμα λεωφορείου,το,final stop
-A1,τέσσερις,-α,four
+A1,τέσσερα,,four [neuter]
+A1,τέσσερις,,"four [masculine, feminine]"
 A1,Τετάρτη,η,Wednesday
 A1,τέταρτος,"-η, -ο",fourth
 A1,τετράδιο,το,exercise book
@@ -1300,16 +1332,22 @@ A1,τηγανίζω,,to fry
 A1,τηλεόραση,η,television
 A1,τηλέφωνο,το,telephone
 A1,τηλεφωνώ,,to call
+A1,την,,her [object]
+A1,της,,her [possessive]; (to) her
 A1,τι,,what
 A1,τιμή,η,price
 A1,τίποτα,,nothing
+A1,τις,,them [feminine object]
 A1,τίτλος,ο,title
+A1,το,,the [neuter]; it [object]
 A1,τοίχος,ο,wall
 A1,τόμος,ο,volume
+A1,τον,,him [object]
 A1,τονίζω,,to put accent on
 A1,τόνος,ο,accent mark
 A1,τόσο,,"that much, as…as"
 A1,τότε,,then
+A1,του,,"his, its; (to) him"
 A1,τουαλέτα,η,toilete
 A1,τουρισμός,ο,tourism
 A1,τουρίστας,ο/η,tourist
@@ -1319,17 +1357,18 @@ A1,Τούρκος,-άλα,Turkish
 A1,τουρκικός,"-ή, -ό",Turkish
 A1,τουρκικά,,Turkish
 A1,τούρτα,η,birthday cake
+A1,τους,,them [masculine object]; their
 A1,τραγουδάω,-ώ,to sing
 A1,τραγούδι,το,song
 A1,τράπεζα,η,bank
 A1,τραπέζι,το,table
-A1,τρία,,three
+A1,τρεις,,"three [masculine, feminine]"
+A1,τρία,,three [neuter]
 A1,τρεισήμισι,,three and a half
 A1,τρελαίνομαι,,to go crazy
 A1,τρελός,"-ή, -ό",crazy
 A1,τρένο,το,train
 A1,τρέχω,,run
-A1,τρία,,three
 A1,τριακόσιοι,"-ες, -α",three hundred
 A1,τριάντα,,thirty
 A1,τριανταφυλλιά,η,rose bush
