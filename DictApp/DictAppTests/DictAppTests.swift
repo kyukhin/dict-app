@@ -27850,6 +27850,126 @@ final class AnswerCheckerTests: XCTestCase {
         XCTAssertEqual(check("το", "το", .strict), .right)
         XCTAssertEqual(check("the house", "the", lang: "eng", .lenient), .wrong)
     }
+
+    /// #337: αυτός, -ή, -ό: αυτός, αυτή and αυτό are right in both modes;
+    /// αυτο is right in Lenient with "Mind the accent" and wrong in Strict; a
+    /// plural (αυτούς) stays wrong. A right other gender is flagged.
+    func testOtherGendersAreRight() {
+        let genders = ["αυτός", "αυτή", "αυτό"]
+        func grade(_ typed: String, _ mode: AnswerMode) -> TypedGrade {
+            AnswerChecker.grade(typed, expected: "αυτός", otherForms: genders, lang: "ell", mode: mode)
+        }
+        for mode in [AnswerMode.strict, .lenient] {
+            XCTAssertEqual(grade("αυτός", mode), rightGrade, "\(mode): the word itself")
+            XCTAssertEqual(grade("Αυτή", mode), TypedGrade(outcome: .right, mindTheAccent: false, isOtherForm: true),
+                           "\(mode): the feminine")
+            XCTAssertEqual(grade("αυτό", mode).outcome, .right, "\(mode): the neuter")
+            XCTAssertTrue(grade("αυτό", mode).isOtherForm)
+            XCTAssertEqual(grade("αυτούς", mode), wrongGrade, "\(mode): a plural stays wrong")
+            XCTAssertEqual(grade("αυτοί", mode), wrongGrade, "\(mode): a plural stays wrong")
+        }
+        XCTAssertEqual(grade("αυτο", .lenient), accentRight, "Lenient: right, Mind the accent")
+        XCTAssertEqual(grade("αυτο", .strict), accentWrong, "Strict: wrong, Mind the accent")
+        XCTAssertEqual(grade("αυτη", .strict), accentWrong)
+        XCTAssertEqual(AnswerChecker.check("καλή", expected: "καλός", otherForms: ["καλός", "καλή", "καλό"],
+                                           lang: "ell", mode: .strict), .right, "καλή for good")
+        XCTAssertEqual(AnswerChecker.check("καλή", expected: "καλός", lang: "ell", mode: .lenient), .wrong,
+                       "without other forms, as before")
+        XCTAssertEqual(AnswerChecker.grade("σπίτι", expected: "", otherForms: ["σπίτι"], lang: "ell", mode: .lenient),
+                       wrongGrade, "nothing expected: never right")
+    }
+}
+
+/// #337: `GenderForms`, the genders of a Greek word listed with its
+/// endings (0131, "Questions and answers").
+final class GenderFormsTests: XCTestCase {
+    private func cell(_ form: String, _ tags: String) -> ParadigmCell { ParadigmCell(form: form, tags: tags) }
+
+    /// αυτός's table, as Wiktionary tags it, with a few other cells.
+    private var autos: [ParadigmCell] {
+        [cell("αυτός", "masculine nominative singular"), cell("αυτή", "feminine nominative singular"),
+         cell("αυτό", "neuter nominative singular"), cell("αυτού", "genitive masculine singular"),
+         cell("αυτούς", "accusative masculine plural"), cell("αυτοί", "masculine nominative plural"),
+         cell("αυτές", "feminine nominative plural"), cell("αυτά", "neuter nominative plural")]
+    }
+
+    /// Two endings, one at least with a dash, of Greek letters: the gender
+    /// endings. Nouns' articles and feminines, verbs' -ώ and whole words are not.
+    func testEndings() {
+        let genders: [(String, [String])] = [
+            ("-ή, -ό", ["ή", "ό"]), ("-η, -ο", ["η", "ο"]), ("-α, -ο", ["α", "ο"]), ("-ιά, -ύ", ["ιά", "ύ"]),
+            ("-ής, -ές", ["ής", "ές"]), ("-ή -ό", ["ή", "ό"]), ("ή, -ό", ["ή", "ό"]), ("-ια, ιο", ["ια", "ιο"]),
+            ("-ια (/-ία), -ο", ["ια", "ο"]), ("-ές, -ά", ["ές", "ά"]), ("-ή, -ό / δικοί, -ές, -ά του", ["ή", "ό"]),
+            ("-α, -ικο / ο", ["α", "ικο"]),
+        ]
+        for (endings, parts) in genders {
+            XCTAssertEqual(GenderForms.endings(endings, lang: "ell"), parts, endings)
+        }
+        for endings in ["", "η", "το", "ο", "ο/η", "το/τα", "-ίδα", "-ή", "-ώ", "& -ώ", "μία, ένα", "η, το",
+                        "-ή/-ίδα", "-ή (/-έζα)", "ο / ξένη η", "ο — αγοράστρια, η", "εννιά"] {
+            XCTAssertNil(GenderForms.endings(endings, lang: "ell"), "'\(endings)' is no gender endings")
+        }
+        XCTAssertNil(GenderForms.endings("-ή, -ό", lang: "eng"), "Greek only")
+    }
+
+    /// The table's nominatives of each gender, in the word's number.
+    func testFromTable() {
+        XCTAssertEqual(GenderForms.fromTable("αυτός", cells: autos), ["αυτός", "αυτή", "αυτό"])
+        XCTAssertEqual(GenderForms.fromTable("αυτοί", cells: autos), ["αυτοί", "αυτές", "αυτά"], "a plural word")
+        XCTAssertEqual(GenderForms.fromTable("αυτού", cells: autos), [], "not a nominative")
+        XCTAssertEqual(GenderForms.fromTable("καλός", cells: autos), [], "not in the table")
+        XCTAssertEqual(GenderForms.fromTable("αυτός", cells: Array(autos.prefix(2))), [], "a gender missing")
+        let international = [cell("διεθνής", "masculine nominative singular"), cell("διεθνής", "feminine nominative singular"),
+                             cell("διεθνές", "neuter nominative singular")]
+        XCTAssertEqual(GenderForms.fromTable("διεθνής", cells: international), ["διεθνής", "διεθνές"])
+        let deep = [cell("βαθύς", "masculine nominative singular"), cell("βαθιά", "feminine nominative singular"),
+                    cell("βαθειά", "feminine nominative singular rare"), cell("βαθύ", "neuter nominative singular"),
+                    cell("βαθύτερη", "comparative feminine nominative singular superlative")]
+        XCTAssertEqual(GenderForms.fromTable("βαθύς", cells: deep), ["βαθύς", "βαθιά", "βαθύ"],
+                       "hidden and degree cells do not count")
+    }
+
+    /// Without a table: the endings in place of the masculine's.
+    func testFromEndings() {
+        let built: [(String, [String], [String])] = [
+            ("αγαπημένος", ["η", "ο"], ["αγαπημένη", "αγαπημένο"]),
+            ("καλός", ["ή", "ό"], ["καλή", "καλό"]),
+            ("μοιραίος", ["α", "ο"], ["μοιραία", "μοιραίο"]),
+            ("όγδοος", ["η", "ο"], ["όγδοη", "όγδοο"]),
+            ("καινούριος", ["ια", "ιο"], ["καινούρια", "καινούριο"]),
+            ("Κρητικός", ["ιά", "ό"], ["Κρητικιά", "Κρητικό"]),
+            ("ελαφρύς", ["ιά", "ύ"], ["ελαφριά", "ελαφρύ"]),
+            ("οστρακοειδής", ["ής", "ές"], ["οστρακοειδής", "οστρακοειδές"]),
+            ("γκρινιάρης", ["α", "ικο"], ["γκρινιάρα", "γκρινιάρικο"]),
+            ("μερικοί", ["ές", "ά"], ["μερικές", "μερικά"]),
+            ("διακόσιοι", ["ες", "α"], ["διακόσιες", "διακόσια"]),
+        ]
+        for (term, endings, forms) in built {
+            XCTAssertEqual(GenderForms.fromEndings(term, endings: endings), forms, term)
+        }
+        XCTAssertEqual(GenderForms.fromEndings("σπίτι", endings: ["ή", "ό"]), [], "no masculine ending")
+        XCTAssertEqual(GenderForms.fromEndings("ος", endings: ["η", "ο"]), [], "an ending alone")
+    }
+
+    /// The table first, then the endings; nouns and words without gender
+    /// endings get none.
+    func testForms() {
+        XCTAssertEqual(GenderForms.forms(of: "αυτός", endings: "-ή, -ό", lang: "ell", tables: [[], autos]),
+                       ["αυτός", "αυτή", "αυτό"], "the first table that has them")
+        XCTAssertEqual(GenderForms.forms(of: "αυτός", endings: "-ή, -ό", lang: "ell", tables: []),
+                       ["αυτός", "αυτή", "αυτό"], "built from the endings")
+        let finnish = [cell("φινλανδικός", "masculine nominative singular"),
+                       cell("φινλανδική", "feminine nominative singular"), cell("φινλανδικό", "neuter nominative singular")]
+        XCTAssertEqual(GenderForms.forms(of: "φινλανδικός", endings: "-η, -ο", lang: "ell", tables: [finnish]),
+                       ["φινλανδικός", "φινλανδική", "φινλανδικό"], "the table over the list's endings")
+        XCTAssertEqual(GenderForms.forms(of: "σπίτι", endings: "το", lang: "ell", tables: []), [], "a noun")
+        XCTAssertEqual(GenderForms.forms(of: "Άγγλος", endings: "-ίδα", lang: "ell", tables: []), [],
+                       "Άγγλος and Αγγλίδα are two words")
+        XCTAssertEqual(GenderForms.forms(of: "αυτός", endings: "", lang: "ell", tables: [autos]), [],
+                       "no endings in the list: as before")
+        XCTAssertEqual(GenderForms.forms(of: "σπίτι", endings: "-ή, -ό", lang: "ell", tables: []), [],
+                       "nothing to build on")
+    }
 }
 
 /// `DistractorPicker`: preference order and the drop rules.
@@ -29724,6 +29844,135 @@ extension ExerciseTestCase {
                   rest.contains(where: { $0.card.key.word != pair.0.card.key.word }) else { return nil }
             return pair.0.card.key.word.word
         }
+    }
+}
+
+extension ExerciseRunViewModelTests {
+    /// #337: a typed Greek list word with gender endings takes its other
+    /// genders, resolved as the question is built (here from the endings:
+    /// the fixture has no Greek tables), and the bar shows the word with its
+    /// endings, also after a right answer in another gender. A noun is
+    /// graded and shown as before.
+    @MainActor
+    func testTypedAnswerTakesTheOtherGenders() async throws {
+        let words = [("αυτός", "-ή, -ό", "he, she, it"), ("καλός", "-ή -ό", "good"), ("σπίτι", "το", "house")]
+        for (word, endings, translation) in words {
+            try await insertListWord(word, endings: endings, translation: translation, translationLang: "eng")
+            try await setCard(WordKey(lang: "ell", word: word), .production, step: 1, due: today,
+                              last: today.adding(days: -1))
+        }
+        let en = Locale(identifier: "en")
+        let vm = run(.production)
+        await vm.start()
+        XCTAssertNil(vm.errorMessage)
+        var asked: Set<String> = []
+        while vm.phase == .question, let question = vm.question, asked.count < words.count {
+            XCTAssertEqual(question.input, .typed, "rung 1, Lenient")
+            asked.insert(question.word.term)
+            switch question.word.term {
+            case "αυτός":
+                XCTAssertEqual(question.otherForms, ["αυτός", "αυτή", "αυτό"])
+                vm.typed = "αυτο"
+                await vm.check()
+                let feedback = try XCTUnwrap(vm.feedback)
+                XCTAssertEqual(feedback.outcome, .accent, "Lenient: right, with Mind the accent")
+                XCTAssertTrue(feedback.mindTheAccent)
+                XCTAssertEqual(FeedbackBar.lines(feedback, locale: en).detail, "Mind the accent: \u{2068}αυτός, -ή, -ό\u{2069}")
+            case "καλός":
+                XCTAssertEqual(question.otherForms, ["καλός", "καλή", "καλό"])
+                vm.typed = "καλή"
+                await vm.check()
+                let feedback = try XCTUnwrap(vm.feedback)
+                XCTAssertEqual(feedback, AnswerFeedback(outcome: .right, chosenIndex: nil, mindTheAccent: false,
+                                                        rightAnswer: "καλός", rightEndings: "-ή -ό", showsRightAnswer: true))
+                XCTAssertEqual(FeedbackBar.lines(feedback, locale: en).detail, "Right answer: \u{2068}καλός, -ή -ό\u{2069}")
+            default:
+                XCTAssertEqual(question.word.term, "σπίτι")
+                XCTAssertEqual(question.otherForms, [], "a noun")
+                vm.typed = "σπίτια"
+                await vm.check()
+                XCTAssertEqual(vm.feedback, AnswerFeedback(outcome: .wrong, chosenIndex: nil, mindTheAccent: false,
+                                                           rightAnswer: "σπίτι"), "as before: no article shown")
+            }
+            await vm.next()
+        }
+        XCTAssertEqual(asked, Set(words.map(\.0)))
+        let log = try await rows("SELECT word, outcome FROM learn_review ORDER BY word")
+        XCTAssertEqual(log, ["αυτός|accent", "καλός|right", "σπίτι|wrong"])
+    }
+}
+
+/// #337: the genders from the Greek pack's tables (`genderTables`), and how
+/// many words of the three Greek lists with gender endings get all their
+/// genders, from a table or from their endings.
+@MainActor
+final class GenderFormsPackTests: XCTestCase {
+    private var tempDir: URL!
+
+    override func setUp() async throws {
+        try await super.setUp()
+        await DictAppTests.waitForHostAppLaunch()
+        tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        try await DatabaseService.shared.setup(userPath: tempDir.appendingPathComponent("user.sqlite").path,
+                                               dictionaryURL: try TestDictionary.bundledURL(),
+                                               packFiles: try PackFixtures.all())
+    }
+
+    override func tearDown() async throws {
+        if let tempDir { try? FileManager.default.removeItem(at: tempDir) }
+        tempDir = nil
+        try await super.tearDown()
+    }
+
+    private func forms(_ term: String, _ endings: String, headword: String? = nil) async throws -> [String] {
+        let tables = try await DatabaseService.shared.genderTables(of: [term] + (headword.map { [$0] } ?? []))
+        return GenderForms.forms(of: term, endings: endings, lang: "ell", tables: tables)
+    }
+
+    /// The tables of the pack: αυτός (a determiner), καλός (the adjective,
+    /// not the noun), βαθύς, λίγοι through its headword λίγος (the plural),
+    /// and φινλανδικός, whose list endings lack the accent.
+    func testFormsFromTheTables() async throws {
+        let autos = try await forms("αυτός", "-ή, -ό")
+        XCTAssertEqual(autos, ["αυτός", "αυτή", "αυτό"])
+        let kalos = try await forms("καλός", "-ή -ό", headword: "καλός")
+        XCTAssertEqual(kalos, ["καλός", "καλή", "καλό"])
+        let vathys = try await forms("βαθύς", "-ιά, -ύ")
+        XCTAssertEqual(vathys, ["βαθύς", "βαθιά", "βαθύ"])
+        let ligoi = try await forms("λίγοι", "-ες, -α", headword: "λίγος")
+        XCTAssertEqual(ligoi, ["λίγοι", "λίγες", "λίγα"])
+        let finnish = try await forms("φινλανδικός", "-η, -ο")
+        XCTAssertEqual(finnish, ["φινλανδικός", "φινλανδική", "φινλανδικό"])
+        let house = try await DatabaseService.shared.genderTables(of: ["σπίτι"])
+        XCTAssertEqual(house, [], "a noun has no gender table")
+    }
+
+    /// Every word of the three Greek lists with gender endings gets all its
+    /// genders: from its table, else its endings. Prints the counts and the
+    /// words with none.
+    func testEveryListWordWithGenderEndingsGetsItsGenders() async throws {
+        let queue = BundledDictionary(url: try PackFixtures.file(.ell))
+        let items = try await queue.read { db in
+            try Row.fetchAll(db, sql: "SELECT term, headword, endings FROM wordlist_item WHERE series = 'ky-ell' ORDER BY seq")
+                .map { (term: $0["term"] as String, headword: $0["headword"] as String?, endings: $0["endings"] as String) }
+        }
+        var fromTable = 0, fromEndings = 0, none: [String] = []
+        for item in items where GenderForms.endings(item.endings, lang: "ell") != nil {
+            let tables = try await DatabaseService.shared.genderTables(of: [item.term] + (item.headword.map { [$0] } ?? []))
+            if tables.contains(where: { !GenderForms.fromTable(item.term, cells: $0).isEmpty }) {
+                fromTable += 1
+            } else if !GenderForms.forms(of: item.term, endings: item.endings, lang: "ell", tables: tables).isEmpty {
+                fromEndings += 1
+            } else {
+                none.append("\(item.term) \(item.endings)")
+            }
+        }
+        print("#337: \(fromTable + fromEndings + none.count) list words with gender endings: \(fromTable) from a table, "
+              + "\(fromEndings) from their endings, \(none.count) with none: \(none)")
+        XCTAssertGreaterThan(fromTable + fromEndings, 800, "about 800 words")
+        XCTAssertGreaterThan(fromTable, fromEndings, "most from a table")
+        XCTAssertEqual(none, [], "words with gender endings and no genders")
     }
 }
 
@@ -37202,6 +37451,106 @@ final class FeedbackBarTests: XCTestCase {
         let lines = FeedbackBar.lines(feedback(ChosenOption(text: "water", counterpart: "νερό")), locale: Locale(identifier: "en"))
         XCTAssertTrue(lines.title.hasPrefix("Right answer:"))
         XCTAssertNotNil(lines.chosen, "the title, then the chosen line, which the view announces last")
+    }
+
+    /// #337: the word with its gender endings, wrong, with the accent hint,
+    /// and right in another gender; the endings in the secondary colour.
+    func testRightAnswerWithEndings() {
+        let en = Locale(identifier: "en")
+        func with(_ outcome: Outcome, accent: Bool = false, shows: Bool = false) -> AnswerFeedback {
+            AnswerFeedback(outcome: outcome, chosenIndex: nil, mindTheAccent: accent, rightAnswer: "αυτός",
+                           rightEndings: "-ή, -ό", showsRightAnswer: shows)
+        }
+        XCTAssertEqual(FeedbackBar.lines(with(.wrong), locale: en).title, "Right answer: \u{2068}αυτός, -ή, -ό\u{2069}")
+        XCTAssertEqual(FeedbackBar.lines(with(.wrong, accent: true), locale: en).title,
+                       "Mind the accent: \u{2068}αυτός, -ή, -ό\u{2069}")
+        XCTAssertEqual(FeedbackBar.lines(with(.accent, accent: true), locale: en).detail,
+                       "Mind the accent: \u{2068}αυτός, -ή, -ό\u{2069}")
+        let other = FeedbackBar.lines(with(.right, shows: true), locale: en)
+        XCTAssertEqual(other.title, "Right!")
+        XCTAssertEqual(other.detail, "Right answer: \u{2068}αυτός, -ή, -ό\u{2069}", "right in another gender")
+        XCTAssertNil(FeedbackBar.lines(with(.right), locale: en).detail, "the word itself: Right! alone")
+        XCTAssertEqual(FeedbackBar.lines(feedback(nil), locale: en).title, "Right answer: \u{2068}write\u{2069}",
+                       "no endings: as before")
+
+        // The colour is the only attribute set: the endings are a run of their own.
+        func runs(_ text: AttributedString) -> [String] { text.runs.map { String(text[$0.range].characters) } }
+        XCTAssertEqual(runs(FeedbackBar.styled(FeedbackBar.lines(with(.wrong), locale: en).title, endings: "-ή, -ό")),
+                       ["Right answer: \u{2068}αυτός", ", -ή, -ό\u{2069}"], "the endings secondary")
+        XCTAssertEqual(runs(FeedbackBar.styled("Right answer: \u{2068}write\u{2069}", endings: "")),
+                       ["Right answer: \u{2068}write\u{2069}"], "no endings, one run")
+    }
+
+    /// #337 (QA): in Arabic (RTL) and Greek the word and its endings stay one
+    /// isolated span, left to right, after the localized label; only the
+    /// endings take the secondary colour, also when they are the detail line.
+    /// On an RTL locale `String(format:locale:)` isolates the argument once
+    /// more, so the Arabic span is nested in a second FSI…PDI.
+    func testEndingsInArabicAndGreek() throws {
+        func with(_ outcome: Outcome, shows: Bool = false) -> AnswerFeedback {
+            AnswerFeedback(outcome: outcome, chosenIndex: nil, mindTheAccent: outcome == .accent,
+                           rightAnswer: "αυτός", rightEndings: "-ή, -ό", showsRightAnswer: shows)
+        }
+        let isolated = "\u{2068}αυτός, -ή, -ό\u{2069}"
+        let ar = Locale(identifier: "ar")
+        let arWrong = FeedbackBar.lines(with(.wrong), locale: ar).title
+        XCTAssertTrue(arWrong.hasPrefix("\u{200F}الإجابة الصحيحة: \u{2068}"), arWrong)
+        XCTAssertTrue(arWrong.hasSuffix("\u{2069}") && arWrong.contains(isolated), arWrong)
+        let arAccent = try XCTUnwrap(FeedbackBar.lines(with(.accent), locale: ar).detail)
+        XCTAssertTrue(arAccent.hasPrefix("\u{200F}انتبه إلى علامة النبر: \u{2068}") && arAccent.contains(isolated),
+                      arAccent)
+        let arOther = FeedbackBar.lines(with(.right, shows: true), locale: ar)
+        XCTAssertEqual(arOther.title, "صحيح!")
+        XCTAssertEqual(arOther.detail, arWrong, "right in another gender")
+        let el = Locale(identifier: "el")
+        XCTAssertEqual(FeedbackBar.lines(with(.wrong), locale: el).title, "Σωστή απάντηση: " + isolated)
+
+        for line in [arWrong, arAccent, FeedbackBar.lines(with(.wrong), locale: el).title,
+                     try XCTUnwrap(FeedbackBar.lines(with(.right, shows: true), locale: Locale(identifier: "en")).detail)] {
+            let styled = FeedbackBar.styled(line, endings: "-ή, -ό")
+            let runs: [(String, Color?)] = styled.runs.map { (String(styled[$0.range].characters), $0.foregroundColor) }
+            let coloured = runs.filter { $0.1 != nil }
+            XCTAssertEqual(coloured.map(\.0), [", -ή, -ό\u{2069}"], "only the endings: \(line)")
+            XCTAssertEqual(coloured.first?.1, Color.secondary, "the endings secondary: \(line)")
+            XCTAssertTrue(runs.first?.0.hasSuffix("\u{2068}αυτός") ?? false, "the label and the word: \(line)")
+            XCTAssertEqual(runs.map(\.0).joined(), line, "the text unchanged")
+        }
+        let plain = FeedbackBar.styled(FeedbackBar.lines(with(.wrong), locale: ar).title, endings: "")
+        XCTAssertTrue(plain.runs.allSatisfy { $0.foregroundColor == nil }, "no endings: no colour")
+    }
+}
+
+extension QuestionBuilderTests {
+    /// #337 (QA): only a production question, choice or typed, of a Greek
+    /// word listed with gender endings shows them on the bar; recognition,
+    /// nouns (an article, one feminine), verbs and other languages show
+    /// none. The builder leaves `otherForms` empty: the run resolves them.
+    func testRightEndingsOnlyForProductionGenderEndings() {
+        func question(_ kind: CardKind, _ term: String, _ endings: String, lang: String = "ell",
+                      input: Question.Input = .typed) -> Question {
+            let key = WordKey(lang: lang, word: term)
+            return Question(card: LearningFixture.card(kind, word: key, step: 1),
+                            word: WordChoice(key: key, term: term, endings: endings, meaning: "meaning"),
+                            meaningsLang: "eng", input: input, options: [], rightIndex: nil)
+        }
+        XCTAssertEqual(question(.production, "αυτός", "-ή, -ό").rightEndings, "-ή, -ό", "typed production")
+        XCTAssertEqual(question(.production, "αυτός", "-ή, -ό", input: .choice).rightEndings, "-ή, -ό",
+                       "production as a choice")
+        XCTAssertEqual(question(.production, "λίγοι", "-ες, -α").rightEndings, "-ες, -α", "a plural word")
+        XCTAssertEqual(question(.recognition, "αυτός", "-ή, -ό", input: .choice).rightEndings, "",
+                       "recognition answers with the meaning")
+        for (term, endings) in [("σπίτι", "το"), ("αθλητής", "ο/η"), ("Άγγλος", "-ίδα"), ("γράφω", "-εις"),
+                                ("αγαπάω", "& -ώ"), ("ένας", "μία, ένα / μια, ένα"), ("αγοραστής", "ο — αγοράστρια, η")] {
+            XCTAssertEqual(question(.production, term, endings).rightEndings, "", "\(term) \(endings): as before")
+        }
+        XCTAssertEqual(question(.production, "bueno", "-a, -o", lang: "spa").rightEndings, "", "Greek only")
+        var rng = SplitMix64(seed: 1)
+        let built = QuestionBuilder.build(card: LearningFixture.card(.production, step: 1),
+                                          word: WordChoice(key: LearningFixture.grafo, term: "αυτός", endings: "-ή, -ό",
+                                                           meaning: "he, she, it"),
+                                          candidates: [], mode: .lenient, meaningsLang: "eng", rng: &rng)
+        XCTAssertEqual(built?.input, .typed)
+        XCTAssertEqual(built?.otherForms, [], "resolved by the run, not the builder")
     }
 }
 

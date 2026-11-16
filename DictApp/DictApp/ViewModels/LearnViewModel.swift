@@ -405,6 +405,12 @@ struct AnswerFeedback: Equatable {
     /// What a wrong choice means (#299); nil for a right answer, a typed
     /// answer and "Don't know".
     var chosen: ChosenOption?
+    /// #337: the word's gender endings, shown after it in the secondary
+    /// colour ("Right answer: αυτός, -ή, -ό"); empty for other answers.
+    var rightEndings = ""
+    /// #337: a right answer in another gender also shows the word with its
+    /// endings under "Right!".
+    var showsRightAnswer = false
 }
 
 /// The option a wrong answer chose and what it stands for (#299).
@@ -541,6 +547,8 @@ final class ExerciseRunViewModel: ObservableObject {
     private var via: String?
     /// The examples of the run's words, read once per word.
     private var examples: [WordKey: [ExampleSentence]] = [:]
+    /// #337: the genders of the run's typed words, read once per word.
+    private var genders: [WordKey: [String]] = [:]
     /// The words whose first question of this run was new: only the first
     /// opens the sheet.
     private var introducedWords: Set<WordKey> = []
@@ -667,9 +675,9 @@ final class ExerciseRunViewModel: ObservableObject {
     /// Check: grades the typed answer by the answer mode.
     func check() async {
         guard feedback == nil, let question, question.input == .typed else { return }
-        let grade = AnswerChecker.grade(typed, expected: question.word.term, lang: question.word.key.lang,
-                                        mode: questionMode)
-        await answer(grade.outcome, chosen: nil, mindTheAccent: grade.mindTheAccent)
+        let grade = AnswerChecker.grade(typed, expected: question.word.term, otherForms: question.otherForms,
+                                        lang: question.word.key.lang, mode: questionMode)
+        await answer(grade.outcome, chosen: nil, mindTheAccent: grade.mindTheAccent, otherForm: grade.isOtherForm)
     }
 
     /// "Don't know" counts as wrong.
@@ -776,14 +784,34 @@ final class ExerciseRunViewModel: ObservableObject {
     private func build(_ card: CardState, _ word: WordChoice) async -> Question? {
         let mode = settings.learningAnswerMode
         questionMode = mode
-        let question = QuestionBuilder.build(card: card, word: word, candidates: enrolled, mode: mode,
+        var question = QuestionBuilder.build(card: card, word: word, candidates: enrolled, mode: mode,
                                              meaningsLang: meaningsLang, rng: &rng)
-        guard QuestionBuilder.wantsChoice(card, mode: mode),
-              (question?.options.count ?? 0) < DistractorPicker.defaultCount + 1 else { return question }
-        let sample = await sample(for: word)
-        guard !sample.isEmpty else { return question }
-        return QuestionBuilder.build(card: card, word: word, candidates: enrolled + sample, mode: mode,
-                                     meaningsLang: meaningsLang, rng: &rng)
+        if QuestionBuilder.wantsChoice(card, mode: mode),
+           (question?.options.count ?? 0) < DistractorPicker.defaultCount + 1 {
+            let sample = await sample(for: word)
+            if !sample.isEmpty {
+                question = QuestionBuilder.build(card: card, word: word, candidates: enrolled + sample, mode: mode,
+                                                 meaningsLang: meaningsLang, rng: &rng)
+            }
+        }
+        if question?.input == .typed {
+            question?.otherForms = await genderForms(of: word)
+        }
+        return question
+    }
+
+    /// #337: the genders a typed answer may give for `word`, a Greek list
+    /// word with gender endings (`GenderForms`): from its tables, else its
+    /// endings; read once per run and word, before the question shows.
+    /// None for other words, or when the read fails: the word itself is
+    /// still right.
+    private func genderForms(of word: WordChoice) async -> [String] {
+        guard GenderForms.endings(word.endings, lang: word.key.lang) != nil else { return [] }
+        if let known = genders[word.key] { return known }
+        let tables = (try? await db.genderTables(of: [word.term] + (word.entry.map { [$0.word] } ?? []))) ?? []
+        let forms = GenderForms.forms(of: word.term, endings: word.endings, lang: word.key.lang, tables: tables)
+        genders[word.key] = forms
+        return forms
     }
 
     /// 0134, #178: the sheet's examples of `key`, read once per run and
@@ -826,7 +854,7 @@ final class ExerciseRunViewModel: ObservableObject {
     /// haptic), then writes the answer, on the learning day of this moment,
     /// and requeues a wrong card. A run across 4 AM writes each answer on
     /// its own day; its plan stays.
-    private func answer(_ outcome: Outcome, chosen: Int?, mindTheAccent: Bool) async {
+    private func answer(_ outcome: Outcome, chosen: Int?, mindTheAccent: Bool, otherForm: Bool = false) async {
         guard let question else { return }
         let today = clock.today
         var chosenOption: ChosenOption?
@@ -835,7 +863,8 @@ final class ExerciseRunViewModel: ObservableObject {
             chosenOption = ChosenOption(text: option.text, counterpart: option.counterpart)
         }
         feedback = AnswerFeedback(outcome: outcome, chosenIndex: chosen, mindTheAccent: mindTheAccent,
-                                  rightAnswer: question.rightAnswer, chosen: chosenOption)
+                                  rightAnswer: question.rightAnswer, chosen: chosenOption,
+                                  rightEndings: question.rightEndings, showsRightAnswer: otherForm)
         player.play(outcome)
         // 0134, #178: a new word's first question opens its examples.
         if question.isNew, introducedWords.insert(question.word.key).inserted {

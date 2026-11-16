@@ -79,6 +79,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - [#320] In English via English, a list word's meaning is a WordNet sense of its own part of speech, so "was" reads as the verb be, not "beryllium", and most meanings lose the example and author text the dictionary build left in them.
 - [#325, #331] The speaker reads the translation of a word found by a later word of its headword (cream → ice cream), a learning word no longer plays after its run is closed, and VoiceOver turned on mid-question reads the word once.
 - [#181] Localization pass for 2.0: the typed answer's placeholder writes the language in lower case ("στα ελληνικά"), the Russian Import and the Greek Paste screens no longer truncate their titles, the Languages rows and the Learning steppers stack at the largest text sizes instead of breaking words, and the Spanish daily goal, the Greek "learning" badge and the Arabic strict-accents option use the app's own terms.
+- [#337] A typed Greek answer in another gender, such as αυτή or αυτό for αυτός, -ή, -ό, is now right, and the feedback shows the word with its endings.
 
 ### Tests / CI
 - [#203] Release builds ignore the UI-test launch arguments, and unused version code and stale developer docs are removed.
