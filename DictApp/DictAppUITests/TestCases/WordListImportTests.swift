@@ -171,11 +171,18 @@ final class WordListImportTests: XCTestCase {
         alert.buttons["Yes"].tap()
         XCTAssertTrue(page.result.waitForExistence(timeout: TestData.Timeouts.long), "Yes saves the list")
         page.done()
-        XCTAssertTrue(app.scrollToElement(lists.row("cefr-eng-a1")), "English is learned: its lists show")
-        XCTAssertTrue(app.scrollToElement(lists.importedRows.element(boundBy: 1), maxSwipes: 12),
+
+        // Lists are per learning pair (#295): Lists still shows Greek, so
+        // switch the Learn home to the English tab and open its lists.
+        let learnPage = LearnPage(app: app)
+        learnPage.popToRoot()
+        XCTAssertTrue(learnPage.waitForHome(), "the Learn home")
+        learnPage.selectLanguage(named: "English")
+        let english = learnPage.tapAllLists()
+        XCTAssertTrue(app.scrollToElement(english.row("cefr-eng-a1")), "English is learned: its lists show")
+        XCTAssertTrue(app.scrollToElement(english.importedRows.element(boundBy: 1), maxSwipes: 12),
                       "both English imports show")
 
-        let learnPage = LearnPage(app: app)
         learnPage.popToRoot()
         XCTAssertTrue(learnPage.waitForHome(), "the Learn home")
         XCTAssertTrue(learnPage.pairTab("eng").waitForExistence(timeout: TestData.Timeouts.medium),
