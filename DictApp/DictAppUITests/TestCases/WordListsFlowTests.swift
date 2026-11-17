@@ -81,7 +81,7 @@ final class WordListsFlowTests: XCTestCase {
         var page = openLists()
         XCTAssertTrue(page.row("ky-ell-a1").waitForExistence(timeout: TestData.Timeouts.medium), "Greek A1")
         XCTAssertTrue(app.staticTexts["Greek A1"].exists, "titled by language and level")
-        for (id, count) in [("ky-ell-a1", "1,506 words"), ("ky-ell-a2", "743 words"), ("ky-ell-b1", "2,434 words")] {
+        for (id, count) in [("ky-ell-a1", "1,507 words"), ("ky-ell-a2", "749 words"), ("ky-ell-b1", "2,486 words")] {
             XCTAssertTrue(app.scrollToElement(page.row(id)), id)
             XCTAssertEqual(page.count(id).label, count, id)
         }
@@ -106,12 +106,12 @@ final class WordListsFlowTests: XCTestCase {
         XCTAssertFalse(page.row(greekFixture).exists, "the Greek import is on Greek's tab")
     }
 
-    /// Greek B1 is one section of its own 2,434 words, alphabetical from
+    /// Greek B1 is one section of its own 2,486 words, alphabetical from
     /// αγγίζω to ωφελώ; σπίτι, an A1 word, is not in it.
     func testGreekB1ShowsAllItsWords() throws {
         let page = openList("ky-ell-b1")
         XCTAssertTrue(app.navigationBars["Greek B1"].waitForExistence(timeout: TestData.Timeouts.medium))
-        XCTAssertTrue(app.staticTexts["2,434 words"].exists, "the count at the top")
+        XCTAssertTrue(app.staticTexts["2,486 words"].exists, "the count at the top")
         XCTAssertTrue(page.word("αγγίζω").waitForExistence(timeout: TestData.Timeouts.medium), "the first word")
         XCTAssertFalse(app.staticTexts["B1"].exists, "one level: no section header")
         XCTAssertTrue(page.scrollTo(page.word("ωφελώ"), maxSwipes: 80, velocity: WordListsPage.bottomVelocity),
@@ -380,8 +380,8 @@ final class WordListsFlowTests: XCTestCase {
         let page = openLists()
         let a1 = page.progress("ky-ell-a1")
         XCTAssertTrue(a1.waitForExistence(timeout: TestData.Timeouts.medium), "Greek A1's bar")
-        XCTAssertEqual(a1.label, "1 learned · 5 learning · 1,500 new")
-        XCTAssertEqual(page.progress("ky-ell-a2").label, "0 learned · 0 learning · 743 new")
+        XCTAssertEqual(a1.label, "1 learned · 5 learning · 1,501 new")
+        XCTAssertEqual(page.progress("ky-ell-a2").label, "0 learned · 0 learning · 749 new")
         XCTAssertTrue(app.scrollToElement(page.row("my-words")))
         XCTAssertEqual(page.progress("my-words").label, "1 learned · 5 learning · 0 new", "My words' Greek words")
 
@@ -392,7 +392,7 @@ final class WordListsFlowTests: XCTestCase {
         learnPage.popToRoot()
         let homeBar = learnPage.listProgress("ky-ell-a1")
         XCTAssertTrue(app.scrollToElement(homeBar), "the Learn home shows the checked list's bar")
-        XCTAssertEqual(homeBar.label, "1 learned · 5 learning · 1,500 new")
+        XCTAssertEqual(homeBar.label, "1 learned · 5 learning · 1,501 new")
     }
 
     // MARK: - Imported lists and My words

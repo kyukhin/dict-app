@@ -6,9 +6,9 @@ Written by `Scripts/build_wordlists.py` on every dictionary build (docs/specs/01
 
 | Input | sha256 |
 |---|---|
-| `Scripts/data/wordlists/ky-ell-a1.csv` | `018156d284508b62b61346799f680bafb65a6d28768e9f42ef2fe3b1a05914cd` |
-| `Scripts/data/wordlists/ky-ell-a2.csv` | `743cbe36b9cdc73e2cb20f648b5ce5974b5fbdbb3f15d64469af0595c8c0e773` |
-| `Scripts/data/wordlists/ky-ell-b1.csv` | `c6a7c42424d2f1fc0ee5b4e0364343cde6076a6da3a0b1ecf6c19c9717c61686` |
+| `Scripts/data/wordlists/ky-ell-a1.csv` | `4c4c91298d7fc5de19985eabea14a5b7a3de16e99ac979691ea0003f6ba8c9aa` |
+| `Scripts/data/wordlists/ky-ell-a2.csv` | `074571559e446d25199a0ab7ab963032dbb859b78090f4b10e0f9d14460e0b0c` |
+| `Scripts/data/wordlists/ky-ell-b1.csv` | `cc71e1c7b3fbbc6c71280741a73cb11f26cb8d581d2a01994774f1f9b1245125` |
 | `openlanguageprofiles/cefrj-vocabulary-profile-1.5.csv` | `b0dd3c635f1c9a4fdf1490c7e5b7c48e8bbe55b652ad0c9860a95f98e10ae498` |
 | `openlanguageprofiles/octanove-vocabulary-profile-c1c2-1.0.csv` | `18c33a407f2f89f7b8de9671c6d45fe3ea0bce45e7d2d7dcaab48d73e0f7b380` |
 | `frequencywords/el_50k.txt` | `7ec8f6de52c38f36a04add5d1613b116aed576e10c5e3b40d0001e8572de978c` |
@@ -19,11 +19,11 @@ Written by `Scripts/build_wordlists.py` on every dictionary build (docs/specs/01
 | Gate | Measured | Needed | |
 |---|---|---|---|
 | Input problems (Latin letters in Greek, Greek letters in Latin words, rows that become no word, rows without a level of their series, bad rows, overrides) | 0 | 0 | ok |
-| ky-ell linked | 88.0% (4,122 of 4,683) | ≥ 84% | ok |
+| ky-ell linked | 87.4% (4,146 of 4,742) | ≥ 84% | ok |
 | cefr-eng linked | 98.6% (8,529 of 8,647) | ≥ 95% | ok |
 | word_count equals rows | all | all | ok |
 | Empty lists | 0 | 0 | ok |
-| E3 tables | 3.27 MB | ≤ 4 MB | ok |
+| E3 tables | 3.28 MB | ≤ 4 MB | ok |
 
 ## ky-ell
 
@@ -31,27 +31,27 @@ Written by `Scripts/build_wordlists.py` on every dictionary build (docs/specs/01
 
 | Level | Rows | Words | Linked | Ranked |
 |---|---|---|---|---|
-| A1 | 1,535 | 1,506 | 93.9% | 92.3% |
-| A2 | 763 | 743 | 78.6% | 74.7% |
-| B1 | 2,443 | 2,434 | 87.3% | 75.0% |
-| all | 4,741 | 4,683 | 88.0% | 80.5% |
+| A1 | 1,536 | 1,507 | 94.0% | 92.4% |
+| A2 | 766 | 749 | 78.2% | 74.6% |
+| B1 | 2,495 | 2,486 | 86.2% | 74.4% |
+| all | 4,797 | 4,742 | 87.4% | 80.2% |
 
-58 rows merged into other rows' words (below).
+55 rows merged into other rows' words (below).
 
 ### Link classes
 
 | Level | exact | cleaned | near | form | override | unlinked |
 |---|---|---|---|---|---|---|
-| A1 | 1,351 | 5 | 14 | 28 | 16 | 92 |
-| A2 | 555 | 4 | 8 | 17 | 0 | 159 |
-| B1 | 2,052 | 1 | 2 | 69 | 0 | 310 |
-| all | 3,958 | 10 | 24 | 114 | 16 | 561 |
+| A1 | 1,352 | 5 | 14 | 29 | 16 | 91 |
+| A2 | 557 | 4 | 8 | 17 | 0 | 163 |
+| B1 | 2,072 | 1 | 2 | 69 | 0 | 342 |
+| all | 3,981 | 10 | 24 | 115 | 16 | 596 |
 
 ### A1: the 20 most frequent words, before the shuffle
 
 ο, να, είμαι, αυτός, το, του, σε, μου, δεν, και, θα, σου, ένας, έχω, με, για, τις, ή, η, την
 
-### Links to review: cleaned, near, form and override (173)
+### Links to review: cleaned, near, form and override (175)
 
 | Level | Term | Headword | Rule | The rules' link |
 |---|---|---|---|---|
@@ -121,6 +121,7 @@ Written by `Scripts/build_wordlists.py` on every dictionary build (docs/specs/01
 | A1 | υπάρχει | υπάρχω | form |  |
 | A1 | φτηνά | φτηνός | form |  |
 | A1 | Φυσικά! | φυσικά | near |  |
+| A1 | χαιρετισμοί | χαιρετισμός | form |  |
 | A1 | Χιονίζει | χιονίζει | near |  |
 | A1 | ωραία | ωραίος | form |  |
 | A2 | ανακατεμένος | ανακατεύω | form |  |
@@ -198,6 +199,7 @@ Written by `Scripts/build_wordlists.py` on every dictionary build (docs/specs/01
 | B1 | λιωμένος | λιώνω | form |  |
 | B1 | λούζομαι | λούζω | form |  |
 | B1 | μοναδικά | μοναδικός | form |  |
+| B1 | μπέμπα | — | override | μπέμπα |
 | B1 | ξυρίζομαι | ξυρίζω | form |  |
 | B1 | ολυμπιακός | — | override | Ολυμπιακός |
 | B1 | ονομάζομαι | ονομάζω | form |  |
@@ -229,7 +231,7 @@ Written by `Scripts/build_wordlists.py` on every dictionary build (docs/specs/01
 | B1 | χορτασμένος | χορταίνω | form |  |
 | B1 | χτενίζομαι | χτενίζω | form |  |
 
-### Unlinked words (561)
+### Unlinked words (596)
 
 | Level | Term | Translation |
 |---|---|---|
@@ -317,7 +319,6 @@ Written by `Scripts/build_wordlists.py` on every dictionary build (docs/specs/01
 | A1 | Φίλιππος | Philip |
 | A1 | Φυσάει | It is windy |
 | A1 | χαιρετάω | to say hello |
-| A1 | χαιρετισμοί/χαιρετίσματα | regards, greetings |
 | A1 | Χαλκιδική | Chalkidiki |
 | A1 | Χάρηκα που σας γνώρισα! | Nice to meet you! |
 | A1 | χειρούργος | surgeon |
@@ -333,7 +334,7 @@ Written by `Scripts/build_wordlists.py` on every dictionary build (docs/specs/01
 | A2 | Αννα | Anna |
 | A2 | απλό εισιτήριο | one way ticket |
 | A2 | από μέσα/έξω | from inside/outside |
-| A2 | Από πού είσαι/είστε? | Where are you from? |
+| A2 | Από πού είσαι/είστε; | Where are you from? |
 | A2 | από τότε | since then |
 | A2 | Απόκριες | Carnival time / Halloween |
 | A2 | ασθενής άνεμος | mild wind |
@@ -395,6 +396,7 @@ Written by `Scripts/build_wordlists.py` on every dictionary build (docs/specs/01
 | A2 | κεντρικό δελτίο ειδήσεων | news |
 | A2 | ΚΕΠ (Κέντρο Εξυπηρέτησης Πολιτών) | Citizen Service Centre |
 | A2 | κλειδί-λέξη | key word |
+| A2 | κλέφτρα | thief, robber [feminine] |
 | A2 | κοιτώ | to look (at) |
 | A2 | Κομοτηνή | Komotimi |
 | A2 | κουζίνα ηλεκτρική | (electric) stove, (electric) cooker |
@@ -433,6 +435,7 @@ Written by `Scripts/build_wordlists.py` on every dictionary build (docs/specs/01
 | A2 | ξαναμιλάω | to talk again |
 | A2 | ξαναπερνάω | to come/pass again |
 | A2 | «Ο Θάνατος του εμποράκου» | “Death of a Salesman” |
+| A2 | ομιλήτρια | speaker, lecturer [feminine] |
 | A2 | Όσκαρ βραβείο | Oscar award |
 | A2 | ουζερί | greek tavern |
 | A2 | παίρνω συνέντευξη | to take an interview, to interview |
@@ -463,16 +466,17 @@ Written by `Scripts/build_wordlists.py` on every dictionary build (docs/specs/01
 | A2 | σγουρός | curly |
 | A2 | σε σχέση με | relating to |
 | A2 | σημειώνω / κρατάω σημειώσεις | to take down notes, to write down |
+| A2 | σκουφί | beanie, hat |
 | A2 | στεναχωρημένος | sad, unhappy, depressed |
 | A2 | στην τηλεόραση | on the television / on the TV |
 | A2 | συζητάω | to discuss |
 | A2 | συλληπητήρια | condolences |
+| A2 | συμφοιτήτρια | classmate [feminine] |
 | A2 | Σωτηρία | Sotiria |
 | A2 | τάγκο | tango |
 | A2 | Τάσος | Tassos |
 | A2 | Τασούλα | Tassoula |
 | A2 | ταυτότητα αστυνομική | identification card / ID |
-| A2 | τζάζ,η | jazz |
 | A2 | τηλεφωνώ / παίρνω τηλέφωνο | to call, to phone |
 | A2 | τμήμα αστυνομικό | police department/station |
 | A2 | τρία πόδια Χαλκιδικής | the three legs/fingers of the Chalkidiki peninsula |
@@ -483,8 +487,11 @@ Written by `Scripts/build_wordlists.py` on every dictionary build (docs/specs/01
 | A2 | φοιτητική εστία | student residence |
 | A2 | Χαράλαμπος | Charalambos |
 | A2 | Χαρίκλεια | Chariklia |
+| A2 | χορεύτρια | dancer [feminine] |
 | A2 | χτυπάει το τηλέφωνο | the phone is ringing |
 | B1 | Άγιος Μαυρίκιος | Mauritius |
+| B1 | αγοράστρια | buyer, purchaser, shopper, customer [feminine] |
+| B1 | αγρότισσα | farmer [feminine] |
 | B1 | αεροπορικός | air, aviation, of air travel |
 | B1 | Αιγαίο | the Aegean sea |
 | B1 | ακροστιχίδα | acrostic, acronym |
@@ -492,6 +499,7 @@ Written by `Scripts/build_wordlists.py` on every dictionary build (docs/specs/01
 | B1 | αλλάζω γνώμη | to change my mind |
 | B1 | άλλωστε | besides, moreover, after all |
 | B1 | αμυγδαλωτός | almond-shaped |
+| B1 | αναγνώστρια | reader [feminine] |
 | B1 | αναζητάω | to seek, to look for |
 | B1 | ανακεφαλαίωση | summary |
 | B1 | ανεβοκατεβαίνω | to go up and down, to fluctuate |
@@ -511,17 +519,22 @@ Written by `Scripts/build_wordlists.py` on every dictionary build (docs/specs/01
 | B1 | αποτυχαίνω | to fail |
 | B1 | αραιωμένος | diluted |
 | B1 | αραχτός | loafing around, loafing about, hanging around |
-| B1 | αρραβωνιαστικός | fiancé, fiancée |
+| B1 | αρκούδι | little bear, bear cub |
+| B1 | αρραβωνιαστικός | fiancé |
 | B1 | αρρωστιάρης | ill, sick, who becomes ill often |
 | B1 | Άρτεμη | Artemis |
 | B1 | αρχικός | initial |
+| B1 | αρχόντισσα | lady |
 | B1 | αρωματίζω | to scent, to perfume, to flavor, to spice |
 | B1 | Αστυπάλαια | Astypalaia |
+| B1 | αφηγήτρια | narrator [feminine] |
 | B1 | αφιέρωμα | dedication, tribute |
 | B1 | αφιερωμένος | dedicated |
 | B1 | άχνη | powdered sugar |
+| B1 | βαθμολόγηση | grading |
 | B1 | βαθμολογούμαι | to be graded |
 | B1 | βάθρα | a natural pool (in Samothraki) |
+| B1 | βαρέλα | large barrel |
 | B1 | βαρκάδα | boat ride |
 | B1 | βεγγέρα | visit, dinner party |
 | B1 | βραβεύομαι | to be awarded, to receive a prize or award |
@@ -548,9 +561,11 @@ Written by `Scripts/build_wordlists.py` on every dictionary build (docs/specs/01
 | B1 | γλυκό του ταψιού | baked dessert, a dessert made in a sheet pan |
 | B1 | γουλί | bald, clean-shaven |
 | B1 | γούνινος | furry |
-| B1 | γουρλής | person who brings good look to others |
+| B1 | γουρλής | person who brings good luck to others [masculine] |
+| B1 | γουρλού | person who brings good luck to others [feminine] |
 | B1 | γραπτές εξετάσεις | written exams |
-| B1 | γραφίστας | graphic designer |
+| B1 | γραφίστας | graphic designer [masculine] |
+| B1 | γραφίστρια | graphic designer [feminine] |
 | B1 | δανειστικός | loan |
 | B1 | δασικός | woodland |
 | B1 | δεκαήμερο | ten day period |
@@ -559,6 +574,7 @@ Written by `Scripts/build_wordlists.py` on every dictionary build (docs/specs/01
 | B1 | δημοσιοποίηση | publication |
 | B1 | διαδικτυακός | online, internet |
 | B1 | διαιτητικός | dietary |
+| B1 | διακοσμήτρια | decorator [feminine] |
 | B1 | διαμπερές | with openings or windows on opposite sides, through and through |
 | B1 | διανυκτέρευση | staying overnight, spending the night, overnight stop, all night service |
 | B1 | διαρρύθμιση | arrangement |
@@ -567,15 +583,22 @@ Written by `Scripts/build_wordlists.py` on every dictionary build (docs/specs/01
 | B1 | διόδια | tolls |
 | B1 | δίχως | without |
 | B1 | διώροφος | with two floors |
+| B1 | δούλη | slave [feminine] |
 | B1 | δυναμωτικός | strengthening |
 | B1 | δώμα | small appartement on the top floor |
+| B1 | εγωίστρια | egoist [feminine] |
+| B1 | εθελόντρια | volunteer [feminine] |
 | B1 | εθνότητα | ethnicity |
 | B1 | εκβιαστικός | extortionate |
+| B1 | εκβιάστρια | blackmailer [feminine] |
 | B1 | εκδοτικός | publishing, issuing |
 | B1 | εκπτωτικός | cut-rate, discount |
+| B1 | εκφοβίστρια | bully [feminine] |
 | B1 | Ελεγκάκη | Elegaki (character from a novel) |
 | B1 | ενημερωτικός | informative |
+| B1 | ενοικιάστρια | tenant [feminine] |
 | B1 | έξοχος | superb, excellent, exquisite |
+| B1 | εργοδότρια | employer [feminine] |
 | B1 | Ευρυπίδης | Euripides |
 | B1 | Ευρωπαϊκή Ενωση | European Union |
 | B1 | ζεστασιά | heat, warmth |
@@ -591,10 +614,13 @@ Written by `Scripts/build_wordlists.py` on every dictionary build (docs/specs/01
 | B1 | κανάτι | cruse, pitcher, jug |
 | B1 | κάνω παιδί | to have a child |
 | B1 | καστανάς | man who sells roasted chestnuts |
+| B1 | καταναλώτρια | consumer [feminine] |
 | B1 | κατατεθέν | registered [trademark] |
 | B1 | κάτοψη | floor plan |
 | B1 | κατώι | the ground floor of old rural houses |
-| B1 | καφετζής | barista, person who makes coffee in a coffee shop |
+| B1 | καφενές | coffee shop |
+| B1 | καφετζής | barista, person who makes coffee in a coffee shop [masculine] |
+| B1 | καφετζού | barista, person who makes coffee in a coffee shop [feminine] |
 | B1 | Κελσίου (βαθμοί) | Celsius (degrees) |
 | B1 | Κερκίνη | (Lake) Kerkini |
 | B1 | κινητικός | energetic, kinetic |
@@ -627,15 +653,19 @@ Written by `Scripts/build_wordlists.py` on every dictionary build (docs/specs/01
 | B1 | Λευτέρης | Lefteris |
 | B1 | λογιών λογιών | of all sorts |
 | B1 | μαγειρείο | cookshop, cook house, tavern |
+| B1 | μετανάστρια | immigrant [feminine] |
 | B1 | μεταξωτός | silk |
+| B1 | μεταφράστρια | translator [feminine] |
 | B1 | μικρόσωμος | petite, little |
 | B1 | μισοτιμής | at half price, very cheap |
-| B1 | μόδιστρος | fashion designer, tailor, seamstress seamstress |
+| B1 | μοδίστρα | seamstress, dressmaker |
+| B1 | μόδιστρος | fashion designer, tailor |
 | B1 | μολονότι | although, though |
 | B1 | μονάχα | only |
 | B1 | μονολεκτικός | with one word |
 | B1 | μοσχοβολάω | to smell nice |
 | B1 | Μπαξέδες | Baxedes |
+| B1 | μπέμπα | baby girl |
 | B1 | μπομπονιέρα | jordan almonds, wedding favor |
 | B1 | μπροστινός | anterior |
 | B1 | μύδια σαγανάκι | fried mussels |
@@ -665,7 +695,6 @@ Written by `Scripts/build_wordlists.py` on every dictionary build (docs/specs/01
 | B1 | ξενυχτάω | to stay out late |
 | B1 | ξεφουσκωμένος | deflated |
 | B1 | οδικός | road |
-| B1 | οικία,η | house |
 | B1 | ολυμπιακός | olympic |
 | B1 | ομαδικός | group, team |
 | B1 | οργανωτικός | organizational |
@@ -674,6 +703,7 @@ Written by `Scripts/build_wordlists.py` on every dictionary build (docs/specs/01
 | B1 | οροφοδιαμέρισμα | one floor apartment |
 | B1 | παγωτατζής | ice cream man |
 | B1 | παιδότοπος | playground, playing facilities |
+| B1 | παίκτρια | player [feminine] |
 | B1 | παινεύω | to praise |
 | B1 | παίρνω μέρος | to take part, participate |
 | B1 | παίρνω τηλέφωνο | to call, to phone, to make a phonecall |
@@ -684,7 +714,6 @@ Written by `Scripts/build_wordlists.py` on every dictionary build (docs/specs/01
 | B1 | παράς | money |
 | B1 | παρατάω | to abandon, to give up |
 | B1 | παρόλο | even though |
-| B1 | πατέρας, | father |
 | B1 | πεδινός | flat, level, of a plain |
 | B1 | πέλαγος | sea |
 | B1 | Περσεφόνη | Persephone |
@@ -702,16 +731,21 @@ Written by `Scripts/build_wordlists.py` on every dictionary build (docs/specs/01
 | B1 | πνευμονολόγος | pulmonologist |
 | B1 | πνέω | to blow, to breath, to waft |
 | B1 | ποδαρικό | good luck that [sb] brings, being the first one to enter at a specific time of the year, e.g. at New Year’s Day |
+| B1 | ποδηλάτισσα | cyclist [feminine] |
 | B1 | πολίτικος | from Constantinople/Istanbul |
 | B1 | πολύξερος | knowledgeable, know-it-all |
 | B1 | πολυταξιδευμένος | who has travelled extensively |
 | B1 | ποπ μουσική | pop music |
 | B1 | Πόπη | Popi (usually short for Penelope) |
 | B1 | πουά | spotted, polka dotted |
+| B1 | προγραμματίστρια | developer, computer programmer [feminine] |
+| B1 | προϊσταμένη | director, chief, supervisor [feminine] |
 | B1 | προξενιό | matchmaking |
 | B1 | προπώληση | pre-sale |
+| B1 | προστάτιδα | protector [feminine] |
 | B1 | προφορικές εξετάσεις | oral exams |
 | B1 | πρωταγωνιστικός | leading |
+| B1 | πρωταγωνίστρια | protagonist, leading person [feminine] |
 | B1 | πρωτοβρόχια | the first rain of the fall season |
 | B1 | ρακόμελο | rakomelo, usually made with the combination of raki and honey and other spices |
 | B1 | ραπ μουσική | rap music |
@@ -749,6 +783,7 @@ Written by `Scripts/build_wordlists.py` on every dictionary build (docs/specs/01
 | B1 | συμμαχικός | allied |
 | B1 | συμπερασματικά | in conclusion |
 | B1 | συνθετικός | synthetic |
+| B1 | σχεδιάστρια | designer [feminine] |
 | B1 | Σωτήρης | Sotiris |
 | B1 | ταινία μικρού μήκος | short film |
 | B1 | ταρό | tarot cards |
@@ -757,7 +792,8 @@ Written by `Scripts/build_wordlists.py` on every dictionary build (docs/specs/01
 | B1 | τζακούζι | jacuzzi |
 | B1 | τζάμπα | for free, free of charge |
 | B1 | τζιτζίκι | cicada |
-| B1 | τίνος | whose |
+| B1 | τίνος | whose [singular] |
+| B1 | τίνων | whose [plural] |
 | B1 | του φούρνου | food cooked in the oven |
 | B1 | τρανός | important, large |
 | B1 | τριώροφος | with three floors |
@@ -793,9 +829,10 @@ Written by `Scripts/build_wordlists.py` on every dictionary build (docs/specs/01
 | B1 | ψηλώνω | to grow taller |
 | B1 | ψήσιμο | grilling, roasting, baking |
 | B1 | ψιλικατζής | owner of a small convenience store or kiosk |
+| B1 | ψύχρα | chill |
 | B1 | ψυχραίνω | to make cold, to freeze out |
 
-### Unranked words (913)
+### Unranked words (941)
 
 | Level | Term |
 |---|---|
@@ -907,7 +944,6 @@ Written by `Scripts/build_wordlists.py` on every dictionary build (docs/specs/01
 | A1 | Φινλανδός |
 | A1 | φροντιστήριο |
 | A1 | φωτογραφική μηχανή |
-| A1 | χαιρετισμοί/χαιρετίσματα |
 | A1 | Χαλκιδική |
 | A1 | Χανιά |
 | A1 | χάρακας |
@@ -923,7 +959,7 @@ Written by `Scripts/build_wordlists.py` on every dictionary build (docs/specs/01
 | A2 | ανεβαίνει μια θεατρική παράσταση |
 | A2 | απλό εισιτήριο |
 | A2 | από μέσα/έξω |
-| A2 | Από πού είσαι/είστε? |
+| A2 | Από πού είσαι/είστε; |
 | A2 | από τότε |
 | A2 | αρχαία ελληνικά |
 | A2 | ασθενής άνεμος |
@@ -1040,6 +1076,7 @@ Written by `Scripts/build_wordlists.py` on every dictionary build (docs/specs/01
 | A2 | ξηρός καρπός |
 | A2 | «Ο Θάνατος του εμποράκου» |
 | A2 | οικογενειακή κατάσταση |
+| A2 | ομιλήτρια |
 | A2 | ονοματεπώνυμο |
 | A2 | Όσκαρ βραβείο |
 | A2 | όσπριο |
@@ -1077,11 +1114,12 @@ Written by `Scripts/build_wordlists.py` on every dictionary build (docs/specs/01
 | A2 | σε σχέση με |
 | A2 | σημειώνω / κρατάω σημειώσεις |
 | A2 | σκορπίζω |
+| A2 | σκουφί |
 | A2 | στην τηλεόραση |
+| A2 | συμφοιτήτρια |
 | A2 | συρτάκι |
 | A2 | Τασούλα |
 | A2 | ταυτότητα αστυνομική |
-| A2 | τζάζ,η |
 | A2 | τηλεφωνώ / παίρνω τηλέφωνο |
 | A2 | τ.μ. |
 | A2 | τμήμα αστυνομικό |
@@ -1108,7 +1146,9 @@ Written by `Scripts/build_wordlists.py` on every dictionary build (docs/specs/01
 | B1 | αγκινάρα |
 | B1 | αγοραπωλησία |
 | B1 | αγορασμένος |
+| B1 | αγοράστρια |
 | B1 | Αγρίνιο |
+| B1 | αγρότισσα |
 | B1 | άθληση |
 | B1 | αθλούμαι |
 | B1 | Αιγαίο |
@@ -1131,6 +1171,7 @@ Written by `Scripts/build_wordlists.py` on every dictionary build (docs/specs/01
 | B1 | αμυγδαλωτός |
 | B1 | αν και |
 | B1 | αναγνωστήριο |
+| B1 | αναγνώστρια |
 | B1 | ανακεφαλαίωση |
 | B1 | ανακυκλωμένος |
 | B1 | ανακυκλώνω |
@@ -1176,6 +1217,7 @@ Written by `Scripts/build_wordlists.py` on every dictionary build (docs/specs/01
 | B1 | αργυροπελεκάνος |
 | B1 | αριθμώ |
 | B1 | Αρίων |
+| B1 | αρκούδι |
 | B1 | αρρωστιάρης |
 | B1 | Άρτεμη |
 | B1 | αρωματίζω |
@@ -1191,16 +1233,20 @@ Written by `Scripts/build_wordlists.py` on every dictionary build (docs/specs/01
 | B1 | αυστηρότητα |
 | B1 | αυτόνομος |
 | B1 | αυτοσχεδιάζω |
+| B1 | αφηγήτρια |
 | B1 | αφηγούμαι |
 | B1 | αφιλόξενος |
 | B1 | αφορώ |
 | B1 | άχνη |
 | B1 | αχυρένιος |
+| B1 | βαθμολόγηση |
 | B1 | βαθμολογούμαι |
 | B1 | βαθμολογώ |
 | B1 | βάθρα |
 | B1 | βαλκανικός |
 | B1 | Βαλτική |
+| B1 | βαρέλα |
+| B1 | βασιλοπούλα |
 | B1 | βασιλόπουλο |
 | B1 | βατραχοπέδιλο |
 | B1 | βεγγέρα |
@@ -1210,6 +1256,7 @@ Written by `Scripts/build_wordlists.py` on every dictionary build (docs/specs/01
 | B1 | βιολετής |
 | B1 | βιολετί |
 | B1 | βλαβερός |
+| B1 | βουλευτίνα |
 | B1 | βουρτσίζω |
 | B1 | βουτυρωμένος |
 | B1 | βραβεύομαι |
@@ -1249,8 +1296,10 @@ Written by `Scripts/build_wordlists.py` on every dictionary build (docs/specs/01
 | B1 | γλυκό του ταψιού |
 | B1 | γούνινος |
 | B1 | γουρλής |
+| B1 | γουρλού |
 | B1 | γραπτές εξετάσεις |
 | B1 | γραφίστας |
+| B1 | γραφίστρια |
 | B1 | γρουσούζης |
 | B1 | δανεισμός |
 | B1 | δανειστικός |
@@ -1268,6 +1317,7 @@ Written by `Scripts/build_wordlists.py` on every dictionary build (docs/specs/01
 | B1 | διαιτητικός |
 | B1 | διαιτολόγος |
 | B1 | διακοσιοστός |
+| B1 | διακοσμήτρια |
 | B1 | διακρίνομαι |
 | B1 | διαμένω |
 | B1 | διανυκτέρευση |
@@ -1282,6 +1332,7 @@ Written by `Scripts/build_wordlists.py` on every dictionary build (docs/specs/01
 | B1 | διώροφος |
 | B1 | δοκιμασμένος |
 | B1 | δοκίμιο |
+| B1 | δούλη |
 | B1 | δροσίζω |
 | B1 | δυναμισμός |
 | B1 | δυναμώνω |
@@ -1294,6 +1345,7 @@ Written by `Scripts/build_wordlists.py` on every dictionary build (docs/specs/01
 | B1 | ειδικευμένος |
 | B1 | εκβιάζω |
 | B1 | εκβιαστικός |
+| B1 | εκβιάστρια |
 | B1 | εκδηλώνομαι |
 | B1 | εκδοτήριο |
 | B1 | εκπτωτικός |
@@ -1301,18 +1353,21 @@ Written by `Scripts/build_wordlists.py` on every dictionary build (docs/specs/01
 | B1 | εκφοβίζω |
 | B1 | εκφοβιστής |
 | B1 | εκφοβιστικός |
+| B1 | εκφοβίστρια |
 | B1 | εκφράζομαι |
 | B1 | ελαττωματικός |
 | B1 | Ελεγκάκη |
 | B1 | ενημερωτικός |
 | B1 | ενθαρρυντικός |
 | B1 | εννιάχρονος |
+| B1 | ενοικιάστρια |
 | B1 | ενορχήστρωση |
 | B1 | εντυπωσιάζω |
 | B1 | εξαντλητικός |
 | B1 | εξελίσσομαι |
 | B1 | εξεταστής |
 | B1 | εξεταστικός |
+| B1 | εξετάστρια |
 | B1 | εξοικονομώ |
 | B1 | εξοπλίζω |
 | B1 | επαγγελματισμός |
@@ -1325,6 +1380,8 @@ Written by `Scripts/build_wordlists.py` on every dictionary build (docs/specs/01
 | B1 | επισκευάζω |
 | B1 | εποχιακός |
 | B1 | εργατική τάξη |
+| B1 | εργάτρια |
+| B1 | εργοδότρια |
 | B1 | ερωδιός |
 | B1 | έτσι κι έτσι |
 | B1 | ευέλικτος |
@@ -1368,6 +1425,7 @@ Written by `Scripts/build_wordlists.py` on every dictionary build (docs/specs/01
 | B1 | κάρδαμο |
 | B1 | κασέρι |
 | B1 | καταναλωτικός |
+| B1 | καταναλώτρια |
 | B1 | καταπιέζω |
 | B1 | καταπράσινος |
 | B1 | κατασκευασμένος |
@@ -1376,7 +1434,9 @@ Written by `Scripts/build_wordlists.py` on every dictionary build (docs/specs/01
 | B1 | κάτοψη |
 | B1 | κατώι |
 | B1 | καυσαέριο |
+| B1 | καφενές |
 | B1 | καφετζής |
+| B1 | καφετζού |
 | B1 | κεραμίδι |
 | B1 | Κερκίνη |
 | B1 | κεφαλοτύρι |
@@ -1428,7 +1488,9 @@ Written by `Scripts/build_wordlists.py` on every dictionary build (docs/specs/01
 | B1 | Λωξάντρα |
 | B1 | μαγειρεμένος |
 | B1 | μαγειρίτσα |
+| B1 | μετανάστρια |
 | B1 | μεταφορικός |
+| B1 | μεταφράστρια |
 | B1 | μεταχειρίζομαι |
 | B1 | μηδενίζω |
 | B1 | μηχανοδηγός |
@@ -1487,7 +1549,6 @@ Written by `Scripts/build_wordlists.py` on every dictionary build (docs/specs/01
 | B1 | ξηρότητα |
 | B1 | ξυλοδαρμός |
 | B1 | ξύσμα |
-| B1 | οικία,η |
 | B1 | οργανωτικός |
 | B1 | ορεινός |
 | B1 | ορθοπεδικός |
@@ -1515,7 +1576,6 @@ Written by `Scripts/build_wordlists.py` on every dictionary build (docs/specs/01
 | B1 | παρασύρομαι |
 | B1 | πασπαλίζω |
 | B1 | παστίτσιο |
-| B1 | πατέρας, |
 | B1 | παχαίνω |
 | B1 | παχουλός |
 | B1 | παχυντικός |
@@ -1536,6 +1596,7 @@ Written by `Scripts/build_wordlists.py` on every dictionary build (docs/specs/01
 | B1 | πλαγιότιτλος |
 | B1 | πλακάκι |
 | B1 | πλαστελίνη |
+| B1 | πλατάνι |
 | B1 | πλάτανος |
 | B1 | πλέκω |
 | B1 | πλένομαι |
@@ -1546,6 +1607,7 @@ Written by `Scripts/build_wordlists.py` on every dictionary build (docs/specs/01
 | B1 | πνέω |
 | B1 | ποδαρικό |
 | B1 | ποδηλάτης |
+| B1 | ποδηλάτισσα |
 | B1 | πολύξερος |
 | B1 | πολυταξιδευμένος |
 | B1 | ποπ μουσική |
@@ -1554,6 +1616,7 @@ Written by `Scripts/build_wordlists.py` on every dictionary build (docs/specs/01
 | B1 | πουλερικό |
 | B1 | πουλημένος |
 | B1 | πρόβειος |
+| B1 | προγραμματίστρια |
 | B1 | προεξέχω |
 | B1 | προοδεύω |
 | B1 | προορίζω |
@@ -1568,6 +1631,7 @@ Written by `Scripts/build_wordlists.py` on every dictionary build (docs/specs/01
 | B1 | ρακόμελο |
 | B1 | ραπ μουσική |
 | B1 | ράφτιγκ |
+| B1 | ράφτρα |
 | B1 | ρεβανί |
 | B1 | ρεβεγιόν |
 | B1 | ρεβίθι |
@@ -1639,6 +1703,7 @@ Written by `Scripts/build_wordlists.py` on every dictionary build (docs/specs/01
 | B1 | τζατζίκι |
 | B1 | τζιτζίκι |
 | B1 | τηγάνισμα |
+| B1 | τίνων |
 | B1 | τονισμός |
 | B1 | τονώνω |
 | B1 | του φούρνου |
@@ -1713,7 +1778,7 @@ Written by `Scripts/build_wordlists.py` on every dictionary build (docs/specs/01
 | B1 | ωφέλεια |
 | B1 | ωφέλιμος |
 
-### Merged rows (57 words of 115 rows)
+### Merged rows (54 words of 109 rows)
 
 | Level | Word | Rows (level:line term) | Translation | Endings |
 |---|---|---|---|---|
@@ -1729,13 +1794,13 @@ Written by `Scripts/build_wordlists.py` on every dictionary build (docs/specs/01
 | A1 | δοκιμάζω | A1:428 δοκιμάζω, A1:429 δοκιμάζω | to try (in general); to taste (food) | — |
 | A1 | δύση | A1:441 Δύση, A1:442 δύση | West; sunset | η |
 | A1 | είμαι | A1:456 είμαι, A1:457 είμαι | to be; I am | — |
-| A1 | εννέα | A1:472 εννέα, A2:195 εννέα | nine | εννιά |
-| A1 | επτά | A1:525 επτά, B1:922 επτά | seven | εφτά |
+| A1 | εννέα | A1:472 εννέα, A2:194 εννέα | nine | εννιά |
+| A1 | επτά | A1:525 επτά, B1:949 επτά | seven | εφτά |
 | A1 | ηθοποιός | A1:548 ηθοποιός, A1:549 ηθοποιός | actress; actor | η / ο |
 | A1 | ισραηλινός | A1:602 ισραηλινός, A1:603 Ισραηλινός | Israeli | -ή, -ό / -ή |
 | A1 | κάποιος | A1:647 κάποιος, A1:648 κάποιος | someone; some, a | -α, -ο |
 | A1 | κάτω | A1:668 κάτω, A1:669 κάτω | down; under | — |
-| A1 | κεφαλαίο γράμμα | A1:679 κεφαλαίο γράμμα, A2:307 κεφαλαίο γράμμα | capital letter | το |
+| A1 | κεφαλαίο γράμμα | A1:679 κεφαλαίο γράμμα, A2:306 κεφαλαίο γράμμα | capital letter | το |
 | A1 | κουζίνα | A1:721 κουζίνα, A1:722 κουζίνα | kitchen (room); cuisine, style of cooking | η |
 | A1 | μέσα | A1:818 μέσα, A1:819 μέσα | (to stay) indoors; in | — |
 | A1 | μέση | A1:821 μέση, A1:822 μέση | (body) waist; middle (place) | η |
@@ -1751,29 +1816,26 @@ Written by `Scripts/build_wordlists.py` on every dictionary build (docs/specs/01
 | A2 | αίθουσα | A2:14 αίθουσα, A2:15 αίθουσα | classroom; hall | η |
 | A2 | Αλέξανδρος | A2:18 Αλέξανδρος, A2:19 Αλέξανδρος | Alexander; Alexander the Great | ο / ο Μέγας |
 | A2 | διάστημα | A2:130 διάστημα, A2:131 διάστημα | period, time; space | το |
-| A2 | δύο φορές | A2:145 δύο φορές, A2:723 δύο φορές | twice | — |
+| A2 | δύο φορές | A2:145 δύο φορές, A2:725 δύο φορές | twice | — |
 | A2 | ειρήνη | A2:164 ειρήνη, A2:165 Ειρήνη | peace; Irene | η |
 | A2 | εκπομπή | A2:171 εκπομπή, A2:176 εκπομπή | show, program | η |
-| A2 | ελεύθερος | A2:185 ελεύθερος, A2:186 ελεύθερος | free; single | -η, -ο / ο ελεύθερη, η |
-| A2 | έξω | A2:208 έξω, A2:209 έξω | out; outside | — |
-| A2 | κάνω μπάνιο | A2:433 κάνω μπάνιο, A2:434 κάνω μπάνιο | to have/take a bath; to swim, to have a swim | — |
-| A2 | κλειστός | A2:321 κλειστός, A2:322 κλειστός | shut, closed; turned off | ή, -ό |
-| A2 | λειτουργώ | A2:365 λειτουργώ, A2:366 λειτουργώ | to be open; to work, to function | — |
-| A2 | λήγω | A2:371 λήγω, A2:372 λήγω | to expire; to end | — |
-| A2 | μεγαλώνω | A2:405 μεγαλώνω, A2:406 μεγαλώνω | to grow up, to grow old; to get/become bigger | — |
-| A2 | ξένος | A2:465 ξένος, A2:466 ξένος | foreign; stranger | -η, -ο / ο / ξένη η |
-| A2 | ξεπερνάω | A2:467 ξεπερνάω, A2:468 ξεπερνάω | to overcome; to exceed | — |
-| A2 | πετάω | A2:530 πετάω, A2:531 πετάω | to fly; to throw | -ώ |
-| A2 | πνίγομαι | A2:543 πνίγομαι, A2:544 πνίγομαι | to choke, to suffocate; to be drawn | — |
-| A2 | Χρόνια πολλά! | A2:757 Χρόνια πολλά!, A2:758 Χρόνια πολλά! | Merry Christmas!; Happy birthday! | — |
-| B1 | Άρης | B1:295 Άρης, B1:296 Άρης | Mars; Aris, Ares | ο |
-| B1 | γκρινιάρης | B1:514 γκρινιάρης, B1:515 γκρινιάρης | nagging; Ludo (board game) | -α, -ικο / ο |
-| B1 | έκθεση | B1:711 έκθεση, B1:712 έκθεση | essay writing; exhibition, exposition | η |
-| B1 | ελπίδα | B1:742 Ελπίδα, B1:743 ελπίδα | Elpida; hope | η |
-| B1 | ζώνη | B1:946 ζώνη, B1:947 ζώνη | belt; zone, area | η |
-| B1 | καρπός | B1:1092 καρπός, B1:1093 καρπός | wrist; fruit | ο |
-| B1 | υποβρύχιο | B1:2231 υποβρύχιο, B1:2232 υποβρύχιο | submarine; ipovrichio (a kind of spoon sweet, usually vanilla-flavored; it is usually served on ateaspoon and dipped into a glass of cold water) | το |
-| B1 | φανάρι | B1:2252 Φανάρι, B1:2253 φανάρι | Fanari, a neighborhood in Constantinople; traffic light | το |
+| A2 | έξω | A2:207 έξω, A2:208 έξω | out; outside | — |
+| A2 | κάνω μπάνιο | A2:432 κάνω μπάνιο, A2:433 κάνω μπάνιο | to have/take a bath; to swim, to have a swim | — |
+| A2 | λειτουργώ | A2:364 λειτουργώ, A2:365 λειτουργώ | to be open; to work, to function | — |
+| A2 | λήγω | A2:370 λήγω, A2:371 λήγω | to expire; to end | — |
+| A2 | μεγαλώνω | A2:404 μεγαλώνω, A2:405 μεγαλώνω | to grow up, to grow old; to get/become bigger | — |
+| A2 | ξεπερνάω | A2:465 ξεπερνάω, A2:466 ξεπερνάω | to overcome; to exceed | — |
+| A2 | πετάω | A2:529 πετάω, A2:530 πετάω | to fly; to throw | -ώ |
+| A2 | πνίγομαι | A2:542 πνίγομαι, A2:543 πνίγομαι | to choke, to suffocate; to be drawn | — |
+| A2 | Χρόνια πολλά! | A2:760 Χρόνια πολλά!, A2:761 Χρόνια πολλά! | Merry Christmas!; Happy birthday! | — |
+| B1 | Άρης | B1:298 Άρης, B1:299 Άρης | Mars; Aris, Ares | ο |
+| B1 | γκρινιάρης | B1:526 γκρινιάρης, B1:527 γκρινιάρης | nagging; Ludo (board game) | -α, -ικο / ο |
+| B1 | έκθεση | B1:731 έκθεση, B1:732 έκθεση | essay writing; exhibition, exposition | η |
+| B1 | ελπίδα | B1:763 Ελπίδα, B1:764 ελπίδα | Elpida; hope | η |
+| B1 | ζώνη | B1:974 ζώνη, B1:975 ζώνη | belt; zone, area | η |
+| B1 | καρπός | B1:1122 καρπός, B1:1123 καρπός | wrist; fruit | ο |
+| B1 | υποβρύχιο | B1:2281 υποβρύχιο, B1:2282 υποβρύχιο | submarine; ipovrichio (a kind of spoon sweet, usually vanilla-flavored; it is usually served on ateaspoon and dipped into a glass of cold water) | το |
+| B1 | φανάρι | B1:2302 Φανάρι, B1:2303 φανάρι | Fanari, a neighborhood in Constantinople; traffic light | το |
 
 ### Case pairs (6)
 
@@ -4137,6 +4199,6 @@ Copied into a new file and VACUUMed, as they ship.
 | Table | Bytes |
 |---|---|
 | wordlist | 8,192 |
-| wordlist_item | 954,368 |
+| wordlist_item | 958,464 |
 | word_rank | 2,310,144 |
-| total | 3,272,704 |
+| total | 3,276,800 |

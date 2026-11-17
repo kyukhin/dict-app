@@ -143,7 +143,7 @@ final class SpanishLocalizationTests: XCTestCase {
     }
 
     /// 0130, #154: the list screens in Spanish: "Todas las listas" opens
-    /// "Listas" with "Griego A1", Greek A2's "743 palabras" and "Mis
+    /// "Listas" with "Griego A1", Greek A2's "749 palabras" and "Mis
     /// listas"; a list's screen reads "Aprender esta lista"; "Elegir listas"
     /// opens "Aprendiendo de" with its footer.
     func testWordListsInSpanish() throws {
@@ -157,7 +157,7 @@ final class SpanishLocalizationTests: XCTestCase {
         XCTAssertTrue(app.navigationBars["Listas"].waitForExistence(timeout: 5))
         XCTAssertTrue(page.row("ky-ell-a1").waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["Griego A1"].exists, "the list title in Spanish")
-        XCTAssertEqual(page.count("ky-ell-a2").label, "743 palabras")
+        XCTAssertEqual(page.count("ky-ell-a2").label, "749 palabras")
         XCTAssertTrue(app.scrollToElement(page.row("my-words")))
         XCTAssertTrue(staticTextContaining("Mis listas"), "the My lists section")
         XCTAssertEqual(page.count("my-words").label, "0 palabras")

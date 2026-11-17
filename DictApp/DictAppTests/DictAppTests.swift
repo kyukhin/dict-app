@@ -19956,8 +19956,9 @@ final class WordListDataTests: XCTestCase {
     /// #130, #152: Greek A1, A2 and B1 in the Greek pack with their counts;
     /// `word_count` equals the rows; every row of the committed CSVs is a
     /// word of its level (the lowest of the rows it merges with) and of no
-    /// other list. The counts are 1,506, 743 and 2,434: the cornerstone
-    /// words of #339 moved to and added in A1 (Kirill, 2026-11-17), on top of
+    /// other list. The counts are 1,507, 749 and 2,486: the cornerstone
+    /// words of #339 moved to and added in A1 (Kirill, 2026-11-17), then one
+    /// word a row (#346), on top of
     /// #152's fixes (Ισραηλινός merges into ισραηλινός, A2's κεφαλαίο γράμμα,
     /// εννέα and B1's επτά are A1's).
     func testGreekListsAndCounts() throws {
@@ -19975,9 +19976,9 @@ final class WordListDataTests: XCTestCase {
         XCTAssertEqual(file.lists.map { $0["id"] as String }, WordListData.greekLists.map(\.rawValue))
         XCTAssertEqual(file.lists.map { $0["level"] as String }, WordListData.levels)
         XCTAssertEqual(file.lists.map { $0["level_ord"] as Int }, [1, 2, 3])
-        XCTAssertEqual(file.lists.map { $0["word_count"] as Int }, [1_506, 743, 2_434])
+        XCTAssertEqual(file.lists.map { $0["word_count"] as Int }, [1_507, 749, 2_486])
         XCTAssertEqual(file.lists.map { $0["word_count"] as Int }, file.rows, "word_count equals the rows")
-        XCTAssertEqual(file.rows.reduce(0, +), 4_683)
+        XCTAssertEqual(file.rows.reduce(0, +), 4_742)
         for list in file.lists {
             XCTAssertEqual(list["lang"] as String, "ell")
             XCTAssertEqual(list["series"] as String, "ky-ell")
@@ -19994,7 +19995,7 @@ final class WordListDataTests: XCTestCase {
 
         // Every CSV row: its word is its own term, or its lowercase twin.
         let rows = try WordListData.levels.flatMap(WordListData.rows)
-        XCTAssertEqual(rows.count, 4_741)
+        XCTAssertEqual(rows.count, 4_797)
         let terms = Set(rows.map(\.term))
         var lowest: [String: Int] = [:]
         for row in rows {
@@ -20014,12 +20015,27 @@ final class WordListDataTests: XCTestCase {
         XCTAssertEqual(wrongLevel, [], "a word sits at the lowest level of its rows")
     }
 
-    /// #130, #152: at least 84% of the 4,683 words have a headword, and
+    /// #346: a Greek list row holds one word. αγοραστής and αγοράστρια are
+    /// two words of B1, and no row's endings (the CSVs' or the pack's) holds
+    /// another word after "ο — ".
+    func testOneWordPerGreekListRow() throws {
+        let items = try BundledDictionary(url: try PackFixtures.file(.ell)).read { db in
+            try GRDB.Row.fetchAll(db, sql: "SELECT term, level, endings FROM wordlist_item WHERE series = 'ky-ell'")
+                .map { (term: $0["term"] as String, level: $0["level"] as String, endings: $0["endings"] as String) }
+        }
+        XCTAssertEqual(items.filter { ["αγοραστής", "αγοράστρια"].contains($0.term) }.map(\.level), ["B1", "B1"])
+        XCTAssertEqual(items.filter { $0.endings.contains("ο — ") }.map(\.term), [])
+        let rows = try WordListData.levels.flatMap(WordListData.rows)
+        XCTAssertEqual(rows.filter { $0.endings.contains("ο — ") || $0.endings.contains("—") }.map(\.term), [])
+        XCTAssertEqual(rows.filter { $0.term.hasSuffix(",") || $0.term.contains(",η") }.map(\.term), [])
+    }
+
+    /// #130, #152: at least 84% of the 4,742 words have a headword, and
     /// every headword opens its entry.
     func testGreekLinkRate() async throws {
         try await open()
         let items = try await greekItems()
-        XCTAssertEqual(items.count, 4_683)
+        XCTAssertEqual(items.count, 4_742)
         let linked = items.filter { $0.headword != nil }
         XCTAssertGreaterThanOrEqual(Double(linked.count) / Double(items.count), 0.84,
                                     "\(linked.count) of \(items.count) linked")
@@ -20193,7 +20209,7 @@ final class WordListDataTests: XCTestCase {
             try await setInstallSeed(seed)
             let words = try await db.nextNewWords(in: "ell", from: ["ky-ell-a1"], count: 10_000, excluding: [],
                                                   order: .frequency)
-            XCTAssertEqual(words.count, 1_506)
+            XCTAssertEqual(words.count, 1_507)
             XCTAssertLessThan(abs(Self.kendallTau(Array(words.prefix(100)))), 0.2, "seed \(seed)")
             XCTAssertEqual(LearningOrderTests.neighbourPairs(words), [], "seed \(seed)")
         }
@@ -20207,12 +20223,12 @@ final class WordListDataTests: XCTestCase {
         let lists: Set<WordListID> = ["ky-ell-a1", "ky-ell-a2"]
         let frequency = try await db.nextNewWords(in: "ell", from: lists, count: 10_000, excluding: [], order: .frequency)
         let random = try await db.nextNewWords(in: "ell", from: lists, count: 10_000, excluding: [], order: .random)
-        XCTAssertEqual(random.count, 1_506 + 743)
+        XCTAssertEqual(random.count, 1_507 + 749)
         XCTAssertEqual(Set(random.map(\.key)), Set(frequency.map(\.key)))
         XCTAssertNotEqual(random.map(\.key), frequency.map(\.key))
         XCTAssertNotEqual(Set(random.prefix(20).map(\.key)), Set(frequency.prefix(20).map(\.key)),
                           "random does not start with the most frequent words")
-        XCTAssertEqual(random.map(\.levelOrder), Array(repeating: 1, count: 1_506) + Array(repeating: 2, count: 743))
+        XCTAssertEqual(random.map(\.levelOrder), Array(repeating: 1, count: 1_507) + Array(repeating: 2, count: 749))
     }
 
     /// #152 (spec, "List data"): merged rows combine as the spec says, for
@@ -20318,7 +20334,7 @@ final class WordListDataTests: XCTestCase {
             if item.rank != expected { wrong.append("\(item.term): \(item.rank.map(String.init) ?? "-"), expected \(expected.map(String.init) ?? "-")") }
         }
         XCTAssertEqual(wrong, [])
-        XCTAssertGreaterThan(file.items.filter { $0.rank != nil }.count, 3_700, "80% of the 4,683 words ranked")
+        XCTAssertGreaterThan(file.items.filter { $0.rank != nil }.count, 3_700, "80% of the 4,742 words ranked")
     }
 
     /// #152: Credits name Kirill's lists and FrequencyWords in the five UI
@@ -34742,12 +34758,12 @@ final class ListImportTests: XCTestCase {
     }
 
     /// #130, #155: each of Kirill's committed CSVs imports alone without
-    /// edits: 0 broken rows, 1,506 / 745 / 2,435 words (A1 with 29 merged),
+    /// edits: 0 broken rows, 1,507 / 751 / 2,487 words (A1 with 29 merged),
     /// levels kept. Alone, the A2 and B1 files keep the words the built
     /// lists merge into a lower level.
     func testKirillsFilesImport() async throws {
         var builtLower = Set<String>()
-        for (index, (level, count)) in [("A1", 1_506), ("A2", 745), ("B1", 2_435)].enumerated() {
+        for (index, (level, count)) in [("A1", 1_507), ("A2", 751), ("B1", 2_487)].enumerated() {
             let parse = try ImportFixture.parseKirill(level)
             XCTAssertEqual(parse.broken, [], level)
             XCTAssertEqual(parse.words.count, count, level)
@@ -34769,7 +34785,7 @@ final class ListImportTests: XCTestCase {
             builtLower.formUnion(built)
         }
         let lists = try await db.wordLists().filter { $0.kind == .user }
-        XCTAssertEqual(lists.map(\.count), [2_435, 745, 1_506], "newest first, with their counts")
+        XCTAssertEqual(lists.map(\.count), [2_487, 751, 1_507], "newest first, with their counts")
     }
 
     /// #155: Kirill's three files imported in the app link each word to the
@@ -34896,7 +34912,7 @@ final class ListImportTests: XCTestCase {
             let parse = try ListText.parse(ListText.text(of: data))
             let preview = try await db.prepareListImport(parse, lang: "ell")
             previewTimes.append(milliseconds(ContinuousClock.now - start))
-            XCTAssertEqual(preview.words.count, 2_435)
+            XCTAssertEqual(preview.words.count, 2_487)
             start = ContinuousClock.now
             try await db.saveUserList(preview, title: "B1 \(run)")
             saveTimes.append(milliseconds(ContinuousClock.now - start))
