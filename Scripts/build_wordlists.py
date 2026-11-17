@@ -220,6 +220,26 @@ def greek_in_latin_words(s: str) -> list[str]:
 # Reading and merging
 # ---------------------------------------------------------------------------
 
+# #346: a Greek row is one word. Its endings hold an article, a gender or
+# number ending, a particle or a variant of the verb ("& -ώ"), never another
+# word; these rows are the variants that stay.
+ALLOWED_VARIANT_ENDINGS = {("κοιτάω", "& -ώ / κοιτάζω")}
+ARTICLE_IN_TERM = re.compile(r",\s*$|,\s*(?:η|ο|το)(?:\s|$)")
+
+
+def another_word_in(term: str, endings: str) -> str | None:
+    """Why a Greek row holds a second word (a dash, a " / " with a word after
+    it, or οι/τα after a "/" in the endings; a trailing comma or a ",η" in the
+    term), else None. The "ο/η", "ο/το" and "το/η" articles pass."""
+    if (term, endings) in ALLOWED_VARIANT_ENDINGS:
+        return None
+    if "—" in endings or re.search(r" / \S", endings) or re.search(r"(?:^|/)(?:οι|τα)(?:/|$)", endings) and "/" in endings:
+        return f"the endings {endings!r} hold another word: one word per row"
+    if ARTICLE_IN_TERM.search(term):
+        return f"the term {term!r} ends in a comma or holds an article after one"
+    return None
+
+
 def read_greek(series: Series, failures: list[str]) -> list[Row]:
     """Kirill's files: `level,greek,endings,english`, one per level."""
     rows: list[Row] = []
@@ -234,6 +254,8 @@ def read_greek(series: Series, failures: list[str]) -> list[Row]:
                 failures.append(f"{key}:{line}: not a row of level {level}: {record}")
                 continue
             term, endings, translation = (nfc(v).strip() for v in record[1:])
+            if (why := another_word_in(term, endings)):
+                failures.append(f"{key}:{line}: {why}")
             for name, value in (("term", term), ("endings", endings)):
                 if latin_letters(value):
                     failures.append(f"{key}:{line}: Latin letters {''.join(latin_letters(value))} "

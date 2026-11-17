@@ -80,8 +80,8 @@ Verb ranking (QA only): `frequencywords/el_50k.txt`, sha256 `7ec8f6de52c38f36a04
 ### Keys
 
 - Candidates: 29,870, of them by a native author: 21,468
-- Keys with an example: 6,015; with 3 or more: 2,941
-- Stored: 11,259 sentences, 17,297 word rows, 14,375 translations
+- Keys with an example: 6,016; with 3 or more: 2,941
+- Stored: 11,259 sentences, 17,298 word rows, 14,375 translations
 - Top-500 verbs with 3 or more: 429 of 500 (85.8%); with one or more: 476
 - Top-500 nouns with 3 or more (reported, not gated): 422 of 500
 - Greek headwords with an example: 5,402 of 51,230
@@ -94,9 +94,9 @@ Verb ranking (QA only): `frequencywords/el_50k.txt`, sha256 `7ec8f6de52c38f36a04
 
 A token that is a one-word term of the Greek lists, as written or lowercased, keys that term, itself when it is a headword, and of its lemmas only the verbs (αυτό keys αυτό, not αυτός; πάω keys πάω and πηγαίνω). Other tokens key their lemmas and themselves as headwords, as before. A term's spellings are the term and its cleaned spellings (στη(ν): στη, στην). A list word that is no verb shows its own forms first; a verb keeps one sentence per form, and its own form leads when that pass leaves it out.
 
-- One-word terms of `ky-ell`: 4,462; with an example: 2,801; with 3 or more: 1,940; every example in the term's own form: 1,448
-- List words whose examples differ from the plain per-form choice: 900; non-verbs, own forms first: 849; verbs whose dropped own form leads: έρχομαι, ακολουθώ, αλλάζω, αφήνω, βάζω, βγάζω, βγαίνω, βοηθάω, βρίσκω, δίνω, δείχνω, επισκέπτομαι, επιστρέφω, ζητάω, ζω, θυμώνω, καλώ, καπνίζω, κλαίω, κρατάω, κόβω, λέω, λείπω, μιλάω, μπαίνω, νοιάζομαι, ξεκινάω, οδηγώ, πέφτω, παρακολουθώ, περνάω, περπατάω, πηγαίνω, πλένω, πονάω, ρίχνω, σηκώνω, σκοτώνω, στέλνω, σταματάω, συμφωνώ, συνηθίζω, τελειώνω, τραγουδάω, υπάρχω, υποστηρίζω, φέρνω, φεύγω, φοράω, φτάνω, φτιάχνω
-- Keys against the rule without list words, on the same candidates: 6,018 before, 6,015 now; gain examples (none before): 59; lose them all: 62; change them: 1,029
+- One-word terms of `ky-ell`: 4,525; with an example: 2,820; with 3 or more: 1,946; every example in the term's own form: 1,463
+- List words whose examples differ from the plain per-form choice: 903; non-verbs, own forms first: 852; verbs whose dropped own form leads: έρχομαι, ακολουθώ, αλλάζω, αφήνω, βάζω, βγάζω, βγαίνω, βοηθάω, βρίσκω, δίνω, δείχνω, επισκέπτομαι, επιστρέφω, ζητάω, ζω, θυμώνω, καλώ, καπνίζω, κλαίω, κρατάω, κόβω, λέω, λείπω, μιλάω, μπαίνω, νοιάζομαι, ξεκινάω, οδηγώ, πέφτω, παρακολουθώ, περνάω, περπατάω, πηγαίνω, πλένω, πονάω, ρίχνω, σηκώνω, σκοτώνω, στέλνω, σταματάω, συμφωνώ, συνηθίζω, τελειώνω, τραγουδάω, υπάρχω, υποστηρίζω, φέρνω, φεύγω, φοράω, φτάνω, φτιάχνω
+- Keys against the rule without list words, on the same candidates: 6,018 before, 6,016 now; gain examples (none before): 60; lose them all: 62; change them: 1,032
 
 **The 20 keys that lose the most candidate sentences**, candidates and examples before → now:
 
@@ -322,14 +322,14 @@ Sentences and translations each tag kept out.
 
 | Table | Rows | sha256 of the rows in key order |
 |---|---|---|
-| `example_sentence` | 40,299 | `8c9d61aa25533dba636fb0f99154788104631a6890804fcb8751287c31c9cf63` |
-| `example_translation` | 69,968 | `5f17b16b0c78fe5779a2d931e7c0cf244962e8eac0aeab450a72e27c5100d47e` |
-| `example_word` | 50,973 | `e495749888ad11582dc9ac7ade0f340ad94ec5f0c2f94f6797e3644fd09242c2` |
+| `example_sentence` | 40,299 | `0895bd783604b8961f91df1a0622ab84c61dff3cb80dc9a69c3f85f6a1213b15` |
+| `example_translation` | 69,968 | `eb70badbab110194862717c94771bc259aa755f32fc45a4f6fbc9218bf1a0ee0` |
+| `example_word` | 50,974 | `22e00f3e97f639a384cae38a5388cd74900b9cc83d6026c1fa03a1e886ce2da6` |
 
 | Rows | `example_sentence` | `example_translation` | `example_word` | Installed | Download (xz) |
 |---|---|---|---|---|---|
-| all | 2,629,632 | 5,275,648 | 1,454,080 | 9,359,360 | 2,962,208 |
-| Greek (ell pack) | 962,560 | 843,776 | 585,728 | 2,392,064 | 694,996 |
+| all | 2,629,632 | 5,275,648 | 1,454,080 | 9,359,360 | 2,962,132 |
+| Greek (ell pack) | 962,560 | 843,776 | 585,728 | 2,392,064 | 694,980 |
 | English (eng-lists pack) | 1,662,976 | 4,440,064 | 880,640 | 6,983,680 | 2,338,624 |
 
 Bytes from `dbstat` on a VACUUMed file of the rows alone; the xz size is of that file (preset 6), an estimate of each pack's growth.

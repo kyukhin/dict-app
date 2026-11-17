@@ -8,12 +8,14 @@ B1,αγκαλιάζω,,"to embrace, to hug"
 B1,αγκινάρα,η,artichoke
 B1,αγοραπωλησία,η,"transaction, sale, trade, purchase"
 B1,αγορασμένος,"-η, -ο","bought, purchased"
-B1,αγοραστής,"ο — αγοράστρια, η","buyer, purchaser, shopper, customer"
+B1,αγοραστής,ο,"buyer, purchaser, shopper, customer [masculine]"
+B1,αγοράστρια,η,"buyer, purchaser, shopper, customer [feminine]"
 B1,αγριεύω,,"to roughen, to become wild, to make angry"
 B1,Αγρίνιο,το,Agrinio
 B1,αγρός,ο,field
-B1,αγρότης,"ο — αγρότισσα, η",farmer
+B1,αγρότης,ο,farmer [masculine]
 B1,αγροτικός,"-ή, -ό","farming, agricultural, agrarian"
+B1,αγρότισσα,η,farmer [feminine]
 B1,αγχωμένος,"-η, -ο","stressed, anxious"
 B1,αγχώνομαι,,to stress out
 B1,αγχώνω,,"to make tense, to make nervous"
@@ -86,7 +88,8 @@ B1,αναγκάζω,,"to force, to oblige, to compel"
 B1,αναγκαίος,"-α, -ο","necessary, essential"
 B1,αναγκαστικός,"-ή, -ό","forced, obligatory, compulsory"
 B1,αναγνωστήριο,το,reading room
-B1,αναγνώστης,"ο — αναγνώστρια, η",reader
+B1,αναγνώστης,ο,reader [masculine]
+B1,αναγνώστρια,η,reader [feminine]
 B1,αναζητάω,& -ώ,"to seek, to look for"
 B1,αναίσθητος,"-η, -ο","insensitive, unconscious"
 B1,ανακαίνιση,η,"renovation, restoration"
@@ -297,11 +300,13 @@ B1,Άρης,ο,"Aris, Ares"
 B1,αριθμώ,,to enumerate
 B1,αριστοκρατικός,"-ή, -ό","aristocratic, classy"
 B1,Αρίων,ο,Arion
-B1,αρκούδα,"η — αρκούδι, το",bear
+B1,αρκούδα,η,bear
+B1,αρκούδι,το,"little bear, bear cub"
 B1,αρμονία,η,harmony
 B1,άρνηση,η,negation
 B1,αρνητικός,"-ή, -ό",negative
-B1,αρραβωνιαστικός,"ο — αρραβωνιαστικιά, η","fiancé, fiancée"
+B1,αρραβωνιαστικιά,η,fiancée
+B1,αρραβωνιαστικός,ο,fiancé
 B1,αρρωστιάρης,"-α, -ικο","ill, sick, who becomes ill often"
 B1,Άρτεμη,η,Artemis
 B1,αρχαίος,"-α, -ο",ancient
@@ -311,8 +316,9 @@ B1,αρχικά,,"initially, firstly"
 B1,αρχικός,"-ή, -ό",initial
 B1,αρχιτεκτονικός,"-ή, -ό",architectural
 B1,αρχιτεκτονική,η,architecture
-B1,άρχοντας,"ο — αρχόντισσα, η","master, lady"
+B1,άρχοντας,ο,"lord, master"
 B1,αρχοντικό,το,"villa, mansion"
+B1,αρχόντισσα,η,lady
 B1,άρωμα,το,"perfume, scent"
 B1,αρωματίζω,,"to scent, to perfume, to flavor, to spice"
 B1,αρωματικός,"-ή, -ό",aromatic
@@ -348,7 +354,8 @@ B1,αυξημένος,"-η, -ο",increased
 B1,αύξηση,η,"increase, raise"
 B1,αυστηρός,"-ή, -ό",strict
 B1,αυστηρότητα,η,"austerity, severity, sternness"
-B1,αυτοκράτορας,"ο — αυτοκράτειρα, η",emperor
+B1,αυτοκράτειρα,η,empress
+B1,αυτοκράτορας,ο,emperor
 B1,αυτόνομος,"-η, -ο",independent
 B1,αυτονομία,η,autonomy
 B1,αυτοπεποίθηση,η,self-confidence
@@ -359,7 +366,8 @@ B1,αφαιρώ,,to subtract
 B1,αφαλός,ο,belly button
 B1,αφή,η,touch
 B1,αφήγηση,η,narration
-B1,αφηγητής,"ο — αφηγήτρια, η",narrator
+B1,αφηγητής,ο,narrator [masculine]
+B1,αφηγήτρια,η,narrator [feminine]
 B1,αφηγούμαι,,to narrate
 B1,αφιέρωμα,το,"dedication, tribute"
 B1,αφιερωμένος,"-η, -ο",dedicated
@@ -379,7 +387,8 @@ B1,άχυρο,το,straw
 B1,αχώριστος,"-η, -ο",inseparable
 B1,βαγόνι,το,"carriage, railway car"
 B1,βαθμίδα,η,grade
-B1,βαθμολογία,"η — βαθμολόγηση, η",grading
+B1,βαθμολόγηση,η,grading
+B1,βαθμολογία,η,grading
 B1,βαθμολογούμαι,,to be graded
 B1,βαθμολογώ,,to grade
 B1,βάθος,το,"background, depth"
@@ -388,14 +397,16 @@ B1,βαλκανικός,"-ή, -ό",Balkan
 B1,Βαλτική,η,the Baltics
 B1,βαμβακερός,"-ή, -ό",cotton
 B1,βανίλια,η,vanilla
-B1,βαρέλι,"το — βαρέλα, η",barrel
+B1,βαρέλα,η,large barrel
+B1,βαρέλι,το,barrel
 B1,βαριέμαι,,to be bored
 B1,βάρκα,η,boat
 B1,βαρκάδα,η,boat ride
 B1,Βαρκελώνη,η,Barcelona
 B1,βάσανο,το,"torture, torment"
 B1,βασίζομαι,,"to depend on, to rely"
-B1,βασιλόπουλο,το — βασιλοπούλα η,"young king or prince, young queen or princess"
+B1,βασιλοπούλα,η,"princess, young queen"
+B1,βασιλόπουλο,το,"prince, young king"
 B1,βατραχοπέδιλο,το,flipper
 B1,βάτραχος,ο,frog
 B1,βάφομαι,,to put on make up
@@ -438,7 +449,8 @@ B1,βοριάς,ο,northerly wind
 B1,βότανο,το,herb
 B1,βουβάλι,το,buffalo
 B1,βούλα,η,"point, dot"
-B1,βουλευτής,"ο — βουλευτής/βουλευτίνα, η",member of parliament
+B1,βουλευτής,ο/η,member of parliament
+B1,βουλευτίνα,η,member of parliament [feminine]
 B1,βουρτσίζω,,to brush
 B1,βουτιά,η,dive
 B1,βουτυρωμένος,"-η, -ο",buttered
@@ -526,12 +538,14 @@ B1,γοητεία,η,charm
 B1,γοητευτικός,"-ή, -ό",charming
 B1,γοητεύω,,"to fascinate, to charm"
 B1,γόνατο,το,knee
-B1,γονέας,"ο — γονιός, ο",parent
+B1,γονέας,ο,parent
+B1,γονιός,ο,parent
 B1,γουλί,το,"bald, clean-shaven"
 B1,γούνα,η,fur
 B1,γούνινος,"-η, -ο",furry
 B1,γούρι,το,lucky charm
-B1,γουρλής,"ο — γουρλού, η",person who brings good look to others
+B1,γουρλής,ο,person who brings good luck to others [masculine]
+B1,γουρλού,η,person who brings good luck to others [feminine]
 B1,γούστο,το,taste
 B1,γραμμάριο,το,gram
 B1,γραμματικός,"-ή, -ό",grammatical
@@ -539,7 +553,8 @@ B1,γραμμένος,"-η, -ο",written
 B1,γραπτά,τα,exam papers
 B1,γραπτές εξετάσεις,οι,written exams
 B1,γραφικός,"-ή, -ό",picturesque
-B1,γραφίστας,"ο — γραφίστρια, η",graphic designer
+B1,γραφίστας,ο,graphic designer [masculine]
+B1,γραφίστρια,η,graphic designer [feminine]
 B1,γρουσούζης,"-α, -ικο",jinx
 B1,γυάλινος,"-η, -ο",glass
 B1,γυμνός,"-ή, -ό","bare, naked"
@@ -594,8 +609,9 @@ B1,διαιτολόγος,ο,"dietitian, nutritionist"
 B1,διακοπή,η,"break, interruption"
 B1,διακοσιοστός,"-ή, -ό",two hundredth
 B1,διακόσμηση,η,decoration
-B1,διακοσμητής,"ο — διακοσμήτρια, η",decorator
+B1,διακοσμητής,ο,decorator [masculine]
 B1,διακοσμητικός,"-ή, -ό",decorative
+B1,διακοσμήτρια,η,decorator [feminine]
 B1,διακοσμώ,,to decorate
 B1,διακρίνομαι,,to be distinguished
 B1,διάλεξη,η,lecture
@@ -620,7 +636,7 @@ B1,διατύπωνομαι,,"to be formulated, to be expressed"
 B1,διαφέρω,,to differ from
 B1,διαφωνία,η,"disagreement, dispute, argument"
 B1,διδάκτορας,ο/η,"doctor, Ph.D., Doctor of Philosophy"
-B1,δίδυμος,"ο — δίδυμη, η",twin (sibling)
+B1,δίδυμος,"-η, -ο",twin (sibling)
 B1,διήγημα,το,short story
 B1,διηγούμαι,,to narrate
 B1,δικαίωμα,το,right
@@ -650,7 +666,8 @@ B1,δόρυ,το,lance
 B1,δορυφορικός,"-ή, -ό",satellite
 B1,δόση,η,"installment, dose"
 B1,δουλεία,η,slavery
-B1,δούλος,"ο — δούλη, η",slave
+B1,δούλη,η,slave [feminine]
+B1,δούλος,ο,slave [masculine]
 B1,δοχείο,το,container
 B1,δραπετεύω,,to escape
 B1,δράση,η,"effect, action"
@@ -685,11 +702,13 @@ B1,έγκλημα,το,crime
 B1,εγκληματολογικός,"-ή, -ό","forensic, criminological"
 B1,εγκυμοσύνη,η,pregnancy
 B1,έγκυος,η,pregnant woman
-B1,εγωιστής,"ο — εγωίστρια, η",egoist
+B1,εγωιστής,ο,egoist [masculine]
+B1,εγωίστρια,η,egoist [feminine]
 B1,έδαφος,το,"soil, ground"
 B1,έδρα,η,seat
-B1,εθελοντής,"ο — εθελόντρια, η",volunteer
+B1,εθελοντής,ο,volunteer [masculine]
 B1,εθελοντικός,"-ή, -ό",voluntary
+B1,εθελόντρια,η,volunteer [feminine]
 B1,εθνότητα,η,ethnicity
 B1,ειδικά,,"especially, specifically"
 B1,ειδικευμένος,"-η, -ο","skilled, trained"
@@ -701,8 +720,9 @@ B1,εκατομμύριο,το,million
 B1,εκατοντάδα,η,"hundred, hundreds of"
 B1,εκβιάζω,,to blackmail
 B1,εκβιασμός,ο,"blackmail, extortion"
-B1,εκβιαστής,"ο — εκβιάστρια, η",blackmailer
+B1,εκβιαστής,ο,blackmailer [masculine]
 B1,εκβιαστικός,"-ή, -ό",extortionate
+B1,εκβιάστρια,η,blackmailer [feminine]
 B1,εκδηλώνομαι,,to be expressed
 B1,εκδίδω,,"to publish, to issue, to release"
 B1,έκδοση,η,publication
@@ -724,8 +744,9 @@ B1,εκτυπώνω,,to print
 B1,εκτυπωτής,ο,printer
 B1,εκφοβίζω,,"to bully, to intimidate"
 B1,εκφοβισμός,ο,"bullying, intimidation"
-B1,εκφοβιστής,"ο — εκφοβίστρια, η",bully
+B1,εκφοβιστής,ο,bully [masculine]
 B1,εκφοβιστικός,"-ή, -ό",intimidating
+B1,εκφοβίστρια,η,bully [feminine]
 B1,εκφράζομαι,,"to express myself, to be expressed"
 B1,εκφράζω,,"to express, to state"
 B1,έκφραση,η,expression
@@ -760,7 +781,7 @@ B1,ενδιάμεσος,"-η, -ο",in between
 B1,ενδυμασία,η,"clothing, clothes"
 B1,ενέργεια,η,"action, energy"
 B1,ενεργώ,,"to act, to do"
-B1,ενήλικος,"ο — ενήλικη, η",adult
+B1,ενήλικος,"-η, -ο",adult
 B1,ενημερωμένος,"-η, -ο","informed, up-to-date"
 B1,ενημερώνομαι,,to be informed
 B1,ενημέρωση,η,"update, information"
@@ -771,7 +792,8 @@ B1,ενθαρρύνω,,to encourage
 B1,ενικός,ο,singular
 B1,εννιάχρονος,"-η, -ο",nine years old
 B1,εννοώ,,to mean
-B1,ενοικιαστής,"ο — ενοικιάστρια, η",tenant
+B1,ενοικιαστής,ο,tenant [masculine]
+B1,ενοικιάστρια,η,tenant [feminine]
 B1,ενορχήστρωση,η,instrumentation
 B1,ενοχλητικός,"-ή, -ό","annoying, disturbing"
 B1,ενοχλούμαι,,"to be disturbed, to be annoyed"
@@ -805,8 +827,9 @@ B1,εξερευνώ,,to explore
 B1,εξετάζομαι,,to be examined
 B1,εξετάζω,,"to examine, to test"
 B1,εξέταση,η,"examination, exam"
-B1,εξεταστής,"ο — εξετάστρια, η",examiner
+B1,εξεταστής,ο,examiner [masculine]
 B1,εξεταστικός,"-ή, -ό",examining
+B1,εξετάστρια,η,examiner [feminine]
 B1,εξηγούμαι,,"to be explained, to explain myself"
 B1,εξής,,the following
 B1,έξοδο,το,"expense, cost"
@@ -858,7 +881,8 @@ B1,επιμονή,η,persistence
 B1,επιπλωμένος,"-η, -ο",furnished
 B1,επίπτωση,η,"effect, impact"
 B1,επίρρημα,το,adverb
-B1,επισκέπτης,"ο — επισκέπτρια, η","visitor, guest"
+B1,επισκέπτης,ο,"visitor, guest [masculine]"
+B1,επισκέπτρια,η,"visitor, guest [feminine]"
 B1,επισκευάζω,,"to repair, to fix"
 B1,επισκευή,η,"repair, fix"
 B1,επιστήμονας,ο/η,scientist
@@ -877,14 +901,17 @@ B1,επιχείρηση,η,"business, company"
 B1,επομένως,,"thus, therefore"
 B1,εποχιακός,"-ή, -ό",seasonal
 B1,εργάζομαι,,to work
-B1,εργαζόμενος,"ο — εργαζόμενη, η","employee, worker"
-B1,εργάτης,"ο — εργάτρια, η","worker, laborer"
+B1,εργαζόμενος,"-η, -ο","employee, worker"
+B1,εργάτης,ο,"worker, laborer [masculine]"
 B1,εργατικός,"-ή, -ό","work, working, labor"
 B1,εργατική τάξη,η,"labor class, working class"
+B1,εργάτρια,η,"worker, laborer [feminine]"
 B1,έργο,το,"work, artwork, project, play"
-B1,εργοδότης,"ο — εργοδότρια, η",employer
+B1,εργοδότης,ο,employer [masculine]
+B1,εργοδότρια,η,employer [feminine]
 B1,εργοτάξιο,το,construction site
-B1,ερευνητής,"ο — ερευνήτρια, η",researcher
+B1,ερευνητής,ο,researcher [masculine]
+B1,ερευνήτρια,η,researcher [feminine]
 B1,ερευνώ,,to research
 B1,έρημος,"-η, -ο","alone, desolate, lonesome, deserted"
 B1,ερμηνεία,η,"acting, interpretation"
@@ -923,7 +950,8 @@ B1,επτά,εφτά,seven
 B1,εχθρικός,"-ή, -ό",hostile
 B1,εχθρός,ο,enemy
 B1,ζακέτα,η,"sweater, jacket"
-B1,ζάλη,"η — ζαλάδα, η",dizziness
+B1,ζαλάδα,η,dizziness
+B1,ζάλη,η,dizziness
 B1,ζαλίζομαι,,"to feel dizzy, to get dizzy"
 B1,ζαλισμένος,"-η, -ο",dizzy
 B1,ζάρι,το,dice
@@ -962,7 +990,8 @@ B1,ηπειρωτικός,"-ή, -ό",continental
 B1,ήρεμα,,"calmly, peacefully"
 B1,ηρεμία,η,"calm, peacefulness"
 B1,ηρεμώ,,"to calm, to calm down"
-B1,ήρωας,"ο — ηρωίδα, η","hero, heroine"
+B1,ήρωας,ο,hero
+B1,ηρωίδα,η,heroine
 B1,ήσυχα,,quietly
 B1,ηφαίστιο,το,volcano
 B1,ηχογραφώ,,to record
@@ -1019,7 +1048,8 @@ B1,ιβουάρ,το,ivory
 B1,ιδανικά,,ideally
 B1,ιδανικός,"-ή, -ό","ideal, perfect"
 B1,ιδιαιτερότητα,η,"peculiarity, distinctiveness"
-B1,ιδιοκτήτης,"ο — ιδιοκτήτρια, η",owner
+B1,ιδιοκτήτης,ο,owner [masculine]
+B1,ιδιοκτήτρια,η,owner [feminine]
 B1,ιδιότροπος,"-η, -ο",eccentric
 B1,ιδιωτικός,"-ή, -ό","personal, private"
 B1,ίδρυση,η,"establishment, founding"
@@ -1107,8 +1137,9 @@ B1,κατάλυμα,το,accomodation
 B1,καταναλώνομαι,,to be consumed
 B1,καταναλώνω,,to consume
 B1,κατανάλωση,η,consumption
-B1,καταναλωτής,"ο — καταναλώτρια, η",consumer
+B1,καταναλωτής,ο,consumer [masculine]
 B1,καταναλωτικός,"-ή, -ό",consumerist
+B1,καταναλώτρια,η,consumer [feminine]
 B1,κατανόηση,η,"understanding, comprehension"
 B1,κατανοώ,,"to understand, to comprehend"
 B1,καταπιέζω,,to supress
@@ -1141,8 +1172,10 @@ B1,καυσαέριο,το,exhaust gas
 B1,καύσιμο,το,fuel
 B1,καύσωνας,ο,heatwave
 B1,καυτός,"-ή, -ό",hot
-B1,καφενείο,"το — καφενές, ο",coffee shop
-B1,καφετζής,"ο — καφετζού, η","barista, person who makes coffee in a coffee shop"
+B1,καφενείο,το,coffee shop
+B1,καφενές,ο,coffee shop
+B1,καφετζής,ο,"barista, person who makes coffee in a coffee shop [masculine]"
+B1,καφετζού,η,"barista, person who makes coffee in a coffee shop [feminine]"
 B1,Κελσίου (βαθμοί),,Celsius (degrees)
 B1,κεντάω,& -ώ,to embroider
 B1,κέντημα,το,embroidery
@@ -1335,7 +1368,8 @@ B1,μαγιά,η,yeast
 B1,μετακόμιση,η,"move, moving"
 B1,μέταλλο,το,metal
 B1,μεταμορφώνομαι,,to be transformed
-B1,μετανάστης,"ο — μετανάστρια, η",immigrant
+B1,μετανάστης,ο,immigrant [masculine]
+B1,μετανάστρια,η,immigrant [feminine]
 B1,μετανιώνω,,to regret
 B1,μετάξι,το,silk
 B1,μεταξύ,,between
@@ -1344,7 +1378,8 @@ B1,μετατρέπω,,to convert
 B1,μετατροπή,η,"change, modification, conversion"
 B1,μεταφορικός,"-ή, -ό",transport
 B1,μεταφορικά,,"metaphorically, figuratively"
-B1,μεταφραστής,"ο — μεταφράστρια, η",translator
+B1,μεταφραστής,ο,translator [masculine]
+B1,μεταφράστρια,η,translator [feminine]
 B1,μεταχειρίζομαι,,"to handle, to use"
 B1,μετεωρολογικός,"-ή, -ό",meteorological
 B1,μετεωρολόγος,ο/η,meteorologist
@@ -1365,7 +1400,8 @@ B1,μίσος,το,hate
 B1,μισοτιμής,,"at half price, very cheap"
 B1,μισώ,,to hate
 B1,Μογγολία,η,Mongolia
-B1,μόδιστρος,"ο — μοδίστρα, η","fashion designer, tailor, seamstress seamstress"
+B1,μοδίστρα,η,"seamstress, dressmaker"
+B1,μόδιστρος,ο,"fashion designer, tailor"
 B1,μοίρα,η,"fate, destiny"
 B1,μοιράζομαι,,to share
 B1,μοιραίος,"-α, -ο",fatal
@@ -1399,7 +1435,8 @@ B1,μπαταρία,η,battery
 B1,μπαχαρικό,το,spice
 B1,μπέικιν πάουντερ,το,baking powder
 B1,μπέικον,το,bacon
-B1,μπέμπης,"ο — μπέμπα, η","baby boy, baby girl"
+B1,μπέμπα,η,baby girl
+B1,μπέμπης,ο,baby boy
 B1,μπιμπερό,το,baby bottle
 B1,μπογιά,η,paint
 B1,μπολ,το,bowl
@@ -1428,7 +1465,8 @@ B1,μωβ,,purple
 B1,νανόχηνα,η,lesser white-fronted goose
 B1,ναυάγιο,το,shipwreck
 B1,Ναύπακτος,η,Nafpaktos
-B1,ναύτης,"ο — ναυτικός, ο",sailor
+B1,ναύτης,ο,sailor
+B1,ναυτικός,ο,"sailor, seaman"
 B1,νεανικός,"-ή, -ό",youthful
 B1,νεόδμητος,"-η, -ο",newly built
 B1,νεοκλασικός,"-ή, -ό",neoclassical
@@ -1447,7 +1485,8 @@ B1,νοηματικός,"-ή, -ό","conceptual, notional"
 B1,νοθεύω,,"to adulterate, to falsify"
 B1,νοιάζομαι,,to care
 B1,νοίκι,το,rent
-B1,νοικοκύρης,"ο — νοικοκυρά, η","landlord, landlady"
+B1,νοικοκυρά,η,landlady
+B1,νοικοκύρης,ο,landlord
 B1,νοικοκυριό,το,household
 B1,νομάς,ο,nomad
 B1,νομική,η,law school
@@ -1507,10 +1546,11 @@ B1,ξύσμα,το,"peel, zest"
 B1,οδήγηση,η,driving
 B1,οδικός,"-ή, -ό",road
 B1,οθόνη,η,screen
-B1,"οικία,η",,house
+B1,οικία,η,house
 B1,οικιακός,"-ή, -ό",domestic
 B1,οικογενειακός,"-ή, -ό",family
-B1,οικοδεσπότης,"ο — οικοδέσποινα, η","host, hostess"
+B1,οικοδέσποινα,η,hostess
+B1,οικοδεσπότης,ο,host
 B1,οικολογικός,"-ή, -ό","ecological, environmentally friendly"
 B1,οικονομία,η,economy
 B1,οικονομικός,"-ή, -ό","economic, cheap"
@@ -1574,10 +1614,11 @@ B1,παζάρι,το,"marketplace, bazaar"
 B1,παιδεία,η,education
 B1,παιδική χαρά,η,playground
 B1,παιδότοπος,ο,"playground, playing facilities"
-B1,παίκτης,"ο — παίκτρια, η",player
+B1,παίκτης,ο,player [masculine]
+B1,παίκτρια,η,player [feminine]
 B1,παινεύω,,to praise
 B1,παίρνω μέρος,,"to take part, participate"
-B1,παιχνιδιάρης,"-α, ικο",playful
+B1,παιχνιδιάρης,"-α, -ικο",playful
 B1,παλ,,"pale, very soft hue"
 B1,παλάμη,η,"palm, hand"
 B1,παλάτι,το,palace
@@ -1641,7 +1682,6 @@ B1,πασπαλίζω,,to sprinkle
 B1,παστίτσιο,το,"pasticchio (made with macaroni, minced meat ragù, and béchamel sauce, resembles lasagna)"
 B1,πατατοσαλάτα,η,potato salad
 B1,πατάω,& -ώ,step
-B1,"πατέρας,",,father
 B1,πατίνι,το,"ice-skate, roller-skate"
 B1,πατρίδα,η,homeland
 B1,πατρικός,"-ή, -ό",paternal
@@ -1653,7 +1693,8 @@ B1,παχουλός,"-ή, -ό","plump, chubby"
 B1,παχυντικός,"-ή, -ό",fattening
 B1,πεδινός,"-ή, -ό","flat, level, of a plain"
 B1,πεζός,"-ή, -ό",pedestrian
-B1,πεθερός,"ο — πεθερά, η","father-in-law, mother-in-law"
+B1,πεθερά,η,mother-in-law
+B1,πεθερός,ο,father-in-law
 B1,πείνα,η,"hunger, famine"
 B1,πείραγμα,το,teasing
 B1,πειράζω,,"to mess around with, to harm, to tease"
@@ -1725,8 +1766,9 @@ B1,πλακάκι,το,tile
 B1,πλακατζής,ο,worker who lays tiles
 B1,πλακώνω,,"to press down, to cover"
 B1,πλαστελίνη,η,"play dough, plasticine"
+B1,πλατάνι,το,"plane tree, sycamore"
 B1,πλατύς,"-ιά, -ύ",wide
-B1,πλάτανος,"ο — πλατάνι, το","plane tree, sycamore"
+B1,πλάτανος,ο,"plane tree, sycamore"
 B1,πλάτη,η,back
 B1,πλάτος,το,width
 B1,πλέκω,,to knit
@@ -1750,7 +1792,8 @@ B1,πνεύμονας,ο,lung
 B1,πνευμονολόγος,ο/η,pulmonologist
 B1,πνέω,,"to blow, to breath, to waft"
 B1,ποδαρικό,το,"good luck that [sb] brings, being the first one to enter at a specific time of the year, e.g. at New Year’s Day"
-B1,ποδηλάτης,"ο — ποδηλάτισσα, η",cyclist
+B1,ποδηλάτης,ο,cyclist [masculine]
+B1,ποδηλάτισσα,η,cyclist [feminine]
 B1,ποίημα,το,poem
 B1,ποικιλία,η,"variety, selection"
 B1,πόλεμος,ο,war
@@ -1789,14 +1832,16 @@ B1,πρόβειος,"-α, -ο",dairy product made from sheep’s milk
 B1,προβλέπω,,"to foresee, to expect"
 B1,πρόβλεψη,η,prediction
 B1,πρόγνωση,η,"forecast, prediction"
-B1,προγραμματιστής,"ο — προγραμματίστρια, η","developer, computer programmer"
+B1,προγραμματιστής,ο,"developer, computer programmer [masculine]"
+B1,προγραμματίστρια,η,"developer, computer programmer [feminine]"
 B1,προδίδω,,to betray
 B1,προεξέχω,,to stand out
 B1,προέρχομαι,,"to come from, to originate"
 B1,προετοιμάζομαι,,to prepare myself
 B1,πρόθεση,η,"preposition, intention"
 B1,πρόθυμος,"-η, -ο",willing
-B1,προϊστάμενος,"ο — προϊσταμένη, η","director, chief, supervisor"
+B1,προϊσταμένη,η,"director, chief, supervisor [feminine]"
+B1,προϊστάμενος,ο,"director, chief, supervisor [masculine]"
 B1,προκαλώ,,"to provoke, to cause"
 B1,πρόκειται,,"it’s going to, it’s about to"
 B1,προκλητικός,"-ή, -ό",provocative
@@ -1828,7 +1873,8 @@ B1,προστασία,η,protection
 B1,προστατεύομαι,,to guard against
 B1,προστατευόμενος,"-η, -ο","protected, protégé"
 B1,προστατεύω,,"to protect, to keep safe"
-B1,προστάτης,"ο — προστάτιδα, η",protector
+B1,προστάτης,ο,protector [masculine]
+B1,προστάτιδα,η,protector [feminine]
 B1,πρόστιμο,το,fine
 B1,πρόσφατος,"-η, -ο",recent
 B1,πρόσφατα,,recently
@@ -1846,8 +1892,9 @@ B1,πρόχειρα,,"casually, makeshift"
 B1,προχθές,,the day before yesterday
 B1,προχωράω,& -ώ,"to move forward, to proceed"
 B1,πρώην,ο/η,"ex, former"
-B1,πρωταγωνιστής,"ο — πρωταγωνίστρια, η","protagonist, leading person"
+B1,πρωταγωνιστής,ο,"protagonist, leading person [masculine]"
 B1,πρωταγωνιστικός,"-ή, -ό",leading
+B1,πρωταγωνίστρια,η,"protagonist, leading person [feminine]"
 B1,πρωταγωνιστώ,,to play a leading part
 B1,πρωτεΐνη,η,protein
 B1,πρωτεύουσα,η,capital
@@ -1863,8 +1910,9 @@ B1,ρακή,η,"raki, very popular in Crete and the Cyclades"
 B1,ρακόμελο,το,"rakomelo, usually made with the combination of raki and honey and other spices"
 B1,ραπ μουσική,η,rap music
 B1,ράφι,το,shelf
-B1,ράφτης,"ο — ράφτρα, η","tailor, seamstress"
+B1,ράφτης,ο,tailor
 B1,ράφτιγκ,το,rafting
+B1,ράφτρα,η,seamstress
 B1,ράψιμο,το,sewing
 B1,ρεβανί,το,"revani, basbousa (a sweet cake made with semolina and eggs and soaked in simple syrup)"
 B1,ρεβεγιόν,το,celebration
@@ -1989,7 +2037,7 @@ B1,σταματημένος,"-η, -ο","at a standstill, stopped"
 B1,στάση,η,"poise, stance, posture, pose, attidute"
 B1,στάση προσευχής,,prayer position
 B1,σταφίδα,η,raisin
-B1,σταχτής,"-ιά, ί",grey in color
+B1,σταχτής,"-ιά, -ί",grey in color
 B1,στέγη,η,roof
 B1,στέγνωμα,το,drying
 B1,στεγνώνω,,to dry
@@ -2105,7 +2153,8 @@ B1,σφάλμα,το,"mistake, error"
 B1,σφουγγάρι,το,sponge
 B1,σφουγγαρίζω,,to mop
 B1,σχεδιασμένος,"-η, -ο","designed, planned, drawn, drafted"
-B1,σχεδιαστής,"ο — σχεδιάστρια, η",designer
+B1,σχεδιαστής,ο,designer [masculine]
+B1,σχεδιάστρια,η,designer [feminine]
 B1,σχέδιο,το,"drawing, pattern, plan"
 B1,σχετικός,"-ή, -ό",relevant
 B1,σχήμα,το,shape
@@ -2160,7 +2209,8 @@ B1,τηλεοπτικός,"-ή, -ό","on-screen, on television"
 B1,παίρνω τηλέφωνο,,"to call, to phone, to make a phonecall"
 B1,τιμάω,& -ώ,"to praise, to honor"
 B1,τιμωρία,η,punishment
-B1,τίνος,τίνων,whose
+B1,τίνος,,whose [singular]
+B1,τίνων,,whose [plural]
 B1,τμήμα,το,"part, section, department"
 B1,τολμάω,& -ώ,to dare
 B1,τόλμη,η,"daring, courage"
@@ -2322,7 +2372,6 @@ B1,φωτοτυπικός,"-ή, -ό",photocopying
 B1,φωτοτυπώ,,to photocopy
 B1,χαγιάτι,το,roofed balcony at the front of the house
 B1,χαδιάρης,"-α, -ικο","tender, who likes caresses and displays of affection"
-B1,χαιρετίσματα,τα,greetings
 B1,χακί,,khaki
 B1,χαλάζι,το,hail
 B1,χαλαρός,"-ή, -ό","loose, relaxed"
@@ -2355,7 +2404,8 @@ B1,χειρουργός,ο/η,surgeon
 B1,χελώνα,η,turtle
 B1,χημεία,η,chemistry
 B1,χημικός,"-ή, -ό",chemical
-B1,χήρος,"ο — χήρα, η",widower/ widow
+B1,χήρα,η,widow
+B1,χήρος,ο,widower
 B1,χιλιάδα,η,thousand
 B1,χιλιομετρικός,"-ή, -ό",kilometric
 B1,χιμπατζής,ο,chimpanzee
@@ -2378,7 +2428,7 @@ B1,χόρτα,τα,"greens (usually eaten as a salad, usually blanched or steame
 B1,χορωδία,η,chorus
 B1,χουβαρντάς,ο,"bighearted, generous"
 B1,χρεώνω,,to charge
-B1,χρήμα,"το — χρήματα, τα",money
+B1,χρήμα,το,money
 B1,χρηματοδοτώ,,"to fund, to finance"
 B1,χρήσιμος,"-η, -ο",useful
 B1,Χριστίνα,,Christina
@@ -2409,7 +2459,8 @@ B1,ψαράς,ο,fisherman
 B1,ψάρεμα,το,fishing
 B1,ψαρικά,τα,plates with fish
 B1,ψαρόσουπα,η,fish soup
-B1,ψεύτης,"ο — ψεύτρα, η",liar
+B1,ψεύτης,ο,liar [masculine]
+B1,ψεύτρα,η,liar [feminine]
 B1,ψηλοτάκουνος,"-η, -ο",high-heeled
 B1,ψηλώνω,,to grow taller
 B1,ψημένος,"-η, -ο","grilled, roasted, baked"
@@ -2427,7 +2478,8 @@ B1,ψυχίατρος,ο/η,psychiatrist
 B1,ψυχολογία,η,psychology
 B1,ψυχολογικός,"-ή, -ό",psychological
 B1,ψυχολόγος,ο/η,psychologist
-B1,ψύχος,"το — ψύχρα, η",cold
+B1,ψύχος,το,cold
+B1,ψύχρα,η,chill
 B1,ψυχρός,"-ή, -ό",cold
 B1,ψύχραιμος,"-η, -ο","calm, composed"
 B1,ψυχραιμία,η,"calmness, cool, composure, aplomb"

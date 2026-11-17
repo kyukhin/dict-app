@@ -619,7 +619,7 @@ A1,καθρέφτης,ο,mirror
 A1,καθυστέρηση,η,delay
 A1,καθώς,,while
 A1,και,,and
-A1,καινούριος,"-ια, ιο",new
+A1,καινούριος,"-ια, -ιο",new
 A1,καιρός,ο,weather
 A1,Τι καιρό κάνει;,,What’s the weather like?
 A1,κακός,"-ή, -ό",bad
@@ -1087,9 +1087,9 @@ A1,πληρώνω,,to pay
 A1,πλοίο,το,ship
 A1,πλυντήριο,το,washing machine
 A1,ποδήλατο,το,bicycle
-A1,πόδι,το/τα,foot / feet
+A1,πόδι,το,foot
 A1,ποδόσφαιρο,το,football
-A1,ποια,,"who, which [feminine]"
+A1,ποια,,"who, which, whom [feminine]"
 A1,ποιανού,-ής,(person) whose
 A1,ποιο,,which [neuter]
 A1,ποιος,,"who, which [masculine]"
@@ -1449,7 +1449,7 @@ A1,φτάνω,,to arrive
 A1,φτηνά,,cheaply
 A1,φτηνός,"-ή, -ό",cheap
 A1,φτιάχνω,,to make
-A1,φύλλο,το/τα,leaf/-ves
+A1,φύλλο,το,leaf
 A1,φύλο,το,gender
 A1,Φυσάει,,It is windy
 A1,φύση,η,nature
@@ -1462,7 +1462,8 @@ A1,φωτογραφία,η,picture
 A1,φωτογραφική μηχανή,η,camera
 A1,Χαβάη,η,Hawaii
 A1,χαιρετάω,-ώ,to say hello
-A1,χαιρετισμοί/χαιρετίσματα,οι/τα,"regards, greetings"
+A1,χαιρετίσματα,τα,"regards, greetings"
+A1,χαιρετισμοί,οι,"regards, greetings"
 A1,χαίρομαι,,"to be happy, to be pleased"
 A1,χαλαρώνω,,to loose
 A1,χαλάω,,"to break, to break down"

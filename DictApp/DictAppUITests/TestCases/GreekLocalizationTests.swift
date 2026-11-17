@@ -418,7 +418,7 @@ final class GreekLocalizationTests: XCTestCase {
     }
 
     /// 0130, #154, #295: the list screens in Greek. "Όλες οι λίστες" opens
-    /// "Λίστες" for Greek's tab: "Ελληνικά Α1" with "743 λέξεις" for Α2, then
+    /// "Λίστες" for Greek's tab: "Ελληνικά Α1" with "749 λέξεις" for Α2, then
     /// "Οι λίστες μου", and no English section (it is on English's tab); a
     /// list's screen reads "Μάθετε αυτή τη λίστα"; the Greek import heads
     /// its levels Α1 and Α2 in Greek letters; "Επιλογή λιστών" opens "Μάθηση
@@ -438,7 +438,7 @@ final class GreekLocalizationTests: XCTestCase {
         try assertNoEnglishLeak(on: "Lists", skippingCellContent: true)
         XCTAssertTrue(app.staticTexts["Ελληνικά Α1"].exists)
         XCTAssertTrue(app.scrollToElement(page.row("ky-ell-a2")))
-        XCTAssertEqual(page.count("ky-ell-a2").label, "743 λέξεις")
+        XCTAssertEqual(page.count("ky-ell-a2").label, "749 λέξεις")
         XCTAssertTrue(app.scrollToElement(page.row("user-fixture-greek")), "My lists")
         XCTAssertTrue(waitForText("Οι λίστες μου"), "the My lists section")
         XCTAssertEqual(page.count("user-fixture-greek").label, "5 λέξεις")

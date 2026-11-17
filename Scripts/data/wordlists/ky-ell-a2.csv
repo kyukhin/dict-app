@@ -97,7 +97,7 @@ A2,γιορτάζω,,to celebrate
 A2,γκαράζ,το,garage
 A2,γλέντι,το,party
 A2,γνωριμία,η,acquaintance
-A2,γοργός,"ή, -ό","quick, fast, rapid, speedy"
+A2,γοργός,"-ή, -ό","quick, fast, rapid, speedy"
 A2,γρίπη,η,flu
 A2,γυαλί,το,glass
 A2,γυαλιά ηλίου,τα,sunglasses
@@ -158,7 +158,7 @@ A2,έθιμο,το,"custom, tradition"
 A2,εθνικότητα,η,nationality
 A2,ειδοποίηση,η,"notice, notification"
 A2,εκτίμηση,η,"esteem, respect"
-A2,ειδικός,"ο ειδικός, η","expert, specialist"
+A2,ειδικός,ο/η,"expert, specialist"
 A2,ειδήσεις,οι,news
 A2,είδος,το,"kind, type"
 A2,ειρήνη,η,peace
@@ -182,8 +182,7 @@ A2,Ελίνα,η,Elina
 A2,ελπίζω,,to hope
 A2,Έλσα,η,Elsa
 A2,ελαιόλαδο,το,olive oil
-A2,ελεύθερος,"-η, -ο",free
-A2,ελεύθερος,"ο ελεύθερη, η",single
+A2,ελεύθερος,"-η, -ο",free; single
 A2,Ελευθερία,η,Eleftheria
 A2,εμένα,,me
 A2,εμπορικό κέντρο,το,"shopping center/centre, mall"
@@ -191,7 +190,7 @@ A2,εμπειρία,η,experience
 A2,εμφάνιση,η,"appearance, look"
 A2,ενδιαφέρομαι,,to be interested in
 A2,ενδιαφέρον,το,interest
-A2,ενδιαφέρων,"ο / ενδιαφέρουσα, η / ενδιαφέρον, το",interesting
+A2,ενδιαφέρων,"-ουσα, -ον",interesting
 A2,εννέα,εννιά,nine
 A2,ενημερώνω,,"to inform, to notify"
 A2,ενθουσιάζω,,to excite
@@ -241,7 +240,7 @@ A2,ζωηρός,"-ή, -ό","naughty, lively"
 A2,ζωντανή μουσική,η,live music
 A2,ηλεκτρικά είδη,,electric devices
 A2,ηλεκτροπληξία,η,"electrocution, electric shock"
-A2,ηλικιωμένος,"ο / ηλικωμένη, η","elderly, old, senior"
+A2,ηλικιωμένος,"-η, -ο","elderly, old, senior"
 A2,έχει ήλιο,,it is sunny
 A2,ήπιος,"-α, -ο","mild, gentle"
 A2,ήρεμος,"-η, -ο","calm, peaceful"
@@ -318,9 +317,9 @@ A2,κλασικός,"-ή, -ό",classical
 A2,κλειδί-λέξη,η,key word
 A2,κλειδώνω,,"to lock, to lock up"
 A2,κλεισμένος,"-η, -ο","closed, shut"
-A2,κλειστός,"ή, -ό","shut, closed"
-A2,κλειστός,"ή, -ό",turned off
-A2,κλέφτης,"ο / κλέφτρα, η","thief, robber"
+A2,κλειστός,"-ή, -ό","shut, closed; turned off"
+A2,κλέφτης,ο,"thief, robber [masculine]"
+A2,κλέφτρα,η,"thief, robber [feminine]"
 A2,κλοπή,η,"theft, robbery"
 A2,κλόουν,ο,clown
 A2,κοινωνικός,"-ή, -ό",social
@@ -462,8 +461,7 @@ A2,ξαναλέω,,"to repeat, to say again"
 A2,ξαναπερνάω,-ώ,to come/pass again
 A2,Ξάνθη,η,Xanthi
 A2,ξεκουράζομαι,,"to rest, to relax"
-A2,ξένος,"-η, -ο",foreign
-A2,ξένος,ο / ξένη η,stranger
+A2,ξένος,"-η, -ο",foreign; stranger
 A2,ξεπερνάω,,to overcome
 A2,ξεπερνάω,,to exceed
 A2,ξεπλένω,,to wash out
@@ -478,7 +476,8 @@ A2,οδηγάω,-ώ,"to drive, to guide"
 A2,οικογενειακή κατάσταση,η,marital status
 A2,οινόπνευμα,το,"alcohol, spirit"
 A2,ολόκληρος,"-η, -ο","whole, entire"
-A2,ομιλητής,"ο / ομιλήτρια, η","speaker, lecturer"
+A2,ομιλητής,ο,"speaker, lecturer [masculine]"
+A2,ομιλήτρια,η,"speaker, lecturer [feminine]"
 A2,ομίχλη,η,"mist, fog"
 A2,ομορφιά,η,beauty
 A2,ονειρεύομαι,,to dream
@@ -500,7 +499,7 @@ A2,παιδικός,"-ή, -ό",about/for children
 A2,παλιά,,"in the past, once"
 A2,πανεπιστημιακός,"-ή, -ό",of university
 A2,πανσέληνος,η,full moon
-A2,παντρεμένος,"ο / παντρεμένη, η",married
+A2,παντρεμένος,"-η, -ο",married
 A2,παντρεύω,,to marry
 A2,πάπλωμα,το,blanket
 A2,παραγωγή γραπτού λόγου,,writing
@@ -544,19 +543,19 @@ A2,πνίγομαι,,"to choke, to suffocate"
 A2,πνίγομαι,,to be drawn
 A2,ποδιά,η,apron
 A2,ποίηση,η,poetry
-A2,ποιον,ποια,whom
+A2,ποιον,,whom [masculine]
 A2,ποιότητα,η,quality
 A2,πολιτισμός,ο,"civilization, culture"
 A2,πολιτιστικός,"-ή, -ό",cultural
 A2,πολίτης,ο,"citizen, civilian"
-A2,πολύχρωμος,"-η, ο",colourful
+A2,πολύχρωμος,"-η, -ο",colourful
 A2,πονόδοντος,ο,toothache
 A2,πονάει η κοιλιά μου,,to have a stomach ache
 A2,πονοκέφαλος,ο,headache
 A2,ποντιακός,"-ή, -ό",Pontic
 A2,ποντίκι,το,mouse
 A2,ποντίκια,τα,mice
-A2,Από πού είσαι/είστε?,,Where are you from?
+A2,Από πού είσαι/είστε;,,Where are you from?
 A2,πουθενά,,nowhere
 A2,πραγματικά,,"really, indeed, in fact"
 A2,πράξη,η,act
@@ -607,7 +606,8 @@ A2,σκοπός,ο,"aim, goal, target"
 A2,σκόρδο,το,garlic
 A2,σκορπίζω,,to scatter
 A2,σκουπίζω,,"to wipe, to sweep"
-A2,σκούφος,"ο / σκουφί, το","beanie, hat"
+A2,σκουφί,το,"beanie, hat"
+A2,σκούφος,ο,"beanie, hat"
 A2,σόδα,η,baking soda
 A2,σούπα,η,soup
 A2,σοπράνο,η,soprano
@@ -638,7 +638,8 @@ A2,συλληπητήρια,τα,condolences
 A2,συμπαθώ,,to like
 A2,συμπαθητικός,"-ή, -ό","nice, charming"
 A2,συμφωνώ,,to agree
-A2,συμφοιτητής,"ο / συμφοιτήτρια, η",classmate
+A2,συμφοιτητής,ο,classmate [masculine]
+A2,συμφοιτήτρια,η,classmate [feminine]
 A2,συναντάω,-ώ,"to meet, to come across"
 A2,συνάντηση,η,meeting
 A2,συναυλία,η,concert
@@ -674,7 +675,7 @@ A2,τέτοιος,"-α, -ο",such
 A2,τ.μ.,,square metre
 A2,τέχνη,η,art
 A2,τεχνολογικός,"-ή, -ό",technological
-A2,"τζάζ,η",,jazz
+A2,τζαζ,η,jazz
 A2,τηγάνι,το,pan
 A2,στην τηλεόραση,,on the television / on the TV
 A2,τηλεφώνημα,το,"call, phonecall"
@@ -685,7 +686,8 @@ A2,τόπος,ο,"place, area"
 A2,τοποθεσία,η,location
 A2,τόσος,"-η, -ο",so/ that much
 A2,τουλάχιστον,,at least
-A2,τραγουδιστής,"ο / τραγουδίστρια, η",singer
+A2,τραγουδιστής,ο,singer [masculine]
+A2,τραγουδίστρια,η,singer [feminine]
 A2,τραπεζομάντιλο,το,tablecloth
 A2,τρέξιμο,το,running
 A2,πηγαίνω για τρέξιμο,,to go running
@@ -750,14 +752,15 @@ A2,Χαρίκλεια,η,Chariklia
 A2,χαρτοπετσέτα,η,napkin
 A2,χλιαρός,"-ή, -ό",lukewarm
 A2,χολ,το,corridor
-A2,χορευτής,"ο / χορεύτρια, η",dancer
+A2,χορευτής,ο,dancer [masculine]
+A2,χορεύτρια,η,dancer [feminine]
 A2,Χριστός Ανέστη!,,Christ is risen!
 A2,χριστουγεννιάτικος,"-η, -ο",christmas/of christmas
 A2,χρονιά,η,year
 A2,Χρόνια πολλά!,,Merry Christmas!
 A2,Χρόνια πολλά!,,Happy birthday!
 A2,χτυπάει το τηλέφωνο,,the phone is ringing
-A2,χωρισμένος,"ο / χωρισμένη, η","separated, divorced"
+A2,χωρισμένος,"-η, -ο","separated, divorced"
 A2,λέω ψέματα,,to lie
 A2,ψητός,"-ή, -ό","roast, baked, grilled"
 A2,ψιχαλίζει,,it drizzles
