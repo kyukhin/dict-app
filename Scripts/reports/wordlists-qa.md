@@ -19,7 +19,7 @@ Written by `Scripts/build_wordlists.py` on every dictionary build (docs/specs/01
 | Gate | Measured | Needed | |
 |---|---|---|---|
 | Input problems (Latin letters in Greek, Greek letters in Latin words, rows that become no word, rows without a level of their series, bad rows, overrides) | 0 | 0 | ok |
-| ky-ell linked | 87.4% (4,146 of 4,742) | ≥ 84% | ok |
+| ky-ell linked | 87.4% (4,145 of 4,742) | ≥ 84% | ok |
 | cefr-eng linked | 98.6% (8,529 of 8,647) | ≥ 95% | ok |
 | word_count equals rows | all | all | ok |
 | Empty lists | 0 | 0 | ok |
@@ -33,7 +33,7 @@ Written by `Scripts/build_wordlists.py` on every dictionary build (docs/specs/01
 |---|---|---|---|---|
 | A1 | 1,536 | 1,507 | 94.0% | 92.4% |
 | A2 | 766 | 749 | 78.2% | 74.6% |
-| B1 | 2,495 | 2,486 | 86.2% | 74.4% |
+| B1 | 2,495 | 2,486 | 86.2% | 74.5% |
 | all | 4,797 | 4,742 | 87.4% | 80.2% |
 
 55 rows merged into other rows' words (below).
@@ -44,14 +44,14 @@ Written by `Scripts/build_wordlists.py` on every dictionary build (docs/specs/01
 |---|---|---|---|---|---|---|
 | A1 | 1,352 | 5 | 14 | 29 | 16 | 91 |
 | A2 | 557 | 4 | 8 | 17 | 0 | 163 |
-| B1 | 2,072 | 1 | 2 | 69 | 0 | 342 |
-| all | 3,981 | 10 | 24 | 115 | 16 | 596 |
+| B1 | 2,070 | 1 | 2 | 69 | 1 | 343 |
+| all | 3,979 | 10 | 24 | 115 | 17 | 597 |
 
 ### A1: the 20 most frequent words, before the shuffle
 
 ο, να, είμαι, αυτός, το, του, σε, μου, δεν, και, θα, σου, ένας, έχω, με, για, τις, ή, η, την
 
-### Links to review: cleaned, near, form and override (175)
+### Links to review: cleaned, near, form and override (177)
 
 | Level | Term | Headword | Rule | The rules' link |
 |---|---|---|---|---|
@@ -181,6 +181,7 @@ Written by `Scripts/build_wordlists.py` on every dictionary build (docs/specs/01
 | B1 | εξετάζομαι | εξετάζω | form |  |
 | B1 | εξηγούμαι | εξηγώ | form |  |
 | B1 | επηρεάζομαι | επηρεάζω | form |  |
+| B1 | εργάτρια | εργάτης | override | εργάτρια |
 | B1 | θεωρούμαι | θεωρώ | form |  |
 | B1 | ικανοποιούμαι | ικανοποιώ | form |  |
 | B1 | καλλιεργούμαι | καλλιεργώ | form |  |
@@ -200,6 +201,7 @@ Written by `Scripts/build_wordlists.py` on every dictionary build (docs/specs/01
 | B1 | λούζομαι | λούζω | form |  |
 | B1 | μοναδικά | μοναδικός | form |  |
 | B1 | μπέμπα | — | override | μπέμπα |
+| B1 | μπέμπης | — | override | μπέμπης |
 | B1 | ξυρίζομαι | ξυρίζω | form |  |
 | B1 | ολυμπιακός | — | override | Ολυμπιακός |
 | B1 | ονομάζομαι | ονομάζω | form |  |
@@ -231,7 +233,7 @@ Written by `Scripts/build_wordlists.py` on every dictionary build (docs/specs/01
 | B1 | χορτασμένος | χορταίνω | form |  |
 | B1 | χτενίζομαι | χτενίζω | form |  |
 
-### Unlinked words (596)
+### Unlinked words (597)
 
 | Level | Term | Translation |
 |---|---|---|
@@ -666,6 +668,7 @@ Written by `Scripts/build_wordlists.py` on every dictionary build (docs/specs/01
 | B1 | μοσχοβολάω | to smell nice |
 | B1 | Μπαξέδες | Baxedes |
 | B1 | μπέμπα | baby girl |
+| B1 | μπέμπης | baby boy |
 | B1 | μπομπονιέρα | jordan almonds, wedding favor |
 | B1 | μπροστινός | anterior |
 | B1 | μύδια σαγανάκι | fried mussels |
@@ -832,7 +835,7 @@ Written by `Scripts/build_wordlists.py` on every dictionary build (docs/specs/01
 | B1 | ψύχρα | chill |
 | B1 | ψυχραίνω | to make cold, to freeze out |
 
-### Unranked words (941)
+### Unranked words (940)
 
 | Level | Term |
 |---|---|
@@ -1380,7 +1383,6 @@ Written by `Scripts/build_wordlists.py` on every dictionary build (docs/specs/01
 | B1 | επισκευάζω |
 | B1 | εποχιακός |
 | B1 | εργατική τάξη |
-| B1 | εργάτρια |
 | B1 | εργοδότρια |
 | B1 | ερωδιός |
 | B1 | έτσι κι έτσι |
