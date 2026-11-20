@@ -2053,6 +2053,29 @@ enum GenderForms {
         return parts
     }
 
+    /// #355: the other spellings of a list word kept in its endings, whole
+    /// words a typed answer may give. Greek (εννέα, εννιά): a part of the
+    /// endings (split at " / ") of one word of Greek letters, not an article
+    /// (ο, η, το, οι, τα), without a dash, parentheses or a comma; none at all
+    /// after an "&" (κοιτάω, "& -ώ / κοιτάζω"). English
+    /// ("A.M., am, AM"): each of the comma-separated variants. Empty for
+    /// anything else, other languages and gender endings.
+    static func variants(_ endings: String, lang: String) -> [String] {
+        let endings = endings.precomposedStringWithCanonicalMapping
+        switch lang {
+        case "eng":
+            return endings.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+        case "ell":
+            guard !endings.contains("&") else { return [] }
+            let articles = ["ο", "η", "το", "οι", "τα"]
+            return endings.components(separatedBy: " / ").map { $0.trimmingCharacters(in: .whitespaces) }.filter {
+                !$0.isEmpty && !articles.contains($0.lowercased()) && $0.allSatisfy(isGreekLetter)
+            }
+        default:
+            return []
+        }
+    }
+
     private static func isGreekLetter(_ character: Character) -> Bool {
         character.isLetter && character.unicodeScalars.allSatisfy {
             (0x0370...0x03FF).contains($0.value) || (0x1F00...0x1FFF).contains($0.value)

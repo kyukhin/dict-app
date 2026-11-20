@@ -819,18 +819,22 @@ final class ExerciseRunViewModel: ObservableObject {
             }
         }
         if question?.input == .typed {
-            question?.otherForms = await genderForms(of: word)
+            question?.otherForms = await otherForms(of: word)
         }
         return question
     }
 
-    /// #337: the genders a typed answer may give for `word`, a Greek list
-    /// word with gender endings (`GenderForms`): from its tables, else its
-    /// endings; read once per run and word, before the question shows.
-    /// None for other words, or when the read fails: the word itself is
-    /// still right.
-    private func genderForms(of word: WordChoice) async -> [String] {
-        guard GenderForms.endings(word.endings, lang: word.key.lang) != nil else { return [] }
+    /// #337, #355: the other forms a typed answer may give for `word`: the
+    /// genders of a Greek list word with gender endings (`GenderForms`), from
+    /// its tables, else its endings; else the word and the spelling variants
+    /// in its endings (`GenderForms.variants`). Read once per run and word,
+    /// before the question shows. None for other words, or when the read
+    /// fails: the word itself is still right.
+    private func otherForms(of word: WordChoice) async -> [String] {
+        guard GenderForms.endings(word.endings, lang: word.key.lang) != nil else {
+            let variants = GenderForms.variants(word.endings, lang: word.key.lang)
+            return variants.isEmpty ? [] : [word.term] + variants
+        }
         if let known = genders[word.key] { return known }
         let tables = (try? await db.genderTables(of: [word.term] + (word.entry.map { [$0.word] } ?? []))) ?? []
         let forms = GenderForms.forms(of: word.term, endings: word.endings, lang: word.key.lang, tables: tables)
