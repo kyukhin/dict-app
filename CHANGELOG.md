@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- [#355] A typed answer may be a spelling variant kept in the word's endings: εννιά for εννέα, εφτά, οχτώ, ξάφνου, χώρια, and English variants such as "am" for a.m.
 - [#331] In learning, a Recognition question speaks its word and a conjugation drill question its verb as it appears, in the word's own voice; a new "Speak words" switch in Settings → Learning, on by default, turns it off, and nothing is spoken while VoiceOver runs.
 - [#296] A lesson closed early is kept for the day: the Today button reads "Continue lesson · 7 left" and resumes at the next unanswered question with its progress bar, and each answer still counts once. The next day starts a new lesson.
 - [#141] The dictionary file now carries Greek word forms and inflection tables from a pinned Wiktionary snapshot, checked by a QA report on every build.

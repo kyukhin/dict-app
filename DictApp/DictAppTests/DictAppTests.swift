@@ -28118,6 +28118,35 @@ final class GenderFormsTests: XCTestCase {
         XCTAssertEqual(GenderForms.forms(of: "σπίτι", endings: "-ή, -ό", lang: "ell", tables: []), [],
                        "nothing to build on")
     }
+
+    /// #355: the spelling variants in the endings are whole words; articles,
+    /// gender endings, dashes and "&" give none.
+    func testVariants() {
+        for (endings, lang, variants) in [
+            ("εννιά", "ell", ["εννιά"]), ("εφτά", "ell", ["εφτά"]), ("οχτώ", "ell", ["οχτώ"]),
+            ("ξάφνου", "ell", ["ξάφνου"]), ("χώρια", "ell", ["χώρια"]), ("κοιτάζω", "ell", ["κοιτάζω"]),
+            ("εννιά / ένα", "ell", ["εννιά", "ένα"]), ("A.M., am, AM", "eng", ["A.M.", "am", "AM"]),
+            ("check-in", "eng", ["check-in"]), ("disk jockey", "eng", ["disk jockey"]),
+        ] {
+            XCTAssertEqual(GenderForms.variants(endings, lang: lang), variants, endings)
+        }
+        for endings in ["", "ο", "η", "το", "οι", "τα", "ο/η", "το/τα", "ο/το", "-ή, -ό", "-ή -ό", "-ώ", "& -ώ",
+                        "& -ώ / κοιτάζω", "Άλμπερτ, ο", "ο Μέγας", "ο / ξένη η", "-ια (/-ία), -ο", "-ή/-ίδα"] {
+            XCTAssertEqual(GenderForms.variants(endings, lang: "ell"), [], "'\(endings)' holds no variant")
+        }
+        XCTAssertEqual(GenderForms.variants("εννιά", lang: "spa"), [], "Greek and English only")
+        XCTAssertEqual(GenderForms.variants("", lang: "eng"), [])
+    }
+
+    /// #355: εννιά is right for εννέα, as another form; the term still is.
+    func testVariantIsGradedAsAnotherForm() {
+        let forms = ["εννέα"] + GenderForms.variants("εννιά", lang: "ell")
+        let grade = AnswerChecker.grade("εννιά", expected: "εννέα", otherForms: forms, lang: "ell", mode: .strict)
+        XCTAssertEqual(grade, TypedGrade(outcome: .right, mindTheAccent: false, isOtherForm: true))
+        let own = AnswerChecker.grade("εννέα", expected: "εννέα", otherForms: forms, lang: "ell", mode: .strict)
+        XCTAssertFalse(own.isOtherForm)
+        XCTAssertEqual(own.outcome, .right)
+    }
 }
 
 /// `DistractorPicker`: preference order and the drop rules.
@@ -30584,6 +30613,41 @@ extension ExerciseRunViewModelTests {
         XCTAssertEqual(asked, Set(words.map(\.0)))
         let log = try await rows("SELECT word, outcome FROM learn_review ORDER BY word")
         XCTAssertEqual(log, ["αυτός|accent", "καλός|right", "σπίτι|wrong"])
+    }
+
+    /// #355: a variant in the endings (εννέα, εννιά) is right as another form;
+    /// a noun's article and a gender word's endings give none of it.
+    func testTypedAnswerTakesTheVariantInTheEndings() async throws {
+        let words = [("εννέα", "εννιά", "nine"), ("σπίτι", "το", "house"), ("καλός", "-ή, -ό", "good")]
+        for (word, endings, translation) in words {
+            try await insertListWord(word, endings: endings, translation: translation, translationLang: "eng")
+            try await setCard(WordKey(lang: "ell", word: word), .production, step: 1, due: today,
+                              last: today.adding(days: -1))
+        }
+        let vm = run(.production)
+        await vm.start()
+        XCTAssertNil(vm.errorMessage)
+        var asked: Set<String> = []
+        var steps = 0
+        while vm.phase == .question, let question = vm.question, asked.count < words.count, steps < 10 {
+            steps += 1
+            asked.insert(question.word.term)
+            switch question.word.term {
+            case "εννέα":
+                XCTAssertEqual(question.otherForms, ["εννέα", "εννιά"])
+                vm.typed = "εννιά"
+            case "καλός":
+                XCTAssertEqual(question.otherForms, ["καλός", "καλή", "καλό"], "genders as before")
+                vm.typed = "καλός"
+            default:
+                XCTAssertEqual(question.otherForms, [], "an article is no variant")
+                vm.typed = "σπίτι"
+            }
+            await vm.check()
+            XCTAssertEqual(vm.feedback?.outcome, .right, question.word.term)
+            await vm.next()
+        }
+        XCTAssertEqual(asked, Set(words.map(\.0)))
     }
 }
 
