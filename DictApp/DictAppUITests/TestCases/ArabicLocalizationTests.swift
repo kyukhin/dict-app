@@ -676,7 +676,8 @@ final class ArabicLocalizationTests: XCTestCase {
         XCTAssertTrue(title.exists, "Greek A1's title in Arabic")
         XCTAssertGreaterThan(title.frame.midX, midX, "RTL: the title on the right")
         let count = page.count("ky-ell-a1")
-        XCTAssertTrue(count.label.contains("كلمة"), "the count in Arabic; got '\(count.label)'")
+        // Arabic plurals: 3 to 10 (mod 100) read كلمات, as 1,507 does; most other counts read كلمة.
+        XCTAssertTrue(["كلمة", "كلمات"].contains { count.label.contains($0) }, "the count in Arabic; got '\(count.label)'")
         XCTAssertGreaterThan(count.frame.maxX, midX, "RTL: the count under the title, on the right")
         XCTAssertTrue(staticTextContaining("قوائمي") || app.scrollToElement(page.row("my-words")), "the My lists section")
         attachScreenshot("lists (ar)")
