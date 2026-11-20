@@ -83,6 +83,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - [#337] A typed Greek answer in another gender, such as αυτή or αυτό for αυτός, -ή, -ό, is now right, and the feedback shows the word with its endings.
 - [#339] Greek A1 now holds the articles, pronouns by gender (αυτός "he", αυτή "she"), δεν, να, μην, ή and the other cornerstone words, and a list word's example sentences show the word in its own form.
 - [#346] Every Greek list row now holds one word: "ο η, το" and the "ο — κλέφτρα, η" rows became a masculine and a feminine word, adjectives keep their endings (ηλικιωμένος, -η, -ο), and the lists have 4,742 words; the build refuses a row with another word in its endings.
+- [#356] In the Greek B1 list, μπέμπης no longer opens "bimbo, poppet" and εργάτρια opens εργάτης instead of "worker bee".
 
 ### Tests / CI
 - [#203] Release builds ignore the UI-test launch arguments, and unused version code and stale developer docs are removed.
