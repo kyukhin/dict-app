@@ -39,6 +39,9 @@ ky-ell	σας	εσείς
 ky-ell	δεκατέσσερις	δεκατέσσερα
 # #346: FreeDict's μπέμπα is Bemba (the language); no entry means baby girl.
 ky-ell	μπέμπα	-
+# #356: FreeDict's μπέμπης is a bimbo, so no entry; WordNet's εργάτρια is a worker bee, so εργάτης.
+ky-ell	μπέμπης	-
+ky-ell	εργάτρια	εργάτης
 # English forms of be and do: the exact rule links is to IS ("Islamic State" in En–Es), am and are
 # to WordNet's americium and unit of area; no rule links 'm, 're and does.
 cefr-eng	is	be
