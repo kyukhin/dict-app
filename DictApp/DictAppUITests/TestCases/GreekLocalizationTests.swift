@@ -94,6 +94,12 @@ final class GreekLocalizationTests: XCTestCase {
             app.launchArguments += ["-learningLanguages", "ell", "-learningLists", "ky-ell-a1", "-drillLength", "2",
                                     "-learningAnswerHints", "-learningSeed", "168"]
         }
+        // 0132, #364: the drill example in Greek.
+        if name.contains("testDrillExampleInGreek") {
+            app.launchArguments += ["-learningLanguages", "ell", "-learningLists", "ky-ell-a1", "-drillLength", "2",
+                                    "-learningAnswerHints", "-learningSeed", "168",
+                                    "-drillPlan", "κάνω|imperativeSimple.active|2sg;κάνω|imperativeSimple.active|2sg"]
+        }
         // 0131, #181: words due, typed answers.
         if name.contains("testTypedAnswerInGreek") {
             app.launchArguments += ["-learningFixture", "due", "-learningAnswerHints", "-learningSeed", "161",
@@ -704,6 +710,23 @@ final class GreekLocalizationTests: XCTestCase {
         XCTAssertTrue(waitForText("Ανά χρόνο"), "the run by tense")
         attachScreenshot("20-conjugation-summary")
         try assertNoEnglishLeak(on: "Conjugation summary")
+    }
+
+    /// 0132, #364: the drill's example in a Greek UI: the sentence with its
+    /// English translation and the byline as on Definition ("Από το Tatoeba: …").
+    func testDrillExampleInGreek() throws {
+        openTab(.learn)
+        let learnPage = LearnPage(app: app)
+        XCTAssertTrue(learnPage.waitForHome(timeout: TestData.Timeouts.long), "the Learn home")
+        let drill = learnPage.openConjugation()
+        drill.start()
+        XCTAssertTrue(drill.waitForQuestion(), "a question")
+        drill.answer(right: true)
+        XCTAssertTrue(drill.example.waitForExistence(timeout: TestData.Timeouts.medium), "the example")
+        let label = drill.example.label
+        XCTAssertTrue(label.hasPrefix("Κάνε "), label)
+        XCTAssertTrue(label.contains("Από το Tatoeba: "), label)
+        attachScreenshot("drill-example")
     }
 
     /// 0131, #181: a typed Production question in Greek. The field names the

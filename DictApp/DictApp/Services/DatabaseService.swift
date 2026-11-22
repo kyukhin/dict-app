@@ -1766,18 +1766,25 @@ actor DatabaseService {
     /// examplesSchema`) read nothing. The word is looked up in NFC, as the
     /// build stores it.
     func examples(for key: WordKey, limit: Int = 5) async throws -> [ExampleSentence] {
-        guard let schema = DictionarySchemas.examplesSchema(for: key.lang), limit > 0 else { return [] }
+        try await examples(lang: key.lang, word: key.word, limit: limit)
+    }
+
+    /// `examples(for:limit:)` for a `word` as it is stored, with no `WordKey`
+    /// lowercasing: a drill cell's key, `κάνω|imperativeSimple.active|2sg`
+    /// (0132, #364), has capitals that `WordKey` would fold.
+    func examples(lang: String, word: String, limit: Int = 5) async throws -> [ExampleSentence] {
+        guard let schema = DictionarySchemas.examplesSchema(for: lang), limit > 0 else { return [] }
         guard let pool = dbPool else { throw DBError.notConnected }
         #if DEBUG
         exampleReadCount += 1
         #endif
-        let word = key.word.precomposedStringWithCanonicalMapping
+        let word = word.precomposedStringWithCanonicalMapping
         return try await read(pool) { db in
             let rows = try Row.fetchAll(db, sql: """
                 SELECT s.id, s.lang, s.text, s.author, w.form_start, w.form_length
                 FROM \(schema).example_word w JOIN \(schema).example_sentence s ON s.id = w.sentence_id
                 WHERE w.lang = ? AND w.word = ? ORDER BY w.ord LIMIT ?
-                """, arguments: [key.lang, word, limit])
+                """, arguments: [lang, word, limit])
             guard !rows.isEmpty else { return [] }
             let ids: [Int64] = rows.map { $0["id"] }
             var translations: [Int64: [ExampleTranslation]] = [:]

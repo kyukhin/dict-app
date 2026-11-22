@@ -1115,6 +1115,10 @@ final class ConjugationRunViewModel: ObservableObject {
     /// #331: the verb the question spoke as it appeared; empty for none.
     /// The verb's accessibility value, for UI tests.
     @Published private(set) var spokenWord = ""
+    /// #364: the asked cell's sentence for the answer panel, set before the
+    /// question shows and the same after a right and a wrong choice; nil for
+    /// a cell without one.
+    @Published private(set) var example: ShownExample?
 
     let mode: Mode
     /// The meanings language of Greek's pair: the translation's voice.
@@ -1144,19 +1148,26 @@ final class ConjugationRunViewModel: ObservableObject {
     /// When the ⓘ popover opened (#329); nil while it is closed.
     private var tenseInfoOpenedAt: Date?
     private var pendingWrite: Task<Void, Never>?
+    /// A Continue is moving on: a second tap before `show()` ends is ignored.
+    private var isAdvancing = false
     private var isStarted = false
     private var answeredBefore = 0
     /// Greek's grammar topics and links, read once per run (#174).
     private var grammarTopics: [GrammarTopicSummary] = []
     private var grammarLinks: [GrammarLink] = []
+    /// Greek's via, read once per run (#364): the example's translation.
+    private var via: String?
+    /// DEBUG `-drillPlan` (#364).
+    private let debugPlan: [String]?
 
     init(mode: Mode, meaningsLang: String = "eng", db: DatabaseService = .shared, settings: SettingsService = .shared,
          languages: LearningLanguageService? = nil, clock: LearningClock = LearningClock(),
          player: FeedbackPlayer? = nil, reminder: LearningReminder? = nil, speaker: QuestionSpeaker? = nil,
          seed: UInt64? = LearningLaunchOptions.seed, answerHints: Bool = LearningLaunchOptions.answerHints,
-         length: Int? = LearningLaunchOptions.drillLength) {
+         length: Int? = LearningLaunchOptions.drillLength, debugPlan: [String]? = LearningLaunchOptions.drillPlan) {
         self.mode = mode
         self.meaningsLang = meaningsLang
+        self.debugPlan = debugPlan
         self.db = db
         self.settings = settings
         self.languages = languages ?? .shared
@@ -1191,11 +1202,42 @@ final class ConjugationRunViewModel: ObservableObject {
                 plan = ConjugationPlanner.session(pool: pool, level: level, tenses: tenses, cards: cards,
                                                   accuracy: accuracy, today: today, length: length, rng: &rng)
             }
+            if let debugPlan { plan = Self.plan(of: debugPlan, mode: mode) }
         } catch {
             errorMessage = error.localizedDescription
         }
         await loadGrammar()
+        via = (try? await languages.explanationLanguage(of: ConjugationPlanner.lang)) ?? "eng"
         await show()
+    }
+
+    /// DEBUG `-drillPlan` (#364): the cells of `keys` in order, as new items
+    /// at B2 (so any drillable cell builds); a key whose verb is not the
+    /// run's (Practise) or not in the pool, or that is no key, is skipped.
+    private static func plan(of keys: [String], mode: Mode) -> [DrillItem] {
+        let verbs: [DrillVerb]
+        switch mode {
+        case let .session(pool, _), let .tenses(_, pool, _): verbs = pool
+        case let .verb(verb, _): verbs = [verb]
+        }
+        return keys.compactMap { key in
+            guard let cell = DrillExampleKey.parse(key),
+                  let verb = verbs.first(where: { $0.word == cell.word }) else { return nil }
+            return DrillItem(verb: verb, facet: cell.facet, person: cell.person, level: .b2, origin: .new)
+        }
+    }
+
+    /// The asked cell's first sentence with its translation in Greek's via
+    /// (0132, #364). Examples are extra: a failed read, or none, gives nil.
+    private func loadExample(of question: ConjugationQuestion) async -> ShownExample? {
+        // Not through `WordKey`, which lowercases A-Z: the key has capitals.
+        let key = DrillExampleKey.word(verb: question.verb, facet: question.facet, person: question.person)
+        guard let sentence = (try? await db.examples(lang: ConjugationPlanner.lang, word: key, limit: 1))?.first else {
+            return nil
+        }
+        return ShownExample(sentence: sentence,
+                            translation: ExampleText.learningTranslation(for: sentence, via: via ?? "eng",
+                                                                         meanings: meaningsLang))
     }
 
     /// Greek's grammar links and topics, titled in its explanation
@@ -1249,7 +1291,11 @@ final class ConjugationRunViewModel: ObservableObject {
 
     /// Continue: the next question, or the summary after the last.
     func next() async {
-        guard feedback != nil else { return }
+        // Set before the first await: a second Continue during the write or
+        // the example's read would move `index` on again (CodeRabbit, #367).
+        guard feedback != nil, !isAdvancing else { return }
+        isAdvancing = true
+        defer { isAdvancing = false }
         await pendingWrite?.value
         index += 1
         await show()
@@ -1287,16 +1333,22 @@ final class ConjugationRunViewModel: ObservableObject {
         question = nil
         feedback = nil
         ruleTopic = nil
+        example = nil
         // A departed run never stops the verb of the run after it;
         // `leave()` stopped its own.
         if !isLeft { speaker.stop() }
         spokenWord = ""
         while index < plan.count {
             if let built = plan[index].question(rng: &rng) {
+                // #364: read before the question is published. After the
+                // first question the phase stays `.question`, so a question
+                // set before this await would show without its example.
+                let shown = await loadExample(of: built)
                 question = built
                 if !isLeft { spokenWord = speaker.speak(built)?.text ?? "" }
                 ruleTopic = GrammarLinks.ruleTopic(verb: built.verb, facet: built.facet, topics: grammarTopics,
                                                    links: grammarLinks)
+                example = shown
                 position = index + 1
                 total = plan.count
                 shownAt = clock.now()

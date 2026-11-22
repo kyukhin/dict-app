@@ -411,10 +411,12 @@ struct ExamplesSection: View {
 /// secondary colour, and the byline in small print. VoiceOver reads it as
 /// one element: the sentence and the translation in their own voices, then
 /// "From Tatoeba: Zeus and Shishir". `number` (from 1, in display order)
-/// numbers the identifiers.
+/// numbers the identifiers; `identifier` (#364: the drill's `drill_example`)
+/// replaces the element's own, `example_<number>`.
 struct ExampleSentenceView: View {
     let example: ShownExample
     let number: Int
+    var identifier: String?
     @Environment(\.locale) private var locale
 
     var body: some View {
@@ -442,7 +444,7 @@ struct ExampleSentenceView: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(Text(ExampleText.accessibilityLabel(example.sentence, translation: example.translation,
                                                                 bundle: bundle, locale: locale)))
-        .accessibilityIdentifier("example_\(number)")
+        .accessibilityIdentifier(identifier ?? "example_\(number)")
     }
 }
 
