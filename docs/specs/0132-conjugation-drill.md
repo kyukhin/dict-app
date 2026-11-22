@@ -1,7 +1,7 @@
 # Greek conjugation drill
 
 > Spec written by Claude (AI) for LibreDict.
-> Status: Implemented, with a revision for epic #292 (#295: the Conjugation row moves to Greek's Grammar section; #299: a wrong form shows its tense and person) and #300 (sounds), approved by kyukhin on 2026-11-10 and built (PRs #303, #304, #305); the rest approved by kyukhin on 2026-11-04 · Epic: #132 · Tickets: #167, #168, #169; #295, #299, #300; #329, #330, #331 · Updated: 2026-11-16
+> Status: Implemented, with a revision for epic #292 (#295: the Conjugation row moves to Greek's Grammar section; #299: a wrong form shows its tense and person) and #300 (sounds), approved by kyukhin on 2026-11-10 and built (PRs #303, #304, #305); the rest approved by kyukhin on 2026-11-04; the example in the answer panel (#364) approved by kyukhin on 2026-11-22 · Epic: #132 · Tickets: #167, #168, #169; #295, #299, #300; #329, #330, #331; #364 · Updated: 2026-11-22
 
 Read [0000-overview.md](0000-overview.md), [0129-dictionary-file.md](0129-dictionary-file.md) and [0136-word-forms.md](0136-word-forms.md) (the Greek paradigms and `ParadigmLayout`) first. Then read the specs this epic builds on. kyukhin approved them on 2026-11-04. 0130 and 0237 are on master; 0131 and 0166 come with PR #235, which merges before this spec: [0130-word-lists.md](0130-word-lists.md) (E3, the Greek A1–B1 lists), [0131-learning.md](0131-learning.md) (E4: cards, the answer log, the run views, the Learn tab, its "For E5" section), [0166-learning-statistics.md](0166-learning-statistics.md) (E10: the goal, accuracy by tense) and [0237-downloads.md](0237-downloads.md) (#237: the Greek forms and lists move into the Greek pack, attached as `ell`). Numbers marked "measured" come from a prototype run on 2026-11-04 against the dictionary file of master `fc8c930` (format 3) and kyukhin's three CSVs of 2026-10-22, with είμαι moved to A1 (0130, Decisions).
 
@@ -43,6 +43,23 @@ Aorist ⓘ
 - **Speak words** (#331, kyukhin 2026-11-15): with Speak words on (0131, Settings), the verb is spoken in the Greek voice as the question appears, as the prompt cites it (γράφω, έρχομαι, πρέπει), never the tense line or the options. The next question, the summary, closing the run and leaving its screen stop it; nothing is spoken with VoiceOver running or without a Greek voice (0131, Exercises).
 - **Feedback** is E4's (#159): a wrong choice turns red with a cross, and the right option always turns green with a check mark. A haptic tap and a sound play, as the settings allow (0131, Sounds; the drill never plays Lesson complete, which is the daily lesson's; it plays Daily goal reached when its answers fill the ring). The bar reads "Right!" or "Right answer: έγραψα". After a wrong choice it adds the form chosen with its tense and person, as the tense line writes them: "You chose: γράψαμε · Aorist · εμείς" (#299, kyukhin 2026-11-10); a form that fills several cells is named by the cell the option was taken from (its own entry in `optionSlots`), not the first cell in tense order.
 - **Then the whole tense by person** appears in the bar above Continue: every person of that tense with all its forms (γράφτηκα / γράφηκα), with the asked person highlighted. An impersonal verb shows its αυτός row only (#330).
+- **Then an example** (#364, kyukhin 2026-11-22): under the tense table, after a right and after a wrong answer, one sentence with exactly the asked form, the form in bold and the accent colour:
+
+  ```
+  Right!
+  εσύ    κάνε / κάμε
+  εσείς  κάντε
+  Κάνε αυτό που μπορείς!
+  Do what you can.
+  glavkos, Hybrid · Tatoeba
+  ```
+
+  - It is the asked cell's sentence, never the chosen option's. A compound form is highlighted whole, with any clitics between: **θα σου γράψω**.
+  - Its translation is in the via language of Greek's pair, as in learning (0134, "Translation in learning"): Greek via English shows the English one; the limited Greek via Russian shows Russian when the sentence has it, else English.
+  - The byline names the source as on the Definition screen: the Tatoeba authors, "Wiktionary" or "LibreDict, generated" (0134, "Drill examples").
+  - **No sentence, no change**: a cell without one shows the panel as before, with no gap and no placeholder. So does a Greek pack from before #364, until it is updated (0237).
+  - The sentence is not spoken, and its time is not the answer's: the answer's time ends at the tap, as before.
+  - Which cells have a sentence, and from where, is 0134's "Drill examples". In 2.0 every cell of the A1 and A2 verbs at tenses up to A2 gets one; their B1 and B2 tenses and the B1 verbs come in 2.1 (kyukhin, 2026-11-22).
 
 ### A session (#168, #169)
 
@@ -142,11 +159,12 @@ With Greek chosen, Statistics shows the Conjugation block once the drill has ans
 ### iPhone, iPad, Arabic, VoiceOver
 
 - The run uses E4's layout: full screen, a close button and the progress "Question 4 of 15". On iPad and in landscape the content is at most 600 pt wide and centred. The content scrolls when the tense table does not fit (small iPhones, large text).
-- Arabic mirrors the screens. The tense table's pronoun column is on the right, and Greek forms read left to right (#144). Composed lines start with U+200F and wrap Greek in FSI…PDI (#119).
+- Arabic mirrors the screens. The tense table's pronoun column is on the right, and Greek forms read left to right (#144). Composed lines start with U+200F and wrap Greek in FSI…PDI (#119). The answer panel's example (#364) mirrors as on the Definition screen. The Greek sentence keeps its left-to-right order, and the byline starts with U+200F with the names isolated (0134).
 - VoiceOver:
   - reads the prompt as "γράφω, to write. Aorist, εγώ", with the Greek parts in the Greek voice, and "έρχομαι, to come. Aorist, εγώ, passive" for a verb with passive forms only. Since #329 the form's name, the person and the note are three lines, still one VoiceOver stop ("Aorist, εγώ", "Aorist, εγώ, passive"), and the ⓘ, "About Aorist", is the next stop;
   - reads each option as a button, and announces the result as E4 does;
-  - reads each row of the tense table as "εγώ, έγραψα", and the asked row as selected.
+  - reads each row of the tense table as "εγώ, έγραψα", and the asked row as selected;
+  - reads the example (#364) as one element after the table, as on the Definition screen: the sentence in the Greek voice, the translation in its own voice, then the byline ("From Tatoeba: glavkos and Hybrid", "Generated by LibreDict"). The answer's announcement does not change.
 
 ### Decisions
 
@@ -171,6 +189,8 @@ With Greek chosen, Statistics shows the Conjugation block once the drill has ans
 - 2026-11-04 (kyukhin): nothing is cut from 2.0 if it runs late: the release date moves instead (0131).
 - 2026-11-10 (kyukhin, #295): the conjugation drill moves out of Trainers into the Grammar section of Greek's tab.
 - 2026-11-10 (kyukhin, #299): a wrong choice also shows the chosen form with its person and tense.
+- 2026-11-22 (kyukhin, #364): after an answer, right or wrong, the panel shows a real sentence with exactly the asked form under the table: the form in bold, the translation in the via language as in learning, the byline as on the Definition screen. No sentence, no change. In 2.0, as kyukhin's exception to the release/2.0 freeze: it lands on master, then is cherry-picked into release/2.0.
+- 2026-11-22 (kyukhin, 0134's Open questions 7 to 12): in 2.0 the A1 and A2 verbs at tenses up to A2 get a sentence for every cell; a homograph of another reading needs a model-checked reading; the sentences LibreDict adds carry English and Russian translations only, the drill's two vias. No date moves: build 11 and the App Store submission stay on 2026-11-26.
 
 Design choices of this spec, for review:
 - One card per (verb, tense, voice) on E4's tables and ladder. No migration and no new static table.
@@ -394,6 +414,23 @@ Its inputs are:
   - ends with the summary. Closing keeps what was answered.
 - **Layering**: SQL only in `DatabaseService`. Levels, forms, options and planning are pure, in `Learning.swift`. The views render the `ConjugationQuestion` and the summary they are given.
 
+### Example in the answer panel (#364; approved by kyukhin on 2026-11-22)
+
+The data, the cell key and the sources are in 0134, "Drill examples". Here is the app side.
+- **Key** (pure, `Learning.swift`): `DrillExampleKey.word(verb:facet:person:) -> String`, which is `"<verb.word>|<facet.rawValue>|<person.rawValue>"` in NFC: `κάνω|imperativeSimple.active|2sg`. The verb's `word` is the card's word, so πάω reads πηγαίνω's cells and ντύνομαι its own.
+- **Read**: `DatabaseService.examples(lang: "ell", word: <key>, limit: 1)`, which `examples(for:limit:)` of 0134 now calls too. It does not go through `WordKey`, whose init lowercases A-Z and would turn `imperativeSimple` into `imperativesimple`; the key is looked up as `DrillExampleKey.word` writes it (NFC, mixed case). It is one primary-key read of `example_word`, then the sentence's translations. A missing pack or a pack from before #364 has no cell row, so the result is `[]`, with no special code.
+- **`ConjugationRunViewModel`**:
+  - gains `@Published private(set) var example: ShownExample?`;
+  - in `start()`, next to `loadGrammar`, it reads Greek's via once: `languages.explanationLanguage(of: "ell")`. The meanings language is the run's `meaningsLang`;
+  - in `show()`, after building the question and before `phase = .question`, it sets `example` to the cell's first sentence with `ExampleText.learningTranslation(for:via:meanings:)` (0134). So the read ends before the question appears, and the bar never changes after it shows;
+  - a failed read or no row gives `nil`. `show()` clears it with the question;
+  - the example is the asked cell's, the same after a right and a wrong choice. Nothing is written: no card, log row or setting changes, and `duration_ms` still ends at the answer.
+- **`ConjugationRunView`**: the feedback bar's `detail` is the tense table and, when `vm.example` is set, 0134's `ExampleSentenceView(example:number: 1)` under it.
+  - `ExampleSentenceView` gains an `identifier` parameter, defaulting to `example_<n>`. The drill passes `drill_example`.
+  - Both views are in the bar's scroll, at most half the run's height, so at large text the example scrolls with the table.
+- **Layering**: the key and the translation choice are pure; the SQL is 0134's; the view renders the `ShownExample` it is given.
+- **Strings**: none new in #364 (Tatoeba's byline is as today). #365's source bylines are 0134's.
+
 ### Test seams
 
 - DEBUG `-learningFixture conjugation`, through 0131's fixture mechanism. It writes:
@@ -402,6 +439,7 @@ Its inputs are:
   - 30 days of drill rows: aorist 4 of 10 right, present 9 of 10.
 - UI tests set the checked lists with E4's `-learningLists` (`ky-ell-a1`, `ky-ell-a2`) and clear `learning_drill_tenses` through `-resetData`.
 - DEBUG `-drillLength <n>` sets the session length, so most UI tests answer 3 questions. One test runs the default 15.
+- DEBUG `-drillPlan "<cell key>;<cell key>…"` (#364, in `LearningLaunchOptions`): a run asks exactly these cells, in this order, instead of the planner's plan. A key whose verb is not the run's (Practise) or not in the pool (a session), or that is not a cell key, is skipped. Its items are built at tense level B2, whatever the run's level, so any drillable cell builds a question. A wrong answer's retry still applies. So the panel's UI tests reach `κάνω|imperativeSimple.active|2sg` at once.
 - E4's `-learningSeed`, `-learningAnswerHints` (the right option's value is `answer`), `-learningLanguages` and `-learningLists`; 0237's `-installPacks ell -packFixtures <path>`, `-skipWelcome`, `-resetPacks` and `-packDownloads`.
 - Unit tests that read real forms and lists use the dictionary file on master until 0237 T2 merges, then the Greek pack through `PackFixtures` (0237's rule for `WordFormsLookupTests`).
 
@@ -411,7 +449,7 @@ Its inputs are:
 |---|---|
 | Learn tab row | `learn_trainer_conjugation` (value: the tense level, `A1`), in Greek's Grammar section since #295 |
 | Conjugation screen | `drill_start`, `drill_lists` (the verbs line), `drill_verb_count`, `drill_tenses_picker` (segments labelled by level; only the offered ones exist), `drill_tense_<tense>` (value: the accuracy, `82%`, or empty), `drill_start_button`, `drill_no_lists`, `drill_choose_lists`, `drill_needs_greek`, `drill_download_greek` |
-| Run | E4's `exercise_view`, `exercise_close`, `exercise_progress`, `exercise_option_<0…3>`, `exercise_feedback`, `exercise_continue`, `run_summary`, `run_summary_done`; and `drill_prompt_verb` (#331, value: the verb spoken as the question appeared, empty for none), `drill_prompt_translation`, `drill_prompt_tense` (the form's name, label "Aorist"; "Present, passive"), `drill_prompt_person` (label "εγώ", #329), `drill_passive_note` (only on a verb with passive forms only), `drill_tense_info` (the ⓘ, label "About Aorist") and its popover `drill_tense_info_popover` with `drill_tense_info_text`, `drill_tense_info_example` and `drill_tense_info_translation` (#329), `drill_tense_table`, `drill_tense_row_<1sg…3pl>` (value `asked` on the asked person) |
+| Run | E4's `exercise_view`, `exercise_close`, `exercise_progress`, `exercise_option_<0…3>`, `exercise_feedback`, `exercise_continue`, `run_summary`, `run_summary_done`; and `drill_prompt_verb` (#331, value: the verb spoken as the question appeared, empty for none), `drill_prompt_translation`, `drill_prompt_tense` (the form's name, label "Aorist"; "Present, passive"), `drill_prompt_person` (label "εγώ", #329), `drill_passive_note` (only on a verb with passive forms only), `drill_tense_info` (the ⓘ, label "About Aorist") and its popover `drill_tense_info_popover` with `drill_tense_info_text`, `drill_tense_info_example` and `drill_tense_info_translation` (#329), `drill_tense_table`, `drill_tense_row_<1sg…3pl>` (value `asked` on the asked person), `drill_example` (#364: the example, one element; its label is the sentence, the translation and the byline, as on the Definition screen) |
 | Summary | `drill_summary_tense_<tense>` (value `4/5`) |
 | Definition | `drill_practise_button`; the "Learn Greek via English?" alert (Greek via Russian in a Russian UI) is E4's, and its buttons are found by label, as in E4's tests |
 
@@ -467,6 +505,10 @@ About 18 new keys in all 5 languages, translated by the implementing agent (over
 | `DictApp/DictApp/Views/ExerciseView.swift` | `ConjugationRunView`, `ConjugationQuestionView`, `ConjugationTenseView`, the summary's tense block | #168 |
 | `DictApp/DictApp/Views/DefinitionView.swift` | The Practise button under the table | #168 |
 | `DictApp/DictApp/DictApp.swift` | DEBUG `-drillLength` | #168 |
+| `DictApp/DictApp/Models/Learning.swift` | `DrillExampleKey` | #364 |
+| `DictApp/DictApp/ViewModels/LearnViewModel.swift`, `Services/LearningService.swift` | `ConjugationRunViewModel.example` and the via; DEBUG `-drillPlan` in `LearningLaunchOptions` | #364 |
+| `DictApp/DictApp/Views/ExerciseView.swift`, `Views/DefinitionView.swift` | The example under the tense table; `ExampleSentenceView`'s `identifier` | #364 |
+| `DictAppTests`, `DictAppUITests` (`ConjugationDrillFlowTests`, `ConjugationPage`, `AccessibilityIdentifiers`; the Arabic, Greek and iPad suites) | The tests below | #364 |
 | `DictApp/DictApp/Resources/Localizable.xcstrings` | The keys | #168 |
 | `DictApp/DictAppTests/DictAppTests.swift` | The unit classes in the Test plan | all |
 | `DictApp/DictAppUITests/TestCases/ConjugationDrillFlowTests.swift`, `PageObjects/ConjugationPage.swift`, `TestHelpers/AccessibilityIdentifiers.swift`; additions to `ArabicLocalizationTests`, `GreekLocalizationTests`, `iPadSpecificTests`, `StatisticsFlowTests` | UI tests (a synchronized folder, no Xcode step) | #168, #169 |
@@ -488,6 +530,7 @@ Sizes are pipeline days: development, QA on the four simulators, review and the 
 - In all: 5.25 stream-days. The first draft's 4.75 grew by 0.25 when #168 gained the no-list state, the "Learn Greek?" alert and the passive note, and by 0.25 for learning pairs (kyukhin, 2026-11-04): #167, already built, takes the meanings language of Greek's pair in `drillVerbs(lists:meaningsLang:)` and keeps a list translation only in that language. The limited Greek via Russian adds nothing: its meanings are English. #168 and #169 do not grow: #168 reuses E4's meaning and alert. 0131's calendar counted about 1.5 for E5.
 - **Calendar.** #167 can start on 11-05 and merge as soon as #151 is in, before 11-18: it only adds types and one read. #169 follows #157 and #163 (about 11-13) and merges about 11-17. #168 follows #159 and #154 and merges after #169, about 11-21 to 11-25. All of it is inside the 11-18 to 11-27 window, with 11-26 and 11-27 as slack.
 - **If late**: nothing is cut, Practise on the Definition screen included; the release date moves (kyukhin, 2026-11-04, Decisions).
+- **#364**: the example in the answer panel is #364's app part, 1.0 stream-day of its 2.5. Its sizes, order and the data part are in 0134's "Tickets, order and sizes".
 
 ## Test plan
 
@@ -517,6 +560,11 @@ Unit classes go in `DictAppTests.swift`. Async tests, and classes that are mostl
 | #168: the row only for Greek; the drill needs the Greek pack | UI `ConjugationDrillFlowTests`: `testRowOnlyForGreek` (`-learningFixture bilingual`: the English tab, no row; the Greek tab, the row, in its Grammar section since #295), `testNeedsTheGreekPack` (`-resetPacks`, `-learningLanguages ell`, `-learningLists ky-ell-a1`, no pack: `drill_needs_greek`; Download with `-packDownloads ok`, then Start appears) |
 | #331: the drill speaks its verb as each question appears, Speak words off nothing | 0131's test plan: unit `QuestionWordTests`, `ConjugationRunViewModelTests.testDrillSpeaksTheCitedVerb`; UI `ConjugationDrillFlowTests.testDrillSpeaksItsVerb`, `ExerciseFlowTests.testSpeakWordsOffSpeaksNothing` |
 | #132, #168: tense names in 5 UI languages; Arabic right to left; iPhone and iPad, iOS 17.5 and 26.4 | `testEveryCatalogKeyIsTranslatedInEveryShippedLanguage`; unit `ConjugationLevelTests.testTenseTitlesInEveryLanguage` (12 titles × 5 languages, none equal to its key). UI `GreekLocalizationTests.testConjugationDrillInGreek` (an Α1 segment, Greek tense titles), `ArabicLocalizationTests.testConjugationDrillRightToLeft` (the pronoun column on the right, forms left to right), `iPadSpecificTests.testConjugationDrillOnIPad` (a centred column, landscape); `ConjugationDrillFlowTests` on the matrix |
+| #364: κάνω, imperative εσύ: the panel shows a sentence with κάνε, its translation and byline, after a right and after a wrong answer | UI `ConjugationDrillFlowTests.testAnswerShowsTheCellsExample`, launched with `-learningLanguages ell`, `-learningAnswerHints` and `-drillPlan "κάνω\|imperativeSimple.active\|2sg;κάνω\|imperativeSimple.active\|2sg"`, Practise on κάνω (El–En · FD). The first answer is right: `drill_example` is under `drill_tense_table` in `exercise_feedback`, and its label holds Κάνε, a Latin-script translation and "Tatoeba". Continue. The second answer is wrong: the same example (the asked cell's, not the chosen option's). Unit `ConjugationRunViewModelTests.testExampleIsTheAskedCells`, on a fixture pack with one cell row: `example` is set before `phase` becomes `.question`, unchanged after a right and a wrong choice, one read per question, and cleared on the next question. `DrillExampleKeyTests.testKey` (the format, NFC, πάω's question reads πηγαίνω's key, ντύνομαι its own) |
+| #364: the translation follows the via, as in learning | Unit `ConjugationRunViewModelTests.testExampleTranslationFollowsTheVia`: Greek via English shows English; the limited Greek via Russian shows Russian when the row has it, else English (0134's `learningTranslation`) |
+| #364: a cell without a sentence shows the panel as before | Unit `ConjugationRunViewModelTests.testNoSentenceNoExample`: no row, the stub attached, or a failed read give `example` nil and the feedback as before. UI `ConjugationDrillFlowTests.testCellWithoutSentenceShowsNoExample`, with `-drillPlan` on a cell the build report lists as open (`γράφω\|futurePerfect.passive\|1sg` on 2.0's data, a B2 tense): `drill_tense_table` shows and `drill_example` does not |
+| #364: VoiceOver, Arabic, iPad, large text | UI `ArabicLocalizationTests.testDrillExampleRightToLeft`: the example's leading edge is on the right, and the byline starts with U+200F. `GreekLocalizationTests.testDrillExampleInGreek`: the byline is as on Definition. `iPadSpecificTests.testConjugationDrillOnIPad`, extended: the example sits in the centred column. `ConjugationDrillFlowTests.testDrillExampleAtTheLargestTextSize`: the bar scrolls to `drill_example`, and Continue stays hittable. `ConjugationDrillFlowTests` on the matrix |
+| #365: a generated sentence says so | UI `ConjugationDrillFlowTests.testGeneratedExampleSaysSo`: `-drillPlan` on a cell whose only sentence is generated, picked from the data file in `TestData`; the label holds "Generated by LibreDict". The rest is in 0134's test plan |
 | Performance | QA: the Conjugation screen ready in under 300 ms with all three Greek lists checked and tenses up to B2 (iPhone 15 Pro simulator, iOS 17.5, median of 3), recorded in History |
 | Offline | Review: no networking API in the diff besides the call to 0237's `PackService.install` |
 
@@ -528,6 +576,7 @@ Unit classes go in `DictAppTests.swift`. Async tests, and classes that are mostl
 4. **Participles at B2.** Resolved 2026-11-04: left out of the drill in 2.0 (Decisions).
 5. **Future of verbs without simple forms.** Resolved 2026-11-04: θα and να + the present in the drill (Decisions).
 6. **Practise when Greek is not a learned language.** Resolved 2026-11-04: ask "Learn Greek?" first (Decisions).
+7. **The answer panel's example (#364).** Resolved 2026-11-22: kyukhin answered 0134's open questions 7 to 12 (0134, Decisions).
 
 ## History
 
@@ -560,3 +609,6 @@ Unit classes go in `DictAppTests.swift`. Async tests, and classes that are mostl
 - 2026-11-15 (kyukhin, #329): the question's tense line keeps the form's name with an ⓘ that explains the form in a popover (an explanation and a Greek example with no form of the asked verb, translated into the UI language); the person moves to its own line, in the accent colour; the popover's time is not the answer's. VoiceOver still reads the name, the person and the note in one stop, then the ⓘ. Over the three lists at tenses up to B2 every asked tense has an example.
 - 2026-11-15 (kyukhin, #330): an impersonal verb has only its αυτός cells, so its options and its tense table never use another person (θα πρέπει: πρέπει, να πρέπει, έπρεπε). A list word given in the third person (υπάρχει, πειράζει, επιτρέπεται) makes its verb impersonal, cited as listed; the pool reads the item's `term`, and the first list word of a verb decides (αρέσω, βρέχω and αστράφτω stay whole). No impersonal question drops. A list word that is a lemma of another part of speech and no verb lemma is no verb (kyukhin): Ορίστε!, φορά, χώρα, κρέμα, γέννα and πείνα leave the pool, so ορίζω and κρεμάω are no longer drilled (196, 68 and 331 drill verbs; 595, was 597). Then (kyukhin, 2026-11-15) a verb the lists also give in its plain form is whole, with that entry's citation, translation and level, and only verbs listed in the third person alone stay impersonal: υπάρχω ("to exist", A1) and πειράζω (B1) are whole, νοιάζομαι is its passive in every person, εξετάζω comes from B1 ("to examine", not A2's εξετάσεις), and 19 B1 verbs listed first by their passive or participle (αναγκάζομαι, οργανωμένος, βρόμα) take their own entry's translation. The impersonal verbs are πρέπει, επιτρέπεται, χιονίζει and πρόκειται; the lists give 196, 66 and 333 drill verbs.
 - 2026-11-16 (kyukhin, follow-up 4): the ⓘ example rule reads every person of an impersonal verb's drilled voices, not only its αυτός cells; its questions, options and tense table stay αυτός only (CodeRabbit, PR #335; `DrillTenseInfoTests.testImpersonalVerbAvoidsEveryPerson`; the pool's examples do not change). Speak words fixes of 0131 (PR #332): a drill already left does not stop the next run's verb, and the verb's accessibility value is empty while VoiceOver runs.
+- 2026-11-22 (kyukhin, #364; Draft, waiting for kyukhin's review): after an answer, right or wrong, the answer panel shows one sentence with exactly the asked form under the tense table. The translation follows Greek's via as in learning, and the byline names the source; no sentence, no change. `ConjugationRunViewModel.example`, read with 0134's `examples(for:limit:)` under the cell key `DrillExampleKey.word`. `ExampleSentenceView` under the table with the id `drill_example`; DEBUG `-drillPlan`. The data, the sources and the measured coverage are in 0134, "Drill examples".
+- 2026-11-22: The #364 example approved by kyukhin on 2026-11-22, with his answers to 0134's open questions 7 to 12 (0134, Decisions): tenses up to A2 in 2.0, checked readings for homographs, English and Russian only for added sentences.
+- 2026-11-22 (#364): the cell's sentence is read with `examples(lang:word:limit:)`, not `WordKey`, which lowercases A-Z; DEBUG `-drillPlan` builds its items at B2.
