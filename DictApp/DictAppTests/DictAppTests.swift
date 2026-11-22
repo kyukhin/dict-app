@@ -27376,6 +27376,7 @@ final class ExampleDataTests: XCTestCase {
     /// sentence of its language, with `ord` 1… and a span on a whole word.
     /// #364: a drill cell's row (its key holds a `|`) has `ord` 1, and its
     /// span may cover several words, from the form's first word to the verb.
+    /// #365: a Wiktionary or generated sentence has English and Russian only.
     func testEveryExampleIsComplete() throws {
         for (pack, lang) in [(PackID.ell, "ell"), (PackID.engLists, "eng")] {
             let file = try BundledDictionary(url: try PackFixtures.file(pack)).read { db in
@@ -27407,6 +27408,10 @@ final class ExampleDataTests: XCTestCase {
             for id in texts.keys {
                 let found = languages[id] ?? []
                 if !found.isSubset(of: allowed) { problems.append("\(id): translations \(found.sorted())") }
+                // #365: a Wiktionary or generated sentence has English and Russian only.
+                if id >= 1_000_000_000 && found != ["eng", "rus"] {
+                    problems.append("\(id): a Wiktionary or generated sentence with \(found.sorted())")
+                }
                 if lang == "ell" ? !found.contains("eng") : found.isEmpty {
                     problems.append("\(id): no \(lang == "ell" ? "English " : "")translation")
                 }
@@ -27560,7 +27565,8 @@ final class ExampleDataTests: XCTestCase {
 // drift between `Scripts/drill_cells.py` and 0132's rules fails here.
 
 /// #364: one sentence per drill cell, keyed `<word>|<facet>|<person>` in
-/// `example_word` of the Greek pack.
+/// `example_word` of the Greek pack. #365: Wiktionary and generated
+/// sentences from `Scripts/data/drill-examples/` fill the 2.0 scope.
 final class DrillExampleDataTests: XCTestCase {
     /// The words that may stand between a compound form's words (0134,
     /// "Match rule" 2); μη(ν) only after να.
@@ -27737,6 +27743,150 @@ final class DrillExampleDataTests: XCTestCase {
         XCTAssertFalse(row.english?.isEmpty ?? true, "an English translation")
         XCTAssertFalse(row.author.isEmpty)
         XCTAssertLessThan(row.sentenceID, 1_000_000_000, "a Tatoeba sentence")
+    }
+
+    // MARK: #365: Wiktionary and generated sentences
+
+    /// `Scripts/data/drill-examples/` at the repository root.
+    private static let dataFolder = PackFixtures.assets.deletingLastPathComponent()
+        .appendingPathComponent("Scripts/data/drill-examples", isDirectory: true)
+
+    /// A data file's rows by column, its header first (0134, "Data files").
+    private static func dataRows(_ name: String) throws -> [[String: String]] {
+        let text = try String(contentsOf: dataFolder.appendingPathComponent(name), encoding: .utf8)
+        let lines = text.split(separator: "\n", omittingEmptySubsequences: true)
+        let header = try XCTUnwrap(lines.first).split(separator: "\t", omittingEmptySubsequences: false).map(String.init)
+        return lines.dropFirst().map { line in
+            let fields = line.split(separator: "\t", omittingEmptySubsequences: false).map(String.init)
+            return Dictionary(uniqueKeysWithValues: header.enumerated().map { ($1, $0 < fields.count ? fields[$0] : "") })
+        }
+    }
+
+    /// #365: every cell the drill asks of the A1 and A2 lists' verbs at
+    /// tenses up to A2 (kyukhin 2026-11-22) has a sentence, or is listed in
+    /// `ell-skipped.tsv` as a cell with no natural one (kyukhin 2026-11-22).
+    /// The app's own pool and `questions(verb:level: .a2)`, so a drift in
+    /// `Scripts/drill_cells.py` fails here too.
+    @MainActor
+    func testEveryCellInScopeHasASentence() async throws {
+        try await db.setup(userPath: tempDir.appendingPathComponent("user.sqlite").path,
+                           dictionaryURL: try TestDictionary.bundledURL(), packFiles: try PackFixtures.all())
+        let verbs = try await db.drillVerbs(lists: DrillScope.lists.map(\.id), meaningsLang: "eng")
+        var scope: Set<String> = []
+        for verb in verbs where (verb.listLevel ?? .max) <= 2 {
+            for (facet, persons) in ConjugationQuestionBuilder.questions(verb: verb, level: .a2) {
+                for person in persons {
+                    scope.insert("\(verb.word)|\(facet.rawValue)|\(person.rawValue)".precomposedStringWithCanonicalMapping)
+                }
+            }
+        }
+        XCTAssertGreaterThan(scope.count, 7_000, "the 2.0 scope")
+        let rows = Set(try cellRows().map(\.key))
+        let skipped = Set(try Self.dataRows("ell-skipped.tsv").compactMap { $0["cell"] })
+        XCTAssertFalse(skipped.isEmpty)
+        XCTAssertEqual(skipped.subtracting(scope).sorted().prefix(20), [], "every skipped cell is in the scope")
+        let open = scope.subtracting(rows).subtracting(skipped).sorted()
+        XCTAssertEqual(open.prefix(20), [], "\(open.count) cells of the 2.0 scope have no sentence")
+        XCTAssertEqual(skipped.intersection(rows).sorted(), [], "a skipped cell stays without an example")
+    }
+
+    /// #365: every sentence of the Greek pack is in one of the three id
+    /// ranges (0134, "Where it lives"). A generated sentence has English and
+    /// Russian only, all by "LibreDict"; a Wiktionary one is by "Wiktionary"
+    /// with Wiktionary's English and a Russian by "LibreDict". Both are the
+    /// data file's rows, unchanged, and only cell rows use them.
+    func testEverySentenceHasASource() throws {
+        let file = try BundledDictionary(url: try PackFixtures.file(.ell)).read { db in
+            (sentences: try GRDB.Row.fetchAll(db, sql: "SELECT id, text, author FROM example_sentence"),
+             translations: try GRDB.Row.fetchAll(db, sql: "SELECT sentence_id, lang, text, author FROM example_translation"),
+             words: try Int.fetchOne(db, sql: """
+                SELECT COUNT(*) FROM example_word WHERE instr(word, '|') = 0 AND sentence_id >= 1000000000
+                """) ?? 0)
+        }
+        var translations: [Int64: [String: (text: String, author: String)]] = [:]
+        for row in file.translations {
+            let id: Int64 = row["sentence_id"], lang: String = row["lang"]
+            let text: String = row["text"], author: String = row["author"]
+            translations[id, default: [:]][lang] = (text, author)
+        }
+        let data = Dictionary(uniqueKeysWithValues: try Self.dataRows("ell.tsv").map { (Int64($0["id"] ?? "") ?? 0, $0) })
+        var counts: [String: Int] = [:]
+        var problems: [String] = []
+        for row in file.sentences {
+            let id: Int64 = row["id"], text: String = row["text"], author: String = row["author"]
+            let source = id < 1_000_000_000 ? "tatoeba"
+                : (1_000_000_001..<2_000_000_000).contains(id) ? "wiktionary"
+                : (2_000_000_001..<3_000_000_000).contains(id) ? "generated" : "none"
+            counts[source, default: 0] += 1
+            guard source == "wiktionary" || source == "generated" else {
+                if source == "none" { problems.append("\(id): in no source's range") }
+                continue
+            }
+            let mine = translations[id] ?? [:]
+            guard let line = data[id], line["source"] == source, line["text"] == text else {
+                problems.append("\(id): not the data file's \(source) row")
+                continue
+            }
+            if Set(mine.keys) != ["eng", "rus"] { problems.append("\(id): translations \(mine.keys.sorted())") }
+            if author != (source == "wiktionary" ? "Wiktionary" : "LibreDict") {
+                problems.append("\(id): author \(author)")
+            }
+            if mine["eng"]?.text != line["eng"] || mine["eng"]?.author != author {
+                problems.append("\(id): English \(String(describing: mine["eng"]))")
+            }
+            if mine["rus"]?.text != line["rus"] || mine["rus"]?.author != "LibreDict" {
+                problems.append("\(id): Russian \(String(describing: mine["rus"]))")
+            }
+        }
+        XCTAssertEqual(problems.prefix(20), [], "\(problems.count) problems")
+        XCTAssertGreaterThan(counts["wiktionary"] ?? 0, 0, "Wiktionary sentences")
+        XCTAssertGreaterThan(counts["generated"] ?? 0, 0, "generated sentences")
+        XCTAssertEqual(file.words, 0, "word examples are Tatoeba's only")
+    }
+
+    /// #365: the Greek pack, and no other file, credits the Wiktionary usage
+    /// examples and the generated sentences with a `data_source` row each,
+    /// CC BY-SA 4.0 (0134, "Credits and `data_source`").
+    func testDrillDataSourceRows() throws {
+        let packs = try PackFixtures.all()
+        for url in [try TestDictionary.bundledURL()] + PackID.all.compactMap({ packs[$0] }) {
+            let rows = try BundledDictionary(url: url).read { db in
+                try GRDB.Row.fetchAll(db, sql: """
+                    SELECT id, kind, license, url FROM data_source
+                    WHERE id IN ('wiktionary-ell-examples', 'libredict-drill-ell') ORDER BY id
+                    """)
+            }
+            guard url == packs[.ell] else {
+                XCTAssertEqual(rows.count, 0, url.lastPathComponent)
+                continue
+            }
+            XCTAssertEqual(rows.map { $0["id"] as String }, ["libredict-drill-ell", "wiktionary-ell-examples"])
+            XCTAssertEqual(Set(rows.map { $0["kind"] as String }), ["example_sentences"])
+            XCTAssertEqual(Set(rows.map { $0["license"] as String }), ["CC BY-SA 4.0"])
+            XCTAssertEqual(rows.map { $0["url"] as String }, [
+                "https://github.com/kyukhin/dict-app/tree/master/Scripts/data/drill-examples",
+                "https://kaikki.org/dictionary/",
+            ])
+        }
+    }
+
+    /// #365: the second pass's verdicts decide (0134, "Match rule" 5, "Data
+    /// files"): a `no` in `ell-readings.tsv` keeps that sentence out of that
+    /// cell, whatever kind of homograph the cell is (aspect only, another
+    /// reading, or a verdict on content).
+    func testReadingVerdictsDecide() throws {
+        let verdicts = try Self.dataRows("ell-readings.tsv")
+        XCTAssertGreaterThan(verdicts.count, 0)
+        let chosen = Dictionary(uniqueKeysWithValues: try cellRows().map { ($0.key, $0.sentenceID) })
+        var problems: [String] = []
+        for verdict in verdicts {
+            let cell = verdict["cell"] ?? "", sentence = Int64(verdict["sentence_id"] ?? "") ?? -1
+            XCTAssertTrue(["ok", "no"].contains(verdict["verdict"]), "\(cell) \(sentence): \(verdict)")
+            if verdict["verdict"] == "no", chosen[cell] == sentence {
+                problems.append("\(cell) shows \(sentence), which its verdict rejects: \(verdict["reason"] ?? "")")
+            }
+        }
+        XCTAssertEqual(problems, [], "\(problems.count) of the 'no' verdicts are not applied")
     }
 }
 
@@ -36532,6 +36682,134 @@ final class ExampleTextTests: XCTestCase {
         XCTAssertEqual(String(alone.characters), "Έγραψε ένα γράμμα. From Tatoeba: Zeus")
     }
 
+    /// #365: the source is read from the id's range (0134, "Drill examples").
+    func testSourceFollowsTheIdRange() {
+        for id: Int64 in [1, 101, 14_087_789, 999_999_999] {
+            XCTAssertEqual(ExampleSource(id: id), .tatoeba, "\(id)")
+        }
+        for id: Int64 in [1_000_000_001, 1_000_004_500, 1_999_999_999] {
+            XCTAssertEqual(ExampleSource(id: id), .wiktionary, "\(id)")
+        }
+        for id: Int64 in [2_000_000_001, 2_000_004_500] {
+            XCTAssertEqual(ExampleSource(id: id), .generated, "\(id)")
+        }
+        XCTAssertEqual(drillSentence(1_000_000_001).source, .wiktionary)
+        XCTAssertEqual(grafo1.source, .tatoeba)
+    }
+
+    private func drillSentence(_ id: Int64, translations: [ExampleTranslation] = []) -> ExampleSentence {
+        let author = id >= ExampleSource.generatedBase ? "LibreDict" : "Wiktionary"
+        return ExampleSentence(id: id, lang: "ell", text: "Θα περάσουμε.", author: author, form: 0..<13,
+                               translations: translations)
+    }
+
+    private func drillTranslation(_ lang: String, _ author: String) -> ExampleTranslation {
+        ExampleTranslation(lang: lang, text: "in \(lang)", author: author)
+    }
+
+    /// A translation has its sentence's source, except a Wiktionary
+    /// sentence's English is Wiktionary's and its Russian is generated.
+    func testSourceOfTranslation() {
+        let wiktionary = drillSentence(1_000_000_001)
+        XCTAssertEqual(ExampleText.sourceOfTranslation(drillTranslation("eng", "Wiktionary"), of: wiktionary), .wiktionary)
+        XCTAssertEqual(ExampleText.sourceOfTranslation(drillTranslation("rus", "LibreDict"), of: wiktionary), .generated)
+        let generated = drillSentence(2_000_000_001)
+        for lang in ["eng", "rus"] {
+            XCTAssertEqual(ExampleText.sourceOfTranslation(drillTranslation(lang, "LibreDict"), of: generated), .generated, lang)
+        }
+        let tatoeba = try? XCTUnwrap(grafo1.translation(in: "eng"))
+        XCTAssertEqual(ExampleText.sourceOfTranslation(tatoeba ?? drillTranslation("eng", "CH"), of: grafo1), .tatoeba)
+    }
+
+    /// The four rows of the byline table, in the five UI languages (0134,
+    /// "Byline"). The Tatoeba row is as before; Arabic starts with U+200F.
+    func testBylineNamesTheSource() throws {
+        let wiktionary = drillSentence(1_000_000_001)
+        let english = drillTranslation("eng", "Wiktionary")
+        let russian = drillTranslation("rus", "LibreDict")
+        let generated = drillSentence(2_000_000_001)
+        let expected: [String: [String]] = [
+            // Wiktionary + its English, Wiktionary + a generated Russian, generated.
+            "en": ["Wiktionary", "Wiktionary · translation: LibreDict, generated", "LibreDict, generated"],
+            "ru": ["Викисловарь", "Викисловарь · перевод: LibreDict, сгенерирован", "LibreDict, сгенерировано"],
+            "es": ["Wikcionario", "Wikcionario · traducción: LibreDict, generada", "LibreDict, generado"],
+            "ar": ["ويكاموس", "ويكاموس · الترجمة: LibreDict، مولَّدة", "LibreDict، مولَّد"],
+            "el": ["Βικιλεξικό", "Βικιλεξικό · μετάφραση: LibreDict, παραγόμενη", "LibreDict, παραγόμενο"],
+        ]
+        for (code, lines) in expected {
+            let bundle = try bundle(code)
+            let got = [ExampleText.byline(wiktionary, translation: english, bundle: bundle),
+                       ExampleText.byline(wiktionary, translation: russian, bundle: bundle),
+                       ExampleText.byline(generated, translation: drillTranslation("eng", "LibreDict"), bundle: bundle)]
+            XCTAssertEqual(got.map { $0.replacingOccurrences(of: "\u{200F}", with: "") }, lines, code)
+            if code == "ar" {
+                XCTAssertTrue(got.allSatisfy { $0.unicodeScalars.first == "\u{200F}" }, "Arabic starts with U+200F: \(got)")
+            }
+        }
+        let en = try bundle("en")
+        XCTAssertEqual(ExampleText.byline(wiktionary, translation: nil, bundle: en), "Wiktionary", "no translation shows")
+        XCTAssertEqual(ExampleText.byline(generated, translation: nil, bundle: en), "LibreDict, generated")
+        XCTAssertEqual(ExampleText.byline(grafo1, translation: grafo1.translation(in: "eng"), bundle: en),
+                       "\u{2068}Zeus\u{2069}, \u{2068}CH\u{2069} · Tatoeba", "Tatoeba's byline is unchanged")
+    }
+
+    /// The VoiceOver labels of the table's rows, in every UI language.
+    func testSourceVoiceOverLabels() throws {
+        let wiktionary = drillSentence(1_000_000_001)
+        let generated = drillSentence(2_000_000_001)
+        let english = drillTranslation("eng", "Wiktionary")
+        let russian = drillTranslation("rus", "LibreDict")
+        let expected: [String: [String]] = [
+            "en": ["From Wiktionary", "From Wiktionary; translation generated by LibreDict", "Generated by LibreDict"],
+            "ru": ["Из Викисловаря", "Из Викисловаря; перевод сгенерирован LibreDict", "Сгенерировано LibreDict"],
+            "es": ["De Wikcionario", "De Wikcionario; traducción generada por LibreDict", "Generado por LibreDict"],
+            "ar": ["من ويكاموس", "من ويكاموس؛ الترجمة مولَّدة بواسطة LibreDict", "مولَّد بواسطة LibreDict"],
+            "el": ["Από το Βικιλεξικό", "Από το Βικιλεξικό· μετάφραση από το LibreDict, παραγόμενη", "Παράχθηκε από το LibreDict"],
+        ]
+        for (code, suffixes) in expected {
+            let bundle = try bundle(code)
+            let locale = Locale(identifier: code)
+            let labels = [ExampleText.accessibilityLabel(wiktionary, translation: english, bundle: bundle, locale: locale),
+                          ExampleText.accessibilityLabel(wiktionary, translation: russian, bundle: bundle, locale: locale),
+                          ExampleText.accessibilityLabel(generated, translation: drillTranslation("eng", "LibreDict"),
+                                                         bundle: bundle, locale: locale)]
+            for (label, suffix) in zip(labels, suffixes) {
+                let text = String(label.characters).replacingOccurrences(of: "\u{200F}", with: "")
+                XCTAssertTrue(text.hasSuffix(suffix), "\(code): \(text)")
+            }
+        }
+        let en = try bundle("en")
+        let spoken = ExampleText.accessibilityLabel(wiktionary, translation: english, bundle: en, locale: Locale(identifier: "en"))
+        XCTAssertEqual(String(spoken.characters), "Θα περάσουμε. in eng From Wiktionary")
+        XCTAssertEqual(spoken.runs.first?.languageIdentifier, "el", "the sentence keeps the Greek voice")
+        let tatoeba = ExampleText.accessibilityLabel(grafo1, translation: grafo1.translation(in: "eng"), bundle: en,
+                                                     locale: Locale(identifier: "en"))
+        XCTAssertTrue(String(tatoeba.characters).hasSuffix("From Tatoeba: Zeus and CH"), "the Tatoeba label is unchanged")
+    }
+
+    /// #365: the Credits lines (the Wiktionary one now names the usage
+    /// examples; the generated examples have their own) in five languages.
+    func testCreditsLinesForTheDrillExamples() throws {
+        let wiktionary = try XCTUnwrap(Credits.line(crediting: "wiktionary-ell-examples"))
+        XCTAssertEqual(wiktionary, Credits.line(crediting: "wiktionary-ell-forms"), "one Wiktionary line for both rows")
+        let drill = try XCTUnwrap(Credits.line(crediting: "libredict-drill-ell"))
+        XCTAssertEqual(drill.accessibilityID, "credits_drill_examples")
+        XCTAssertEqual(drill.license, "cc_by_sa_4_0")
+        let english = SettingsViewModel.localizedString(wiktionary.key, locale: Locale(identifier: "en"))
+        XCTAssertEqual(english, "Word forms and usage examples: Wiktionary contributors, via kaikki.org (CC BY-SA 4.0)")
+        XCTAssertEqual(SettingsViewModel.localizedString(drill.key, locale: Locale(identifier: "en")),
+                       "Generated conjugation examples: written with an AI model for LibreDict and checked (CC BY-SA 4.0). "
+                       + "Each is marked \u{201C}LibreDict, generated\u{201D}.")
+        for code in ["ru", "es", "ar", "el"] {
+            let locale = Locale(identifier: code)
+            for key in [wiktionary.key, drill.key] {
+                let text = SettingsViewModel.localizedString(key, locale: locale)
+                XCTAssertNotEqual(text, SettingsViewModel.localizedString(key, locale: Locale(identifier: "en")), "\(code) \(key)")
+                XCTAssertTrue(text.contains("CC BY-SA 4.0"), "\(code) \(key): \(text)")
+            }
+        }
+    }
+
     /// The Definition screen's rule (0134): the UI language's translation
     /// when Tatoeba has it and it is not the sentence's language, else the
     /// English one unless the sentence is English, else none.
@@ -36634,6 +36912,28 @@ final class ExampleReadTests: XCTestCase {
         XCTAssertEqual(house.map(\.id), [301, 302, 303])
         XCTAssertEqual(house[0].translations.map(\.lang), ["ell", "spa"])
         XCTAssertEqual(house[0].form, 14..<19)
+    }
+
+    /// #365: a cell's sentence reads back with its source from the id range
+    /// (fixture rows, not the real pack).
+    func testCellExamplesReadTheirSource() async throws {
+        func row(_ word: String, _ id: Int64, _ author: String, _ lang: String) -> TestDictionary.Example {
+            TestDictionary.Example(word: word, ord: 1, id: id, text: "Θα περάσουμε.", author: author, form: 0..<13,
+                                   translations: [ExampleTranslation(lang: lang, text: "t", author: author)])
+        }
+        let keys = ["περνάω|future.active|1pl", "προσέχω|future.active|1sg", "βλέπω|future.active|1sg"]
+        let examples = [row(keys[0], 5_000, "Zeus", "eng"), row(keys[1], 1_000_000_001, "Wiktionary", "eng"),
+                        row(keys[2], 2_000_000_001, "LibreDict", "rus")]
+        let dictionary = try ExerciseFixture.make(at: tempDir.appendingPathComponent("dictionary.sqlite"))
+        let ell = try TestDictionary.make(rows: [], limitedPairs: [], examples: examples,
+                                          at: tempDir.appendingPathComponent("cells-ell.sqlite"))
+        try await db.setup(userPath: userPath, dictionaryURL: dictionary, packFiles: [.ell: ell])
+        var sources: [ExampleSource] = []
+        for key in keys {
+            let read = try await db.examples(lang: "ell", word: key, limit: 1)
+            sources.append(try XCTUnwrap(read.first, key).source)
+        }
+        XCTAssertEqual(sources, [.tatoeba, .wiktionary, .generated])
     }
 
     /// A word without examples reads none; so does a Greek word looked up
@@ -37071,7 +37371,9 @@ final class CreditsTests: XCTestCase {
         let rows = try recorded()
         let dataSets = Set(rows.filter { $0.file.hasSuffix(" data_source") }.map(\.id))
         XCTAssertEqual(dataSets, ["wiktionary-ell-forms", "ky-ell-lists", "frequencywords-2018", "tatoeba",
-                                  "libredict-grammar-ell", "cefrj-1.5", "octanove-c1c2-1.0"],
+                                  "libredict-grammar-ell", "cefrj-1.5", "octanove-c1c2-1.0",
+                                  // #365: the drill's Wiktionary and generated examples, in the rebuilt `ell` pack.
+                                  "wiktionary-ell-examples", "libredict-drill-ell"],
                        "the data sets of 2.0; a new one needs a Credits line")
         for row in rows {
             XCTAssertNotNil(Credits.line(crediting: row.id), "\(row.file): \(row.id) has a Credits line")

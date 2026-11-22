@@ -1,0 +1,1241 @@
+cell	sentence_id	verdict	checked_by	reason
+έρχομαι|aorist.passive|2pl	4707978	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: πού here means "that" and must be unaccented "που".
+έρχομαι|aorist.passive|2pl	4707979	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: the conjunction που is wrongly accented as πού.
+έρχομαι|aorist.passive|2pl	4707983	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: The conjunction που is written with an accent (πού ήρθατε).
+έρχομαι|imperfect.passive|3sg	4421938	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: απο που must be "από πού".
+έρχομαι|perfect.passive|2pl	3365175	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: violence: police coming to arrest us.
+έρχομαι|perfect.passive|2sg	5476039	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: violence: about being arrested.
+έρχομαι|perfect.passive|2sg	13819104	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: violence: coming to arrest us (crime).
+έρχομαι|present.passive|2pl	5518990	ok	claude-opus-5-5 2026-11-22	A question to εσείς: present, not an imperative.
+έρχομαι|present.passive|3pl	1708018	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: «Ποτέ» (never) should be «Πότε» (when).
+έρχομαι|present.passive|3sg	1498299	no	claude-opus-5-5 2026-11-23	Tatoeba check, rus: «Вот подошел» is past (has arrived) while the Greek is present (is coming).
+έρχομαι|subjunctiveSimple.passive|1pl	9136500	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: politics: it addresses a government minister.
+έχω|future.active|3sg	11612157	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: quotation: a known aphorism.
+έχω|imperativeContinuous.active|2sg	9615517	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: quotation: a proverb about the devil.
+έχω|present.active|1pl	1499721	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: «Τί» is a monosyllable and takes no accent: «Τι».
+έχω|present.active|2pl	5496511	ok	claude-opus-5-5 2026-11-22	A question to εσείς, so a present, not an imperative.
+έχω|present.active|3pl	1537671	no	claude-opus-5-5 2026-11-23	Tatoeba check, rus: «обвинениям» means accusations, not complaints (παράπονα).
+αγαπάω|aorist.active|3sg	5363215	ok	claude-opus-5-5 2026-11-22	The subject Ο Τομ and ποτέ fix the aorist.
+αγαπάω|imperativeSimple.active|2pl	2391184	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: religion: a Bible quotation (love your enemies).
+αγαπάω|imperativeSimple.active|2sg	5363215	no	claude-opus-5-5 2026-11-22	The subject Ο Τομ makes αγάπησε an aorist third person.
+αγαπάω|imperativeSimple.active|2sg	5450064	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: Αγάπα is the continuous imperative; the simple form is asked.
+αγαπάω|imperativeSimple.active|2sg	7772215	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: Αγάπα is the continuous imperative; the simple one is αγάπησε.
+αγαπάω|present.active|2pl	5505910	ok	claude-opus-5-5 2026-11-22	Δε with a preverbal clitic makes a present statement.
+αγαπάω|present.passive|1pl	1321400	ok	claude-opus-5-5 2026-11-22	A plain statement of mutual love now: present.
+αγαπάω|subjunctiveContinuous.active|3pl	1503276	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: «σ'αγαπούν» lacks the space after the apostrophe: «σ' αγαπούν».
+αγαπάω|subjunctiveSimple.active|3sg	2896182	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: ευατό is misspelled; the word is "εαυτό".
+αγοράζω|aorist.active|3sg	2076496	ok	claude-opus-5-5 2026-11-22	The subject Αυτή fixes the aorist.
+αγοράζω|imperativeSimple.active|2sg	2076496	no	claude-opus-5-5 2026-11-22	The subject Αυτή makes αγόρασε an aorist third person.
+αγοράζω|subjunctiveSimple.active|3sg	1533480	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: «Αυτό» (it) should be «Αυτός» (he) as the one who has the money.
+αδειάζω|aorist.active|3sg	7777160	no	claude-opus-5-5 2026-11-22	Coordinated with the order βάλτα, άδειασε is an imperative.
+αδειάζω|imperativeSimple.active|2sg	7777160	ok	claude-opus-5-5 2026-11-22	Coordinated with the order βάλτα and σου: an order to εσύ.
+αισθάνομαι|present.passive|2pl	1603385	ok	claude-opus-5-5 2026-11-22	A habitual όταν-clause about εσείς: present.
+αισθάνομαι|present.passive|3pl	2455307	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: politics: Greeks resenting advice from Germans, nations in conflict.
+ακολουθώ|aorist.active|3sg	1515739	ok	claude-opus-5-5 2026-11-22	The subject Αυτός fixes the aorist.
+ακολουθώ|imperativeSimple.active|2sg	1515739	no	claude-opus-5-5 2026-11-22	The subject Αυτός makes ακολούθησε an aorist third person.
+ακολουθώ|subjunctiveSimple.active|1sg	11292065	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: It mixes plural "περπατάτε" with singular "σε" for the same person.
+ακούω|aorist.active|3sg	2878122	no	claude-opus-5-5 2026-11-22	Άκουσε here is an order to εσύ, not an aorist.
+ακούω|imperativeSimple.active|2sg	2878122	ok	claude-opus-5-5 2026-11-22	An order to εσύ followed by και θα εξηγήσω: imperative.
+ακούω|present.active|1pl	5216084	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: quotation: a Marcus Aurelius maxim about opinion and truth.
+ακούω|present.active|2pl	5429499	no	claude-opus-5-5 2026-11-22	Μην ακούτε is a prohibition, not a present statement.
+ακυρώνω|aorist.passive|3sg	2842601	no	claude-opus-5-5 2026-11-23	Tatoeba check, rus: «полёт» is the act of flying; a cancelled scheduled flight is «рейс».
+ακυρώνω|present.active|3sg	4902577	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: politics: Greece cancelling a referendum.
+ακυρώνω|present.passive|3sg	9973044	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: broken: a legal fragment meaningless without context.
+αλλάζω|aorist.active|3pl	2866852	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: σχέδια του needs the enclitic accent "σχέδιά του" (and the English says "Your" for "his").
+αλλάζω|aorist.active|3sg	2882966	ok	claude-opus-5-5 2026-11-22	The subject Η πόλη and από τότε fix the aorist.
+αλλάζω|imperativeSimple.active|2sg	2882966	no	claude-opus-5-5 2026-11-22	The subject Η πόλη makes άλλαξε an aorist third person.
+αλλάζω|imperfect.active|3pl	1324659	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: politics: a famous political quotation about elections.
+αλλάζω|present.active|2pl	3274742	no	claude-opus-5-5 2026-11-22	Μην αλλάζετε is a prohibition, not a present statement.
+αλλάζω|subjunctiveContinuous.active|3pl	7864672	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: politics: a political remark about change in Algeria.
+αλλάζω|subjunctiveContinuous.active|3sg	3750394	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: offensive: changing a swimsuit without covering herself (nudity).
+ανάβω|aorist.active|3sg	3558214	no	claude-opus-5-5 2026-11-22	Άναψε το φως with δε βλέπω τίποτα is an order to εσύ, not an aorist.
+ανάβω|imperativeSimple.active|2sg	3558214	ok	claude-opus-5-5 2026-11-22	A request to εσύ, explained by δε βλέπω τίποτα.
+αναγκάζω|aorist.passive|3pl	7774403	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: politics: Armenians forced off their lands, a conflict between nations.
+αναγκάζω|aorist.passive|3pl	7774404	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: politics: Armenians forced off their land.
+αναγκάζω|imperfect.passive|3sg	7764281	no	claude-opus-5-5 2026-11-23	Tatoeba check, eng: The English walk school is ungrammatical and misses to.
+αναγνωρίζω|aorist.active|3sg	2417620	ok	claude-opus-5-5 2026-11-22	Δεν rules out an imperative: aorist.
+αναγνωρίζω|imperativeSimple.active|2sg	2417620	no	claude-opus-5-5 2026-11-22	Δεν makes αναγνώρισε an aorist statement, not an order.
+αναζητάω|imperativeSimple.active|2pl	7705456	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: brand: it names Wikipedia.
+αναζητάω|subjunctiveSimple.active|3sg	7777135	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: στο Τομ should be στον Τομ.
+ανακαλύπτω|aorist.active|1sg	2429678	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: violence: discovering that a woman was dead.
+ανακατεύω|aorist.active|3sg	7772340	no	claude-opus-5-5 2026-11-22	No subject, so ανακάτεψε reads as a recipe order just as well.
+ανακατεύω|imperativeSimple.active|2pl	7772338	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: τα αυτά is a typo for τα αυγά.
+ανακατεύω|imperativeSimple.active|2pl	7772339	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: τα αυτά is a typo for τα αυγά.
+ανακατεύω|imperativeSimple.active|2pl	7772344	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: Typo: τα αυτά instead of τα αυγά.
+ανακατεύω|imperativeSimple.active|2sg	7772340	no	claude-opus-5-5 2026-11-22	No subject, so ανακάτεψε can be the aorist he mixed.
+ανακατεύω|present.passive|2pl	9674377	ok	claude-opus-5-5 2026-11-22	A question with εσείς about now: present.
+αναρωτιέμαι|imperfect.passive|3sg	7766623	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: final ν or apostrophe spelling (στην, μην, δεν before a vowel or κ π τ ξ ψ μπ ντ γκ τσ τζ; ’ not ΄).
+αναφέρομαι|aorist.passive|3sg	5290251	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: violence: the Second World War and a grandfather lost in it.
+αναφέρω|aorist.active|3sg	5286080	no	claude-opus-5-5 2026-11-22	No point in time, so ανέφερε can be the imperfect (was citing).
+ανοίγω|aorist.active|3sg	5485822	ok	claude-opus-5-5 2026-11-22	The subject Κάποιος fixes the aorist.
+ανοίγω|imperativeSimple.active|2sg	5485822	no	claude-opus-5-5 2026-11-22	The subject Κάποιος makes άνοιξε an aorist third person.
+ανοίγω|subjunctiveSimple.active|1pl	2415994	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: final ν or apostrophe spelling (στην, μην, δεν before a vowel or κ π τ ξ ψ μπ ντ γκ τσ τζ; ’ not ΄).
+αντέχω|present.active|1pl	9110390	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: politics: a protest.
+αξίζω|present.active|2sg	4327585	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: quotation: a saying about languages told as a proverb.
+απαγορεύω|present.passive|3sg	2776076	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: smoking: a smoking ban.
+απαιτώ|subjunctiveContinuous.active|1pl	2419612	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: final ν or apostrophe spelling (στην, μην, δεν before a vowel or κ π τ ξ ψ μπ ντ γκ τσ τζ; ’ not ΄).
+απαντάω|aorist.active|3sg	2939222	ok	claude-opus-5-5 2026-11-22	The subject Κανένας and δεν fix the aorist.
+απαντάω|imperativeSimple.active|2sg	2939222	no	claude-opus-5-5 2026-11-22	The subject Κανένας makes απάντησε an aorist third person.
+απαντάω|present.active|2pl	5562777	ok	claude-opus-5-5 2026-11-22	A question to εσείς: present.
+απασχολώ|present.active|1pl	7272913	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: Απασχολούμε means we employ and does not fit with με; the intended form is απασχολούμαι.
+απειλώ|aorist.active|2pl	5410148	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: violence: asks whether someone threatened Tom.
+απειλώ|aorist.active|2sg	5410146	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: violence: asks whether someone threatened Tom.
+απειλώ|present.passive|3pl	7771798	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: χιμπαζτήδες is misspelled and should be χιμπατζήδες.
+απλώνω|aorist.active|3sg	1000000171	ok	claude-opus-5-5 2026-11-22	Coordinated with τη χάιδεψε and του: aorist third person.
+απλώνω|imperativeSimple.active|2sg	1000000171	no	claude-opus-5-5 2026-11-22	Coordinated with τη χάιδεψε, άπλωσε is an aorist, not an order.
+απλώνω|present.active|2pl	9289573	no	claude-opus-5-5 2026-11-22	A recipe step: απλώνετε reads as an instruction, not a plain present.
+αποκτώ|aorist.active|3pl	13760105	ok	claude-opus-5-5 2026-11-22	Τελικά and one finished event fix the aorist they had.
+αποκτώ|aorist.active|3sg	2212142	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: «απ΄τον» uses a tonos for the apostrophe and lacks the space: «απ' τον».
+απολαμβάνω|subjunctiveContinuous.active|3pl	12302133	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: quotation: a translated Latin motto.
+αποφασίζω|aorist.active|3sg	2176910	ok	claude-opus-5-5 2026-11-22	The third-person να φύγει shows a he-subject: aorist he decided.
+αποφασίζω|imperativeSimple.active|2sg	2176910	no	claude-opus-5-5 2026-11-22	The third-person να φύγει makes αποφάσισε an aorist he decided.
+αποφασίζω|subjunctiveSimple.active|3sg	5309239	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: Monosyllabic τι is written with an accent (τί), which is wrong in monotonic spelling.
+αποφεύγω|aorist.active|3sg	5517189	ok	claude-opus-5-5 2026-11-22	The subject Ο Τομ fixes the aorist.
+αρέσω|aorist.active|1sg	7055773	no	claude-opus-5-5 2026-11-22	No time word, so άρεσα can be the imperfect.
+αρέσω|aorist.active|2pl	11201978	no	claude-opus-5-5 2026-11-22	No time word, so αρέσατε can be the imperfect.
+αρέσω|aorist.active|2sg	11201973	no	claude-opus-5-5 2026-11-22	No time word, so άρεσες can be the imperfect.
+αρέσω|aorist.active|3pl	7766746	no	claude-opus-5-5 2026-11-22	A general liking for puzzles reads as the imperfect.
+αρέσω|aorist.active|3sg	2196052	no	claude-opus-5-5 2026-11-22	A lasting dislike of travel reads as the imperfect.
+αρέσω|imperativeSimple.active|2sg	2196052	no	claude-opus-5-5 2026-11-22	Δεν του άρεσε is a past statement, not an order to εσύ.
+αρέσω|present.active|2pl	5466066	ok	claude-opus-5-5 2026-11-22	The clitic μου before the verb makes a present statement.
+αρέσω|present.active|3sg	3031411	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: final ν or apostrophe spelling (στην, μην, δεν before a vowel or κ π τ ξ ψ μπ ντ γκ τσ τζ; ’ not ΄).
+αρέσω|subjunctiveContinuous.active|3pl	1300864	no	claude-opus-5-5 2026-11-23	Tatoeba check, eng: «so that people like it» should be «like them»; the pronoun does not agree with movies.
+αρέσω|subjunctiveSimple.active|3pl	1300864	no	claude-opus-5-5 2026-11-23	Tatoeba check, eng: «so that people like it» should be «like them»; the pronoun does not agree with movies.
+αργώ|aorist.active|3sg	7775586	ok	claude-opus-5-5 2026-11-22	A past narrative after ξύπνησε fixes the aorist.
+αργώ|imperativeSimple.active|2sg	7775586	no	claude-opus-5-5 2026-11-22	A past narrative makes άργησε an aorist, not an order.
+αργώ|perfect.active|3sg	1503127	no	claude-opus-5-5 2026-11-23	Tatoeba check, rus: «опаздывал» is past while the Greek says the bus has been delayed (is late now).
+αρνούμαι|present.passive|2pl	11474936	no	claude-opus-5-5 2026-11-22	Μην το αρνείστε is a prohibition, not a present statement.
+αρρωσταίνω|aorist.active|3sg	7791802	ok	claude-opus-5-5 2026-11-22	Getting ill is not ordered, so a bare Αρρώστησε reads as the aorist.
+αρρωσταίνω|imperativeSimple.active|2sg	7791802	no	claude-opus-5-5 2026-11-22	A bare Αρρώστησε reads as the aorist (s)he got ill, not an order.
+αρχίζω|aorist.active|3sg	2880215	ok	claude-opus-5-5 2026-11-22	The subject Το χιόνι and ήδη fix the aorist.
+αρχίζω|imperativeSimple.active|2sg	2880215	no	claude-opus-5-5 2026-11-22	The subject Το χιόνι makes άρχισε an aorist third person.
+αρχίζω|pluperfect.active|3sg	4839060	no	claude-opus-5-5 2026-11-23	Tatoeba check, eng: The English is present perfect ("has begun") where the Greek is pluperfect ("είχε αρχίσει").
+αρχίζω|present.active|1pl	7271956	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: The interrogative που needs its accent: πού.
+ασκώ|present.passive|3sg	12912644	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: quotation: an aphorism about freedom of speech and thought.
+αστράφτω|aorist.active|3sg	1000000358	ok	claude-opus-5-5 2026-11-22	An impersonal weather event coordinated with βρόντησε: aorist.
+αστράφτω|imperativeSimple.active|2sg	1000000358	no	claude-opus-5-5 2026-11-22	Άστραψε και βρόντησε is an impersonal aorist, not an order.
+αφήνω|aorist.active|3sg	1503692	no	claude-opus-5-5 2026-11-22	The clitic after the verb marks άφησε as an imperative.
+αφήνω|imperativeSimple.active|2sg	1503692	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: «Άφησε τους» lacks the enclitic accent: «Άφησέ τους».
+αφήνω|pluperfect.active|1sg	7810859	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: στη τάξη should be στην τάξη.
+αφήνω|present.active|2pl	5347937	no	claude-opus-5-5 2026-11-22	Μην αφήνετε is a prohibition, not a present statement.
+αφήνω|subjunctiveContinuous.active|2sg	7766591	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: Δε πρέπει drops the final ν before π (Δεν πρέπει).
+αφήνω|subjunctiveContinuous.active|2sg	7766595	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: να περνάει πάντα του γιου σου is ungrammatical; the idiom needs να περνάει το δικό του ο γιος σου.
+αφήνω|subjunctiveContinuous.active|2sg	7766597	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: The final ν is dropped before π (Δε πρέπει instead of Δεν πρέπει).
+αφήνω|subjunctiveSimple.active|1pl	5464569	no	claude-opus-5-5 2026-11-23	Tatoeba check, eng: The English says "there" while the Greek says εδώ ("here").
+αφήνω|subjunctiveSimple.active|1pl	5464571	no	claude-opus-5-5 2026-11-23	Tatoeba check, eng: εδώ is here, the English says there.
+αφήνω|subjunctiveSimple.active|1pl	5464572	no	claude-opus-5-5 2026-11-23	Tatoeba check, eng: The English says "there" where the Greek says εδώ "here".
+αφήνω|subjunctiveSimple.active|1pl	5464573	no	claude-opus-5-5 2026-11-23	Tatoeba check, eng: The English says "there" but the Greek εδώ means "here".
+αφήνω|subjunctiveSimple.active|3pl	7774405	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: politics: Armenians forced off their lands, a conflict between nations.
+αφήνω|subjunctiveSimple.active|3pl	7774406	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: politics: Armenians forced off their land.
+αφήνω|subjunctiveSimple.active|3pl	7774407	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: politics: Armenians forced to leave their land alludes to the deportations of a nation in conflict.
+αφήνω|subjunctiveSimple.active|3sg	8239508	no	claude-opus-5-5 2026-11-23	Tatoeba check, eng: είπε is he or she told, but the English says I told.
+βάζω|aorist.active|2sg	4651483	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: Που meaning "where" must be accented "Πού".
+βάζω|aorist.active|3pl	9870309	no	claude-opus-5-5 2026-11-23	Tatoeba check, eng: Έβαλαν χρέος does not mean "they took out a loan".
+βάζω|imperativeSimple.active|2sg	2364697	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: violence: a gun.
+βάζω|present.active|2pl	5521994	no	claude-opus-5-5 2026-11-22	Μη βάζετε is a prohibition, not a present statement.
+βάφω|present.active|2pl	5634687	no	claude-opus-5-5 2026-11-23	Tatoeba check, eng: The English spells dyeing as dying, which reads as a different word.
+βάφω|present.active|2sg	5634685	no	claude-opus-5-5 2026-11-23	Tatoeba check, eng: The English spells dyeing as dying, which reads as a different word.
+βγάζω|present.active|2pl	9562623	ok	claude-opus-5-5 2026-11-22	The clitic μου before the verb makes a present statement.
+βγάζω|subjunctiveSimple.active|2sg	7782891	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: final ν or apostrophe spelling (στην, μην, δεν before a vowel or κ π τ ξ ψ μπ ντ γκ τσ τζ; ’ not ΄).
+βγαίνω|present.active|2pl	12103943	ok	claude-opus-5-5 2026-11-22	A question to εσείς: present.
+βγαίνω|subjunctiveSimple.active|3sg	5524658	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: violence: crime, Tom wants to get out of prison.
+βελτιώνομαι|aorist.passive|3pl	4839103	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: Latin letters ("Tom").
+βελτιώνομαι|future.passive|3sg	3531772	no	claude-opus-5-5 2026-11-23	Tatoeba check, rus: The Russian is present tense ("улучшается") where the Greek is future ("θα βελτιωθεί").
+βελτιώνω|subjunctiveSimple.active|1sg	3450784	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: brand: the website name Tatoeba.
+βελτιώνω|subjunctiveSimple.active|1sg	5531504	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: the language name Ουγγρικά is capitalised.
+βελτιώνω|subjunctiveSimple.active|1sg	5531505	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: The language name Ουγγρικά is capitalised.
+βελτιώνω|subjunctiveSimple.active|1sg	5619144	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: The language name Γαλλικά is capitalised; it should be γαλλικά.
+βιάζομαι|aorist.passive|1sg	7798871	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: λεοφωρείο is misspelled and should be λεωφορείο.
+βιάζομαι|aorist.passive|1sg	7798872	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: λεοφωρείο is misspelt (λεωφορείο).
+βλάπτω|present.active|3sg	2421595	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: «Μιά» is a monosyllable and takes no accent: «Μια».
+βλάπτω|present.active|3sg	7347803	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: smoking: a sentence about smoking.
+βλάπτω|subjunctiveSimple.active|3sg	5536520	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: violence: implies Tom might harm Mary.
+βλέπω|aorist.active|1pl	1552085	no	claude-opus-5-5 2026-11-23	Tatoeba check, rus: «Я не видала» is 1sg while the Greek is 1pl (we).
+βλέπω|aorist.active|1sg	1503273	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: «μπορών» is a typo for «μπορώ».
+βλέπω|imperativeSimple.active|2sg	5604820	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: In Το 'δες the form is the elided aorist είδες, not the imperative δες.
+βλέπω|imperfect.active|2sg	1127649	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: «Τί» is a monosyllable and takes no accent: «Τι».
+βλέπω|perfect.active|3pl	12868018	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: quotation: a famous line about the dead and war.
+βλέπω|perfect.active|3sg	5478905	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: offensive: sexual content (seeing Mary naked).
+βλέπω|present.active|2pl	5524394	ok	claude-opus-5-5 2026-11-22	A question to εσείς: present.
+βλέπω|present.passive|1pl	1000000193	ok	claude-opus-5-5 2026-11-22	Πια (anymore) places the reciprocal in the present.
+βλέπω|present.passive|3pl	1294738	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: quotation: a proverb (out of sight, out of mind).
+βοηθάω|aorist.active|3sg	425913	ok	claude-opus-5-5 2026-11-22	The clitic με before the verb rules out the imperative.
+βοηθάω|imperativeSimple.active|2sg	425913	no	claude-opus-5-5 2026-11-22	The clitic με before the verb makes βοήθησε an aorist, not an order.
+βοηθάω|imperativeSimple.active|2sg	7772201	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: Βοήθα is the continuous imperative; the simple imperative is βοήθησε.
+βοηθάω|imperativeSimple.active|2sg	7788418	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: Βοήθα is the continuous imperative; the simple one is βοήθησε.
+βοηθάω|present.active|2pl	5576787	ok	claude-opus-5-5 2026-11-22	A question to εσείς: present.
+βοηθάω|subjunctiveSimple.active|3pl	5565650	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: Πες τες uses the accusative τες as indirect object, a dialect form; standard Greek is Πες τους.
+βοηθάω|subjunctiveSimple.active|3pl	5565651	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: Πείτε τες uses the dialectal accusative; standard Greek says Πείτε τους.
+βοηθάω|subjunctiveSimple.active|3sg	1526693	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: «κάν» is a monosyllable and takes no accent: «καν».
+βοηθάω|subjunctiveSimple.active|3sg	1730909	no	claude-opus-5-5 2026-11-23	Tatoeba check, eng: τον is him, but both translations say them.
+βρίσκομαι|aorist.passive|3sg	1988275	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: violence: a man found dead.
+βρίσκομαι|aorist.passive|3sg	7783714	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: Δε ξέρω drops the final ν before ξ (Δεν ξέρω).
+βρίσκομαι|imperfect.passive|3sg	7766615	no	claude-opus-5-5 2026-11-23	Tatoeba check, eng: βρισκόταν means he was in Boston, not that he has been to Boston.
+βρίσκομαι|present.passive|1pl	10677937	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: ξανα is missing its accent ("ξανά").
+βρίσκομαι|present.passive|3pl	7798881	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: The indirect question needs πού, not που.
+βρίσκομαι|subjunctiveSimple.passive|3pl	1074244	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: «σε εκείνο κατάλογο» lacks the article: «σε εκείνο τον κατάλογο».
+βρίσκω|aorist.active|3sg	2156477	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: «Που» should be the interrogative «Πού».
+βρίσκω|present.active|2pl	5483135	ok	claude-opus-5-5 2026-11-22	A question to εσείς: present.
+βρομάω|present.active|2sg	5485759	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: offensive: a crude insult ("You stink").
+βρομάω|present.active|3sg	5525711	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: drunk: his breath reeks of alcohol.
+βρομάω|present.active|3sg	5525712	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: drunk: her breath reeks of alcohol.
+βροντάω|imperativeContinuous.active|2sg	1294958	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: quotation: a proverb.
+βροντάω|imperativeSimple.active|2sg	1294958	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: quotation: a proverb.
+γίνομαι|future.passive|3pl	1405325	no	claude-opus-5-5 2026-11-23	Tatoeba check, eng: Time will tell does not render the Greek, which says everything will get done in time.
+γίνομαι|future.passive|3pl	7864668	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: politics: asks whether things will get ugly in Algeria.
+γίνομαι|perfect.passive|3pl	5502241	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: violence: about police arrests, a crime-news sentence.
+γίνομαι|pluperfect.passive|3sg	9441050	no	claude-opus-5-5 2026-11-23	Tatoeba check, eng: The English drops the pluperfect and the also of Είχε γίνει και.
+γίνομαι|subjunctiveSimple.passive|3sg	1501436	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: «να γίνει» (he) should be «να γίνω» (I) in «I want to become ... when I grow up».
+γελάω|aorist.active|3sg	1556505	ok	claude-opus-5-5 2026-11-22	The subject Αυτός fixes the aorist.
+γελάω|imperativeSimple.active|2sg	1556505	no	claude-opus-5-5 2026-11-22	The subject Αυτός makes γέλασε an aorist third person.
+γελάω|present.active|2pl	5585789	ok	claude-opus-5-5 2026-11-22	A question to εσείς: present.
+γεννάω|aorist.active|3sg	7764242	ok	claude-opus-5-5 2026-11-22	The subject Η Μαίρη fixes the aorist.
+γεννάω|imperativeSimple.active|2sg	7764242	no	claude-opus-5-5 2026-11-22	The subject Η Μαίρη makes γέννησε an aorist third person.
+γεννιέμαι|aorist.passive|2pl	2404300	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: «Ποιά» is wrongly accented: «Ποια».
+γεννιέμαι|present.passive|3sg	11594816	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: quotation: a proverb.
+γεννιέμαι|subjunctiveSimple.passive|3sg	13919990	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: religion: a Bible quote by Nicodemus.
+γερνάω|subjunctiveContinuous.active|2sg	11524106	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: quotation: a known quote about getting old.
+γεύομαι|aorist.passive|3sg	11213651	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: religion: a Bible verse about water turned into wine.
+γιορτάζω|present.active|2pl	11914981	ok	claude-opus-5-5 2026-11-22	A question to εσείς: present.
+γνωρίζω|aorist.active|3sg	12992630	ok	claude-opus-5-5 2026-11-22	Δεν and ποτέ rule out an imperative: aorist he never knew.
+γνωρίζω|imperativeSimple.active|2sg	12992630	no	claude-opus-5-5 2026-11-22	Δεν with ποτέ makes γνώρισε an aorist, not an order.
+γνωρίζω|imperfect.active|1sg	5528601	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: ρώτησησε is a misspelling of ρώτησε.
+γνωρίζω|present.active|2pl	1515742	ok	claude-opus-5-5 2026-11-22	A question to εσείς: present.
+γνωρίζω|present.active|2sg	4210462	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: religion: asks whether you know Tom is Muslim.
+γνωρίζω|present.active|3pl	1503225	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: «πως» (that) should be «πώς» (how): «γνωρίζουν πώς τον λένε».
+γνωρίζω|present.passive|1pl	7587772	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: καλα is missing its accent and should be καλά.
+γνωρίζω|subjunctiveContinuous.active|1pl	2465397	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: «τί» is a monosyllable and takes no accent: «τι».
+γνωρίζω|subjunctiveSimple.active|1sg	4732004	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: Latin letters ("Cyril").
+γνωρίζω|subjunctiveSimple.active|2sg	4839079	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: Latin letters ("Tom").
+γράφω|imperativeSimple.active|2sg	1503124	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: «όνομα σου» lacks the enclitic accent: «όνομά σου».
+γράφω|present.active|2pl	2181974	no	claude-opus-5-5 2026-11-22	Μη γράφετε is a prohibition, not a present statement.
+γράφω|present.active|3sg	1561083	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: religion: a statement about what the Bible says.
+γράφω|present.passive|3sg	8120669	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: Που needs its accent as Πού, and όνομα μου should be όνομά μου.
+γράφω|subjunctiveSimple.active|3pl	5565987	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: Πες τες uses the accusative τες as indirect object, a dialect form; standard Greek is Πες τους.
+γράφω|subjunctiveSimple.active|3pl	5565989	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: Πείτε τες uses the dialectal accusative; standard Greek says Πείτε τους.
+γυρίζω|aorist.active|3sg	1501463	ok	claude-opus-5-5 2026-11-22	The subject Αυτός fixes the aorist.
+γυρίζω|future.active|2sg	7790760	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: θα χω is missing the apostrophe: θα 'χω.
+γυρίζω|imperativeSimple.active|2sg	1501463	no	claude-opus-5-5 2026-11-22	The subject Αυτός makes γύρισε an aorist third person.
+δένω|aorist.active|3pl	7055776	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: violence: someone has their hands tied to a chair.
+δέχομαι|aorist.passive|1sg	5414394	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: violence: the speaker was attacked.
+δέχομαι|perfect.passive|1sg	7775576	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: violence: the speaker has received threats.
+δέχομαι|subjunctiveContinuous.passive|3pl	9114922	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: politics: the anarchist slogan neither god nor master.
+δίνω|future.active|2sg	7579709	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: νουμερό σου has the wrong accent and should be νούμερό σου.
+δίνω|future.active|2sg	11527837	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: interrogative πού is written without its accent.
+δίνω|future.active|3sg	1513558	no	claude-opus-5-5 2026-11-23	Tatoeba check, rus: «задаёт» is present while the Greek is future (θα δώσει).
+δίνω|present.active|1pl	2776086	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: broken: refers to a list given «here» and is meaningless without that document.
+δίνω|present.active|3pl	2455307	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: politics: Greeks resenting advice from Germans, nations in conflict.
+δανείζομαι|subjunctiveContinuous.passive|2sg	7785023	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: Θυμάσαι να δανείζεσαι is a calque meaning remember to borrow; Greek says θυμάσαι που δανείστηκες.
+δείχνω|aorist.active|3sg	1533808	no	claude-opus-5-5 2026-11-23	Tatoeba check, rus: «гостю» is singular while the Greek has the visitors (plural).
+δείχνω|future.active|1sg	4651461	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: πως meaning "how" must be accented "πώς".
+δείχνω|imperfect.active|3pl	5386859	no	claude-opus-5-5 2026-11-23	Tatoeba check, eng: The English is present ("They seem") while the Greek is past imperfect ("They seemed").
+δείχνω|imperfect.active|3sg	1538397	no	claude-opus-5-5 2026-11-23	Tatoeba check, rus: «Он смотрел» means he was looking, not he looked as if (seemed).
+δείχνω|present.active|2pl	5451317	ok	claude-opus-5-5 2026-11-22	A statement describing εσείς now: present.
+δείχνω|subjunctiveSimple.active|1pl	9595277	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: broken: "but on a global level" makes no sense without the missing context.
+δηλώνω|subjunctiveSimple.active|3pl	13919965	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: religion: compares religions.
+διαβάζω|aorist.active|3sg	3765919	no	claude-opus-5-5 2026-11-22	No subject, so διάβασε reads as an order to εσύ just as well.
+διαβάζω|imperativeSimple.active|2sg	3765919	no	claude-opus-5-5 2026-11-22	No subject, so διάβασε can be the aorist he read.
+διαβάζω|pluperfect.active|1sg	7780368	no	claude-opus-5-5 2026-11-23	Tatoeba check, eng: The Greek pluperfect had read is rendered as the simple past read.
+διαβάζω|present.active|2pl	1743433	ok	claude-opus-5-5 2026-11-22	A question to εσείς: present.
+διαβάζω|present.passive|3sg	3004797	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: Πως meaning "how" must be accented "Πώς".
+διαβάζω|subjunctiveContinuous.active|3sg	1870322	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: «μου» is doubled («Ο μικρός μου αδερφός μου»), and the English says «can read» for «is learning to read».
+διαβάζω|subjunctiveSimple.active|1sg	3450838	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: Language names are lowercase in Greek: "ισπανικά", not "Ισπανικά".
+διαλέγω|aorist.active|3sg	5537149	no	claude-opus-5-5 2026-11-22	No subject, so διάλεξε reads as an order to εσύ just as well.
+διαλέγω|imperativeSimple.active|2sg	5537149	no	claude-opus-5-5 2026-11-22	No subject, so διάλεξε can be the aorist he chose.
+διαλέγω|subjunctiveContinuous.active|2sg	11210598	no	claude-opus-5-5 2026-11-23	Tatoeba check, eng: The English is a different saying and drops "choose carefully what you read".
+διανυκτερεύω|aorist.active|2sg	7776042	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: The interrogative Που needs its accent: Πού.
+διαρκώ|aorist.active|3sg	12243690	ok	claude-opus-5-5 2026-11-22	The subject Η καμπάνια fixes the aorist.
+διαρκώ|imperativeSimple.active|2sg	12243690	no	claude-opus-5-5 2026-11-22	The subject Η καμπάνια makes διήρκεσε an aorist third person.
+διαρκώ|present.active|2sg	5284307	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: διαρκείς is here the adjective "constant", not a verb form.
+διασκεδάζω|aorist.active|3sg	1000000242	ok	claude-opus-5-5 2026-11-22	Coordinated with the aorist έβγαλε: aorist third person.
+διασκεδάζω|imperativeSimple.active|2sg	1000000242	no	claude-opus-5-5 2026-11-22	Coordinated with the aorist έβγαλε, διασκέδασε is not an order.
+διασκεδάζω|present.active|2pl	5604755	ok	claude-opus-5-5 2026-11-22	A question to εσείς: present.
+διαφωνώ|aorist.active|3sg	5479733	ok	claude-opus-5-5 2026-11-22	The subject Ποιος fixes the aorist.
+διαφωνώ|imperativeSimple.active|2sg	5479733	no	claude-opus-5-5 2026-11-22	The subject Ποιος makes διαφώνησε an aorist third person.
+διαφωνώ|present.active|2pl	5615707	ok	claude-opus-5-5 2026-11-22	A question to εσείς: present.
+διαφωνώ|subjunctiveSimple.active|1sg	7790770	no	claude-opus-5-5 2026-11-23	Tatoeba check, eng: The English intention in arguing is ungrammatical.
+διδάσκω|aorist.active|3sg	5384624	ok	claude-opus-5-5 2026-11-22	The subject Ο Τομ fixes the aorist.
+διδάσκω|imperativeSimple.active|2sg	5384624	no	claude-opus-5-5 2026-11-22	The subject Ο Τομ makes δίδαξε an aorist third person.
+διδάσκω|imperfect.active|2sg	1294937	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: quotation: a proverb with an archaic form (εκράτεις).
+διδάσκω|subjunctiveSimple.active|2sg	2810901	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: quotation: a proverb (Aesop, the crab that cannot walk straight).
+διορθώνω|aorist.active|3sg	2423207	no	claude-opus-5-5 2026-11-22	Παρακαλώ makes διόρθωσε a request to εσύ, not an aorist.
+διορθώνω|imperativeSimple.active|2sg	2423207	ok	claude-opus-5-5 2026-11-22	Παρακαλώ marks a request to εσύ.
+διψάω|present.active|2pl	5619150	ok	claude-opus-5-5 2026-11-22	A question to εσείς: present.
+διώχνω|present.active|3sg	1289994	no	claude-opus-5-5 2026-11-23	Tatoeba check, eng: «The police drives» is ungrammatical; police takes a plural verb.
+δοκιμάζω|aorist.active|3sg	3043892	no	claude-opus-5-5 2026-11-22	Δοκίμασε αυτό! is an order to εσύ, not an aorist.
+δοκιμάζω|imperativeSimple.active|2sg	3043892	ok	claude-opus-5-5 2026-11-22	An exclamation with no subject: an order to εσύ.
+δοκιμάζω|present.active|2pl	5530426	ok	claude-opus-5-5 2026-11-22	A question to εσείς: present.
+δουλεύω|aorist.active|3sg	5502129	ok	claude-opus-5-5 2026-11-22	The subject ο Τομ and χτες fix the aorist.
+δουλεύω|imperativeSimple.active|2sg	5502129	no	claude-opus-5-5 2026-11-22	The subject ο Τομ and χτες make δούλεψε an aorist.
+δουλεύω|imperfect.active|2sg	11827676	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: χθές must be "χθες" (no accent on the monosyllable).
+δουλεύω|present.active|2pl	5379793	ok	claude-opus-5-5 2026-11-22	A question to εσείς: present.
+δραπετεύω|aorist.active|3pl	7790670	no	claude-opus-5-5 2026-11-23	Tatoeba check, eng: The English adds managed to, which the Greek does not have.
+δυσκολεύομαι|future.passive|3sg	8542239	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: να το κάνω is the wrong person; it should be να το κάνει.
+είμαι|future.active|3pl	5441265	no	claude-opus-5-5 2026-11-22	No subject, so θα είναι can be singular or plural.
+είμαι|future.active|3sg	5441265	no	claude-opus-5-5 2026-11-22	No subject, so θα είναι can be singular or plural.
+είμαι|present.active|2sg	2076457	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: A verb is missing: «να το αυτό» should be «να το κάνει αυτό».
+είμαι|present.active|2sg	3765773	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: interrogative πού is written without its accent.
+είμαι|present.active|3pl	949088	no	claude-opus-5-5 2026-11-22	The singular subject Η Μάγια Κέουτς makes είναι singular, not plural.
+είμαι|present.active|3sg	949088	ok	claude-opus-5-5 2026-11-22	The singular subject Η Μάγια Κέουτς makes είναι third person singular.
+είμαι|subjunctiveSimple.active|3pl	1499104	no	claude-opus-5-5 2026-11-22	No subject, so να είναι can be singular or plural.
+είμαι|subjunctiveSimple.active|3sg	1499104	no	claude-opus-5-5 2026-11-22	No subject, so να είναι can be singular or plural.
+εγκαταλείπω|aorist.active|2sg	1708065	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: religion: a Bible quotation (My God, why have you forsaken me).
+εγκαταλείπω|subjunctiveSimple.active|3pl	7774403	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: politics: Armenians forced off their lands, a conflict between nations.
+εγκαταλείπω|subjunctiveSimple.active|3pl	7774404	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: politics: Armenians forced off their land.
+εγκαταλείπω|subjunctiveSimple.active|3sg	2412952	no	claude-opus-5-5 2026-11-23	Tatoeba check, eng: «completely» is added; the Greek has no such word.
+εκδίδω|future.passive|3sg	5612417	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: violence: crime, about Tom being extradited.
+εκδίδω|future.passive|3sg	5612421	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: violence: a crime context, extradition.
+εκφράζω|present.active|3pl	11523719	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: politics: popular movements and popular discontent.
+εκφράζω|subjunctiveSimple.active|3pl	9311102	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: final ν or apostrophe spelling (στην, μην, δεν before a vowel or κ π τ ξ ψ μπ ντ γκ τσ τζ; ’ not ΄).
+ελέγχω|future.active|3sg	7763206	no	claude-opus-5-5 2026-11-23	Tatoeba check, eng: Είπε means she said, not she promised.
+ελπίζω|aorist.active|3sg	11267666	no	claude-opus-5-5 2026-11-22	The sentence has ήλπισε, not the asked form έλπισε.
+ελπίζω|imperativeSimple.active|2sg	11267666	no	claude-opus-5-5 2026-11-22	The sentence has ήλπισε, an aorist with the subject Αυτή.
+ελπίζω|present.active|3pl	9586986	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: violence: it is about preventing further incidents of violence.
+εμπιστεύομαι|subjunctiveSimple.passive|1sg	7766793	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: σίγουρός has a wrong second accent before ότι and should be σίγουρος.
+εμποδίζω|present.active|3sg	11537704	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: quotation: a known quote about time.
+ενδιαφέρω|present.active|3pl	3577876	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: quotation: a line from Cavafy's poem "Μάρτιαι Ειδοί".
+εννοώ|imperfect.active|3sg	7785033	no	claude-opus-5-5 2026-11-23	Tatoeba check, eng: The Greek is past imperfect but the English is present tense, and με αυτό is dropped.
+εννοώ|present.active|1pl	9211806	no	claude-opus-5-5 2026-11-23	Tatoeba check, eng: δεν εννοούμε is present, but the English says didn't mean.
+ενοχλώ|present.active|2sg	7791755	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: final ν or apostrophe spelling (στην, μην, δεν before a vowel or κ π τ ξ ψ μπ ντ γκ τσ τζ; ’ not ΄).
+ενοχλώ|present.active|2sg	7791756	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: Δε πρόκειται drops the final ν before π (Δεν πρόκειται).
+εξαφανίζω|subjunctiveSimple.passive|3sg	7810835	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: ζωντάνα means livestock; the intended word is ζωντανά.
+εξηγώ|aorist.active|3sg	1744036	no	claude-opus-5-5 2026-11-22	The postverbal clitic μου makes εξήγησε an order to εσύ.
+εξηγώ|imperativeSimple.active|2sg	1744036	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: «Εξήγησε μου» lacks the enclitic accent: «Εξήγησέ μου».
+εξηγώ|subjunctiveSimple.active|2sg	4653349	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: απλα lacks its accent: "απλά".
+επαναλαμβάνω|aorist.active|3sg	7774324	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: Here επανέλαβε is a 2sg imperative, not a 3sg aorist.
+επαναλαμβάνω|aorist.active|3sg	7774325	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: επανέλαβε here is the 2sg imperative, not the 3sg aorist.
+επηρεάζω|aorist.passive|3sg	7800408	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: The names Yankev and Borekh are in Latin letters.
+επηρεάζω|present.active|3sg	3750372	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: Πως meaning "how" must be accented "Πώς".
+επηρεάζω|subjunctiveContinuous.active|3sg	12307296	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: smoking: smoking damaging his health.
+επιβάλλω|aorist.active|3sg	11531816	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: politics: the army imposing a dictatorship.
+επικοινωνώ|aorist.active|3sg	5443007	ok	claude-opus-5-5 2026-11-22	The subject Ο Τομ fixes the aorist.
+επικοινωνώ|imperativeSimple.active|2sg	5443007	no	claude-opus-5-5 2026-11-22	The subject Ο Τομ makes επικοινώνησε an aorist third person.
+επιλέγω|aorist.passive|3sg	2921811	no	claude-opus-5-5 2026-11-23	Tatoeba check, rus: The Russian makes the subject male ("Он был выбран") where the Greek says she ("Αυτή").
+επιλέγω|future.active|2pl	2404446	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: «ποιό» is wrongly accented: «ποιο».
+επιλέγω|imperativeSimple.active|2pl	3193099	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: broken: a Tatoeba-internal remark about choosing another flag, meaningless without context.
+επιλέγω|present.active|3sg	13514512	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: broken: an obscure line about "Alpha" that is meaningless without context.
+επιμένω|subjunctiveContinuous.active|2sg	7790782	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: quotation: a well-known aphorism attributed to Socrates.
+επισκέπτομαι|aorist.passive|3sg	2405273	no	claude-opus-5-5 2026-11-23	Tatoeba check, eng: «I visited» changes the person; Επισκέφτηκε is 3sg (he visited).
+επισκέπτομαι|imperfect.passive|3pl	3040473	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: Singular subject "Αυτή" with plural verb "επισκέπτονταν"; it must be "επισκεπτόταν".
+επισκέπτομαι|present.passive|2pl	5538300	ok	claude-opus-5-5 2026-11-22	A question to εσείς with συχνά: present.
+επισκέπτομαι|present.passive|3sg	2455214	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: «που και που» should be accented «πού και πού».
+επιστρέφω|present.active|2pl	9342036	ok	claude-opus-5-5 2026-11-22	A question to εσείς: present.
+εργάζομαι|subjunctiveSimple.passive|1sg	1518202	no	claude-opus-5-5 2026-11-23	Tatoeba check, rus: «Я хотел» (I wanted) changes the conditional «I would like».
+εργάζομαι|subjunctiveSimple.passive|1sg	2390030	no	claude-opus-5-5 2026-11-23	Tatoeba check, rus: работать с вашей компанией means work with your company, not at it.
+ερωτεύομαι|future.passive|3sg	11612157	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: quotation: a known aphorism.
+ερωτεύομαι|subjunctiveSimple.passive|1sg	9136445	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: broken: θα το έκανα has no clear meaning without context.
+ετοιμάζω|aorist.active|3sg	7818606	ok	claude-opus-5-5 2026-11-22	The subject ο Τομ in a past frame fixes the aorist.
+ετοιμάζω|imperativeSimple.active|2sg	7818606	no	claude-opus-5-5 2026-11-22	The subject ο Τομ makes ετοίμασε an aorist third person.
+ετοιμάζω|present.active|3sg	2404316	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: «πρωϊνό» takes no diaeresis: «πρωινό».
+ευχαριστώ|aorist.active|3sg	5443002	ok	claude-opus-5-5 2026-11-22	The subject Ο Τομ fixes the aorist.
+ευχαριστώ|imperativeSimple.active|2sg	5443002	no	claude-opus-5-5 2026-11-22	The subject Ο Τομ makes ευχαρίστησε an aorist third person.
+ευχαριστώ|present.active|1pl	3193099	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: broken: a Tatoeba-internal remark about choosing another flag, meaningless without context.
+ευχαριστώ|subjunctiveSimple.active|1sg	2834413	no	claude-opus-5-5 2026-11-23	Tatoeba check, rus: «Я хотел поблагодарить» drops «вас» (you) and turns «I would like» into the past.
+εύχομαι|subjunctiveSimple.passive|1sg	9445001	no	claude-opus-5-5 2026-11-23	Tatoeba check, eng: Καλά στερνά wishes a good later life, not good luck.
+ζητάω|aorist.active|1sg	2858160	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: final ν or apostrophe spelling (στην, μην, δεν before a vowel or κ π τ ξ ψ μπ ντ γκ τσ τζ; ’ not ΄).
+ζητάω|aorist.active|3sg	2830656	ok	claude-opus-5-5 2026-11-22	The subject Αυτή fixes the aorist.
+ζητάω|imperativeSimple.active|2sg	2830656	no	claude-opus-5-5 2026-11-22	The subject Αυτή makes ζήτησε an aorist third person.
+ζητάω|imperativeSimple.active|2sg	5410111	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: Ζήτα is the continuous imperative; the simple form is asked.
+ζητάω|imperativeSimple.active|2sg	9941409	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: Ζήτα is the continuous imperative; the simple one is ζήτησε.
+ζητάω|present.active|2pl	5557245	ok	claude-opus-5-5 2026-11-22	A question to εσείς: present.
+ζω|aorist.active|3pl	1395222	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: quotation: the fairy-tale closing formula, starting with an ellipsis fragment.
+ζω|perfect.active|1sg	4704637	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: Latin letters ("Realengo").
+ζω|perfect.active|3sg	3249364	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: τη πόλη lacks the final ν: it must be "την πόλη".
+ζω|present.active|2pl	5317888	ok	claude-opus-5-5 2026-11-22	A question to εσείς: present.
+ζω|present.active|2sg	10672825	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: ποιό must be "ποιο" and "Βωστόνης" is misspelled.
+ζω|subjunctiveContinuous.active|1pl	2417615	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: religion: a sacrificial death («He died so that we can live»), a Christ or war-hero reference.
+ζω|subjunctiveContinuous.active|1sg	2726293	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: violence: expresses not wanting to live (suicidal).
+ζω|subjunctiveContinuous.active|2sg	10678007	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: Πως must be "Πώς" and "Βωστόνη" is misspelled.
+ζωγραφίζω|aorist.active|3sg	1428143	ok	claude-opus-5-5 2026-11-22	The subject Ποιος fixes the aorist.
+ζωγραφίζω|imperativeSimple.active|2sg	1428143	no	claude-opus-5-5 2026-11-22	The subject Ποιος makes ζωγράφισε an aorist third person.
+θέλω|aorist.active|2pl	5544710	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: violence: about wanting to kill Tom.
+θέλω|aorist.active|2sg	5544708	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: violence: about wanting to kill Tom.
+θέλω|aorist.active|3pl	5487771	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: violence: crime, wanting to steal a car.
+θέλω|aorist.active|3pl	5487773	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: violence: a crime, stealing a car.
+θέλω|aorist.active|3sg	5534695	ok	claude-opus-5-5 2026-11-22	The third-person subject Ο Τομ fixes the aorist.
+θέλω|imperativeSimple.active|2sg	5534695	no	claude-opus-5-5 2026-11-22	The subject Ο Τομ makes θέλησε an aorist third person.
+θέλω|imperfect.active|2pl	5544707	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: violence: about wanting to kill Tom.
+θέλω|imperfect.active|3pl	5487769	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: violence: crime, wanting to steal a car.
+θέλω|imperfect.active|3pl	5487770	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: violence: a crime, stealing a car.
+θέλω|present.active|2pl	1499721	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: «Τί» is a monosyllable and takes no accent: «Τι».
+θεωρώ|present.active|3pl	9506100	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: offensive: the sentence is about sex before marriage.
+θυμάμαι|present.passive|2pl	2631887	ok	claude-opus-5-5 2026-11-22	A question to εσείς: present.
+θυμάμαι|subjunctiveContinuous.passive|2sg	3264258	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: quotation: the maxim "remember death" (memento mori).
+θυμάμαι|subjunctiveContinuous.passive|3pl	12302133	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: quotation: a translated Latin motto.
+θυμάμαι|subjunctiveSimple.passive|3sg	3105100	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: διεύθνση is misspelled; the word is "διεύθυνση".
+θυμίζω|present.active|3sg	10670331	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: θυμήζει is misspelled; the form is "θυμίζει".
+θυμίζω|present.active|3sg	10677907	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: θυμήζει is misspelt (θυμίζει).
+ικανοποιώ|present.active|3sg	9441029	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: offensive: sexual content about erotic fantasies.
+κάθομαι|aorist.passive|3sg	5454729	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: Preposition missing: δίπλα Μαίρη should be δίπλα στη Μαίρη.
+κάθομαι|imperativeSimple.passive|2sg	5454729	no	claude-opus-5-5 2026-11-22	The subject Ο Τομ makes κάθισε an aorist third person.
+κάθομαι|present.passive|1pl	5591474	ok	claude-opus-5-5 2026-11-22	A why-not question about now: present.
+κάθομαι|present.passive|2sg	7762735	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: final ν or apostrophe spelling (στην, μην, δεν before a vowel or κ π τ ξ ψ μπ ντ γκ τσ τζ; ’ not ΄).
+κάνω|aorist.active|1pl	3450488	no	claude-opus-5-5 2026-11-22	No point in time, so κάναμε can be the imperfect (we were doing what we could).
+κάνω|aorist.active|1sg	3695698	no	claude-opus-5-5 2026-11-22	No time word, so έκανα can be the imperfect as well.
+κάνω|aorist.active|2pl	3895515	no	claude-opus-5-5 2026-11-22	Τι κάνατε can mean what you did or what you were doing.
+κάνω|aorist.active|2sg	2022434	no	claude-opus-5-5 2026-11-22	No point in time, so έκανες can be read as the imperfect (you kept doing).
+κάνω|aorist.active|3pl	5284307	ok	claude-opus-5-5 2026-11-22	A single result with the perfective να αλλάξω fixes the aorist.
+κάνω|aorist.active|3sg	2456721	ok	claude-opus-5-5 2026-11-22	One definite mistake made once fixes the aorist.
+κάνω|perfect.active|3sg	1832879	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: «ότι» (that) should be «ό,τι» (what).
+κάνω|present.active|2pl	2836326	no	claude-opus-5-5 2026-11-22	Μην κάνετε is a prohibition, not a present statement.
+καίω|present.active|2sg	3000604	no	claude-opus-5-5 2026-11-23	Tatoeba check, eng: The English says dead leaves where the Greek says dry branches ("ξερά κλαδιά").
+καθαρίζω|aorist.active|3sg	5531235	ok	claude-opus-5-5 2026-11-22	Μόλις and the possessive του fix the aorist he just cleaned.
+καθαρίζω|imperativeSimple.active|2sg	5531235	no	claude-opus-5-5 2026-11-22	Μόλις and του make καθάρισε an aorist third person.
+καθαρίζω|present.active|2pl	10012500	ok	claude-opus-5-5 2026-11-22	A statement with εσείς: present.
+καθαρίζω|subjunctiveSimple.active|1sg	7583560	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: τρις is misspelled and should be τρεις.
+καθαρίζω|subjunctiveSimple.active|3sg	5516491	no	claude-opus-5-5 2026-11-23	Tatoeba check, eng: The Greek says I paid (aorist), the English says I pay (present).
+καθαρίζω|subjunctiveSimple.active|3sg	5516492	no	claude-opus-5-5 2026-11-23	Tatoeba check, eng: Πλήρωσα is past (I paid), the English says I pay.
+καθορίζω|present.passive|3sg	12341627	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: quotation: a known Herbert Spencer line about opinion and feelings.
+καλωσορίζω|aorist.active|3sg	7325392	ok	claude-opus-5-5 2026-11-22	The subject Ο καπετάνιος fixes the aorist.
+καλωσορίζω|imperativeSimple.active|2sg	7325392	no	claude-opus-5-5 2026-11-22	The subject Ο καπετάνιος makes καλωσόρισε an aorist third person.
+καλύπτω|subjunctiveContinuous.passive|3sg	3750394	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: offensive: changing a swimsuit without covering herself (nudity).
+καλώ|aorist.active|1pl	9136500	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: politics: it addresses a government minister.
+καλώ|aorist.active|3sg	1515745	ok	claude-opus-5-5 2026-11-22	The subject Ο Μπιλ and χθες fix the aorist.
+καλώ|imperativeSimple.active|2sg	1515745	no	claude-opus-5-5 2026-11-22	The subject Ο Μπιλ and χθες make κάλεσε an aorist, not an order.
+καλώ|subjunctiveSimple.active|1sg	4468853	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: Latin letters ("Jim"), and "καλέσω στον" is ungrammatical.
+καλώ|subjunctiveSimple.active|1sg	9423788	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: violence: calling a gravedigger or an ambulance.
+καπνίζω|aorist.active|2sg	2390021	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: smoking: asks when you last smoked.
+καπνίζω|imperfect.active|1sg	7347654	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: smoking: the sentence is about smoking a lot.
+καπνίζω|present.active|2sg	2454207	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: smoking: about smoking too much.
+καπνίζω|subjunctiveContinuous.active|1sg	7347669	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: smoking: the sentence is about smoking a lot.
+καπνίζω|subjunctiveContinuous.active|1sg	12955178	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: smoking: a sentence about smoking.
+καπνίζω|subjunctiveContinuous.active|2pl	1044828	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: smoking: a sentence about smoking.
+καπνίζω|subjunctiveContinuous.active|2pl	2995132	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: smoking: a sentence about smoking in the elevator.
+καπνίζω|subjunctiveContinuous.active|3sg	8236392	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: smoking: the sentence is about smoking.
+καπνίζω|subjunctiveSimple.active|2pl	1498166	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: smoking: about where one may smoke.
+καπνίζω|subjunctiveSimple.active|2sg	13267751	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: smoking: smoking a cigar.
+καπνίζω|subjunctiveSimple.active|2sg	13267774	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: smoking: smoking a pipe; πίπα is also vulgar slang.
+καπνίζω|subjunctiveSimple.active|3sg	7854199	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: smoking: Tom goes outside to smoke.
+καπνίζω|subjunctiveSimple.active|3sg	13224313	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: smoking: smoking a blunt (drugs).
+καταλήγω|aorist.active|1pl	1401390	no	claude-opus-5-5 2026-11-23	Tatoeba check, eng: «an almost hopeless situation» adds «almost» and loosens «we reached a dead end».
+καταλήγω|aorist.active|3pl	7336764	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: violence: a jury returns a guilty verdict in a criminal trial.
+καταλαβαίνω|aorist.active|1sg	2818440	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: «αμερικανός» must be capitalized: «Αμερικανός».
+καταλαβαίνω|aorist.active|3sg	3002452	ok	claude-opus-5-5 2026-11-22	The subject Η Μαρία and δεν fix the aorist.
+καταλαβαίνω|imperativeSimple.active|2sg	3002452	no	claude-opus-5-5 2026-11-22	The subject Η Μαρία makes κατάλαβε an aorist third person.
+καταλαβαίνω|present.active|2pl	2005237	ok	claude-opus-5-5 2026-11-22	A statement with εσείς about a habit: present.
+καταλαβαίνω|subjunctiveSimple.active|3sg	2413051	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: final ν or apostrophe spelling (στην, μην, δεν before a vowel or κ π τ ξ ψ μπ ντ γκ τσ τζ; ’ not ΄).
+καταπίνω|subjunctiveSimple.active|3sg	9615472	no	claude-opus-5-5 2026-11-23	Tatoeba check, eng: The English swaps the Greek wish "may the earth open and swallow me" for an unrelated idiom.
+καταστρέφω|imperativeSimple.active|2pl	5518097	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: quotation: the Gospel line Destroy this temple (John 2:19), also about destruction.
+καταφέρνω|aorist.active|3sg	5517640	ok	claude-opus-5-5 2026-11-22	The third-person να αποδράσει shows a he-subject: aorist.
+καταφέρνω|imperativeSimple.active|2sg	5517640	no	claude-opus-5-5 2026-11-22	The third-person να αποδράσει makes κατάφερε an aorist he managed.
+κατεβαίνω|subjunctiveSimple.active|2pl	3324414	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: απο lacks its accent: "από".
+κατηγορώ|aorist.passive|3sg	5544600	no	claude-opus-5-5 2026-11-23	Tatoeba check, eng: The English accused for nepotism is ungrammatical (accused of).
+κατοικώ|present.active|3sg	7766797	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: final ν or apostrophe spelling (στην, μην, δεν before a vowel or κ π τ ξ ψ μπ ντ γκ τσ τζ; ’ not ΄).
+κερδίζω|aorist.active|3sg	3209738	no	claude-opus-5-5 2026-11-22	No subject, so κέρδισε can be an order (win a phone).
+κερδίζω|imperativeSimple.active|2sg	3209738	no	claude-opus-5-5 2026-11-22	No subject, so κέρδισε can be the aorist he won.
+κινδυνεύω|present.active|3sg	3834210	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: politics: "our country is in danger".
+κλέβω|present.active|3sg	8236360	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: violence: Tom is stealing, a crime.
+κλέβω|present.active|3sg	8236361	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: violence: a crime, Tom is stealing.
+κλέβω|subjunctiveSimple.active|3pl	5487769	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: violence: crime, wanting to steal a car.
+κλέβω|subjunctiveSimple.active|3pl	5487770	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: violence: a crime, stealing a car.
+κλαίω|future.active|1sg	2427408	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: «δωμάτιο μου» lacks the enclitic accent: «δωμάτιό μου».
+κλείνω|aorist.passive|3sg	9339632	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: violence: a child's fatal accident.
+κλείνω|present.active|2pl	2394083	no	claude-opus-5-5 2026-11-22	Μην κλείνετε is a prohibition, not a present statement.
+κλείνω|subjunctiveSimple.active|1sg	7780356	no	claude-opus-5-5 2026-11-23	Tatoeba check, eng: The Greek asks if he would like me to book him a trip; the English drops me and makes him the booker.
+κλείνω|subjunctiveSimple.active|1sg	7780358	no	claude-opus-5-5 2026-11-23	Tatoeba check, eng: the English drops that I would book it for her.
+κλείνω|subjunctiveSimple.active|1sg	7780362	no	claude-opus-5-5 2026-11-23	Tatoeba check, eng: The Greek asks whether you want me to book you a trip; the English has you booking it yourself.
+κλειδώνω|aorist.active|3sg	5358634	no	claude-opus-5-5 2026-11-22	No subject, so κλείδωσε reads as an order to εσύ just as well.
+κλειδώνω|imperativeSimple.active|2sg	5358634	no	claude-opus-5-5 2026-11-22	No subject, so κλείδωσε can be the aorist he locked.
+κοιμάμαι|aorist.passive|3pl	2363357	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: offensive: sexual content (slept together).
+κοιμάμαι|aorist.passive|3sg	2363354	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: «την τελευταία νύχτα» is a calque of «last night» and means «the final night»; Greek says «χθες το βράδυ».
+κοιμάμαι|present.passive|2pl	5355371	ok	claude-opus-5-5 2026-11-22	A question to εσείς: present.
+κοιμάμαι|subjunctiveContinuous.passive|2sg	7773402	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: broken: it hinges on an unexplained Ymir and reads as sleeping with someone.
+κοιτάω|aorist.active|3sg	3437508	no	claude-opus-5-5 2026-11-22	Κοίταξε! is an order to εσύ, not an aorist.
+κοιτάω|futureContinuous.active|3sg	3158775	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: Ποιός must not carry an accent; the spelling is "Ποιος".
+κοιτάω|imperativeSimple.active|2sg	3437508	ok	claude-opus-5-5 2026-11-22	A one-word exclamation: an order to εσύ.
+κοιτάω|imperfect.active|3sg	1518182	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: «πως» (that) should be «πώς» (how).
+κοιτάω|present.active|2pl	11236140	no	claude-opus-5-5 2026-11-22	Μην κοιτάτε is a prohibition, not a present statement.
+κοιτάω|subjunctiveContinuous.active|1pl	9449057	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: από καμιά φορά is ungrammatical; Greek says καμιά φορά or πού και πού.
+κολλάω|aorist.active|3sg	12312088	ok	claude-opus-5-5 2026-11-22	The subject Το φορτηγό μου fixes the aorist.
+κολλάω|imperativeSimple.active|2sg	1291186	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: Κόλλα is the continuous imperative; the simple one is κόλλησε.
+κολλάω|imperativeSimple.active|2sg	6157459	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: Κόλλα is the continuous imperative; the simple imperative is κόλλησε.
+κολλάω|imperativeSimple.active|2sg	12312088	no	claude-opus-5-5 2026-11-22	The subject Το φορτηγό μου makes κόλλησε an aorist third person.
+κολλάω|present.active|3sg	1395265	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: quotation: a proverb (strike while the iron is hot).
+κολυμπάω|aorist.active|3sg	5457603	ok	claude-opus-5-5 2026-11-22	The subject Ο Τομ fixes the aorist.
+κολυμπάω|imperativeSimple.active|2sg	5457603	no	claude-opus-5-5 2026-11-22	The subject Ο Τομ makes κολύμπησε an aorist third person.
+κολυμπάω|imperfect.active|3pl	1518182	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: «πως» (that) should be «πώς» (how).
+κολυμπάω|present.active|2pl	3278281	ok	claude-opus-5-5 2026-11-22	A statement with εσείς: present.
+κοροϊδεύω|present.active|2sg	1307894	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: «Ποιόν» is wrongly accented: «Ποιον».
+κοροϊδεύω|subjunctiveContinuous.active|2sg	1307894	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: «Ποιόν» is wrongly accented: «Ποιον».
+κοστίζω|present.active|3sg	2915513	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: δολλάρια is an obsolete spelling; modern Greek writes "δολάρια".
+κουράζομαι|aorist.passive|1pl	11855295	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: offensive: sexual content (making love).
+κρίνω|imperativeSimple.active|2pl	11577903	no	claude-opus-5-5 2026-11-22	Μην κρίνετε is a prohibition, not a positive imperative.
+κρίνω|present.active|2pl	11577903	no	claude-opus-5-5 2026-11-22	Μην κρίνετε is a prohibition, not a present statement.
+κρίνω|present.active|3sg	7336922	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: final ν or apostrophe spelling (στην, μην, δεν before a vowel or κ π τ ξ ψ μπ ντ γκ τσ τζ; ’ not ΄).
+κρίνω|subjunctiveSimple.passive|2pl	11577903	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: religion: a Bible verse ("Judge not, that ye be not judged").
+κρατάω|aorist.active|3sg	5410407	ok	claude-opus-5-5 2026-11-22	The possessive της points to a third-person subject: she kept, aorist.
+κρατάω|imperativeSimple.active|2sg	1306444	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: Κράτα is the continuous imperative; the simple form is asked.
+κρατάω|imperativeSimple.active|2sg	1547565	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: Κράτα is the continuous imperative; the simple form is asked.
+κρατάω|imperativeSimple.active|2sg	3041587	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: Κράτα is the continuous imperative; the simple form is asked.
+κρατάω|imperativeSimple.active|2sg	4331496	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: Κράτα is the continuous imperative; the simple form is asked.
+κρατάω|imperativeSimple.active|2sg	4595309	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: Κράτα is the continuous imperative; the simple one is κράτησε.
+κρατάω|imperativeSimple.active|2sg	5346464	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: Κράτα is the continuous imperative; the simple form is asked.
+κρατάω|imperativeSimple.active|2sg	5358629	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: Κράτα is the continuous imperative; the simple one is κράτησε.
+κρατάω|imperativeSimple.active|2sg	5410407	no	claude-opus-5-5 2026-11-22	Τα μάτια της points to the aorist she kept, not an order.
+κρατάω|imperativeSimple.active|2sg	5485906	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: Κράτα is the continuous imperative; the simple one is κράτησε.
+κρατάω|imperativeSimple.active|2sg	5561713	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: Κράτα is the continuous imperative; the simple form is asked.
+κρατάω|imperativeSimple.active|2sg	7777120	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: Κράτα is the continuous imperative; the simple form is asked.
+κρατάω|imperativeSimple.active|2sg	7777121	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: Κράτα is the continuous imperative; the simple form is asked.
+κρατάω|imperativeSimple.active|2sg	7777122	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: Κράτα is the continuous imperative; the simple form is asked.
+κρατάω|imperativeSimple.active|2sg	7777123	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: Κράτα is the continuous imperative; the simple form is asked.
+κρατάω|imperativeSimple.active|2sg	9240404	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: Κράτα is the continuous imperative; the simple form is asked.
+κρατάω|imperativeSimple.active|2sg	9391622	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: Κράτα is the continuous imperative; the simple form is asked.
+κρατάω|imperativeSimple.active|2sg	9519180	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: Κράτα is the continuous imperative; the simple form is asked.
+κρατάω|imperativeSimple.active|2sg	9565846	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: κράτα is the continuous imperative; the simple form is asked.
+κρατάω|imperativeSimple.active|2sg	9730526	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: Κράτα is the continuous imperative; the simple form is asked.
+κρατάω|imperativeSimple.active|2sg	9946571	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: κράτα is the continuous imperative; the simple form is asked.
+κρατάω|imperativeSimple.active|2sg	11578740	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: Κράτα is the continuous imperative; the simple form is asked.
+κρατάω|imperativeSimple.active|2sg	12147112	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: Κράτα is the continuous imperative; the simple form is asked.
+κρατάω|present.active|2pl	5512512	ok	claude-opus-5-5 2026-11-22	A question to εσείς: present.
+κρατάω|present.passive|1sg	7792941	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: Δε κρατιέμαι drops the final ν before κ (Δεν κρατιέμαι).
+κρατάω|present.passive|1sg	7792942	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: final ν or apostrophe spelling (στην, μην, δεν before a vowel or κ π τ ξ ψ μπ ντ γκ τσ τζ; ’ not ΄).
+κρατάω|subjunctiveSimple.active|3sg	4945596	no	claude-opus-5-5 2026-11-23	Tatoeba check, eng: The English drops "can": "doesn't keep" for "δεν μπορεί να κρατήσει".
+κρυώνω|present.active|2pl	12416684	ok	claude-opus-5-5 2026-11-22	A question to εσείς: present.
+κρύβομαι|perfect.passive|3sg	11492440	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: violence: crime, prison and an informant on a gang leader.
+κρύβομαι|subjunctiveContinuous.passive|1pl	7789551	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: final ν or apostrophe spelling (στην, μην, δεν before a vowel or κ π τ ξ ψ μπ ντ γκ τσ τζ; ’ not ΄).
+κρύβομαι|subjunctiveContinuous.passive|1pl	7789553	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: Δε μπορούμε drops the final ν before μπ (Δεν μπορούμε).
+κυριαρχώ|present.active|3sg	7864671	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: politics: a claim that Algeria dominates the Maghreb.
+κόβω|aorist.active|1sg	1416448	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: smoking: about giving up cigarettes.
+κόβω|perfect.active|1sg	7347654	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: smoking: the sentence is about smoking a lot.
+κόβω|subjunctiveSimple.active|2sg	2393002	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: smoking: about quitting smoking.
+κόβω|subjunctiveSimple.active|3sg	1429103	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: smoking: a sentence about quitting smoking.
+κόβω|subjunctiveSimple.active|3sg	1429104	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: smoking: deciding to quit smoking.
+κόβω|subjunctiveSimple.active|3sg	2420200	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: «Πως» should be the interrogative «Πώς» (the sentence is also about smoking).
+λέω|imperativeSimple.active|2pl	1663164	ok	claude-opus-5-5 2026-11-22	An order to εσείς with a postverbal clitic: imperative.
+λέω|pluperfect.active|2sg	9812587	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: γλυκειά is an obsolete spelling of "γλυκιά".
+λέω|present.active|2pl	1708796	ok	claude-opus-5-5 2026-11-22	An indirect question about what εσείς say now: present.
+λέω|present.passive|2pl	1000000142	ok	claude-opus-5-5 2026-11-22	A question about your name: present, not an imperative.
+λέω|subjunctiveContinuous.active|1sg	9183498	no	claude-opus-5-5 2026-11-23	Tatoeba check, eng: Πού να σας τα λέω means where do I even begin, not I'll tell you what.
+λέω|subjunctiveContinuous.active|1sg	9702918	no	claude-opus-5-5 2026-11-23	Tatoeba check, eng: I'll tell you what does not render Πού να σου τα λέω (you wouldn't believe it).
+λέω|subjunctiveContinuous.active|3sg	7766422	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: final ν or apostrophe spelling (στην, μην, δεν before a vowel or κ π τ ξ ψ μπ ντ γκ τσ τζ; ’ not ΄).
+λαλώ|present.active|3pl	9213122	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: quotation: a proverb about too many roosters.
+λείπω|imperfect.active|3sg	7762855	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: χαρτοφύλακας μου needs the enclitic accent: χαρτοφύλακάς μου.
+λείπω|imperfect.active|3sg	7762856	no	claude-opus-5-5 2026-11-23	Tatoeba check, eng: χαρτοφύλακας is a briefcase, the English says suitcase.
+λείπω|present.active|2pl	5593178	ok	claude-opus-5-5 2026-11-22	The clitic μας before the verb makes a present statement.
+λησμονώ|present.passive|3pl	1294738	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: quotation: a proverb (out of sight, out of mind).
+λιώνω|present.active|3sg	2898753	no	claude-opus-5-5 2026-11-23	Tatoeba check, rus: The Russian says ice ("Лёд") where the Greek says snow.
+λογαριάζω|present.passive|3sg	3045960	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: Latin letters ("Oomoto") in the Greek, and the topic is religions.
+μένω|imperfect.active|1sg	10675112	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: για έμενα must be "για εμένα", so the highlighted word is not a form of μένω.
+μένω|present.active|2pl	2788864	ok	claude-opus-5-5 2026-11-22	A question to εσείς: present.
+μένω|present.active|3pl	2000174	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: «που» should be the interrogative «πού» (where).
+μένω|present.active|3sg	1515678	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: «Που» should be the interrogative «Πού».
+μένω|subjunctiveContinuous.active|1pl	7766282	no	claude-opus-5-5 2026-11-23	Tatoeba check, eng: The English adds again, which the Greek does not have.
+μαγειρεύω|aorist.active|3sg	7818615	ok	claude-opus-5-5 2026-11-22	The subject ο Τομ in a past frame fixes the aorist.
+μαγειρεύω|imperativeSimple.active|2sg	7818615	no	claude-opus-5-5 2026-11-22	The subject ο Τομ makes μαγείρεψε an aorist third person.
+μαγειρεύω|present.active|2pl	5523071	ok	claude-opus-5-5 2026-11-22	A question to εσείς: present.
+μαγειρεύω|present.active|3pl	9941306	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: quotation: a proverb.
+μαζεύω|aorist.active|3sg	3105027	no	claude-opus-5-5 2026-11-22	Coordinated with the order φύγε, μάζεψε is an imperative, not an aorist.
+μαζεύω|imperativeSimple.active|2sg	3105027	ok	claude-opus-5-5 2026-11-22	Coordinated with the order φύγε: an order to εσύ.
+μαθαίνω|future.active|2pl	2844844	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: πως meaning "how" must be accented "πώς".
+μαθαίνω|present.active|2pl	5409615	ok	claude-opus-5-5 2026-11-22	A question to εσείς: present.
+μαθαίνω|present.active|2sg	2423718	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: «Ποιά» is wrongly accented: «Ποια».
+μαθαίνω|present.active|3sg	1870322	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: «μου» is doubled («Ο μικρός μου αδερφός μου»), and the English says «can read» for «is learning to read».
+μαθαίνω|subjunctiveSimple.active|1sg	1518205	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: «που» should be the interrogative «πού» (where).
+μαλώνω|present.active|3pl	1543852	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: The names Tom and Mary are written in Latin letters.
+μαλώνω|present.active|3pl	7763216	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: πιο must be ποιο, and οι Μαίρη must be η Μαίρη.
+μαλώνω|present.active|3pl	7763219	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: The article is wrong: οι Μαίρη instead of η Μαίρη.
+μαλώνω|present.active|3pl	10682257	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: γωνείς is misspelled; it is "γονείς".
+μαλώνω|subjunctiveSimple.active|1pl	7790771	no	claude-opus-5-5 2026-11-23	Tatoeba check, eng: The English intention in arguing is ungrammatical.
+μαντεύω|aorist.active|1pl	7790660	no	claude-opus-5-5 2026-11-23	Tatoeba check, eng: του means his, but the English says her.
+μαντεύω|aorist.active|3sg	5602380	no	claude-opus-5-5 2026-11-22	Μάντεψε ποιον είδα is an order to εσύ, not an aorist.
+μαντεύω|imperativeSimple.active|2sg	5602380	ok	claude-opus-5-5 2026-11-22	Guess who I saw: an order to εσύ.
+μαντεύω|imperfect.active|1pl	7790655	no	claude-opus-5-5 2026-11-23	Tatoeba check, eng: του means his, but the English says her.
+μελετάω|aorist.active|3sg	5441094	no	claude-opus-5-5 2026-11-22	Σε παρακαλώ makes μελέτησε an order to εσύ, not an aorist.
+μελετάω|future.active|1sg	4560044	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: Language names are lowercase in Greek: "γερμανικά", not "Γερμανικά".
+μελετάω|imperativeSimple.active|2sg	5441094	ok	claude-opus-5-5 2026-11-22	Σε παρακαλώ addresses εσύ: an order.
+μελετάω|present.active|2pl	5634664	ok	claude-opus-5-5 2026-11-22	A question to εσείς: present.
+μελετάω|subjunctiveSimple.active|1sg	4560045	no	claude-opus-5-5 2026-11-23	Tatoeba check, eng: The English is future ("will have to") where the Greek is present ("Πρέπει").
+μελετάω|subjunctiveSimple.active|1sg	5618718	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: the language name Γαλλικά is capitalised.
+μετακομίζω|aorist.active|3sg	5541092	ok	claude-opus-5-5 2026-11-22	The subject Ο Τομ fixes the aorist.
+μετακομίζω|imperativeSimple.active|2sg	5541092	no	claude-opus-5-5 2026-11-22	The subject Ο Τομ makes μετακόμισε an aorist third person.
+μεταφέρω|aorist.active|1pl	3399197	ok	claude-opus-5-5 2026-11-22	One completed move of the project to a new server: aorist.
+μεταφέρω|aorist.active|1sg	9441020	ok	claude-opus-5-5 2026-11-22	One completed move of an appointment to a set hour: aorist.
+μεταφέρω|aorist.active|3pl	11290290	no	claude-opus-5-5 2026-11-22	Τον μετέφεραν με φορείο can be the imperfect (were carrying him).
+μεταφέρω|present.active|3pl	2489966	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: quotation: a literary quotation about books and bees.
+μεταφράζω|aorist.active|3sg	5607932	ok	claude-opus-5-5 2026-11-22	The subject Ο Τομ fixes the aorist.
+μεταφράζω|imperativeSimple.active|2sg	5607933	no	claude-opus-5-5 2026-11-22	With the subject Ο Τομ, μετάφρασε is an aorist, not an order.
+μετράω|aorist.active|3sg	12044955	ok	claude-opus-5-5 2026-11-22	The subject Το αγόρι fixes the aorist.
+μετράω|future.active|1sg	6855870	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: τρια is missing its accent and should be τρία.
+μετράω|imperativeContinuous.active|2sg	1562546	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: «μέτρα» here is the noun metres, not an imperative of μετράω (both cells fail).
+μετράω|imperativeSimple.active|2sg	12044955	no	claude-opus-5-5 2026-11-22	The subject Το αγόρι makes μέτρησε an aorist third person.
+μιλάω|aorist.active|3sg	3747296	ok	claude-opus-5-5 2026-11-22	The subject Αυτός fixes the aorist.
+μιλάω|imperativeContinuous.active|2sg	2848039	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: για σε ακούσουν lacks "να": it must be "για να σε ακούσουν".
+μιλάω|imperativeSimple.active|2sg	2848039	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: για σε ακούσουν lacks "να": it must be "για να σε ακούσουν".
+μιλάω|imperativeSimple.active|2sg	3747296	no	claude-opus-5-5 2026-11-22	The subject Αυτός makes μίλησε an aorist third person.
+μιλάω|imperativeSimple.active|2sg	5551793	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: Μίλα is the continuous imperative; the simple one is μίλησε.
+μιλάω|perfect.active|1sg	3741024	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: από τότε που έχω μιλήσει is a word-for-word calque of "since I have" that no Greek would say.
+μιλάω|present.active|2pl	4182531	ok	claude-opus-5-5 2026-11-22	A question to εσείς: present.
+μιλάω|present.active|2sg	3350218	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: Language names are lowercase in Greek: "κινέζικα", not "Κινέζικα".
+μιλάω|subjunctiveContinuous.active|1pl	11489623	no	claude-opus-5-5 2026-11-23	Tatoeba check, eng: The Greek says "this is not the way for us to talk", not "You can't say that".
+μιλάω|subjunctiveContinuous.active|2pl	5382129	no	claude-opus-5-5 2026-11-23	Tatoeba check, eng: The English drops "learn" (Greek says you will learn to speak Portuguese fluently).
+μιλάω|subjunctiveSimple.active|2pl	1969942	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: «γι΄αυτό» uses a tonos for the apostrophe and lacks the space: «γι' αυτό».
+μιλάω|subjunctiveSimple.active|3pl	3450448	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: Language names are lowercase in Greek: "γαλλικά", not "Γαλλικά".
+μιλάω|subjunctiveSimple.active|3pl	5440965	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: the language name Γαλλικά is capitalised.
+μισώ|present.active|2sg	5604494	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: offensive: about hating Canadians as a group.
+μισώ|present.active|2sg	5604495	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: offensive: hating a nationality (Canadians).
+μισώ|present.active|2sg	5604496	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: offensive: about hating a nationality (and the English drops that Καναδές are women).
+μισώ|present.active|2sg	5604497	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: offensive: it is about hating women of a nationality.
+μισώ|present.active|2sg	5618686	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: The language name Γαλλικά is capitalised.
+μισώ|present.active|2sg	5618691	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: The language name Γαλλικά is capitalised.
+μισώ|present.active|2sg	5618694	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: The language name Γαλλικά is capitalised.
+μισώ|present.active|2sg	5618698	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: The language name Γαλλικά is capitalised.
+μισώ|present.active|2sg	11912863	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: After να the word is a continuous subjunctive, not the present indicative.
+μισώ|present.active|2sg	14098145	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: After να the word is a continuous subjunctive, not the present indicative.
+μισώ|present.active|3sg	5485807	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: offensive: Tom hates foreigners (hostility to a group).
+μοιάζω|present.active|3pl	2426215	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: «δυό» is a monosyllable and takes no accent: «δυο».
+μοιράζω|subjunctiveSimple.active|1pl	8325125	no	claude-opus-5-5 2026-11-23	Tatoeba check, eng: The Greek proposes let us split the bill, while the English states we're splitting it.
+μπαίνω|future.active|1sg	9444775	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: μπελάδες is masculine, so μεγάλες should be μεγάλους.
+μπαίνω|subjunctiveSimple.active|3pl	1503692	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: «Άφησε τους» lacks the enclitic accent: «Άφησέ τους».
+μπορώ|aorist.active|1sg	5462169	no	claude-opus-5-5 2026-11-23	Tatoeba check, rus: The Russian makes the speaker male (рад, мог) while the Greek speaker is female (χαρούμενη).
+μπορώ|aorist.active|3sg	3031532	ok	claude-opus-5-5 2026-11-22	The third-person subject κανένας λόγος and δεν fix the aorist.
+μπορώ|futureContinuous.active|1sg	1562581	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: «τόσο γρήγορα όπως» should be «τόσο γρήγορα όσο», and both translations render Κάποτε (someday) as «sometimes» in the present.
+μπορώ|imperativeSimple.active|2sg	3031532	no	claude-opus-5-5 2026-11-22	The subject κανένας λόγος makes μπόρεσε an aorist third person.
+μπορώ|present.active|2pl	5636104	ok	claude-opus-5-5 2026-11-22	A statement with δεν: present, not an imperative.
+μπορώ|present.active|3sg	1744044	no	claude-opus-5-5 2026-11-23	Tatoeba check, eng: δεν μπορεί means cannot, the translations say does not have to.
+μπορώ|present.active|3sg	2076457	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: A verb is missing: «να το αυτό» should be «να το κάνει αυτό».
+μπορώ|subjunctiveContinuous.active|1pl	2417615	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: religion: a sacrificial death («He died so that we can live»), a Christ or war-hero reference.
+μυρίζω|present.active|2pl	5485805	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: offensive: an insult aimed at the listener ("You smell bad").
+μυρίζω|present.active|2sg	5485804	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: offensive: an insult aimed at the listener ("You smell bad").
+μυρίζω|present.active|2sg	9628329	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: offensive: you smell like a rotten egg.
+μυρίζω|present.active|2sg	12299121	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: smoking: smelling of cigarette smoke.
+μυρίζω|present.active|3pl	2907165	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: quotation: the proverb "money does not smell" (pecunia non olet).
+μυρίζω|present.passive|3sg	6862643	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: Μυρίζεται άσχημα is not how Greek says it smells bad; that is μυρίζει άσχημα.
+μυρίζω|subjunctiveContinuous.active|3sg	9391533	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: quotation: the fish rots from the head proverb.
+νευριάζω|aorist.active|3sg	7763230	no	claude-opus-5-5 2026-11-23	Tatoeba check, eng: νευρίασε means got angry, not got nervous.
+νευριάζω|imperativeSimple.active|2sg	7763230	no	claude-opus-5-5 2026-11-22	The subject Ο Τομ makes νευρίασε an aorist third person.
+νιώθω|imperfect.active|1sg	10673352	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: διότη is misspelled; it is "διότι".
+νιώθω|present.active|3pl	7771798	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: χιμπαζτήδες is misspelled and should be χιμπατζήδες.
+νιώθω|present.active|3pl	7771800	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: χιμπαζτήδες is misspelt (χιμπατζήδες).
+νιώθω|subjunctiveSimple.active|1sg	4707986	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: offensive: sensual content about tasting someone's lips.
+νοιάζομαι|subjunctiveContinuous.passive|3pl	5386859	no	claude-opus-5-5 2026-11-23	Tatoeba check, eng: The English is present ("They seem") while the Greek is past imperfect ("They seemed").
+νομίζω|aorist.active|3sg	9825177	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: πως must be "πώς" (how) here.
+νομίζω|imperativeSimple.active|2sg	9825177	no	claude-opus-5-5 2026-11-22	The subject Ο Τομ makes νόμισε an aorist third person.
+νομίζω|present.active|2pl	3225403	ok	claude-opus-5-5 2026-11-22	A question to εσείς: present.
+νομίζω|present.active|3sg	5407486	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: violence: the police suspect the speaker of killing his wife.
+νυστάζω|aorist.active|3sg	1386783	ok	claude-opus-5-5 2026-11-22	Getting sleepy is not ordered, so a bare Νύσταξε reads as the aorist.
+νυστάζω|imperativeSimple.active|2pl	1386783	no	claude-opus-5-5 2026-11-22	A bare Νύσταξε reads as an aorist; it is not an order to εσείς.
+νυστάζω|imperativeSimple.active|2sg	1386783	no	claude-opus-5-5 2026-11-22	A bare Νύσταξε reads as the aorist (s)he got sleepy, not an order.
+ξέρω|present.active|2pl	3406396	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: από που meaning "where from" must be "από πού".
+ξεκινάω|aorist.active|3sg	2363407	ok	claude-opus-5-5 2026-11-22	The subject Αυτός fixes the aorist.
+ξεκινάω|imperativeSimple.active|2sg	2363407	no	claude-opus-5-5 2026-11-22	The subject Αυτός makes ξεκίνησε an aorist third person.
+ξεκινάω|imperativeSimple.active|2sg	2456775	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: ξεκίνα is the continuous imperative; the simple form is asked.
+ξεχνάω|aorist.active|3sg	2771327	ok	claude-opus-5-5 2026-11-22	The subject Η Χανάκο fixes the aorist.
+ξεχνάω|imperativeSimple.active|2sg	2771327	no	claude-opus-5-5 2026-11-22	The subject Η Χανάκο makes ξέχασε an aorist third person.
+ξεχνάω|imperativeSimple.active|2sg	4960640	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: Ξέχνα is the continuous imperative; the simple one is ξέχασε.
+ξεχνάω|imperativeSimple.active|2sg	5104725	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: Ξέχνα is the continuous imperative; the simple one is ξέχασε.
+ξεχνάω|imperativeSimple.active|2sg	5457580	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: Ξέχνα is the continuous imperative; the simple form is asked.
+ξεχνάω|imperativeSimple.active|2sg	9445156	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: Ξέχνα is the continuous imperative; the simple one is ξέχασε.
+ξεχνάω|present.active|2pl	5483591	no	claude-opus-5-5 2026-11-22	Μην ξεχνάτε is a prohibition, not a present statement.
+ξημερώνω|subjunctiveSimple.active|3sg	9213122	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: quotation: a proverb about too many roosters.
+ξοδεύω|aorist.active|3sg	9941325	ok	claude-opus-5-5 2026-11-22	Χθες and the possessive του fix the aorist.
+ξοδεύω|imperativeSimple.active|2sg	9941325	no	claude-opus-5-5 2026-11-22	Χθες makes ξόδεψε an aorist, not an order.
+ξυπνάω|aorist.active|3sg	3017046	ok	claude-opus-5-5 2026-11-22	The subject Αυτή fixes the aorist.
+ξυπνάω|imperativeSimple.active|2sg	3017046	no	claude-opus-5-5 2026-11-22	The subject Αυτή makes ξύπνησε an aorist third person.
+ξυπνάω|imperativeSimple.active|2sg	5358104	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: ξύπνα is the continuous imperative; the simple form is asked.
+ξυπνάω|imperativeSimple.active|2sg	5358105	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: ξύπνα is the continuous imperative; the simple one is ξύπνησε.
+οδηγώ|aorist.active|3sg	2366170	ok	claude-opus-5-5 2026-11-22	The subject τι and a preverbal clitic fix the aorist.
+οδηγώ|future.active|2sg	10673781	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: ποιό must be "ποιο" (no accent on the monosyllable).
+οδηγώ|imperativeSimple.active|2sg	2366170	no	claude-opus-5-5 2026-11-22	The subject τι makes οδήγησε an aorist third person.
+οδηγώ|imperativeSimple.active|2sg	5451042	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: Οδήγα is the continuous imperative; the simple one is οδήγησε.
+οδηγώ|imperativeSimple.active|2sg	5451067	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: Οδήγα is the continuous imperative; the simple form is asked.
+οδηγώ|imperfect.active|1pl	7791929	no	claude-opus-5-5 2026-11-23	Tatoeba check, eng: The Greek past imperfect is rendered as the present perfect have driven.
+οδηγώ|present.active|2pl	939807	no	claude-opus-5-5 2026-11-22	Μην οδηγείτε is a prohibition, not a present statement.
+οδηγώ|present.active|3pl	1302852	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: quotation: a proverb (all roads lead to Rome).
+ονειρεύομαι|present.passive|1pl	1870306	ok	claude-opus-5-5 2026-11-22	A general why-question about εμείς: present.
+ονειρεύομαι|present.passive|2pl	11589420	ok	claude-opus-5-5 2026-11-22	A general statement in the present about εσείς: present.
+ονομάζω|present.active|1pl	12727961	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: religion: God as the Creator.
+ονομάζω|present.passive|3sg	1383417	no	claude-opus-5-5 2026-11-23	Tatoeba check, eng: The English asks how the sign is pronounced and answers "At", while the Greek asks what it is called and answers "Duckling".
+ονομάζω|present.passive|3sg	2393042	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: «Πως» should be the interrogative «Πώς».
+ονομάζω|present.passive|3sg	3963717	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: interrogative πώς is written without its accent.
+οργανώνω|present.active|3sg	1543844	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: Latin letters: «Tom» is not written in Greek script.
+πέφτω|future.active|3sg	9941321	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: quotation: a proverb.
+πέφτω|imperativeSimple.active|2pl	5568416	no	claude-opus-5-5 2026-11-22	Πέστε του να έρθει is λέω (tell him), not πέφτω.
+πέφτω|subjunctiveContinuous.active|3sg	5521974	no	claude-opus-5-5 2026-11-23	Tatoeba check, eng: The Greek άκουσα is past (I heard), the English says I hear.
+πίνω|aorist.active|3pl	12015392	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: drinking: two friends drinking seven beers.
+πίνω|imperativeSimple.active|2pl	5460306	ok	claude-opus-5-5 2026-11-22	An offer to εσείς with no να: simple imperative.
+πίνω|imperfect.active|1pl	3224059	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: drunk: drinking all night.
+πίνω|imperfect.active|2sg	4750989	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: drunk: "Were you drinking?" refers to alcohol.
+πίνω|imperfect.active|3pl	4750999	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: 'Ολοι uses an apostrophe for the accent: "Όλοι" (and the topic is drinking).
+πίνω|present.active|2pl	8879744	ok	claude-opus-5-5 2026-11-22	A question to εσείς: present.
+πίνω|present.active|2sg	5378160	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: brand: names Coca-Cola (and mixes it with rum).
+πίνω|present.active|2sg	5378189	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: brand: the English names Coke, in a question about a rum cocktail.
+πίνω|subjunctiveContinuous.active|2pl	3740422	no	claude-opus-5-5 2026-11-23	Tatoeba check, eng: The English says "can" and "water dispenser" where the Greek says "should" and "tap" ("βρύση").
+πίνω|subjunctiveSimple.active|2pl	3740423	no	claude-opus-5-5 2026-11-23	Tatoeba check, eng: The English says "water dispenser" where the Greek says tap ("βρύση").
+πίνω|subjunctiveSimple.active|3sg	5551006	no	claude-opus-5-5 2026-11-23	Tatoeba check, eng: The Greek means Does nobody want to drink?, the English drops the negation and the verb drink.
+παίζω|imperfect.active|3pl	7773407	no	claude-opus-5-5 2026-11-23	Tatoeba check, eng: The Greek is past imperfect but the English is present tense.
+παίζω|present.active|2pl	5506687	no	claude-opus-5-5 2026-11-22	Μην παίζετε is a prohibition, not a present statement.
+παίρνω|aorist.active|3sg	1559407	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: «Ποιός» is wrongly accented: «Ποιος».
+παίρνω|future.active|1pl	2927834	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: Μάϊο has a superfluous diaeresis; the spelling is "Μάιο".
+παίρνω|perfect.active|1sg	5550924	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: drugs: about taking drugs.
+παίρνω|present.active|2pl	1641135	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: «Ποιά» is wrongly accented: «Ποια».
+παίρνω|present.active|3sg	5457659	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: drugs: Tom takes steroids.
+παίρνω|subjunctiveContinuous.active|2sg	13768075	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: quotation: a known aphorism about philosophy and revenge.
+παίρνω|subjunctiveSimple.active|2sg	2198082	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: final ν or apostrophe spelling (στην, μην, δεν before a vowel or κ π τ ξ ψ μπ ντ γκ τσ τζ; ’ not ΄).
+παίρνω|subjunctiveSimple.active|2sg	3040091	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: ότι must be ό,τι (whatever).
+παθαίνω|future.active|3sg	7762668	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: final ν or apostrophe spelling (στην, μην, δεν before a vowel or κ π τ ξ ψ μπ ντ γκ τσ τζ; ’ not ΄).
+παθαίνω|subjunctiveSimple.active|2sg	9167248	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: drunk: drinking to alcohol poisoning.
+παθαίνω|subjunctiveSimple.active|2sg	9181250	no	claude-opus-5-5 2026-11-23	Tatoeba check, eng: πήγες να πάθεις means you nearly came to harm, not what happened to you.
+παντρεύομαι|aorist.passive|3sg	1518215	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: final ν or apostrophe spelling (στην, μην, δεν before a vowel or κ π τ ξ ψ μπ ντ γκ τσ τζ; ’ not ΄).
+παντρεύομαι|present.passive|1pl	5619131	ok	claude-opus-5-5 2026-11-22	A planned wedding stated in the present, with no past frame.
+παντρεύω|aorist.active|3sg	1000000298	ok	claude-opus-5-5 2026-11-22	A past όταν-clause with a preverbal clitic fixes the aorist.
+παντρεύω|imperativeSimple.active|2sg	1000000298	no	claude-opus-5-5 2026-11-22	A past όταν-clause makes πάντρεψε an aorist third person.
+παραδέχομαι|imperativeSimple.passive|2sg	4938986	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: είσαι λάθος and "είσαι σωστός" are calques; Greek says "έχεις άδικο" and "έχεις δίκιο".
+παρακαλώ|aorist.active|3sg	2100561	ok	claude-opus-5-5 2026-11-22	The subject Ο πατέρας μου fixes the aorist.
+παρακαλώ|imperativeSimple.active|2sg	2100561	no	claude-opus-5-5 2026-11-22	The subject Ο πατέρας μου makes παρακάλεσε an aorist third person.
+παρακαλώ|imperfect.active|3pl	12353498	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: violence: war context, suing for peace.
+παρακαλώ|present.active|1pl	3193099	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: broken: a Tatoeba-internal remark about choosing another flag, meaningless without context.
+παρακολουθώ|aorist.active|3sg	5454769	ok	claude-opus-5-5 2026-11-22	The subject Ο Τομ fixes the aorist.
+παρακολουθώ|imperativeSimple.active|2sg	5454769	no	claude-opus-5-5 2026-11-22	The subject Ο Τομ makes παρακολούθησε an aorist third person.
+παραμένω|subjunctiveSimple.active|1pl	11467235	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: politics: a referendum vote to remain.
+παρατάω|imperativeSimple.active|2sg	1300903	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: παράτα is the continuous imperative; the simple form is asked.
+παρατάω|imperativeSimple.active|2sg	1310672	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: Παράτα is the continuous imperative; the simple one is παράτησε.
+παρατηρώ|aorist.active|3sg	7765304	ok	claude-opus-5-5 2026-11-22	The subject Ο Τομ fixes the aorist.
+παρατηρώ|imperativeSimple.active|2sg	7765304	no	claude-opus-5-5 2026-11-22	The subject Ο Τομ makes παρατήρησε an aorist third person.
+παρουσιάζομαι|present.passive|3pl	3574980	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: brand: Wikipedia, and the sentence is a site page caption.
+πατάω|imperativeSimple.active|2sg	716071	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: Πάτα is the continuous imperative; the simple one is πάτησε.
+πατάω|imperativeSimple.active|2sg	7774323	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: Πάτα is the continuous imperative; the simple imperative is πάτησε.
+πατάω|subjunctiveSimple.active|3pl	11622360	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: quotation: a literary line ("Fools rush in where angels fear to tread").
+παύω|subjunctiveSimple.active|3pl	5572957	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: Πες τες uses the accusative τες as indirect object, a dialect form; standard Greek is Πες τους.
+πείθω|aorist.active|3sg	3043805	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: smoking: a sentence about giving up smoking.
+πεθαίνω|aorist.active|2pl	10165204	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: broken: "You died." is meaningless without context.
+πεθαίνω|aorist.active|2sg	10165203	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: broken: "You died." is meaningless without context.
+πεθαίνω|aorist.active|3pl	3437492	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: violence: passengers killed in a disaster.
+πεθαίνω|aorist.active|3sg	2667561	ok	claude-opus-5-5 2026-11-22	Πριν από πέντε χρόνια fixes the aorist.
+πεθαίνω|future.active|1pl	5512678	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: violence: about dying if they stay, a mortal threat.
+πεθαίνω|future.active|2sg	5521511	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: violence: a death threat (leave now or you will die).
+πεθαίνω|future.active|3pl	5613162	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: violence: they will die, out of context.
+πεθαίνω|imperativeSimple.active|2sg	2667561	no	claude-opus-5-5 2026-11-22	Πριν από πέντε χρόνια makes πέθανε an aorist, not an order.
+πεθαίνω|present.active|3pl	2196240	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: quotation: a line of Molière about dying of remedies, not diseases.
+πεθαίνω|present.active|3pl	3031405	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: εκαττομύρια is misspelled; the word is "εκατομμύρια".
+πεθαίνω|subjunctiveSimple.active|2pl	5615571	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: violence: the speaker wishes the listeners dead.
+πεθαίνω|subjunctiveSimple.active|2sg	5615570	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: violence: the speaker wishes the listener dead.
+πεθαίνω|subjunctiveSimple.active|3sg	5602449	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: violence: about Tom facing death.
+πεθαίνω|subjunctiveSimple.active|3sg	5615553	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: violence: suicide, Tom wants to die.
+πεινάω|imperativeContinuous.active|2sg	2846666	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: πείνα is here the noun "hunger", not an imperative.
+πεινάω|imperativeSimple.active|2sg	2846666	no	claude-opus-5-5 2026-11-22	The form πείνασε does not occur; πείνα here is the noun.
+πεινάω|present.active|2pl	5538258	ok	claude-opus-5-5 2026-11-22	A statement about εσείς now after νομίζω πως: present.
+περιλαμβάνω|imperfect.passive|3sg	10006790	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: offensive: medical sexual content (vaginal inflammation).
+περιμένω|present.active|2pl	1499749	no	claude-opus-5-5 2026-11-22	Περιμένετε ένα λεπτό is a request: imperative, not present.
+περνάω|aorist.active|2sg	2398843	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: «Πως» should be the interrogative «Πώς».
+περνάω|aorist.active|3sg	2918520	no	claude-opus-5-5 2026-11-23	Tatoeba check, rus: The Russian says evening ("вечер") where the Greek says afternoon ("απόγευμα").
+περνάω|future.active|2sg	2463303	no	claude-opus-5-5 2026-11-23	Tatoeba check, eng: The English (he was working, he would do the tests) misreads the Greek imperative «Work hard and then you will pass the exams».
+περνάω|future.active|3pl	7705961	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: quotation: They shall not pass is a famous slogan.
+περνάω|future.active|3pl	7705962	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: quotation: the slogan They shall not pass.
+περνάω|imperativeSimple.active|2sg	2918520	no	claude-opus-5-5 2026-11-22	The subject Αυτός makes πέρασε an aorist third person.
+περνάω|imperativeSimple.active|2sg	5285863	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: πέρνα is the continuous imperative; the simple imperative is "πέρασε".
+περνάω|imperfect.active|1sg	1562517	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: «δωματιό μου» drops the main accent: «δωμάτιό μου».
+περνάω|present.active|2pl	5604757	ok	claude-opus-5-5 2026-11-22	A question to εσείς: present.
+περνάω|present.active|2sg	2404432	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: «πως» (that) should be «πώς» (how).
+περνάω|subjunctiveContinuous.active|3sg	7766591	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: Δε πρέπει drops the final ν before π (Δεν πρέπει).
+περνάω|subjunctiveContinuous.active|3sg	7766595	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: να περνάει πάντα του γιου σου is ungrammatical; the idiom needs να περνάει το δικό του ο γιος σου.
+περπατάω|aorist.active|3sg	2864459	ok	claude-opus-5-5 2026-11-22	Χθες fixes the aorist; an order cannot take yesterday.
+περπατάω|imperativeSimple.active|2sg	2864459	no	claude-opus-5-5 2026-11-22	Χθες makes περπάτησε an aorist, not an order.
+περπατάω|imperativeSimple.active|2sg	3004630	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: Περπάτα is the continuous imperative; the simple imperative is "περπάτησε".
+περπατάω|imperativeSimple.active|2sg	5723541	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: Περπάτα is the continuous imperative; the simple one is περπάτησε.
+περπατάω|imperativeSimple.active|2sg	7347811	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: Περπάτα is the continuous imperative; the simple one is περπάτησε.
+περπατάω|present.active|2pl	11292065	no	claude-opus-5-5 2026-11-22	Μην περπατάτε is a prohibition, not a present statement.
+περπατάω|subjunctiveContinuous.active|3sg	2810901	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: quotation: a proverb (Aesop, the crab that cannot walk straight).
+πετάω|aorist.active|2sg	9476008	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: violence: someone throws a hammer at a person's head.
+πετάω|aorist.active|3sg	4364465	ok	claude-opus-5-5 2026-11-22	The possessive του points to a he-subject: aorist.
+πετάω|imperativeSimple.active|2sg	4364465	no	claude-opus-5-5 2026-11-22	The possessive του points to the aorist he threw, not an order.
+πετάω|imperativeSimple.active|2sg	5573190	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: Πέτα is the continuous imperative; the simple form is asked.
+πετάω|imperativeSimple.active|2sg	5573193	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: Πέτα is the continuous imperative; the simple one is πέταξε.
+πετάω|present.active|3sg	1518229	no	claude-opus-5-5 2026-11-23	Tatoeba check, eng: «threw» is past while the Greek is present (πετάει).
+πετάω|subjunctiveContinuous.active|3sg	4839020	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: Latin letters ("Tom").
+πετάω|subjunctiveSimple.active|3pl	7771798	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: χιμπαζτήδες is misspelled and should be χιμπατζήδες.
+πετάω|subjunctiveSimple.active|3pl	7771800	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: χιμπαζτήδες is misspelt (χιμπατζήδες).
+πετυχαίνω|imperfect.active|1sg	9226941	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: δεν υπάρχει ποτέ ποσό που να αισθάνθηκα is garbled Greek with no clear meaning.
+πηγαίνω|imperativeSimple.active|2pl	1708779	no	claude-opus-5-5 2026-11-23	Tatoeba check, rus: «Пошли спать!» is let us go (1pl) while the Greek tells you (2pl) to go.
+πηγαίνω|imperativeSimple.active|2sg	2051897	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: religion: «Go with God».
+πηγαίνω|imperfect.active|1pl	5544738	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: religion: going to church every Sunday as a faith practice.
+πηγαίνω|imperfect.active|1pl	5544740	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: religion: going to church every Sunday as worship.
+πηγαίνω|imperfect.active|1sg	2753169	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: «κυριακές» must be capitalized («Κυριακές»); the sentence is also about going to church for faith.
+πηγαίνω|perfect.active|2pl	3895666	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: Πόσο καιρό έχετε πάει does not mean "how long have you been"; Greek would say "Πόσο καιρό είστε".
+πηγαίνω|pluperfect.active|1sg	7781587	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: Είχα πάει τη Βοστόνη misses the preposition: στη Βοστόνη.
+πηγαίνω|present.active|2pl	1708779	no	claude-opus-5-5 2026-11-22	An exclamation ordering εσείς to go: imperative, not present.
+πηγαίνω|present.active|3sg	2000295	no	claude-opus-5-5 2026-11-23	Tatoeba check, eng: «walks» adds a manner of going that the Greek (πηγαίνει) does not have.
+πηγαίνω|subjunctiveContinuous.active|1sg	2925244	no	claude-opus-5-5 2026-11-23	Tatoeba check, rus: The Russian says "have to" ("приходится") where the Greek says "happen to" ("μου τυχαίνει").
+πιάνω|present.active|3sg	1294940	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: quotation: a proverb (a rolling stone gathers no moss).
+πιάνω|present.active|3sg	3040087	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: quotation: the proverb "the eagle does not catch flies".
+πιστεύω|aorist.active|3sg	4381964	no	claude-opus-5-5 2026-11-22	Πίστεψε here is an order to εσύ, not an aorist.
+πιστεύω|imperativeSimple.active|2sg	4381964	ok	claude-opus-5-5 2026-11-22	An exclamation with no subject: an order to εσύ.
+πιστεύω|present.active|2pl	3004583	ok	claude-opus-5-5 2026-11-22	A statement about whether εσείς believe me: present.
+πιστεύω|present.active|3pl	1526678	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: religion: believing in God.
+πιστεύω|present.active|3pl	2466602	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: religion: a statement about believing in religion.
+πιστεύω|present.active|3pl	7796661	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: αυτό είναι τι is a calque; Greek needs αυτό που.
+πιστεύω|present.active|3sg	2350260	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: religion: belief in God.
+πιστεύω|subjunctiveSimple.active|1sg	1503273	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: «μπορών» is a typo for «μπορώ».
+πλένω|present.active|2pl	1556451	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: «τον φαγητό» has the wrong article; φαγητό is neuter («το φαγητό»).
+πλακώνω|subjunctiveSimple.active|3sg	9941321	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: quotation: a proverb.
+πληρώνω|aorist.active|1pl	9136474	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: μάθημα μας needs the enclitic accent: μάθημά μας.
+πληρώνω|aorist.active|3sg	5506497	ok	claude-opus-5-5 2026-11-22	Δεν rules out an imperative: aorist he paid nothing.
+πληρώνω|future.active|2pl	9663363	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: violence: a threat of revenge.
+πληρώνω|imperativeSimple.active|2sg	5506497	no	claude-opus-5-5 2026-11-22	Δεν makes πλήρωσε an aorist statement, not an order.
+πληρώνω|imperfect.active|1sg	11902638	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: A full stop is followed by a lowercase "τώρα".
+πληρώνω|present.active|2pl	11144295	ok	claude-opus-5-5 2026-11-22	Coordinated with the statement αγοράζουμε: a present statement about εσείς.
+πληρώνω|subjunctiveSimple.active|2sg	7776386	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: final ν or apostrophe spelling (στην, μην, δεν before a vowel or κ π τ ξ ψ μπ ντ γκ τσ τζ; ’ not ΄).
+πληρώνω|subjunctiveSimple.passive|2pl	7776436	no	claude-opus-5-5 2026-11-23	Tatoeba check, eng: The English How much you want is ungrammatical and misses do.
+πληρώνω|subjunctiveSimple.passive|2sg	7776434	no	claude-opus-5-5 2026-11-23	Tatoeba check, eng: The English How much you want is ungrammatical and misses do.
+πληρώνω|subjunctiveSimple.passive|2sg	7776435	no	claude-opus-5-5 2026-11-23	Tatoeba check, eng: How much you want to get paid is ungrammatical (missing do).
+πλησιάζω|aorist.active|3sg	5429554	ok	claude-opus-5-5 2026-11-22	The subject Ο Τομ fixes the aorist.
+πλησιάζω|imperativeSimple.active|2sg	5429554	no	claude-opus-5-5 2026-11-22	The subject Ο Τομ makes πλησίασε an aorist third person.
+πνίγομαι|imperativeSimple.passive|2sg	9938749	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: offensive: an insult telling someone to drown.
+πονάω|aorist.active|3sg	9444779	ok	claude-opus-5-5 2026-11-22	The subject Αυτό fixes the aorist.
+πονάω|imperativeSimple.active|2sg	9444779	no	claude-opus-5-5 2026-11-22	The subject Αυτό makes πόνεσε an aorist third person.
+πονάω|present.active|2pl	5516717	ok	claude-opus-5-5 2026-11-22	A statement about εσείς now after ξέρουμε ότι: present.
+πουλάω|aorist.active|3sg	5443054	ok	claude-opus-5-5 2026-11-22	The subject Ο Τομ fixes the aorist.
+πουλάω|imperativeSimple.active|2sg	5443054	no	claude-opus-5-5 2026-11-22	The subject Ο Τομ makes πούλησε an aorist third person.
+πουλάω|present.active|2pl	1503707	ok	claude-opus-5-5 2026-11-22	A question to εσείς: present.
+πραγματοποιώ|future.passive|3sg	13727683	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: broken: "However" and "the dream" depend on missing context.
+πραγματοποιώ|subjunctiveSimple.active|1sg	11561099	no	claude-opus-5-5 2026-11-23	Tatoeba check, eng: The English changes the person from "I" to "you".
+προκαλώ|subjunctiveSimple.active|1pl	7809323	no	claude-opus-5-5 2026-11-23	Tatoeba check, eng: The Greek says we do not want to cause harm, but the English says the least possible harm.
+προκαλώ|subjunctiveSimple.active|1pl	7809327	no	claude-opus-5-5 2026-11-23	Tatoeba check, eng: the English drops the negation and says something else (least possible harm).
+προσέχω|aorist.active|3sg	7765305	ok	claude-opus-5-5 2026-11-22	The subject Ο Τομ fixes the aorist.
+προσέχω|imperativeSimple.active|2pl	4708011	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: καιφαλεοποιούμε and "εβδμάδας" are misspelled ("κεφαλαιοποιούμε", "εβδομάδας").
+προσέχω|imperativeSimple.active|2sg	7765305	no	claude-opus-5-5 2026-11-22	The subject Ο Τομ makes πρόσεξε an aorist third person.
+προσέχω|imperfect.active|1sg	10675024	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: Με συγχωρείται must be "Με συγχωρείτε".
+προσέχω|present.active|2pl	7854208	ok	claude-opus-5-5 2026-11-22	Δεν makes a present statement, not an order.
+προσθέτω|imperativeSimple.active|2sg	2466725	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: «Πρόσθεσε» here is the aorist «he added» (his tea, English «He added»), not an imperative.
+προσθέτω|imperativeSimple.active|2sg	8080102	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: πρόσθεσε here is the 3sg aorist (Julia added me), not an imperative.
+προσθέτω|imperativeSimple.active|2sg	11295941	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: Here πρόσθεσε is the 3sg aorist (Tom added), not the imperative.
+προσθέτω|imperativeSimple.active|2sg	11496753	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: πρόσθεσε here is the aorist 3sg "added", not an imperative.
+προσθέτω|subjunctiveSimple.active|1pl	2841564	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: «νέον κανόνα» should be «νέο κανόνα»; the adjective takes no final ν.
+προσκαλώ|aorist.active|3sg	7771494	ok	claude-opus-5-5 2026-11-22	The preverbal clitic μας and της fix the aorist she invited.
+προσκαλώ|imperativeSimple.active|2sg	7771494	no	claude-opus-5-5 2026-11-22	The preverbal clitic μας makes προσκάλεσε an aorist, not an order.
+προσκαλώ|present.active|3pl	4945516	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: Σπάνεια and "πάρτυ" are misspelled ("Σπάνια", "πάρτι").
+προσκαλώ|subjunctiveSimple.active|1pl	7781634	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: με το Τομ and να το προσκαλέσουμε use the neuter for Tom; it should be τον.
+προσκαλώ|subjunctiveSimple.active|1pl	7781635	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: το Τομ and να το προσκαλέσουμε use the neuter for Tom (τον).
+προσπαθώ|aorist.active|3sg	1526693	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: «κάν» is a monosyllable and takes no accent: «καν».
+προσπαθώ|imperativeSimple.active|2sg	1526693	no	claude-opus-5-5 2026-11-22	The subject Αυτή makes προσπάθησε an aorist third person.
+προσπαθώ|imperfect.active|3sg	3209659	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: violence: he was trying to kill me.
+προσπαθώ|present.active|2pl	5529011	ok	claude-opus-5-5 2026-11-22	A question to εσείς: present.
+προστατεύω|present.active|3sg	8450478	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: religion: God as a belief.
+προστατεύω|present.active|3sg	9624896	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: religion: God loves and protects us.
+προσφέρω|aorist.active|1pl	5143318	no	claude-opus-5-5 2026-11-22	Τα χρήματα που τους προσφέραμε can be the imperfect (were offering).
+προσφέρω|subjunctiveContinuous.active|2sg	7817656	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: quotation: the teach a man to fish proverb.
+προσφέρω|subjunctiveSimple.active|2sg	7817656	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: quotation: the teach a man to fish proverb.
+προτείνω|aorist.active|2sg	6157454	ok	claude-opus-5-5 2026-11-22	One proposal of a definite thing (το) by εσύ: aorist.
+προτείνω|aorist.active|3sg	9625997	ok	claude-opus-5-5 2026-11-22	The subject Ο Θωμάς and one proposal fix the aorist.
+προτείνω|imperativeSimple.active|2sg	9625997	no	claude-opus-5-5 2026-11-22	The subject Ο Θωμάς makes πρότεινε an aorist third person.
+προτιμάω|present.active|2pl	1663000	ok	claude-opus-5-5 2026-11-22	A question to εσείς: present.
+προχωράω|imperativeSimple.active|2sg	3750390	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: προχώρα is the continuous imperative; the simple imperative is "προχώρησε".
+προχωράω|imperativeSimple.active|2sg	7775558	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: Προχώρα is the continuous imperative; the simple one is προχώρησε.
+προχωράω|imperativeSimple.active|2sg	7775559	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: Προχώρα is the continuous imperative; the simple one is προχώρησε.
+προχωράω|imperativeSimple.active|2sg	7775560	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: Προχώρα is the continuous imperative; the simple one is προχώρησε.
+ρίχνω|aorist.active|3sg	1297425	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: violence: police firing tear gas.
+ρίχνω|future.active|1sg	9868815	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: religion: a Biblical line about God sending rain for forty days and nights.
+ρίχνω|perfect.active|1sg	9381523	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: quotation: a literary line addressed to my lord.
+ρίχνω|subjunctiveSimple.active|1sg	2429676	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: «μιά» is a monosyllable and takes no accent: «μια».
+ρωτάω|aorist.active|3sg	4158103	ok	claude-opus-5-5 2026-11-22	The subject ποιος and a preverbal clitic fix the aorist.
+ρωτάω|imperativeSimple.active|2sg	4158103	no	claude-opus-5-5 2026-11-22	The subject ποιος makes ρώτησε an aorist third person.
+ρωτάω|imperativeSimple.active|2sg	5414423	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: Ρώτα is the continuous imperative; the simple form is asked.
+ρωτάω|imperativeSimple.active|2sg	5429774	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: Ρώτα is the continuous imperative; the simple one is ρώτησε.
+ρωτάω|imperativeSimple.active|2sg	5459764	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: Ρώτα is the continuous imperative; the simple one is ρώτησε.
+ρωτάω|imperativeSimple.active|2sg	10061888	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: ρώτα is the continuous imperative; the simple form is asked.
+ρωτάω|imperativeSimple.active|2sg	10067925	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: ρώτα is the continuous imperative; the simple form is asked.
+ρωτάω|imperativeSimple.active|2sg	10670444	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: Ρώτα is the continuous imperative; the simple form is asked.
+ρωτάω|imperativeSimple.active|2sg	10670880	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: Ρώτα is the continuous imperative; the simple form is asked.
+ρωτάω|imperativeSimple.active|2sg	10674369	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: Ρώτα is the continuous imperative; the simple one is ρώτησε.
+ρωτάω|present.active|2pl	4294513	ok	claude-opus-5-5 2026-11-22	Thanks for asking now: present in a που-clause.
+ρωτάω|present.active|3pl	3675934	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: ρωτάνε ερωτήσεις is a calque; Greek says "κάνουν ερωτήσεις".
+ρωτάω|subjunctiveSimple.active|1pl	10677917	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: καλήτερα is misspelled; it is "καλύτερα".
+ρωτάω|subjunctiveSimple.active|1pl	10679303	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: βοηθειά του loses the main accent (βοήθειά του).
+ρωτάω|subjunctiveSimple.active|1sg	3338793	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: final ν or apostrophe spelling (στην, μην, δεν before a vowel or κ π τ ξ ψ μπ ντ γκ τσ τζ; ’ not ΄).
+σβήνω|aorist.active|3pl	5426912	no	claude-opus-5-5 2026-11-23	Tatoeba check, eng: The English is present ("turn off") while the Greek is aorist past ("went off").
+σβήνω|imperfect.active|3sg	7810833	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: ζωντάνα means livestock; the intended word is ζωντανά.
+σβήνω|present.active|2pl	5475573	no	claude-opus-5-5 2026-11-22	Μη σβήνετε is a prohibition, not a present statement.
+σημαίνω|present.active|3sg	2814111	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: «αυτή τη φράση» is accusative but is the subject: «αυτή η φράση».
+σημαίνω|subjunctiveContinuous.active|3sg	7788409	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: final ν or apostrophe spelling (στην, μην, δεν before a vowel or κ π τ ξ ψ μπ ντ γκ τσ τζ; ’ not ΄).
+σημαίνω|subjunctiveContinuous.active|3sg	7788410	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: Δε μπορώ drops the final ν before μπ (Δεν μπορώ).
+σημειώνω|subjunctiveSimple.passive|3sg	9202542	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: θερμοσίφωνας is masculine, so οικολογικό should be οικολογικός.
+σκέφτομαι|present.passive|1pl	8310168	no	claude-opus-5-5 2026-11-22	Ας μην σκεφτόμαστε is a hortative, not a present statement.
+σκέφτομαι|present.passive|2pl	5389335	ok	claude-opus-5-5 2026-11-22	What εσείς are thinking now: present.
+σκέφτομαι|present.passive|3pl	5523568	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: violence: about poor children dying of hunger.
+σκέφτομαι|subjunctiveSimple.passive|1sg	2901760	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: final ν or apostrophe spelling (στην, μην, δεν before a vowel or κ π τ ξ ψ μπ ντ γκ τσ τζ; ’ not ΄).
+σκοτώνω|aorist.active|1sg	5407486	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: violence: the police suspect the speaker of killing his wife.
+σκοτώνω|aorist.active|1sg	5574694	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: violence: about killing a woman.
+σκοτώνω|aorist.active|1sg	5574989	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: violence: the sentence is about killing someone.
+σκοτώνω|aorist.active|1sg	5574990	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: violence: the sentence is about killing a person.
+σκοτώνω|aorist.active|1sg	5574991	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: violence: the sentence is about killing a person.
+σκοτώνω|aorist.active|1sg	6069827	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: Ενα lacks its accent (Ένα) and πυτζάμες is misspelled; it is also a Groucho Marx quotation about killing.
+σκοτώνω|aorist.active|2pl	3580667	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: violence: "Did you kill Mary?".
+σκοτώνω|aorist.active|2pl	5574964	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: violence: you killed him.
+σκοτώνω|aorist.active|2pl	5574967	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: violence: you killed her.
+σκοτώνω|aorist.active|2sg	3580664	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: violence: asks whether you killed Mary.
+σκοτώνω|aorist.active|2sg	4593578	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: violence: asks why the listener killed a woman.
+σκοτώνω|aorist.active|2sg	5374375	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: violence: asks whether someone killed a man.
+σκοτώνω|aorist.active|2sg	5574963	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: violence: the sentence is about killing someone.
+σκοτώνω|aorist.active|2sg	5574969	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: violence: the sentence is about killing a person.
+σκοτώνω|aorist.active|3pl	4709220	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: violence: "They killed Tom".
+σκοτώνω|aorist.active|3pl	5541079	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: violence: they killed our cows.
+σκοτώνω|aorist.active|3pl	5541080	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: violence: they killed our cows.
+σκοτώνω|aorist.active|3pl	5574970	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: violence: the sentence is about killing someone.
+σκοτώνω|aorist.active|3pl	5574971	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: violence: the sentence is about killing a person.
+σκοτώνω|aorist.active|3pl	9850782	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: violence: the sentence is about killing a person.
+σκοτώνω|aorist.active|3pl	11467182	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: violence: the sentence is about killing rats with a bat.
+σκοτώνω|aorist.passive|3sg	2464449	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: violence: a man killed by a beaver.
+σκοτώνω|aorist.passive|3sg	5534689	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: violence: Tom was killed.
+σκοτώνω|aorist.passive|3sg	9935250	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: violence: the lamb was killed by the wolf.
+σκοτώνω|future.active|1pl	5613149	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: violence: a death threat (we will kill you).
+σκοτώνω|future.active|1pl	5613150	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: violence: a death threat.
+σκοτώνω|future.active|1sg	2429652	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: violence: a death threat (I will kill him).
+σκοτώνω|future.active|1sg	5613290	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: violence: about killing.
+σκοτώνω|future.active|1sg	5613292	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: violence: a statement about killing the listener.
+σκοτώνω|future.active|1sg	5624687	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: violence: it is a death threat.
+σκοτώνω|future.active|1sg	5624688	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: violence: the sentence is a threat to kill.
+σκοτώνω|future.active|1sg	8131033	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: After να the word is a subjunctive, not the future.
+σκοτώνω|future.active|3pl	5521512	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: violence: a death threat (they will kill you).
+σκοτώνω|future.active|3sg	3017157	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: violence: the sentence says someone will kill the speaker.
+σκοτώνω|future.active|3sg	3741377	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: After να the word is a subjunctive, not the future.
+σκοτώνω|future.active|3sg	4302386	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: violence: the sentence says someone will kill the speaker.
+σκοτώνω|future.active|3sg	4421032	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: Οταν and ενα lack their accents and ενα τίγρη should be έναν τίγρη.
+σκοτώνω|future.active|3sg	5443024	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: After να the word is a subjunctive, not the future.
+σκοτώνω|future.active|3sg	5443025	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: After να the word is a subjunctive, not the future.
+σκοτώνω|future.active|3sg	5443037	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: After να the word is a subjunctive, not the future.
+σκοτώνω|future.active|3sg	5454773	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: violence: Tom will kill Mary.
+σκοτώνω|future.active|3sg	5562991	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: After να the word is a subjunctive, not the future.
+σκοτώνω|future.active|3sg	5579674	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: After να the word is a subjunctive, not the future.
+σκοτώνω|future.active|3sg	5633407	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: violence: Tom will kill me.
+σκοτώνω|future.active|3sg	5633408	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: violence: Tom will kill me.
+σκοτώνω|future.active|3sg	5633409	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: violence: it is a death threat.
+σκοτώνω|future.active|3sg	5633410	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: violence: the sentence is a threat to kill.
+σκοτώνω|future.active|3sg	5633411	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: violence: the sentence is a threat to kill.
+σκοτώνω|future.active|3sg	5633412	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: violence: the sentence is a threat to kill.
+σκοτώνω|future.active|3sg	9038016	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: After να the word is a subjunctive, not the future.
+σκοτώνω|future.active|3sg	9831675	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: After να the word is a subjunctive, not the future.
+σκοτώνω|future.active|3sg	11272124	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: After να the word is a subjunctive, not the future.
+σκοτώνω|future.active|3sg	12716656	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: After να the word is a subjunctive, not the future.
+σκοτώνω|future.active|3sg	13366405	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: After να the word is a subjunctive, not the future.
+σκοτώνω|future.passive|1pl	5613145	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: violence: we will be killed.
+σκοτώνω|perfect.active|2pl	5583199	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: violence: asks how many you have killed.
+σκοτώνω|perfect.active|2pl	5583200	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: violence: asks how many you have killed.
+σκοτώνω|perfect.active|2pl	5583201	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: violence: asks how many the listeners have killed.
+σκοτώνω|perfect.active|2sg	5583196	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: violence: asks how many you have killed.
+σκοτώνω|perfect.active|2sg	5583197	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: violence: asks how many you have killed.
+σκοτώνω|perfect.active|2sg	5583198	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: violence: asks how many people the listener has killed.
+σκοτώνω|pluperfect.passive|3sg	3100872	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: violence: he was killed in the war.
+σκοτώνω|present.active|3sg	2427721	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: quotation: a Nietzsche quotation about killing.
+σκοτώνω|subjunctiveSimple.active|1sg	3014557	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: violence: "I want to kill Tom".
+σκοτώνω|subjunctiveSimple.active|2pl	5544707	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: violence: about wanting to kill Tom.
+σκοτώνω|subjunctiveSimple.active|2sg	5544706	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: violence: about wanting to kill Tom.
+σκοτώνω|subjunctiveSimple.active|3sg	5483380	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: violence: someone tried to kill you.
+σκοτώνω|subjunctiveSimple.active|3sg	5483381	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: violence: someone tried to kill you.
+σκοτώνω|subjunctiveSimple.passive|1sg	5506893	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: violence: the speaker was almost killed.
+σκοτώνω|subjunctiveSimple.passive|1sg	5579442	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: violence: about being killed.
+σπουδάζω|aorist.active|3sg	5469286	ok	claude-opus-5-5 2026-11-22	The subject Ο Τομ fixes the aorist.
+σπουδάζω|imperativeSimple.active|2sg	5469286	no	claude-opus-5-5 2026-11-22	The subject Ο Τομ makes σπούδασε an aorist third person.
+σπουδάζω|present.active|2pl	5603797	ok	claude-opus-5-5 2026-11-22	A question to εσείς: present.
+σπρώχνω|aorist.active|3pl	11607207	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: violence: implies suicide or murder.
+στέλνω|aorist.active|3pl	7796845	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: violence: someone is sent to prison for ten years.
+στέλνω|present.active|2pl	5568430	ok	claude-opus-5-5 2026-11-22	A question to εσείς: present.
+στέλνω|subjunctiveSimple.active|3pl	7854095	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: εισητήριο is misspelled and should be εισιτήριο.
+σταματάω|aorist.active|3sg	2848251	ok	claude-opus-5-5 2026-11-22	The subject Αυτός fixes the aorist.
+σταματάω|imperativeSimple.active|2sg	2848251	no	claude-opus-5-5 2026-11-22	The subject Αυτός makes σταμάτησε an aorist third person.
+σταματάω|imperativeSimple.active|2sg	4357330	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: Σταμάτα is the continuous imperative; the simple imperative is "σταμάτησε".
+σταματάω|imperativeSimple.active|2sg	5304341	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: Σταμάτα is the continuous imperative; the simple one is σταμάτησε.
+σταματάω|imperativeSimple.active|2sg	5358476	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: Σταμάτα is the continuous imperative; the simple one is σταμάτησε.
+σταματάω|imperativeSimple.active|2sg	5443975	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: Σταμάτα is the continuous imperative; the simple one is σταμάτησε.
+σταματάω|present.active|1pl	13359397	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: δεν σταματάμε ... και να στραφούμε is a broken coordination; it needs "και δεν στρεφόμαστε" or similar.
+σταματάω|present.active|2pl	5458414	no	claude-opus-5-5 2026-11-22	Μη σταματάτε is a prohibition, not a present statement.
+στηρίζω|subjunctiveSimple.active|3sg	13933521	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: politics: support for my country.
+στηρίζω|subjunctiveSimple.active|3sg	13933522	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: politics: support for my country.
+συγκεντρώνω|subjunctiveSimple.passive|1sg	2418748	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: final ν or apostrophe spelling (στην, μην, δεν before a vowel or κ π τ ξ ψ μπ ντ γκ τσ τζ; ’ not ΄).
+συγχωρώ|present.passive|3sg	10674381	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: Με συγχωρείται must be "Με συγχωρείτε", so the form is also not this cell.
+συγχωρώ|subjunctiveSimple.active|1sg	3558215	no	claude-opus-5-5 2026-11-23	Tatoeba check, eng: The English is ungrammatical: "forgive he" instead of "forgive him".
+συζητάω|aorist.active|3sg	6065467	ok	claude-opus-5-5 2026-11-22	A past narrative coordinated with ήρθε fixes the aorist.
+συζητάω|imperativeSimple.active|2sg	6065467	no	claude-opus-5-5 2026-11-22	A past narrative makes συζήτησε an aorist third person.
+συζητάω|present.active|3pl	11612256	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: quotation: a known quote about great minds.
+συζητάω|subjunctiveSimple.active|3pl	9949802	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: religion: clerics discussing ministry.
+συμβουλεύω|aorist.active|2sg	7772196	no	claude-opus-5-5 2026-11-23	Tatoeba check, eng: συμβούλευσες means advised, while consult me reverses who gives the advice.
+συμβουλεύω|aorist.active|3sg	2878258	ok	claude-opus-5-5 2026-11-22	The subject Ο γιατρός fixes the aorist.
+συμβουλεύω|imperativeSimple.active|2sg	2878258	no	claude-opus-5-5 2026-11-22	The subject Ο γιατρός makes συμβούλεψε an aorist third person.
+συμβουλεύω|present.active|2pl	3117409	ok	claude-opus-5-5 2026-11-22	A question to εσείς: present.
+συμμετέχω|aorist.active|1sg	2632982	no	claude-opus-5-5 2026-11-22	No point in time, so συμμετείχα can be the imperfect.
+συμπαθώ|present.active|2pl	9466900	ok	claude-opus-5-5 2026-11-22	A question to εσείς: present.
+συμπληρώνω|aorist.active|3sg	1427060	no	claude-opus-5-5 2026-11-22	No subject, so συμπλήρωσε reads as an exercise order just as well.
+συμπληρώνω|imperativeSimple.active|2sg	1427060	no	claude-opus-5-5 2026-11-22	No subject, so συμπλήρωσε can be the aorist he completed.
+συμφωνώ|aorist.active|3sg	5485835	no	claude-opus-5-5 2026-11-22	No subject, so συμφώνησε reads as an order to εσύ just as well.
+συμφωνώ|imperativeSimple.active|2sg	5485835	no	claude-opus-5-5 2026-11-22	No subject, so συμφώνησε can be the aorist he agreed.
+συμφωνώ|present.active|2pl	5410156	ok	claude-opus-5-5 2026-11-22	A question to εσείς: present.
+συναντάω|aorist.active|3sg	2969390	ok	claude-opus-5-5 2026-11-22	The subject Ο Τομ fixes the aorist.
+συναντάω|future.active|2sg	1633980	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: «τις 7» lacks the preposition: «στις 7».
+συναντάω|imperativeSimple.active|2sg	2969390	no	claude-opus-5-5 2026-11-22	The subject Ο Τομ makes συνάντησε an aorist third person.
+συναντάω|present.passive|1pl	5525744	ok	claude-opus-5-5 2026-11-22	An exclamation about meeting now, και πάλι: present.
+συνδέω|present.active|2pl	11549975	ok	claude-opus-5-5 2026-11-22	A question to εσείς: present.
+συνεχίζω|aorist.active|3sg	2878312	no	claude-opus-5-5 2026-11-22	No subject, so συνέχισε reads as an order to εσύ.
+συνεχίζω|imperativeSimple.active|2sg	2878312	no	claude-opus-5-5 2026-11-22	No subject, so συνέχισε can also be the aorist he went on.
+συνεχίζω|present.active|2pl	9979217	ok	claude-opus-5-5 2026-11-22	A question to εσείς: present.
+συνηθίζω|perfect.active|3sg	13304305	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: violence: a country used to war.
+συνοδεύω|subjunctiveSimple.active|1sg	7776370	no	claude-opus-5-5 2026-11-23	Tatoeba check, eng: The English till the door is ungrammatical for to the door.
+συνοδεύω|subjunctiveSimple.active|3sg	7790760	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: θα χω is missing the apostrophe: θα 'χω.
+συστήνω|aorist.active|3sg	3422642	no	claude-opus-5-5 2026-11-23	Tatoeba check, rus: The Russian reverses who is introduced to whom ("представила его своей сестре").
+συστήνω|imperativeSimple.active|2sg	3422642	no	claude-opus-5-5 2026-11-22	The subject Αυτή makes σύστησε an aorist third person.
+σχεδιάζω|aorist.active|3sg	2363416	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: «μιά» is a monosyllable and takes no accent: «μια».
+σχεδιάζω|imperativeSimple.active|2sg	2363416	no	claude-opus-5-5 2026-11-22	The subject Αυτός makes σχεδίασε an aorist third person.
+σχεδιάζω|present.active|2pl	5425184	ok	claude-opus-5-5 2026-11-22	A question to εσείς: present.
+ταξιδεύω|aorist.active|1pl	5609779	no	claude-opus-5-5 2026-11-23	Tatoeba check, eng: Νότια Αφρική is South Africa, the English says South America.
+ταξιδεύω|aorist.active|3sg	5602429	ok	claude-opus-5-5 2026-11-22	The subject Ο Τομ fixes the aorist.
+ταξιδεύω|imperativeSimple.active|2sg	5602429	no	claude-opus-5-5 2026-11-22	The subject Ο Τομ makes ταξίδεψε an aorist third person.
+τελειώνω|aorist.active|3sg	3450814	ok	claude-opus-5-5 2026-11-22	The third-person subject Το δεύτερο εξάμηνο fixes the aorist.
+τελειώνω|imperativeSimple.active|2sg	3450814	no	claude-opus-5-5 2026-11-22	The subject Το δεύτερο εξάμηνο makes τελείωσε an aorist.
+τελειώνω|perfect.active|3pl	8190406	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: προβλήματα μας needs the enclitic accent: προβλήματά μας.
+τελειώνω|present.active|3pl	2902075	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: broken: a word-play line ending in "ι" that is meaningless without context, and the Russian is an unrelated rhyme.
+τελειώνω|present.active|3sg	2422453	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: quotation: a literary quotation (Dürrenmatt) whose English does not match the Greek.
+τελειώνω|subjunctiveSimple.active|1pl	7806202	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: τη εργασία should be την εργασία.
+τηλεφωνώ|aorist.active|3sg	2875374	no	claude-opus-5-5 2026-11-22	No subject, so τηλεφώνησε reads as an order to εσύ just as well.
+τηλεφωνώ|imperativeSimple.active|2sg	2875374	no	claude-opus-5-5 2026-11-22	No subject or exclamation, so τηλεφώνησε can be the aorist he called.
+τηλεφωνώ|imperativeSimple.active|2sg	7771840	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: Τηλεφώνα is the continuous imperative; the simple imperative is τηλεφώνησε.
+τηλεφωνώ|subjunctiveSimple.active|1pl	4461728	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: τηλεφωνώ takes "σε": "να τηλεφωνήσουμε στον γιατρό".
+τηλεφωνώ|subjunctiveSimple.active|3sg	7798624	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: σταμάτησε να με τηλεφωνήσει is ungrammatical; it should be σταμάτησε να μου τηλεφωνεί.
+τιμάω|aorist.passive|3sg	9202362	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: violence: the anniversary of a battle.
+τρέχω|present.active|2pl	5592454	no	claude-opus-5-5 2026-11-22	No εσείς or question, so τρέχετε can also be an order.
+τρέχω|subjunctiveContinuous.active|1sg	1562581	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: «τόσο γρήγορα όπως» should be «τόσο γρήγορα όσο», and both translations render Κάποτε (someday) as «sometimes» in the present.
+τρέχω|subjunctiveSimple.active|2pl	11468709	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: quotation: a famous threatening line ("You can run, but you can't hide").
+τρέχω|subjunctiveSimple.active|2sg	11468687	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: quotation: a famous threatening line ("You can run, but you can't hide").
+τραγουδάω|aorist.active|3sg	5646494	ok	claude-opus-5-5 2026-11-22	The subject Ο Τομ fixes the aorist.
+τραγουδάω|imperativeSimple.active|2sg	5646494	no	claude-opus-5-5 2026-11-22	The subject Ο Τομ makes τραγούδησε an aorist third person.
+τραγουδάω|present.active|2pl	5583241	ok	claude-opus-5-5 2026-11-22	A question to εσείς: present.
+τρώω|imperfect.active|3pl	7773407	no	claude-opus-5-5 2026-11-23	Tatoeba check, eng: The Greek is past imperfect but the English is present tense.
+τρώω|present.active|2pl	2404506	ok	claude-opus-5-5 2026-11-22	A question to εσείς: present.
+τρώω|present.active|2sg	2350309	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: quotation: the saying «you are what you eat».
+τρώω|subjunctiveContinuous.active|1pl	9871822	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: βραδύ (slow) must be "βράδυ" (evening).
+τρώω|subjunctiveContinuous.active|2sg	2460457	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: «πιό» is a monosyllable and takes no accent: «πιο» (twice).
+υπάρχω|imperfect.active|3pl	4364460	no	claude-opus-5-5 2026-11-23	Tatoeba check, eng: The English says "his street" where the Greek says "this street".
+υπάρχω|imperfect.active|3pl	7762742	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: the language name Ισπανικών is capitalised.
+υπάρχω|present.active|3sg	1562528	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: «μακρυά» and «απ'εδώ» should be «μακριά» and «απ' εδώ».
+υπάρχω|present.active|3sg	2844856	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: quotation: a proverb (no smoke without fire).
+υπάρχω|subjunctiveContinuous.active|3pl	13781008	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: violence: about wars.
+υπάρχω|subjunctiveContinuous.active|3sg	3213650	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: politics: a diplomatic solution to a conflict.
+υπογράφω|aorist.active|1sg	2429683	no	claude-opus-5-5 2026-11-23	Tatoeba check, eng: «I didn't sign up for this» is an idiom for not agreeing, while the Greek says literally I did not sign such a thing.
+υπογράφω|aorist.active|3sg	2999425	no	claude-opus-5-5 2026-11-22	Content rule: a real politician (Putin). The third-person subject and one signing act fix the aorist.
+υπογράφω|imperativeSimple.active|2sg	5304414	ok	claude-opus-5-5 2026-11-22	Παρακαλώ marks a request to εσύ.
+υπογράφω|subjunctiveSimple.active|3sg	2858160	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: final ν or apostrophe spelling (στην, μην, δεν before a vowel or κ π τ ξ ψ μπ ντ γκ τσ τζ; ’ not ΄).
+υποστηρίζω|present.active|3pl	4706911	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: έχει συμβάλλει is misspelled ("συμβάλει"), and the topic is nuclear weapons.
+υποστηρίζω|present.active|3sg	11531780	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: politics: a politician supporting the government.
+υπόσχομαι|present.passive|1pl	12023383	ok	claude-opus-5-5 2026-11-22	Parallel with το κάνουμε: a present statement.
+υπόσχομαι|present.passive|2pl	5443845	ok	claude-opus-5-5 2026-11-22	A question to εσείς: present.
+φέρομαι|present.passive|3sg	7762473	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: συνέβει is misspelled and should be συνέβη.
+φαίνομαι|imperfect.passive|3pl	1730823	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: «φαίνονταν» (plural) should agree with the singular situation («φαινόταν»), and «απ΄όσο» uses a tonos for the apostrophe without a space.
+φαίνομαι|present.passive|2pl	5404170	ok	claude-opus-5-5 2026-11-22	A statement about εσείς with σήμερα: present.
+φαίνομαι|present.passive|3sg	2196029	no	claude-opus-5-5 2026-11-23	Tatoeba check, eng: «forgot» changes the meaning; έχασα means lost.
+φαίνομαι|subjunctiveContinuous.passive|3sg	1300873	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: violence: staging a burglary is a crime.
+φαίνομαι|subjunctiveSimple.passive|3pl	716037	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: «συναισθήματα σου» lacks the enclitic accent: «συναισθήματά σου».
+φαντάζομαι|subjunctiveSimple.passive|1sg	2456817	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: final ν or apostrophe spelling (στην, μην, δεν before a vowel or κ π τ ξ ψ μπ ντ γκ τσ τζ; ’ not ΄).
+φαντάζομαι|subjunctiveSimple.passive|1sg	7788408	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: Δε μπορώ drops the final ν before μπ (Δεν μπορώ).
+φεύγω|imperativeSimple.active|2pl	5521510	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: After αν δε, φύγετε is the subjunctive, not the imperative.
+φεύγω|imperativeSimple.active|2pl	5521513	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: after αν, φύγετε is the simple subjunctive, not the imperative.
+φεύγω|present.active|2pl	5423422	ok	claude-opus-5-5 2026-11-22	A question with εσείς: present.
+φιλάω|aorist.active|3sg	5401560	ok	claude-opus-5-5 2026-11-22	The subject Ο Τομ fixes the aorist.
+φιλάω|imperativeSimple.active|2sg	5401560	no	claude-opus-5-5 2026-11-22	The subject Ο Τομ makes φίλησε an aorist third person.
+φιλάω|imperativeSimple.active|2sg	5457613	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: Φίλα is the continuous imperative; the simple form is asked.
+φιλάω|imperativeSimple.active|2sg	5561711	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: Φίλα is the continuous imperative; the simple one is φίλησε.
+φιλάω|subjunctiveSimple.active|2pl	5517576	no	claude-opus-5-5 2026-11-23	Tatoeba check, eng: The Greek means she wants you (pl) to kiss her, the English says she wants to kiss her.
+φιλάω|subjunctiveSimple.active|2sg	5517575	no	claude-opus-5-5 2026-11-23	Tatoeba check, eng: The Greek means she wants you to kiss her, the English says she wants to kiss her.
+φοβάμαι|present.passive|2pl	5418811	ok	claude-opus-5-5 2026-11-22	A question to εσείς: present.
+φοβάμαι|subjunctiveContinuous.passive|2sg	1430673	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: quotation: a proverb (still waters run deep).
+φοράω|aorist.active|3sg	3209735	no	claude-opus-5-5 2026-11-22	No subject, so φόρεσε reads as an order to εσύ just as well.
+φοράω|future.active|2sg	10673780	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: ποιό must be "ποιο" (no accent on the monosyllable).
+φοράω|imperativeSimple.active|2sg	3209735	no	claude-opus-5-5 2026-11-22	No subject and no exclamation, so φόρεσε can be the aorist he put on.
+φοράω|imperativeSimple.active|2sg	4945602	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: Φόρα is the continuous imperative; the simple imperative is "φόρεσε".
+φοράω|imperativeSimple.active|2sg	5470665	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: Φόρα is the continuous imperative; the simple one is φόρεσε.
+φοράω|imperativeSimple.active|2sg	5470667	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: Φόρα is the continuous imperative; the simple one is φόρεσε.
+φοράω|imperativeSimple.active|2sg	10675127	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: Μια φόρα is misaccented; "once" is μια φορά, so the highlighted word is not the verb at all.
+φοράω|present.active|2pl	5626273	ok	claude-opus-5-5 2026-11-22	A question to εσείς: present.
+φοράω|present.active|3pl	9951843	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: offensive: mocks fat people.
+φοράω|subjunctiveSimple.active|2pl	12129342	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: τη μπλε must be "την μπλε" (the ν stays before μπ).
+φροντίζω|aorist.active|3sg	2365773	no	claude-opus-5-5 2026-11-22	With σου and the order άφησε, φρόντισε is an imperative.
+φροντίζω|imperativeSimple.active|2sg	2365773	ok	claude-opus-5-5 2026-11-22	Σου and the coordinated order άφησε mark an order to εσύ.
+φτάνω|aorist.active|3sg	1870303	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: A stray «η» stands before «ο κύριος».
+φτάνω|future.active|1pl	7791759	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: final ν or apostrophe spelling (στην, μην, δεν before a vowel or κ π τ ξ ψ μπ ντ γκ τσ τζ; ’ not ΄).
+φτάνω|perfect.active|1sg	9615539	no	claude-opus-5-5 2026-11-23	Tatoeba check, eng: The Greek literally says "I have got this far", not the idiom "I've had it up to here".
+φτάνω|present.active|2pl	9702934	ok	claude-opus-5-5 2026-11-22	Δεν with a preverbal clitic makes a present statement.
+φτάνω|subjunctiveSimple.active|3sg	13267852	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: offensive: sexual reproduction (sperm reaching an egg).
+φτιάχνω|present.active|3pl	9641335	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: violence: a gallows is being built for the listener.
+φυσάω|imperativeSimple.active|2sg	1000000264	no	claude-opus-5-5 2026-11-22	The form φύσηξε does not occur; the sentence has φύσα.
+φυτεύω|aorist.active|3sg	5104677	ok	claude-opus-5-5 2026-11-22	The subject Ο Τομ fixes the aorist.
+φυτεύω|imperativeSimple.active|2sg	5104677	no	claude-opus-5-5 2026-11-22	The subject Ο Τομ makes φύτεψε an aorist third person.
+φυτεύω|present.active|2pl	7776360	ok	claude-opus-5-5 2026-11-22	A question to εσείς: present.
+φυτεύω|present.active|3sg	2405269	no	claude-opus-5-5 2026-11-23	Tatoeba check, rus: «садит» is non-standard Russian; the standard form is «сажает».
+φωνάζω|aorist.active|3sg	9391593	no	claude-opus-5-5 2026-11-22	Σε παρακαλώ makes φώναξε an order to εσύ, not an aorist.
+φωνάζω|imperativeSimple.active|2sg	9391593	ok	claude-opus-5-5 2026-11-22	Σε παρακαλώ addresses εσύ: an order.
+χάνω|aorist.active|1sg	2196029	no	claude-opus-5-5 2026-11-23	Tatoeba check, eng: «forgot» changes the meaning; έχασα means lost.
+χάνω|aorist.active|2pl	2428066	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: violence: an injury with heavy blood loss.
+χάνω|aorist.active|3pl	2844831	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: violence: thousands of soldiers losing their lives in war.
+χάνω|future.active|2sg	7773179	no	claude-opus-5-5 2026-11-23	Tatoeba check, eng: Θα χάσεις means you will lose, not you would lose.
+χάνω|present.active|2pl	5613453	no	claude-opus-5-5 2026-11-22	A bare one-word sentence; nothing rules out an imperative.
+χάνω|subjunctiveSimple.passive|2sg	3000655	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: Latin letters ("Tatoeba"), and the line is a site slogan rather than a sentence.
+χαίρομαι|future.passive|1sg	7782682	no	claude-opus-5-5 2026-11-23	Tatoeba check, eng: όταν τελειώσει means when it is over, not when I am done.
+χαιρετάω|aorist.active|3sg	2364584	ok	claude-opus-5-5 2026-11-22	The subject Αυτός fixes the aorist.
+χαιρετάω|imperativeSimple.active|2sg	2364584	no	claude-opus-5-5 2026-11-22	The subject Αυτός makes χαιρέτησε an aorist third person.
+χαλάω|aorist.active|3sg	1364597	ok	claude-opus-5-5 2026-11-22	The subject Το γάλα fixes the aorist.
+χαλάω|imperativeSimple.active|2sg	1364597	no	claude-opus-5-5 2026-11-22	The subject Το γάλα makes χάλασε an aorist third person.
+χαλαρώνω|aorist.active|3sg	1319359	no	claude-opus-5-5 2026-11-22	A bare Χαλάρωσε reads as an order to εσύ.
+χαλαρώνω|imperativeSimple.active|2sg	1319359	no	claude-opus-5-5 2026-11-22	A bare Χαλάρωσε can also be the aorist he relaxed.
+χαμογελάω|imperativeSimple.active|2sg	5104701	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: Χαμογέλα is the continuous imperative; the simple imperative is "χαμογέλασε".
+χαρίζω|aorist.active|3sg	3004807	ok	claude-opus-5-5 2026-11-22	The subject Αυτό το τραγούδι fixes the aorist.
+χαρίζω|imperativeSimple.active|2sg	3004807	no	claude-opus-5-5 2026-11-22	The subject Αυτό το τραγούδι makes χάρισε an aorist third person.
+χαρίζω|imperfect.active|3pl	1285477	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: quotation: a proverb (the gift horse saying).
+χαρίζω|present.passive|3pl	1308365	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: politics: a political slogan about conquering rights.
+χιονίζει|imperfect.active|3sg	9841531	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: τη προηγούμενη must be "την προηγούμενη".
+χορεύω|aorist.active|2pl	5429944	no	claude-opus-5-5 2026-11-23	Tatoeba check, eng: The English adds a negation ("Why didn't you dance") that the Greek does not have.
+χορεύω|aorist.active|2sg	5429941	no	claude-opus-5-5 2026-11-23	Tatoeba check, eng: The English adds a negation ("Why didn't you dance") that the Greek does not have.
+χορεύω|aorist.active|3sg	5454365	ok	claude-opus-5-5 2026-11-22	The subject Ο Τομ fixes the aorist.
+χορεύω|future.active|1sg	9941298	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: drinking: tonight I'll drink a lot.
+χορεύω|imperativeSimple.active|2sg	5454365	no	claude-opus-5-5 2026-11-22	The subject Ο Τομ makes χόρεψε an aorist third person.
+χορεύω|present.active|2pl	11144627	ok	claude-opus-5-5 2026-11-22	A question to εσείς: present.
+χορταίνω|aorist.active|1sg	2399578	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: final ν or apostrophe spelling (στην, μην, δεν before a vowel or κ π τ ξ ψ μπ ντ γκ τσ τζ; ’ not ΄).
+χρειάζομαι|futureContinuous.passive|3sg	8205272	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: πια (anymore) is a typo for πιο, so the Greek does not say more money.
+χρειάζομαι|imperfect.passive|3pl	2866801	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: final ν or apostrophe spelling (στην, μην, δεν before a vowel or κ π τ ξ ψ μπ ντ γκ τσ τζ; ’ not ΄).
+χρειάζομαι|imperfect.passive|3sg	3963726	no	claude-opus-5-5 2026-11-23	Tatoeba check, eng: The English is present ("needs") where the Greek is past ("χρειαζόταν").
+χρειάζομαι|present.passive|1pl	5634287	ok	claude-opus-5-5 2026-11-22	A request for help now: present, not a past narrative.
+χρειάζομαι|present.passive|2pl	5426942	ok	claude-opus-5-5 2026-11-22	A question to εσείς about a need now: present.
+χρησιμοποιώ|aorist.active|3sg	5443852	no	claude-opus-5-5 2026-11-22	Χρησιμοποίησε here is an order to εσύ, not an aorist.
+χρησιμοποιώ|imperativeSimple.active|2sg	5443852	ok	claude-opus-5-5 2026-11-22	An exclamation with no subject: an order to εσύ.
+χρησιμοποιώ|present.active|2pl	5523226	ok	claude-opus-5-5 2026-11-22	A relative clause about the computer εσείς use: present.
+χρωστάω|subjunctiveSimple.active|1sg	12178342	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: να χρωστάω is the continuous subjunctive with a habitual meaning here; the simple one is "να χρωστέσω".
+χτίζω|pluperfect.passive|3sg	7791952	no	claude-opus-5-5 2026-11-23	Tatoeba check, eng: The Greek pluperfect had been built is rendered as the simple past was built.
+χτίζω|subjunctiveSimple.active|2sg	7780403	no	claude-opus-5-5 2026-11-23	Tatoeba check, eng: θα πήγαινες means weren't you going to go, but the English is present tense.
+χτίζω|subjunctiveSimple.active|2sg	7780404	no	claude-opus-5-5 2026-11-23	Tatoeba check, eng: Δε θα πήγαινες is past (weren't you going to go), the English is present.
+χτυπάω|aorist.active|1sg	5414430	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: violence: about hitting someone.
+χτυπάω|aorist.active|2sg	4653458	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: Πως meaning "how" must be accented "Πώς".
+χτυπάω|aorist.active|2sg	11266705	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: violence: hitting your sister.
+χτυπάω|aorist.active|3pl	3033459	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: violence: they hit her on the head.
+χτυπάω|aorist.active|3sg	3697166	ok	claude-opus-5-5 2026-11-22	The subject το τηλέφωνο in a past frame fixes the aorist.
+χτυπάω|future.passive|3sg	9573167	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: broken: it starts with "Or" and needs missing context about a national security disaster.
+χτυπάω|imperativeContinuous.active|2sg	5465363	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: violence: an order to hit Tom.
+χτυπάω|imperativeSimple.active|2pl	5465364	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: violence: an order to hit Tom.
+χτυπάω|imperativeSimple.active|2sg	3003671	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: Χτύπα is the continuous imperative; the simple one is χτύπησε.
+χτυπάω|imperativeSimple.active|2sg	3697166	no	claude-opus-5-5 2026-11-22	The subject το τηλέφωνο makes χτύπησε an aorist third person.
+χτυπάω|imperativeSimple.active|2sg	5465363	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: violence: an order to hit Tom.
+χτυπάω|subjunctiveContinuous.active|2sg	8310167	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: violence: someone is being hit.
+χωράω|imperativeContinuous.active|2sg	948547	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: χώρα is here the noun country, not the imperative of χωράω.
+χωράω|imperativeContinuous.active|2sg	999080	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: χώρα is here the noun country, not the imperative of χωράω.
+χωράω|imperativeContinuous.active|2sg	1285639	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: χώρα is here the noun country, not the imperative of χωράω.
+χωράω|imperativeContinuous.active|2sg	1337993	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: ποιόν carries an old-style accent on a monosyllable.
+χωράω|imperativeContinuous.active|2sg	1518253	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: χώρα is here the noun country, not the imperative of χωράω.
+χωράω|imperativeContinuous.active|2sg	1518264	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: χώρα is here the noun country, not the imperative of χωράω.
+χωράω|imperativeContinuous.active|2sg	1547585	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: χώρα is here the noun country, not the imperative of χωράω.
+χωράω|imperativeContinuous.active|2sg	1663275	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: χώρα is here the noun country, not the imperative of χωράω.
+χωράω|imperativeContinuous.active|2sg	2076538	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: χώρα is here the noun country, not the imperative of χωράω.
+χωράω|imperativeContinuous.active|2sg	2156721	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: χώρα is here the noun country, not the imperative of χωράω.
+χωράω|imperativeContinuous.active|2sg	2390719	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: χώρα is here the noun country, not the imperative of χωράω.
+χωράω|imperativeContinuous.active|2sg	2395482	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: ποιά carries an old-style accent on a monosyllable.
+χωράω|imperativeContinuous.active|2sg	2401095	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: χώρα is here the noun country, not the imperative of χωράω.
+χωράω|imperativeContinuous.active|2sg	2413503	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: χώρα is here the noun country, not the imperative of χωράω.
+χωράω|imperativeContinuous.active|2sg	2426633	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: μιά carries an old-style accent on a monosyllable.
+χωράω|imperativeContinuous.active|2sg	2455186	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: χώρα is here the noun country, not the imperative of χωράω.
+χωράω|imperativeContinuous.active|2sg	2465998	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: χώρα is here the noun country, not the imperative of χωράω.
+χωράω|imperativeContinuous.active|2sg	2558131	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: χώρα is here the noun country, not the imperative of χωράω.
+χωράω|imperativeContinuous.active|2sg	2635031	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: χώρα is here the noun country, not the imperative of χωράω.
+χωράω|imperativeContinuous.active|2sg	2721882	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: χώρα is here the noun country, not the imperative of χωράω.
+χωράω|imperativeContinuous.active|2sg	2864558	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: χώρα is here the noun country, not the imperative of χωράω.
+χωράω|imperativeContinuous.active|2sg	2918451	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: χώρα is here the noun country, not the imperative of χωράω.
+χωράω|imperativeContinuous.active|2sg	3004761	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: χώρα is here the noun country, not the imperative of χωράω.
+χωράω|imperativeContinuous.active|2sg	3098533	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: χώρα is here the noun country, not the imperative of χωράω.
+χωράω|imperativeContinuous.active|2sg	3107442	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: χώρα is here the noun country, not the imperative of χωράω.
+χωράω|imperativeContinuous.active|2sg	3225356	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: χώρα is here the noun country, not the imperative of χωράω.
+χωράω|imperativeContinuous.active|2sg	3233113	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: χώρα is here the noun country, not the imperative of χωράω.
+χωράω|imperativeContinuous.active|2sg	3251852	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: χώρα is here the noun country, not the imperative of χωράω.
+χωράω|imperativeContinuous.active|2sg	3278237	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: χώρα is here the noun country, not the imperative of χωράω.
+χωράω|imperativeContinuous.active|2sg	3577900	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: The line is in Cretan dialect (άξα, εγίνη) with a capitalised Χώρα mid-sentence.
+χωράω|imperativeContinuous.active|2sg	3611254	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: χώρα is here the noun "country", not a form of χωράω.
+χωράω|imperativeContinuous.active|2sg	3697495	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: χώρα is here the noun country, not the imperative of χωράω.
+χωράω|imperativeContinuous.active|2sg	3697497	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: χώρα is here the noun country, not the imperative of χωράω.
+χωράω|imperativeContinuous.active|2sg	3742544	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: χώρα is here the noun country, not the imperative of χωράω.
+χωράω|imperativeContinuous.active|2sg	3858344	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: χώρα here is the noun country, not a verb form.
+χωράω|imperativeContinuous.active|2sg	3935496	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: χώρα is here the noun country, not the imperative of χωράω.
+χωράω|imperativeContinuous.active|2sg	4513664	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: όνομα μου lacks the enclitic accent (όνομά μου).
+χωράω|imperativeContinuous.active|2sg	4523403	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: χώρα is here the noun country, not the imperative of χωράω.
+χωράω|imperativeContinuous.active|2sg	4703645	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: χώρα is here the noun country, not the imperative of χωράω.
+χωράω|imperativeContinuous.active|2sg	4945581	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: χώρα is here the noun country, not the imperative of χωράω.
+χωράω|imperativeContinuous.active|2sg	5405339	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: χώρα here is the noun "country", not an imperative of χωράω.
+χωράω|imperativeContinuous.active|2sg	5409875	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: Here χώρα is the noun "country", not the imperative of χωράω.
+χωράω|imperativeContinuous.active|2sg	5409878	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: χώρα is here the noun country, not the imperative of χωράω.
+χωράω|imperativeContinuous.active|2sg	5460181	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: χώρα is here the noun country, not the imperative of χωράω.
+χωράω|imperativeContinuous.active|2sg	5475816	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: χώρα is here the noun country, not the imperative of χωράω.
+χωράω|imperativeContinuous.active|2sg	5517017	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: χώρα is here the noun country, not the imperative of χωράω.
+χωράω|imperativeContinuous.active|2sg	5517018	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: χώρα is here the noun country, not the imperative of χωράω.
+χωράω|imperativeContinuous.active|2sg	5612044	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: χώρα is here the noun country, not the imperative of χωράω.
+χωράω|imperativeContinuous.active|2sg	5612045	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: χώρα is here the noun country, not the imperative of χωράω.
+χωράω|imperativeContinuous.active|2sg	5612246	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: χώρα is here the noun country, not the imperative of χωράω.
+χωράω|imperativeContinuous.active|2sg	5612247	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: χώρα is here the noun country, not the imperative of χωράω.
+χωράω|imperativeContinuous.active|2sg	5612249	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: χώρα is here the noun country, not the imperative of χωράω.
+χωράω|imperativeContinuous.active|2sg	5612250	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: χώρα is here the noun country, not the imperative of χωράω.
+χωράω|imperativeContinuous.active|2sg	5612252	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: χώρα is here the noun country, not the imperative of χωράω.
+χωράω|imperativeContinuous.active|2sg	5631881	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: χώρα is here the noun country, not the imperative of χωράω.
+χωράω|imperativeContinuous.active|2sg	6157458	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: χώρα is here the noun country, not the imperative of χωράω.
+χωράω|imperativeContinuous.active|2sg	6862623	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: χώρα is here the noun country, not the imperative of χωράω.
+χωράω|imperativeContinuous.active|2sg	7763340	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: χώρα is here the noun country, not the imperative of χωράω.
+χωράω|imperativeContinuous.active|2sg	7776109	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: χώρα is here the noun country, not the imperative of χωράω.
+χωράω|imperativeContinuous.active|2sg	7776113	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: χώρα is here the noun country, not the imperative of χωράω.
+χωράω|imperativeContinuous.active|2sg	7776120	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: χώρα is here the noun country, not the imperative of χωράω.
+χωράω|imperativeContinuous.active|2sg	7790759	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: χώρα is here the noun country, not the imperative of χωράω.
+χωράω|imperativeContinuous.active|2sg	7864674	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: χώρα is here the noun country, not the imperative of χωράω.
+χωράω|imperativeContinuous.active|2sg	7864675	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: χώρα is here the noun country, not the imperative of χωράω.
+χωράω|imperativeContinuous.active|2sg	7864677	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: χώρα is here the noun country, not the imperative of χωράω.
+χωράω|imperativeContinuous.active|2sg	8559193	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: χώρα is here the noun country, not the imperative of χωράω.
+χωράω|imperativeContinuous.active|2sg	9088031	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: χώρα is here the noun country, not the imperative of χωράω.
+χωράω|imperativeContinuous.active|2sg	9102796	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: ποιός carries an old-style accent on a monosyllable.
+χωράω|imperativeContinuous.active|2sg	9127036	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: χώρα is here the noun country, not the imperative of χωράω.
+χωράω|imperativeContinuous.active|2sg	9136352	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: χώρα is here the noun country, not the imperative of χωράω.
+χωράω|imperativeContinuous.active|2sg	9213126	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: χώρα is here the noun country, not the imperative of χωράω.
+χωράω|imperativeContinuous.active|2sg	9234096	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: χώρα is here the noun country, not the imperative of χωράω.
+χωράω|imperativeContinuous.active|2sg	9630777	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: χώρα is here the noun country, not the imperative of χωράω.
+χωράω|imperativeContinuous.active|2sg	9630786	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: χώρα is here the noun country, not the imperative of χωράω.
+χωράω|imperativeContinuous.active|2sg	10362267	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: χώρα is here the noun country, not the imperative of χωράω.
+χωράω|imperativeContinuous.active|2sg	11211325	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: χώρα is here the noun country, not the imperative of χωράω.
+χωράω|imperativeContinuous.active|2sg	11218004	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: χώρα is here the noun country, not the imperative of χωράω.
+χωράω|imperativeContinuous.active|2sg	11225561	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: χώρα is here the noun country, not the imperative of χωράω.
+χωράω|imperativeContinuous.active|2sg	11313606	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: χώρα is here the noun country, not the imperative of χωράω.
+χωράω|imperativeContinuous.active|2sg	11426174	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: χώρα is here the noun country, not the imperative of χωράω.
+χωράω|imperativeContinuous.active|2sg	11844790	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: χώρα is here the noun country, not the imperative of χωράω.
+χωράω|imperativeContinuous.active|2sg	12044919	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: χώρα is here the noun country, not the imperative of χωράω.
+χωράω|imperativeContinuous.active|2sg	12137882	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: χώρα is here the noun country, not the imperative of χωράω.
+χωράω|imperativeContinuous.active|2sg	12144302	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: χώρα is here the noun country, not the imperative of χωράω.
+χωράω|imperativeContinuous.active|2sg	12243711	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: χώρα is here the noun country, not the imperative of χωράω.
+χωράω|imperativeContinuous.active|2sg	12987762	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: χώρα is here the noun country, not the imperative of χωράω.
+χωράω|imperativeContinuous.active|2sg	13143489	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: χώρα is here the noun country, not the imperative of χωράω.
+χωράω|imperativeContinuous.active|2sg	13306883	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: χώρα is here the noun country, not the imperative of χωράω.
+χωράω|imperativeContinuous.active|2sg	13444748	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: χώρα is here the noun country, not the imperative of χωράω.
+χωράω|imperativeContinuous.active|2sg	13444749	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: χώρα is here the noun country, not the imperative of χωράω.
+χωράω|imperativeContinuous.active|2sg	13444750	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: χώρα is here the noun country, not the imperative of χωράω.
+χωράω|imperativeContinuous.active|2sg	13444751	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: χώρα is here the noun country, not the imperative of χωράω.
+χωράω|imperativeContinuous.active|2sg	13444752	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: χώρα is here the noun country, not the imperative of χωράω.
+χωράω|imperativeContinuous.active|2sg	13444753	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: χώρα is here the noun country, not the imperative of χωράω.
+χωράω|imperativeContinuous.active|2sg	13444755	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: χώρα is here the noun country, not the imperative of χωράω.
+χωράω|imperativeContinuous.active|2sg	13444756	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: χώρα is here the noun country, not the imperative of χωράω.
+χωράω|imperativeContinuous.active|2sg	13448880	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: χώρα is here the noun country, not the imperative of χωράω.
+χωράω|imperativeContinuous.active|2sg	13451957	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: χώρα is here the noun country, not the imperative of χωράω.
+χωράω|imperativeContinuous.active|2sg	13464105	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: χώρα is here the noun country, not the imperative of χωράω.
+χωράω|imperativeContinuous.active|2sg	13572589	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: χώρα is here the noun country, not the imperative of χωράω.
+χωράω|imperativeContinuous.active|2sg	13632009	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: χώρα is here the noun country, not the imperative of χωράω.
+χωράω|imperativeContinuous.active|2sg	13632010	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: χώρα is here the noun country, not the imperative of χωράω.
+χωράω|imperativeContinuous.active|2sg	13777075	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: χώρα is here the noun country, not the imperative of χωράω.
+χωράω|imperativeContinuous.active|2sg	13782088	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: χώρα is here the noun country, not the imperative of χωράω.
+χωράω|imperativeContinuous.active|2sg	14029707	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: χώρα is here the noun country, not the imperative of χωράω.
+χωράω|imperativeContinuous.active|2sg	14073600	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: ξαναβγει lacks its accent (ξαναβγεί).
+χωράω|imperativeContinuous.active|2sg	14076707	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: χώρα is here the noun country, not the imperative of χωράω.
+χωράω|imperativeContinuous.active|2sg	14076735	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: χώρα is here the noun country, not the imperative of χωράω.
+χωράω|imperativeContinuous.active|2sg	14077231	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: χώρα is here the noun country, not the imperative of χωράω.
+χωράω|imperativeContinuous.active|2sg	14080643	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: χώρα is here the noun country, not the imperative of χωράω.
+χωράω|imperativeContinuous.active|2sg	14086147	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: χώρα is here the noun country, not the imperative of χωράω.
+χωράω|imperativeContinuous.active|2sg	14089053	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: χώρα is here the noun country, not the imperative of χωράω.
+χωράω|imperativeContinuous.active|2sg	14090137	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: χώρα is here the noun country, not the imperative of χωράω.
+χωράω|imperativeContinuous.active|2sg	14090194	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: χώρα is here the noun country, not the imperative of χωράω.
+χωράω|imperativeContinuous.active|2sg	14090443	no	claude-opus-5-5 2026-11-23	Tatoeba check, form: χώρα is here the noun country, not the imperative of χωράω.
+χωράω|present.active|3pl	1294886	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: quotation: a proverb.
+χωράω|present.active|3pl	9615391	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: quotation: a proverb (the more the merrier).
+χωράω|subjunctiveSimple.active|1sg	7791750	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: final ν or apostrophe spelling (στην, μην, δεν before a vowel or κ π τ ξ ψ μπ ντ γκ τσ τζ; ’ not ΄).
+χωράω|subjunctiveSimple.active|1sg	7791751	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: Δε μπορώ drops the final ν before μπ (Δεν μπορώ).
+χωράω|subjunctiveSimple.active|1sg	7791752	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: The final ν is dropped before μπ (Δε μπορώ instead of Δεν μπορώ).
+χωράω|subjunctiveSimple.active|1sg	7791753	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: Δε μπορώ drops the final ν that must stay before μπ; it should be δεν μπορώ.
+χωρίζω|aorist.active|3pl	10679131	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: παντρεμένει is misspelled; it is "παντρεμένοι".
+χωρίζω|aorist.active|3sg	1383693	ok	claude-opus-5-5 2026-11-22	The subject η κοπέλα μου fixes the aorist.
+χωρίζω|imperativeSimple.active|2sg	1383693	no	claude-opus-5-5 2026-11-22	The subject η κοπέλα μου makes χώρισε an aorist third person.
+χωρίζω|subjunctiveSimple.active|3sg	5419094	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: violence: police and hostile criminal gangs.
+ψάχνω|imperfect.active|3sg	3085522	no	claude-opus-5-5 2026-11-23	Tatoeba check, eng: The English drops "for a long time" ("από καιρό").
+ψάχνω|present.active|2pl	3062888	ok	claude-opus-5-5 2026-11-22	A question to εσείς: present.
+ψάχνω|subjunctiveSimple.active|3sg	7777134	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: στο Τομ should be στον Τομ.
+ψαρεύω|present.active|2pl	5565153	ok	claude-opus-5-5 2026-11-22	A question to εσείς: present.
+ψαρεύω|subjunctiveContinuous.active|3sg	7817651	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: quotation: the teach a man to fish proverb.
+ψαρεύω|subjunctiveContinuous.active|3sg	7817653	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: quotation: the proverb about teaching to fish.

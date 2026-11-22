@@ -24,8 +24,9 @@ final class CreditsFlowTests: XCTestCase {
         app = nil
     }
 
-    /// The Credits row sits right under the version; Credits lists the 13
-    /// data source lines, each naming its license, the GRDB.swift row, which
+    /// The Credits row sits right under the version; Credits lists the 14
+    /// data source lines (#365: the generated drill examples), each naming
+    /// its license, the GRDB.swift row, which
     /// opens its license verbatim, and the 8 licenses, each with its URL.
     /// The placeholder is gone.
     func testCreditsListEverySourceAndLicense() throws {
@@ -47,7 +48,15 @@ final class CreditsFlowTests: XCTestCase {
             "wordnet": "wordnet", "openrussian": "cc_by_sa_4_0", "freedict": "cc_by_sa_3_0",
             "spanish_wordnet": "cc_by_3_0", "arabic_wordnet": "cc_by_sa_3_0", "greek_wordnet": "apache_2_0",
             "wiktionary": "cc_by_sa_4_0", "greek_lists": "cc_by_sa_4_0", "octanove": "cc_by_sa_4_0",
-            "frequency_words": "cc_by_sa_4_0", "tatoeba": "cc_by_2_0_fr", "greek_grammar": "cc_by_sa_4_0",
+            "frequency_words": "cc_by_sa_4_0", "tatoeba": "cc_by_2_0_fr", "drill_examples": "cc_by_sa_4_0",
+            "greek_grammar": "cc_by_sa_4_0",
+        ]
+        // #365 (0134, "Credits and `data_source`"): Wiktionary also credits the
+        // usage examples; the generated drill examples have a line of their own.
+        let exact: [String: String] = [
+            "wiktionary": "Word forms and usage examples: Wiktionary contributors, via kaikki.org (CC BY-SA 4.0)",
+            "drill_examples": "Generated conjugation examples: written with an AI model for LibreDict and checked "
+                + "(CC BY-SA 4.0). Each is marked \u{201C}LibreDict, generated\u{201D}.",
         ]
         for id in IDs.lines {
             let line = app.staticTexts[IDs.line(id)]
@@ -57,6 +66,7 @@ final class CreditsFlowTests: XCTestCase {
             } else {
                 XCTAssertTrue(line.label.hasPrefix("The CEFR-J Wordlist Version 1.5."), "the citation: \(line.label)")
             }
+            if let text = exact[id] { XCTAssertEqual(line.label, text, id) }
         }
         // #340: the Mellstroy sound theme's voice, used with permission.
         let mellstroy = app.staticTexts[IDs.mellstroy]
