@@ -67,7 +67,8 @@ final class iPadSpecificTests: XCTestCase {
         // 0132, #168: a three-question drill on Greek A1's verbs.
         if name.contains("testConjugationDrillOnIPad") {
             app.launchArguments += ["-learningLanguages", "ell", "-learningLists", "ky-ell-a1", "-drillLength", "3",
-                                    "-learningAnswerHints", "-learningSeed", "168"] + UITestHelpers.packArguments("ell")
+                                    "-learningAnswerHints", "-learningSeed", "168",
+                                    "-drillPlan", "κάνω|imperativeSimple.active|2sg;κάνω|imperativeSimple.active|2sg;κάνω|imperativeSimple.active|2sg"] + UITestHelpers.packArguments("ell")
             app.launchEnvironment["OS_ACTIVITY_MODE"] = "disable"
         }
         // 0166, #164: the stats fixture, Greek in the Greek pack.
@@ -466,6 +467,11 @@ final class iPadSpecificTests: XCTestCase {
             XCTAssertTrue(drill.tenseTable.waitForExistence(timeout: TestData.Timeouts.medium), "the whole tense")
             XCTAssertLessThanOrEqual(drill.tenseTable.frame.width, 600, "the tense in the column")
             XCTAssertGreaterThan(drill.tenseTable.frame.minX, window.midX - 300 - 1)
+            // #364: the example sits in the same centred column.
+            XCTAssertTrue(drill.example.waitForExistence(timeout: TestData.Timeouts.medium), "the example")
+            XCTAssertLessThanOrEqual(drill.example.frame.width, 600, "the example in the column")
+            XCTAssertGreaterThan(drill.example.frame.minX, window.midX - 300 - 1)
+            XCTAssertLessThan(drill.example.frame.maxX, window.midX + 300 + 1)
             // 0133, #174: an active tense's question has Rule beside
             // Continue; the two make one centred row in the column.
             let rule = GrammarPage(app: app).ruleButton

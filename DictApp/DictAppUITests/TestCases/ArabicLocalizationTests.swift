@@ -868,6 +868,32 @@ final class ArabicLocalizationTests: XCTestCase {
         attachScreenshot("statistics calendar (ar)")
     }
 
+    /// 0132, #364: the drill's example in Arabic, mirrored like the Definition
+    /// screen's: its lines start on the right, the Greek sentence keeps its
+    /// left-to-right order, and the byline starts with U+200F.
+    func testDrillExampleRightToLeft() throws {
+        app.terminate()
+        app.launchArguments += ["-learningLanguages", "ell", "-learningLists", "ky-ell-a1", "-drillLength", "2",
+                                "-learningAnswerHints", "-learningSeed", "168",
+                                "-drillPlan", "κάνω|imperativeSimple.active|2sg;κάνω|imperativeSimple.active|2sg"]
+        app.launch()
+        XCTAssertTrue(app.waitForDictionariesReady(), "Search screen after launch")
+        tapTab(ArabicTab.learn)
+        let learnPage = LearnPage(app: app)
+        XCTAssertTrue(learnPage.waitForHome(timeout: TestData.Timeouts.long), "the Learn home")
+        let drill = learnPage.openConjugation()
+        drill.start()
+        XCTAssertTrue(drill.waitForQuestion(), "a question")
+        drill.answer(right: true)
+        XCTAssertTrue(drill.example.waitForExistence(timeout: TestData.Timeouts.medium), "the example")
+        let label = drill.example.label
+        XCTAssertTrue(label.contains("Κάνε"), label)
+        XCTAssertTrue(label.contains("\u{200F}من Tatoeba: "), "the byline starts with U+200F: \(label.unicodeScalars.map(\.value))")
+        let columns = try XCTUnwrap(drill.inkColumns(of: drill.example), "the example's text")
+        XCTAssertGreaterThan(columns.ink.upperBound, drill.example.frame.width - 24, "RTL: the lines start on the right: \(columns)")
+        attachScreenshot("drill example (ar)")
+    }
+
     /// 0132, #168: the drill in Arabic, mirrored. The row reads "تصريف
     /// الأفعال"; "Tenses up to" runs from the right (A1 rightmost); the
     /// verbs line starts with U+200F; the verb stands on the right, written

@@ -61,6 +61,8 @@ final class ConjugationPage: BasePage {
     var tenseTable: XCUIElement { element(IDs.tenseTable) }
 
     func tenseRow(_ person: String) -> XCUIElement { element(IDs.tenseRow(person)) }
+    /// #364: the example under the tense table.
+    var example: XCUIElement { element(IDs.example) }
     func summaryTense(_ tense: String) -> XCUIElement { element(IDs.summaryTense(tense)) }
 
     /// The person the question asks (`1sg`), from its own line (#329).
