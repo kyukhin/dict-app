@@ -373,6 +373,9 @@ struct AccessibilityIdentifiers {
         /// reads "εγώ, έγραψα", and the asked one has the value `asked`.
         static let tenseTable = "drill_tense_table"
         static func tenseRow(_ person: String) -> String { "drill_tense_row_\(person)" }
+        /// #364: the asked cell's example after an answer, one element: the
+        /// sentence, its translation and the byline.
+        static let example = "drill_example"
         /// The summary's tense, `drill_summary_tense_aorist`, value `4/5`.
         static func summaryTense(_ tense: String) -> String { "drill_summary_tense_\(tense)" }
         /// Practise under a Greek verb's table on the Definition screen.

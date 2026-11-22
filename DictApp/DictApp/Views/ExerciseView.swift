@@ -910,7 +910,12 @@ struct ConjugationRunView: View {
             VStack {
                 if let feedback = vm.feedback, let question = vm.question {
                     FeedbackBar(feedback: feedback,
-                                detail: AnyView(ConjugationTenseView(question: question)),
+                                detail: AnyView(VStack(alignment: .leading, spacing: 12) {
+                                    ConjugationTenseView(question: question)
+                                    if let example = vm.example {
+                                        ExampleSentenceView(example: example, number: 1, identifier: "drill_example")
+                                    }
+                                }),
                                 detailMaxHeight: height / 2,
                                 rule: vm.ruleTopic.map { topic in
                                     FeedbackBar.Rule(accessibilityLabel: DrillText.ruleLabel(question.facet.tense,
