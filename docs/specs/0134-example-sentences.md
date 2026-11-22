@@ -1,7 +1,7 @@
 # Example sentences
 
 > Spec written by Claude (AI) for LibreDict.
-> Status: Implemented (approved by kyukhin on 2026-11-04); the drill examples (#364, #365) approved by kyukhin on 2026-11-22 · Epic: #134 · Tickets: #177, #178, #339, #364, #365 · Updated: 2026-11-22
+> Status: Implemented (approved by kyukhin on 2026-11-04); the drill examples (#364, #365) approved by kyukhin on 2026-11-22 · Epic: #134 · Tickets: #177, #178, #339, #364, #365 · Updated: 2026-11-23
 
 Read [0000-overview.md](0000-overview.md), [0129-dictionary-file.md](0129-dictionary-file.md) and [0136-word-forms.md](0136-word-forms.md) first, then the approved specs this epic builds on, still in open PRs: 0237 (downloads: the English bundle and the language packs), 0130 (word lists: `WordKey`) and 0131 (learning). Numbers marked "measured" come from a prototype of the pipeline, run on 2026-11-04 against the Tatoeba export of 2026-10-31 (pinned below) and the dictionary file of master `e9997dd` (151,674,880 bytes, sha256 `24a1494d…`), Python 3.14.0, SQLite 3.51.2.
 
@@ -102,6 +102,7 @@ After each drill answer, right or wrong, the answer panel shows one sentence wit
 - **Which cells**: every cell the drill can ask: the verbs of the three Greek lists, every tense up to B2, both voices, impersonal verbs in αυτός only. That is 595 verbs and 57,000 cells (measured 2026-11-22, Design, "Drill examples").
 - **Where the sentence comes from**, in this order: Tatoeba (#364), a Wiktionary usage example (#365), a sentence generated for LibreDict (#365). The sentences already in the pack hold the form for 5% of the cells, all of Tatoeba for 8%, and Wiktionary brings that to 9% (measured; Design, "Measured").
 - **2.0** (kyukhin, 2026-11-22): every cell of the A1 and A2 verbs at tenses up to A2 gets a sentence, generated where none is found. Their B1 and B2 tenses and the B1 verbs come in 2.1; until then those cells show what Tatoeba and Wiktionary have.
+- **Skipped cells** (kyukhin, 2026-11-22): a cell where no natural Greek sentence shows the form in the cell's meaning stays without an example, as a cell above the scope does. Most are passives of active verbs that Greeks do not use in that person (αναβόμαστε); some are forms not used in the list's sense (σήμανα for σημαίνω "mean") or an order nobody gives (μπόρεσε). They are listed with the reason (Design, "Data files").
 - **Translations of the sentences LibreDict adds** (kyukhin, 2026-11-22): English and Russian only, the drill's two vias in 2.0. Spanish and Arabic come when a pair needs them. Tatoeba sentences keep their direct translations, as word examples do.
 - **Byline**: every example names its source: the Tatoeba authors and "Tatoeba" as on the Definition screen, "Wiktionary", or "LibreDict, generated" (kyukhin, 2026-11-22; wording in Design, "Byline").
 - Drill examples show only in the drill. The Definition screen and learning keep their word examples.
@@ -136,6 +137,12 @@ After each drill answer, right or wrong, the answer panel shows one sentence wit
 - 2026-11-22 (kyukhin, Open question 11): the bylines as the byline table has them.
 - 2026-11-22 (kyukhin, Open question 12, against the recommendation): generated translations are English and Russian only in 2.0, the only ones the drill shows; a Wiktionary sentence gets a generated Russian one only. Spanish and Arabic come when a pair needs them. This narrows #365's "English, Russian, Spanish and Arabic".
 - 2026-11-22 (kyukhin): no date moves for #364 and #365: build 11 and the App Store submission stay on 2026-11-26.
+- 2026-11-22 (kyukhin, #365, after approval): a cell where no natural Greek sentence shows the form in the cell's meaning stays without an example. Such cells are listed in `ell-skipped.tsv` with the reason and the checker; the 2.0 gate counts a listed cell as done, and the report lists the skips with their reasons. Mostly passives of active verbs with no real use (the generator's brief, rule 5).
+- 2026-11-22 (kyukhin, #365, after approval): besides the spec's filters, Wiktionary usage examples are dropped for content: broken text, violence, offensive, politics, smoking, religion, quotations and brands (196 of 597; "Sources and licences").
+- 2026-11-22 (kyukhin, #365, after approval; CodeRabbit on #366): attribution per row. The Wiktionary rows keep the entry they come from (`page`), and Credits names Wiktionary contributors with the source and the licence, as for the word forms (0136).
+- 2026-11-22 (kyukhin, #365, after approval): `ell-readings.tsv` keeps the second pass's reason in a `reason` column, after `checked_by`.
+- 2026-11-23 (kyukhin, #365): every Tatoeba sentence a drill cell uses is checked by a model too (its Greek, the form's reading, the Wiktionary rows' content filter, the English and Russian translations); a failure is a `no` verdict and the cell moves on to its next sentence (Checks, 4).
+- 2026-11-23 (kyukhin, #365, sample review): the cause of the sample's three bad rows is fixed across the rows it could touch: the generated rows of passive cells of active verbs and of -μαι verbs, checked again (Checks, 3).
 
 Design choices of this spec, for review:
 - Greek examples ship in the Greek pack, English examples in the English lists pack; the bundle gains only empty tables.
@@ -366,6 +373,7 @@ Figures marked "measured" come from a prototype run on 2026-11-22 (scratchpad, n
 4. **Auxiliaries.** έχω or είχα with an aorist infinitive in the next 3 words, only clitics or one other word between, is an auxiliary. In έχει γράψει and έχει ήδη γράψει, έχει is not έχω's present αυτός, and θα έχω γράψει is not έχω's future; in έχει ένα γράμμα it is. The perfect itself still needs its words in order with only clitics between (rule 2).
 5. **Homographs.** One spelling can fill several cells of a verb, or of two verbs, that rules 2 to 4 cannot tell apart. There are two kinds:
    - **Aspect only.** The two cells have the same person, voice and mood; only the continuous and simple forms share a spelling: κάνε, θα κάνουν, να κάνουν. One sentence serves both cells. Measured: 317 cells.
+     - A simple-imperative cell takes no sentence whose form is the continuous imperative, unless both imperatives are one word (#365, the Tatoeba check, 2026-11-23). Wiktionary's table also lists μίλα and κράτα as simple imperatives, but **Μίλα** is no sentence for μίλησε, nor **Κράτα** for κράτησε; κάνε, both imperatives of κάνω, serves both cells. The check applies the rule with `no` verdicts (Checks, 4), not the match rule.
    - **Another reading.** The spelling also has another person, tense or mood:
      - γράφετε: present and imperative εσείς;
      - μίλησε: aorist αυτός and imperative εσύ;
@@ -374,13 +382,13 @@ Figures marked "measured" come from a prototype run on 2026-11-22 (scratchpad, n
      - γραφόμαστε: present and imperfect εμείς;
      - πέστε: λέω and πέφτω.
 
-     A found sentence counts for such a cell only with an `ok` reading verdict from the second model pass (#365, "Data files"). Otherwise the cell stays open, and #365 generates a sentence written for that reading. Measured: 4,578 cells; 950 of them in the 2.0 scope, 396 of those with a found sentence to check. Without the rule the prototype gave the imperative μίλησε the sentence "Αυτός **μίλησε** για δέκα λεπτά χωρίς σταματημό."
+     A found sentence counts for such a cell only with an `ok` reading verdict from the second model pass (#365, "Data files"). Otherwise the cell stays open, and #365 generates a sentence written for that reading. A Wiktionary or generated row's `check` `ok` is the verdict for its own cell, since the second pass checked it in that reading; a verdict in `ell-readings.tsv` for the same cell and sentence decides instead. For any other cell its spelling holds, the row needs a verdict like any found sentence. A `no` verdict keeps its sentence out of its cell whatever the cell is, homograph or not: the second pass also refused πείνα (the noun) for πεινάω's imperative (#365, after QA). Measured: 4,578 cells; 950 of them in the 2.0 scope, 396 of those with a found sentence to check. Without the rule the prototype gave the imperative μίλησε the sentence "Αυτός **μίλησε** για δέκα λεπτά χωρίς σταματημό."
 6. **Highlight.** The highlight covers the form as the sentence writes it, from its first word to the verb, clitics included: Δε χρειάζεται **να μου το πεις** αυτό. Word examples highlight one token; a cell row may highlight several words.
 
 **Choice** (one sentence per cell). Of the sentences that hold the cell:
 1. Tatoeba first, then Wiktionary, then generated: real sentences come first.
 2. A sentence with the cell's first form (the option the question shows as right) comes before one with another form: κάνε before κάμε.
-3. Tatoeba sentences are ranked by step 5's rank: native author, more of eng, rus, spa and arb, 3 to 10 words, lower id. Wiktionary sentences are ranked by 3 to 10 words first, then fewer words, then the dump's order.
+3. Tatoeba sentences are ranked by step 5's rank: native author, more of eng, rus, spa and arb, 3 to 10 words, lower id. Wiktionary and generated sentences: the row written or translated for the cell (its `cell`) first, then 3 to 10 words, then fewer words, then the id (for Wiktionary the dump's order).
 4. The highlight is the first occurrence in the sentence.
 
 A sentence can serve several cells and is one `example_sentence` row. One that is already a word example is reused.
@@ -396,8 +404,8 @@ A sentence can serve several cells and is one `example_sentence` row. One that i
   | Wiktionary | 1,000,000,000 + n |
   | generated | 2,000,000,000 + n |
 
-  n is the row's number in the data file (below). It is given once and never reused.
-- A translation has its sentence's source, with one exception: a Wiktionary sentence's English is Wiktionary's, and its Russian is generated.
+  n numbers each source's rows in the data file (below) in the order they were added. It is given once and never reused, so a row dropped later leaves a gap: the second pass dropped 50 of the 401 Wiktionary rows.
+- A translation has its sentence's source, with one exception: a Wiktionary sentence's English is Wiktionary's, and its Russian is generated. The translations of a Wiktionary or generated sentence take its id as their `id`.
 - `author` is "Wiktionary" or "LibreDict" for the texts not from Tatoeba, so every text keeps an author (the step's gate).
 - Swift's `ExampleSource` reads the same ranges.
 - Rejected for 2.0: a new `example_cell` table with a `source` column. It is cleaner, but it is format 5: the bundle, the stub and all five packs change, and every installed pack is downloaded again (0237). It can come in 2.x with the next format bump (Open question 10).
@@ -409,8 +417,9 @@ A sentence can serve several cells and is one `example_sentence` row. One that i
    - Never taken:
      - quotations (`type` "quotation" or any `ref`): third-party text from books and press, quoted as citations, which Wiktionary's licence cannot grant;
      - untyped entries, which are notes ("See related expressions").
+   - **Content filter** (kyukhin, 2026-11-22): besides the filters above, an example is dropped for its content, as the generator's brief keeps generated ones neutral. Of the 597 usage examples that held a cell Tatoeba lacks, 196 were dropped before any translation: broken text 86 (a fragment, a misspelling, a lost accent), violence 41, offensive 33, politics 25, smoking 4, religion 4, quotation 2 (a citation typed as an example), brand 1. The second pass then dropped 50 of the 401 kept: 21 for content, 18 whose form has another reading than the cell's (a prohibition with μη(ν), an imperative, a homograph with no subject), 7 with broken Greek and 4 whose Russian it could not make right. 351 rows ship.
    - Licence: Wiktionary's text, and so kaikki.org's data, is under CC BY-SA 4.0 (also GFDL; we use CC BY-SA 4.0).
-     - Attribution: "Wiktionary contributors", with the source and licence in Credits and the `data_source` row.
+     - Attribution (kyukhin, 2026-11-22; CodeRabbit on #366): as for the word forms (0136). Credits names "Wiktionary contributors" with the source (via kaikki.org) and the licence; the `data_source` row records the source, its version and the licence (the table under "Credits and `data_source`"). The data file keeps each row's entry (`page`, the Wiktionary page the example is on in the pinned subset), so every sentence leads back to its page and that page's history of authors; the build checks the page against the pin.
      - Share-alike: the rows, with our translations of them, ship under CC BY-SA 4.0 in the Greek pack, as the word forms do (0136).
      - The Greek text and its English are Wiktionary's, unchanged but for NFC. Our Russian translation is marked as generated in the byline, as CC BY-SA 4.0 asks of changes.
 3. **Generated** (#365): a model writes one sentence for one cell and translates it into eng and rus (kyukhin, 2026-11-22: the drill's two vias in 2.0; spa and arb come when a pair needs them). It is LibreDict's own data under CC BY-SA 4.0, like the grammar notes (0133). The model gets the cell and the list words, and no web content, so nothing comes from learning sites.
@@ -418,12 +427,13 @@ A sentence can serve several cells and is one `example_sentence` row. One that i
 Other licensed corpora wait for 2.1, each with its licence checked first.
 
 **Data files** (#365), plain text in Git (not LFS), so a PR shows every sentence:
-- **`Scripts/data/drill-examples/ell.tsv`**: one row per Wiktionary or generated sentence. UTF-8, tab-separated, a header line, rows sorted by `id`. About 1.3 MB for the 2.0 scope (estimated: about 5,600 rows of about 230 bytes).
+- **`Scripts/data/drill-examples/ell.tsv`**: one row per Wiktionary or generated sentence. UTF-8, tab-separated, a header line, rows sorted by `id`. 1.5 MB for the 2.0 scope (#365 as built, 2026-11-23: 351 Wiktionary and 4,424 generated rows; the estimate was about 1.3 MB and 5,600 rows).
 
   | Column | Content |
   |---|---|
   | `id` | 1,000,000,001… (Wiktionary), 2,000,000,001… (generated) |
   | `source` | `wiktionary` or `generated` |
+  | `page` | A Wiktionary row's entry in the pinned subset (the page it is on, checked against the pin); empty for a generated row (kyukhin, 2026-11-22) |
   | `cell` | The cell key it was written or translated for |
   | `text` | Greek, NFC. A Wiktionary row repeats the pinned text, which the build checks, so it cannot be edited by hand |
   | `eng`, `rus` | Translations. A Wiktionary row's `eng` is Wiktionary's own (checked against the pin). `spa` and `arb` columns are added when a pair needs them |
@@ -431,17 +441,19 @@ Other licensed corpora wait for 2.1, each with its licence checked first.
   | `check` | `ok`, or the second pass's reason |
   | `checked_by` | The checking model's id and the date |
 
-- **`Scripts/data/drill-examples/ell-readings.tsv`**: the second pass's verdicts on found sentences of homograph cells. Columns `cell`, `sentence_id`, `verdict` (`ok` or `no`) and `checked_by`.
+- **`Scripts/data/drill-examples/ell-readings.tsv`**: the second pass's verdicts on found sentences of homograph cells, and the Tatoeba check's `no` verdicts on any cell (Checks, 4). Columns `cell`, `sentence_id` (a Tatoeba id, or a Wiktionary or generated row's id), `verdict` (`ok` or `no`), `checked_by` and `reason`, the second pass's reason (kyukhin, 2026-11-22).
+- **`Scripts/data/drill-examples/ell-skipped.tsv`** (kyukhin, 2026-11-22): the cells with no natural sentence. Columns `cell`, `reason` (the generator's, confirmed by the second pass) and `checked_by`. A cell listed here counts as done for the 2.0 gate and stays without an example, even when a sentence holds its form another way (#365, after QA: 3 such cells, "Αν χρειαστείτε κάτι" is a subjunctive after αν, not χρειάζομαι's imperative εσείς). Lines of cells the drill no longer asks are stale: reported, never used.
 - **`Scripts/drill_examples.py`** is the tool around them. The build never runs it and stays offline:
-  - `--todo [--scope …]` lists the open cells with what the generator needs: the verb, its meaning, the form, the tense title and person, the list level and the allowed words;
-  - `--add <file>` appends generated or checked rows and gives them ids;
+  - `--todo [--scope A2/A2] [--source FILE] [--out DIR]` lists the open cells of a scope (verb lists up to / tenses up to; A2/A2 is 2.0's): no row in a built file and not skipped, with what the generator needs: the cell, its form and spellings, the verb, its list term, meaning and level, the tense title, voice and person, its homographs and their other readings; with `--out` also the allowed words, one file per list level;
+  - `--add <file>` appends generated or checked rows and gives them ids, the next of their source; a Wiktionary row without a `page` gets it from the pin;
   - `--sample 50` writes `Scripts/reports/drill-examples-sample.md`: 50 rows that did not come from Tatoeba, drawn with a seed taken from the data file's sha256, so nobody picks the sample.
 - **The generator's brief**:
   - one sentence of 3 to 10 words, with the cell's form exactly once, in the cell's reading (tense, voice, person);
   - its other words from the Greek lists up to the verb's level (A1 for an A1 verb, A1 and A2 for an A2 verb), plus function words;
   - everyday, neutral content, with no real people, brands, politics or violence;
   - modern monotonic spelling;
-  - faithful translations in English and Russian that keep the tense and person.
+  - faithful translations in English and Russian that keep the tense and person;
+  - a cell with no sentence a Greek would really say in the cell's meaning is skipped with its reason, not forced (kyukhin, 2026-11-22): above all a passive of an active verb with no real use in that person.
 
   The rows record the model ids; this spec does not fix them.
 
@@ -449,16 +461,26 @@ Other licensed corpora wait for 2.1, each with its licence checked first.
 1. **Form gate.** The build fails unless every Wiktionary and generated row:
    - holds its cell by the match rule (the build finds the span);
    - has at most 15 words, is in NFC and has both translations, eng and rus;
-   - has `check` `ok` and an id in its range;
-   - for a Wiktionary row, has the pinned text and English.
+   - has `check` `ok` and an id in its range, the ids unique and ascending, and a text no other row has;
+   - for a Wiktionary row, has the pinned text, English and page; a generated row has no page;
+   - and every reading verdict is `ok` or `no` with its checker, every skip has its reason and checker.
 2. **Second model pass.** A separate run, in a fresh context, checks each row:
    - the Greek's grammar and naturalness;
    - that the highlighted form has the cell's reading;
    - that each translation is faithful;
    - the vocabulary level and the content.
 
-   A row that fails is generated again and checked again. The same pass writes the reading verdicts.
+   A row that fails is generated again and checked again. The same pass writes the reading verdicts and confirms each skip.
 3. **kyukhin's sample of 50**, in the data PR. He reads the Greek, English and Russian: every language the rows hold. If the sample has a wrong form or a wrong meaning, the cause is fixed, the rows it touched are generated again and a new sample is drawn. The `ell` release waits for his ok (0237, "Release").
+   - First sample (kyukhin, 2026-11-23): every form matched its cell. Two rows were unnatural, a passive where a Greek says an active third person plural (φέρνονται) and a figurative aorist (αστράψατε), and one translation was wrong (παρουσιαστήκαμε is "we reported to", not "we introduced ourselves").
+   - The cause fixed: the second pass checked again, with those patterns, all 828 generated rows of passive cells of active verbs and of -μαι verbs. 163 rows changed in place, keeping their ids (kyukhin's three among them); 19 were removed and their cells skipped. A new sample was drawn.
+4. **Tatoeba check** (kyukhin, 2026-11-23). Every Tatoeba sentence a drill cell uses is checked by a model too, as a Wiktionary row is:
+   - its Greek: errors and spelling (a sweep for δε μπορώ, μη ξεχάσεις, ΄ for ’);
+   - the reading of its form, the cell's;
+   - the content filter of the Wiktionary rows ("Sources and licences");
+   - both translations the drill shows, English and Russian.
+
+   A sentence that fails gets a `no` verdict for its cell in `ell-readings.tsv` (the reason starts "Tatoeba check"), so the cell takes its next Tatoeba sentence, which is checked in turn; this repeats until no new Tatoeba sentence comes up. A 2.0 cell left without one is generated or skipped like any open cell. As run: 834 sentences failed (877 `no` verdicts): content 277, Greek 242, form 208 (mostly χώρα the noun in χωράω's imperative, and continuous imperatives in simple-imperative cells, rule 5), English 87, Russian 20. Drill rows from Tatoeba: 3,958 before, 3,617 after (3,442 sentences); in the 2.0 scope 2,284 before, 2,141 after, and 114 cells got a generated sentence and 3 were skipped. 71 of the verdicts name a Tatoeba sentence that is no candidate (the build's filters drop it), so they are stale: reported, never used.
 
 **Byline** (kyukhin, 2026-11-22). Every example names its source. Wiktionary is named as Credits names it in each language: Wiktionary, Викисловарь, Wikcionario, ويكاموس, Βικιλεξικό.
 
@@ -477,16 +499,18 @@ Other licensed corpora wait for 2.1, each with its licence checked first.
   | id | kind | Name | Version | Licence | URL |
   |---|---|---|---|---|---|
   | `wiktionary-ell-examples` | `example_sentences` | Wiktionary (Greek usage examples) | `enwiktionary 2026-10-01` | CC BY-SA 4.0 | `https://kaikki.org/dictionary/` |
-  | `libredict-drill-ell` | `example_sentences` | Drill examples (LibreDict, generated) | the data file's date | CC BY-SA 4.0 | `https://github.com/kyukhin/dict-app/tree/master/Scripts/data/drill-examples` |
+  | `libredict-drill-ell` | `example_sentences` | Drill examples (LibreDict, generated) | the data file's date: the latest in its generated rows' `model` and `checked_by` | CC BY-SA 4.0 | `https://github.com/kyukhin/dict-app/tree/master/Scripts/data/drill-examples` |
 
 **Report and gates.** `examples-qa.md` gains a "Drill cells" section:
 - the pool: verbs per list;
-- cells by list and tense level, and by tense and voice, each split into covered by Tatoeba, by Wiktionary, generated and none;
+- cells by list and tense level, and by tense and voice, each split into covered by Tatoeba, by Wiktionary, generated, skipped and none;
+- the data files: rows per source and how many ship, verdicts, skips, stale lines, and the 2.0 scope's open cells;
 - homograph cells of both kinds, with their verdicts, and the spellings shared by two verbs;
 - samples: κάνω imperative εσύ, γράφω aorist εγώ, γράφω future εγώ, λέω simple subjunctive εσύ, βλέπω perfect εγώ, έχω present αυτός;
 - the open cells of the 20 most frequent verbs;
 - stale data rows: cells the drill no longer asks, which the build skips;
 - the share of each generated row's words that are list words up to its verb's level;
+- the skipped cells with their reasons (kyukhin, 2026-11-22);
 - the size of the drill rows and a hash of them.
 
 | Gate | Ticket |
@@ -494,7 +518,7 @@ Other licensed corpora wait for 2.1, each with its licence checked first.
 | Every cell row's span holds its cell's form by the match rule, checked again on the output | #364 |
 | Every cell key is in the build's cell list; one row per cell (`ord` 1); every Tatoeba id below 10^9 | #364 |
 | The word examples do not change: the rows of word keys keep their hash | #364 |
-| Every cell of the 2.0 scope (the A1 and A2 verbs, tenses up to A2) has a sentence | #365 |
+| Every cell of the 2.0 scope (the A1 and A2 verbs, tenses up to A2) has a sentence, or is listed in `ell-skipped.tsv` (kyukhin, 2026-11-22); no listed cell has a row | #365 |
 | The data files pass the form gate (Checks, 1) | #365 |
 | Size: the 10 MB budget counts word examples only (9.36 MB now). The drill rows and the sentences only they use stay within 3.5 MB installed (kyukhin, 2026-11-22) | #364, #365 |
 
@@ -624,8 +648,8 @@ Drill examples (#364, #365; approved by kyukhin on 2026-11-22):
 |---|---|---|
 | `Scripts/drill_cells.py` | New: the drill's cells, a port of 0132's rules | #364 |
 | `Scripts/build_examples.py` | The match rule, the choice, the cell rows, the report section and the gates (#364); the Wiktionary rows, the data files, their gate and the two `data_source` rows (#365); `--self-check` cases for both | #364, #365 |
-| `Scripts/fixtures/tatoeba-sample/` | The match cases (Test plan) | #364 |
-| `Scripts/drill_examples.py`, `Scripts/data/drill-examples/ell.tsv`, `ell-readings.tsv`, `Scripts/reports/drill-examples-sample.md` | New | #365 |
+| `Scripts/fixtures/tatoeba-sample/` | The match cases (Test plan) (#364); `drill-examples/` (the three data files) and `kaikki-examples.jsonl` (entries of the pinned subset) for the data cases, and αγάπησε in `lexicon.tsv` (#365) | #364, #365 |
+| `Scripts/drill_examples.py`, `Scripts/data/drill-examples/ell.tsv`, `ell-readings.tsv`, `ell-skipped.tsv`, `Scripts/reports/drill-examples-sample.md` | New | #365 |
 | `Scripts/packs.json` | The two `data_source` ids under `ell` | #365 |
 | `Packs/ell-*.sqlite.xz`, the bundle's `catalog_pack` row | Rebuilt `ell`, a new version and its pin; no other asset | #364, #365 |
 | `Models/Models.swift` | `ExampleSource`, the source bylines and VoiceOver labels; the Credits line | #365 |
@@ -690,10 +714,10 @@ Drill examples (#364, #365; approved by kyukhin on 2026-11-22). Data tests read 
 | #364: κάνω, imperative εσύ, has a sentence with κάνε | Unit `DrillExampleDataTests.testKanoImperativeHasKane`: the `κάνω\|imperativeSimple.active\|2sg` row's span reads Κάνε, with an English translation and a Tatoeba author. The panel is in 0132 |
 | #364: the build reports covered cells per tense; only the `ell` pack and its catalog pin change | `examples-qa.md`, "Drill cells" (per tense and voice). Review: the PR changes `Packs/ell-*.sqlite.xz` and the bundle's `catalog_pack` row, and no other asset; `cut_packs.py --verify`. Unit `ExampleDataTests.testExamplesGoWithTheirLanguage` (cell rows only in `ell`) and 0237's `PackFileTests.testEveryFileHasTheFormat` (still format 4). The gate "word examples do not change" |
 | #364, #177: every example is complete | Unit `ExampleDataTests.testEveryExampleIsComplete`, amended: a cell row has `ord` 1, and its span may cover several words (from the form's first word to the verb). A generated sentence has eng and rus; a Wiktionary one has Wiktionary's eng and a generated rus; neither has spa or arb |
-| #365: every drill cell of the Greek A1 and A2 verbs has a sentence (tenses up to A2, kyukhin 2026-11-22) | Build gate. Unit `DrillExampleDataTests.testEveryCellInScopeHasASentence`: the app's own pool from the committed pack, every cell of the A1 and A2 lists' verbs in scope has a row. This also catches drift in `drill_cells.py` |
-| #365: every sentence names its source; generated ones say so | Unit `ExampleTextTests.testBylineNamesTheSource`: the four rows of the byline table in five languages; Arabic starts with U+200F; the VoiceOver labels. `DrillExampleDataTests.testEverySentenceHasASource`: every sentence id is in one of the three ranges. A generated sentence has eng and rus only, author "LibreDict"; a Wiktionary sentence has the English from the pin and a generated Russian, author "Wiktionary". `CreditsTests` (both new `data_source` rows credited). UI `ConjugationDrillFlowTests.testGeneratedExampleSaysSo` (0132) |
+| #365: every drill cell of the Greek A1 and A2 verbs has a sentence (tenses up to A2, kyukhin 2026-11-22), or is listed as a cell with no natural one (kyukhin 2026-11-22) | Build gate. Unit `DrillExampleDataTests.testEveryCellInScopeHasASentence`: the app's own pool from the committed pack, every cell of the A1 and A2 lists' verbs in scope (`questions(verb:level: .a2)`) has a row or is in `ell-skipped.tsv`, and every skipped cell is in scope. This also catches drift in `drill_cells.py`. `--self-check`: a skipped cell is done, any other open cell fails the gate, cells above the scope do not count |
+| #365: every sentence names its source; generated ones say so | Unit `ExampleTextTests.testBylineNamesTheSource`: the four rows of the byline table in five languages; Arabic starts with U+200F; the VoiceOver labels. `DrillExampleDataTests.testEverySentenceHasASource`: every sentence id is in one of the three ranges. A generated sentence has eng and rus only, author "LibreDict"; a Wiktionary sentence has the English from the pin and a generated Russian, author "Wiktionary". `CreditsTests` (both new `data_source` rows credited); `DrillExampleDataTests.testDrillDataSourceRows` (both rows in the Greek pack only, CC BY-SA 4.0). UI `ConjugationDrillFlowTests.testGeneratedExampleSaysSo` (0132). `--self-check`: a Wiktionary sentence by Wiktionary with the pin's English and a Russian by LibreDict; a generated one by LibreDict with eng and rus only; the three id ranges |
 | #365: the licences allow shipping; nothing from learning sites | Review of the sources above and of `Scripts/drill_examples.py`: the generator gets no web content. The `data_source` rows and the Credits lines name CC BY-SA 4.0 |
-| #365: the form gate, the second pass, kyukhin's ok on the sample | Build gate (Checks, 1); the `check` column is `ok` on every row; `Scripts/reports/drill-examples-sample.md` in the PR. kyukhin's ok is recorded in History, and the `ell` release follows it |
+| #365: the form gate, the second pass, kyukhin's ok on the sample | Build gate (Checks, 1); the `check` column is `ok` on every row. `--self-check` on `Scripts/fixtures/tatoeba-sample/drill-examples/`: the form gate catches each kind of bad row, verdict and skip; Tatoeba comes before a generated row; a row counts for its own cell of another reading (γράφετε, έκανα, αγάπησε) and never for the other; the readings file's `ok` and `no`; a row first for its own cell; stale lines reported and never used; the pin takes no quotation, and a text met twice keeps its first page; the two `data_source` rows; two builds with equal hashes; `Scripts/reports/drill-examples-sample.md` in the PR. kyukhin's ok is recorded in History, and the `ell` release follows it. The Tatoeba check (Checks, 4): its `no` verdicts are applied, `DrillExampleDataTests.testReadingVerdictsDecide` |
 | Size | Build gate (drill rows ≤ 3.5 MB installed, kyukhin 2026-11-22). QA records the `ell` asset's and file's sizes in History |
 
 ## Open questions
@@ -741,3 +765,8 @@ Drill examples (#364, #365):
 - 2026-11-22: Drill examples approved by kyukhin, with his answers to open questions 7 to 12 (Decisions): tenses up to A2 for the A1 and A2 verbs in 2.0; a model-checked reading for homographs of another reading; their own 3.5 MB budget; cell keys in `example_word`, format 4; the bylines as proposed; and, against the recommendation, English and Russian only for the sentences LibreDict adds (a Wiktionary sentence gets a generated Russian one only). No date moves: build 11 and the App Store submission stay on 2026-11-26. Sizes measured again with two translations: the 2.0 scope adds 1.9 MB installed and about 0.5 MB to download (was 2.6 and 0.7 with four); every tense of the A1 and A2 verbs 6.6 and 1.9; every cell 14.8 and 4.3; found sentences only 0.59 and 0.14. The data file shrinks to about 1.3 MB.
 - 2026-11-22 (#364, after QA): rule 3 also blocks after an elided θ' or ν' (glued or before a space; `Οι τιμές εξακολουθούν ν' ανεβαίνουν` was a present), ας and a prohibitive μη(ν) (`Μην ανησυχείς`). An elided θ' or ν' is never the θα or να of a compound form (kyukhin: exactly the asked form), so `Θ' ακούσετε` is no sentence for θα ακούσετε. `--self-check` gains these cases.
 - 2026-11-22 (#364, review): rule 4 takes έχω or είχα as an auxiliary when an aorist infinitive follows within 3 words, with only clitics or one other word between (έχει ήδη γράψει), not only right after it; the drill's read of a cell key is `examples(lang:word:limit:)` here too.
+- 2026-11-22 (kyukhin, #365, after approval): four decisions written in (Decisions): cells with no natural sentence are listed in `ell-skipped.tsv` and count as done for the 2.0 gate; Wiktionary usage examples are filtered for content (196 of 597, with the counts in "Sources and licences"); each Wiktionary row keeps its entry (`page`), the attribution basis being the word forms' (0136); `ell-readings.tsv` keeps the second pass's `reason`.
+- 2026-11-22 (#365, as built): `Scripts/data/drill-examples/` holds 351 Wiktionary rows (the second pass dropped 50 of the 401 left after the content filter) and 4,329 generated rows, all `ok`; 383 reading verdicts (210 ok, 173 no; a Wiktionary sentence by its row's id, and the 7 verdicts on dropped rows left out); 603 skipped cells, all in the 2.0 scope. The 2.0 scope's 7,334 cells: Tatoeba 2,284, Wiktionary 141, generated 4,306, skipped 603, open 0. All 351 Wiktionary rows and 4,305 generated rows ship; all 57,000 cells: 8,722 with a sentence. The drill rows take 2.06 MB installed (budget 3.5 MB); the word examples keep their hash (9.36 MB). Of #364's 3,768 cell rows, 5 take another Tatoeba sentence, which an `ok` verdict on the cell's first form now allows; υπογράφω's aorist αυτός takes a generated one, its Tatoeba sentence having a `no` verdict; γελάω's and πεινάω's imperative εσύ lose theirs (skipped cells; πεινάω's sentence also has a `no` verdict). Implementation details, no change of behaviour: a data row's `check` `ok` is its own cell's reading verdict, a verdict in `ell-readings.tsv` decides on top of it; a Wiktionary or generated row comes first for the cell it was written for; a data row's translations take its sentence's id; ids keep the gaps of dropped rows; `libredict-drill-ell`'s version is the latest date in the generated rows; `drill_examples.py --todo` takes `--scope A2/A2`, `--source` and `--out`. 11 present cells that the prep counted as covered by Tatoeba (Μην του το δίνεις, θέλουν ν' ακούν) fail #364's rule 3 and were generated too. `--self-check` gains the data cases (Test plan).
+- 2026-11-22 (#365, after QA): a `no` verdict keeps its sentence out of its cell for every cell, not only one whose form is a homograph of another reading (3 of the 173 `no` verdicts were ignored: πεινάω's and φυσάω's imperative εσύ, υπογράφω's aorist αυτός); a cell in `ell-skipped.tsv` stays without an example even when a sentence holds it (3 cells took one, 2 of them wrongly), and the 2.0 gate also fails on a listed cell with a row. `--self-check` and `DrillExampleDataTests.testEveryCellInScopeHasASentence` cover both. The `ell` asset is `ell-353d52a673b0` (0237).
+- 2026-11-23 (kyukhin, #365, sample review): kyukhin read the first sample of 50. Every form matched its cell; φέρνονται (a passive where a Greek says an active third person plural) and αστράψατε (a figurative aorist) were unnatural, and παρουσιαστήκαμε was mistranslated ("we introduced ourselves" for "we reported to"). The cause fixed (Checks, 3): the 828 generated rows of passive cells of active verbs and of -μαι verbs were checked again with those patterns; 163 changed in place, keeping their ids (his three among them), and 19 were removed and their cells skipped. A new sample of the new data file is in `drill-examples-sample.md`, for his review.
+- 2026-11-23 (kyukhin, #365, Tatoeba check): every Tatoeba sentence the drill cells used was checked like a Wiktionary row, and a cell whose sentence failed took its next one until none was new (Checks, 4). 834 sentences failed, with 877 `no` verdicts (20 of them on cells whose `ok` verdict they replace): content 277, Greek 242, form 208, English 87, Russian 20. A simple-imperative cell takes no continuous imperative unless both are one word (Match rule 5). Drill rows from Tatoeba: 3,958 before, 3,617 after. The 2.0 cells left without a sentence got 114 generated rows; 3 were skipped. As built: `ell.tsv` 4,775 rows (351 Wiktionary, 4,424 generated; 351 and 4,417 ship); `ell-readings.tsv` 1,240 verdicts (190 ok, 1,050 no; 71 stale, on sentences the filters drop); `ell-skipped.tsv` 625 cells. The 2.0 scope's 7,334 cells: Tatoeba 2,141, Wiktionary 142, generated 4,426, skipped 625, open 0. All 57,000 cells: 8,509 with a sentence (Tatoeba 3,617, Wiktionary 369, generated 4,523). The drill rows take 2.07 MB installed (budget 3.5 MB); the word examples keep their hash (9.36 MB). The `ell` asset is `ell-df66bea2d079` (0237).

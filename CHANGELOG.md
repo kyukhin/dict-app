@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- [#365] Every conjugation drill cell of the A1 and A2 verbs, at tenses up to A2, gets an example: Tatoeba's first, then Wiktionary usage examples, then generated ones checked by a second model pass, each with its source under it. Cells with no natural Greek sentence stay without one.
 - [#364] After an answer, the conjugation drill shows a sentence with exactly the asked form, when the Greek pack has one.
 - [#355] A typed answer may be a spelling variant kept in the word's endings: εννιά for εννέα, εφτά, οχτώ, ξάφνου, χώρια, and English variants such as "am" for a.m.
 - [#331] In learning, a Recognition question speaks its word and a conjugation drill question its verb as it appears, in the word's own voice; a new "Speak words" switch in Settings → Learning, on by default, turns it off, and nothing is spoken while VoiceOver runs.
