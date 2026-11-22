@@ -495,7 +495,7 @@ struct AccessibilityIdentifiers {
         /// The lines, in display order.
         static let lines = ["wordnet", "openrussian", "freedict", "spanish_wordnet", "arabic_wordnet",
                             "greek_wordnet", "wiktionary", "greek_lists", "cefrj", "octanove",
-                            "frequency_words", "tatoeba", "greek_grammar"]
+                            "frequency_words", "tatoeba", "drill_examples", "greek_grammar"]
         /// The licenses, in display order: id, name and URL (untranslated).
         static let licenses: [(id: String, name: String, url: String)] = [
             ("cc_by_sa_4_0", "CC BY-SA 4.0", "https://creativecommons.org/licenses/by-sa/4.0/"),

@@ -31,6 +31,14 @@ candidate sentence that holds the cell's whole form by the match rule
 Its `example_word` row is keyed `<word>|<facet>|<person>`, `ord` 1, and
 highlights the form from its first word to the verb.
 
+#365 adds the data files of `Scripts/data/drill-examples/`: Wiktionary
+usage examples (checked against the pinned kaikki subset) and generated
+sentences (`ell.tsv`), the second pass's reading verdicts
+(`ell-readings.tsv`) and the cells left without a sentence
+(`ell-skipped.tsv`). Tatoeba comes first, then Wiktionary, then generated;
+the form gate and the 2.0 coverage gate fail the build.
+`Scripts/drill_examples.py` is the tool around the data files.
+
 Usage (from the repository root):
     python3 Scripts/build_examples.py --self-check
         offline, on Scripts/fixtures/tatoeba-sample/: builds twice, compares
@@ -53,6 +61,7 @@ import bz2
 import collections
 import email.utils
 import functools
+import gzip
 import hashlib
 import heapq
 import json
@@ -66,7 +75,7 @@ import tempfile
 import unicodedata
 import urllib.parse
 import urllib.request
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Callable, Iterable
 
@@ -201,6 +210,34 @@ FAMILY = {"imperativeContinuous": "imperative", "imperativeSimple": "imperative"
 DRILL_SAMPLES = ("κάνω|imperativeSimple.active|2sg", "γράφω|aorist.active|1sg", "γράφω|future.active|1sg",
                  "λέω|subjunctiveSimple.active|2sg", "βλέπω|perfect.active|1sg", "έχω|present.active|3sg")
 LEVEL_NAMES = {1: "A1", 2: "A2", 3: "B1"}
+
+# #365: the drill-example data files (0134, "Data files"), plain text in Git.
+DRILL_DATA = SCRIPTS_DIR / "data" / "drill-examples"
+DATA_FILE, READINGS_FILE, SKIPPED_FILE = "ell.tsv", "ell-readings.tsv", "ell-skipped.tsv"
+DATA_COLUMNS = ("id", "source", "page", "cell", "text", "eng", "rus", "model", "check", "checked_by")
+READING_COLUMNS = ("cell", "sentence_id", "verdict", "checked_by", "reason")
+SKIPPED_COLUMNS = ("cell", "reason", "checked_by")
+SOURCE_IDS = {"wiktionary": WIKTIONARY_IDS, "generated": GENERATED_IDS}
+AUTHORS = {"wiktionary": "Wiktionary", "generated": "LibreDict"}  # every text keeps an author
+GENERATED_AUTHOR = "LibreDict"  # of a generated text, also a Wiktionary sentence's Russian
+SCOPE = (2, 1)  # 2.0 (kyukhin 2026-11-22): the A1 and A2 verbs, tenses up to A2 (indexes of drill_cells.LEVELS)
+KAIKKI_PREFIX = "Scripts/data/kaikki-el-"  # the pinned kaikki subset (0136): the Wiktionary usage examples
+GREEK_LETTER = re.compile(r"[Ͱ-Ͽἀ-῿]")
+DATE = re.compile(r"\d{4}-\d{2}-\d{2}")
+WIKTIONARY_SOURCE = {
+    "id": "wiktionary-ell-examples",
+    "kind": "example_sentences",
+    "display_name": "Wiktionary (Greek usage examples)",
+    "license": "CC BY-SA 4.0",
+    "url": "https://kaikki.org/dictionary/",
+}
+GENERATED_SOURCE = {
+    "id": "libredict-drill-ell",
+    "kind": "example_sentences",
+    "display_name": "Drill examples (LibreDict, generated)",
+    "license": "CC BY-SA 4.0",
+    "url": "https://github.com/kyukhin/dict-app/tree/master/Scripts/data/drill-examples",
+}
 
 # Tatoeba's tags that keep a sentence or translation out. Maintenance tags
 # (every tag starting with "@") say the sentence, its language or a link
@@ -736,12 +773,14 @@ def source_of(sid: int) -> int:
     return 0 if sid < WIKTIONARY_IDS else 1 if sid < GENERATED_IDS else 2
 
 
-def cell_order(sid: int, form_index: int, rank: tuple) -> tuple:
+def cell_order(sid: int, form_index: int, rank: tuple, own: bool = False) -> tuple:
     """The choice's order of a sentence for a cell, lowest first: real
     sentences first (Tatoeba, Wiktionary, then generated), the cell's first
-    form (the option shown as right) before another, then the source's own
-    rank (Tatoeba: step 5's)."""
-    return (source_of(sid), min(form_index, 1)) + tuple(rank)
+    form (the option shown as right) before another, a data row written or
+    translated for the cell (`own`, #365) before one written for another,
+    then the source's own rank (Tatoeba: step 5's; Wiktionary and
+    generated: 3 to 10 words, fewer words, the id)."""
+    return (source_of(sid), min(form_index, 1), 0 if own else 1) + tuple(rank)
 
 
 @dataclass
@@ -753,14 +792,21 @@ class Drill:
     rows: dict[str, tuple[int, int, int, str]]  # cell key -> (sid, start, length, form)
     found: dict[str, int]  # cell key -> sentences that hold it
     waiting: dict[str, int]  # cell key -> sentences held only through another reading, without an ok verdict
+    data: dict[int, Candidate] = field(default_factory=dict)  # #365: the Wiktionary and generated rows, by id
 
 
 def build_drill(pool: list, cells: list[drill_cells.DrillCell], candidates: dict[int, Candidate],
-                infinitives: frozenset[str], verdicts: dict[tuple[str, int], str] | None = None) -> Drill:
-    """One Tatoeba candidate per cell (0134, "Choice"). A spelling of
-    another reading counts only with an `ok` verdict for (cell, sentence)
-    (#365's second pass); without one the cell stays open."""
-    verdicts = verdicts or {}
+                infinitives: frozenset[str], verdicts: dict[tuple[str, int], str] | None = None,
+                data: dict[int, Candidate] | None = None, own: dict[int, str] | None = None,
+                skipped: Iterable[str] = ()) -> Drill:
+    """One sentence per cell (0134, "Choice"), from the Tatoeba candidates
+    and the data files' rows (`data`, #365; `own` gives each row's cell). A
+    `no` verdict of the second pass keeps that sentence out of that cell,
+    whatever the cell is. A spelling of another reading counts only with an
+    `ok` verdict for (cell, sentence); without one the cell stays open. A
+    `skipped` cell (`ell-skipped.tsv`) stays without a sentence, even when
+    one is found (kyukhin 2026-11-22)."""
+    verdicts, data, own, skipped = verdicts or {}, data or {}, own or {}, frozenset(skipped)
     homo = homographs(cells)
     by_last: dict[str, set[int]] = collections.defaultdict(set)
     for i, c in enumerate(cells):
@@ -768,11 +814,14 @@ def build_drill(pool: list, cells: list[drill_cells.DrillCell], candidates: dict
             by_last[form.rsplit(" ", 1)[-1]].add(i)
     occurrences: dict[str, list[tuple]] = collections.defaultdict(list)
     waiting: collections.Counter = collections.Counter()
-    for sid in sorted(candidates):
-        candidate = candidates[sid]
+    everything = {**candidates, **data}
+    for sid in sorted(everything):
+        candidate = everything[sid]
         toks = drill_tokens(candidate.text)
         for i in sorted({i for tok, _, _ in toks for i in by_last.get(tok, ())}):
             c, blocked = cells[i], False
+            if verdicts.get((c.key, sid)) == "no":
+                continue  # decided: never this sentence for this cell
             for form_index, form in enumerate(c.forms):
                 span = find_form(toks, form, infinitives)
                 if span is None:
@@ -780,15 +829,15 @@ def build_drill(pool: list, cells: list[drill_cells.DrillCell], candidates: dict
                 if (c.key, form) in homo.reading and verdicts.get((c.key, sid)) != "ok":
                     blocked = True
                     continue
-                occurrences[c.key].append((cell_order(sid, form_index, candidate.rank), sid, span[0],
-                                           span[1] - span[0], form))
+                occurrences[c.key].append((cell_order(sid, form_index, candidate.rank, own.get(sid) == c.key), sid,
+                                           span[0], span[1] - span[0], form))
                 break
             else:
                 if blocked:
                     waiting[c.key] += 1
-    rows = {key: min(found)[1:] for key, found in occurrences.items()}
+    rows = {key: min(found)[1:] for key, found in occurrences.items() if key not in skipped}
     return Drill(pool, cells, homo, rows, {key: len(found) for key, found in occurrences.items()},
-                 {key: n for key, n in waiting.items() if key not in rows})
+                 {key: n for key, n in waiting.items() if key not in rows and key not in skipped}, data)
 
 
 @dataclass
@@ -819,22 +868,24 @@ def rows_of(results: list[Result], drill: Drill | None = None) -> Rows:
                 words.append(("ell", key, 1, sid, start, length))
                 used.add(sid)
         for sid in used:
-            c = r.candidates[sid]
+            c = r.candidates[sid] if sid in r.candidates else drill.data[sid]
             sentences.append((sid, r.lang, c.text, c.author))
             translations += [(sid, tl, tid, text, author) for tl, (tid, text, author) in c.translations.items()]
     return Rows(sorted(sentences), sorted(translations, key=lambda t: (t[0], t[1])), sorted(words))
 
 
-def write_rows(conn: sqlite3.Connection, rows: Rows, version: str) -> None:
+def write_rows(conn: sqlite3.Connection, rows: Rows, version: str, credits: Iterable[dict] = ()) -> None:
+    """The rows and the `data_source` rows: Tatoeba's, then `credits` (#365:
+    the Wiktionary usage examples and the generated sentences)."""
     with conn:
         conn.executemany("INSERT INTO example_sentence(id, lang, text, author) VALUES (?, ?, ?, ?)", rows.sentences)
         conn.executemany("INSERT INTO example_translation(sentence_id, lang, id, text, author) "
                          "VALUES (?, ?, ?, ?, ?)", rows.translations)
         conn.executemany("INSERT INTO example_word(lang, word, ord, sentence_id, form_start, form_length) "
                          "VALUES (?, ?, ?, ?, ?, ?)", rows.words)
-        conn.execute("INSERT INTO data_source(id, kind, display_name, version, license, url) "
-                     "VALUES (:id, :kind, :display_name, :version, :license, :url)",
-                     {**DATA_SOURCE, "version": version})
+        conn.executemany("INSERT INTO data_source(id, kind, display_name, version, license, url) "
+                         "VALUES (:id, :kind, :display_name, :version, :license, :url)",
+                         [{**DATA_SOURCE, "version": version}, *credits])
 
 
 def table_hashes(conn: sqlite3.Connection) -> dict[str, tuple[int, str]]:
@@ -904,6 +955,213 @@ def shipped_size(rows: Rows, lang: str | None = None) -> tuple[dict[str, int], i
             conn.close()
         xz = len(lzma.compress(path.read_bytes(), format=lzma.FORMAT_XZ, check=lzma.CHECK_NONE, preset=6))
     return sizes, xz
+
+
+# ---------------------------------------------------------------------------
+# Drill example data (#365): Wiktionary and generated rows, verdicts, skips
+# ---------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class DataRow:
+    """A row of `ell.tsv` (0134, "Data files")."""
+    id: int
+    source: str  # wiktionary, generated
+    page: str  # the Wiktionary entry the example comes from; empty for a generated row
+    cell: str  # the cell key it was written or translated for
+    text: str
+    eng: str
+    rus: str
+    model: str
+    check: str  # ok, or the second pass's reason
+    checked_by: str
+
+
+@dataclass
+class DrillData:
+    """The data files, read."""
+    rows: list[DataRow]
+    readings: dict[tuple[str, int], str]  # (cell, sentence id) -> ok or no
+    reading_rows: list[dict[str, str]]
+    skipped: dict[str, str]  # cell -> reason
+    skipped_rows: list[dict[str, str]]
+    pin: dict[str, tuple[int, str, str]]  # a Wiktionary usage example's NFC text -> (n, page, English)
+    wiktionary_version: str  # the kaikki subset's dump
+    version: str  # the data file's date: the latest in its generated rows
+
+    def credits(self) -> list[dict]:
+        """The two `data_source` rows (0134, "Credits and `data_source`")."""
+        return [{**WIKTIONARY_SOURCE, "version": self.wiktionary_version},
+                {**GENERATED_SOURCE, "version": self.version}]
+
+
+def read_tsv(path: Path, columns: tuple[str, ...]) -> list[dict[str, str]]:
+    """A data file's rows: UTF-8, tab-separated, the header `columns`. Empty
+    fields at the end of a line may be missing (an editor that strips
+    trailing whitespace)."""
+    lines = path.read_text(encoding="utf-8").split("\n")
+    if lines[0].split("\t") != list(columns):
+        raise RuntimeError(f"{path.name}: the header must be {' '.join(columns)}")
+    rows = []
+    for number, line in enumerate(lines[1:], 2):
+        if not line:
+            continue
+        fields = line.split("\t")
+        if len(fields) > len(columns):
+            raise RuntimeError(f"{path.name}:{number}: {len(fields)} fields, not {len(columns)}")
+        rows.append(dict(zip(columns, fields + [""] * (len(columns) - len(fields)))))
+    return rows
+
+
+def kaikki_subset() -> tuple[Path, str]:
+    """The pinned kaikki subset (0136), checked against its pin, and its dump's date."""
+    keys = [k for k in inputs.pins() if k.startswith(KAIKKI_PREFIX)]
+    if len(keys) != 1:
+        raise RuntimeError(f"inputs.json must pin exactly one {KAIKKI_PREFIX}*.jsonl.gz, found {keys}")
+    return inputs.committed(keys[0]), inputs.pins()[keys[0]]["dump_date"]
+
+
+def wiktionary_examples(path: Path) -> dict[str, tuple[int, str, str]]:
+    """The usage examples of a kaikki subset that 0134 takes, by NFC text:
+    (n, page, English). Taken: `type` "example" without a `ref`, with an
+    English translation, on one line, in Greek letters, at most 15 words; n
+    counts them in the dump's order, and a text met twice keeps its first
+    entry."""
+    found: dict[str, tuple[int, str, str]] = {}
+    with (gzip.open(path, "rt", encoding="utf-8") if path.name.endswith(".gz")
+          else open(path, encoding="utf-8")) as f:
+        for line in f:
+            entry = json.loads(line)
+            for sense in entry.get("senses", []):
+                for example in sense.get("examples", []):
+                    if example.get("type") != "example" or example.get("ref"):
+                        continue
+                    english = example.get("english") or example.get("translation")
+                    text = nfc(example.get("text", "").strip())
+                    if (not english or "\n" in text or not GREEK_LETTER.search(text)
+                            or len(tokens(text)) > MAX_WORDS or text in found):
+                        continue
+                    found[text] = (len(found) + 1, nfc(entry.get("word", "")), nfc(english.strip()))
+    return found
+
+
+def read_drill_data(folder: Path, pin: dict[str, tuple[int, str, str]], wiktionary_version: str) -> DrillData:
+    rows = []
+    for r in read_tsv(folder / DATA_FILE, DATA_COLUMNS):
+        if not r["id"].isdigit():
+            raise RuntimeError(f"{DATA_FILE}: id {r['id']!r} is not a number")
+        rows.append(DataRow(**{**r, "id": int(r["id"])}))
+    reading_rows = read_tsv(folder / READINGS_FILE, READING_COLUMNS)
+    for r in reading_rows:
+        if not r["sentence_id"].isdigit():
+            raise RuntimeError(f"{READINGS_FILE}: sentence_id {r['sentence_id']!r} is not a number")
+    skipped_rows = read_tsv(folder / SKIPPED_FILE, SKIPPED_COLUMNS)
+    dates = [d for r in rows if r.source == "generated" for d in DATE.findall(r.model + " " + r.checked_by)]
+    return DrillData(rows, {(r["cell"], int(r["sentence_id"])): r["verdict"] for r in reading_rows}, reading_rows,
+                     {r["cell"]: r["reason"] for r in skipped_rows}, skipped_rows, pin,
+                     f"enwiktionary {wiktionary_version}", max(dates, default="none"))
+
+
+def data_candidates(data: DrillData, cells: dict[str, drill_cells.DrillCell]) -> dict[int, Candidate]:
+    """The data rows as candidates of the choice. A row of a cell the drill
+    no longer asks is skipped (stale). Its English is Wiktionary's or
+    generated, its Russian generated; the rank is 3 to 10 words, then fewer
+    words, then the id (for Wiktionary, the dump's order)."""
+    out = {}
+    for r in data.rows:
+        if r.cell not in cells or r.source not in AUTHORS:
+            continue
+        toks = tokens(r.text)
+        short = 0 if SHORT_WORDS[0] <= len(toks) <= SHORT_WORDS[1] else 1
+        out[r.id] = Candidate(r.id, r.text, AUTHORS[r.source], toks,
+                              {"eng": (r.id, r.eng, AUTHORS[r.source]), "rus": (r.id, r.rus, GENERATED_AUTHOR)},
+                              False, (short, len(toks), r.id))
+    return out
+
+
+def data_verdicts(data: DrillData) -> dict[tuple[str, int], str]:
+    """The reading verdicts: a data row's `check` ok is its own cell's
+    verdict (the second pass checked the row in that reading); the readings
+    file's verdicts come on top of it."""
+    own = {(r.cell, r.id): "ok" for r in data.rows if r.check == "ok"}
+    return {**own, **data.readings}
+
+
+def data_failures(data: DrillData, cells: dict[str, drill_cells.DrillCell], infinitives: frozenset[str],
+                  sentences: set[int]) -> tuple[list[str], dict[str, list]]:
+    """The form gate (0134, Checks 1) on the data files, and what is stale:
+    rows, verdicts and skips of cells the drill no longer asks, and verdicts
+    on sentences that are not candidates (`sentences`: every candidate id)."""
+    problems, stale = [], {"rows": [], "readings": [], "skipped": []}
+    last, texts = 0, set()
+    for r in data.rows:
+        where = f"{DATA_FILE} {r.id} {r.cell}"
+        if r.source not in SOURCE_IDS:
+            problems.append(f"{where}: source {r.source!r}")
+            continue
+        base = SOURCE_IDS[r.source]
+        if not base < r.id < base + WIKTIONARY_IDS:
+            problems.append(f"{where}: id outside the {r.source} range")
+        if r.id <= last:
+            problems.append(f"{where}: ids must be unique and ascending")
+        last = max(last, r.id)
+        if r.text in texts:
+            problems.append(f"{where}: the text of another row")
+        texts.add(r.text)
+        if r.check != "ok" or not r.checked_by or not r.model:
+            problems.append(f"{where}: check {r.check!r}, checked_by {r.checked_by!r}, model {r.model!r}")
+        if any(not t or t != nfc(t) for t in (r.text, r.eng, r.rus)):
+            problems.append(f"{where}: a text, eng or rus empty or not NFC")
+        if len(tokens(r.text)) > MAX_WORDS:
+            problems.append(f"{where}: over {MAX_WORDS} words")
+        if r.source == "wiktionary":
+            pinned = data.pin.get(r.text)
+            if pinned is None:
+                problems.append(f"{where}: not a usage example of the pinned subset")
+            elif (r.page, r.eng) != pinned[1:]:
+                problems.append(f"{where}: page or English differ from the pin ({pinned[1]!r}, {pinned[2]!r})")
+        elif r.page:
+            problems.append(f"{where}: a generated row with a page")
+        cell = cells.get(r.cell)
+        if cell is None:
+            stale["rows"].append(r)
+            continue
+        toks = drill_tokens(r.text)
+        if not any(find_form(toks, form, infinitives) for form in cell.forms):
+            problems.append(f"{where}: does not hold its cell by the match rule ({' / '.join(cell.forms)})")
+    seen = set()
+    for r in data.reading_rows:
+        where = f"{READINGS_FILE} {r['cell']} {r['sentence_id']}"
+        if r["verdict"] not in ("ok", "no") or not r["checked_by"] or (r["cell"], r["sentence_id"]) in seen:
+            problems.append(f"{where}: verdict {r['verdict']!r}, checked_by {r['checked_by']!r}, or twice")
+        seen.add((r["cell"], r["sentence_id"]))
+        if r["cell"] not in cells or int(r["sentence_id"]) not in sentences:
+            stale["readings"].append(r)
+    seen = set()
+    for r in data.skipped_rows:
+        if not r["reason"] or not r["checked_by"] or r["cell"] in seen:
+            problems.append(f"{SKIPPED_FILE} {r['cell']}: no reason or checked_by, or twice")
+        seen.add(r["cell"])
+        if r["cell"] not in cells:
+            stale["skipped"].append(r)
+    return problems, stale
+
+
+def in_scope(c: drill_cells.DrillCell) -> bool:
+    """A cell of the 2.0 scope: an A1 or A2 verb, a tense up to A2."""
+    return c.verb_level is not None and c.verb_level <= SCOPE[0] and c.tense_level <= SCOPE[1]
+
+
+def skipped_with_rows(rows: Rows, skipped: dict[str, str]) -> list[str]:
+    """The skipped cells that have a cell row, checked on the rows as stored:
+    a listed cell stays without an example (kyukhin 2026-11-22)."""
+    return sorted(w[1] for w in rows.words if is_cell(w[1]) and w[1] in skipped)
+
+
+def open_cells(drill: Drill, skipped: dict[str, str]) -> list[str]:
+    """The 2.0 coverage gate's misses: cells in scope without a sentence
+    that are not listed as skipped (kyukhin 2026-11-22: a listed cell is
+    done)."""
+    return [c.key for c in drill.cells if in_scope(c) and c.key not in drill.rows and c.key not in skipped]
 
 
 # ---------------------------------------------------------------------------
@@ -1099,9 +1357,44 @@ def list_rule_section(r: Result, greek: GreekWords, before: tuple[dict[str, int]
     return out
 
 
-def drill_section(drill: Drill, greek: Result) -> list[str]:
-    """#364: the drill's cells and their sentences."""
+def drill_byline(c: Candidate, lang: str) -> str:
+    """A cell sentence's byline (0134, "Byline") with its translation in
+    `lang`, as the report shows it."""
+    source = source_of(c.id)
+    if source == 0:
+        shown = c.translations.get(lang) or c.translations.get("eng")
+        return byline(c.author, shown[2] if shown else None)
+    if source == 1:
+        return "Wiktionary" if lang == "eng" else "Wiktionary · translation: LibreDict, generated"
+    return "LibreDict, generated"
+
+
+def list_word_share(data: DrillData, cells: dict[str, drill_cells.DrillCell], greek: GreekWords,
+                    levels: dict[str, int]) -> list[tuple[float, DataRow, list[str]]]:
+    """#365: each generated row's share of words that are list words up to
+    its verb's level (a token that spells a term of the Greek lists, or a
+    form of one), with the words that are not, lowest share first."""
+    out = []
+    for r in data.rows:
+        if r.source != "generated" or r.cell not in cells:
+            continue
+        level = cells[r.cell].verb_level
+        outside = []
+        toks = [nfc(tok.lower()) for tok, _, _ in tokens(r.text)]
+        for tok in toks:
+            known = [levels[w] for w in greek.terms_of.get(tok, set()) | greek.lemmas_of.get(tok, set()) if w in levels]
+            if not known or min(known) > level:
+                outside.append(tok)
+        out.append((1 - len(outside) / len(toks) if toks else 0.0, r, outside))
+    return sorted(out, key=lambda x: (x[0], x[1].id))
+
+
+def drill_section(drill: Drill, greek: Result, data: DrillData | None = None, stale: dict | None = None,
+                  missing: list[str] = (), share: list[tuple[float, DataRow, list[str]]] = ()) -> list[str]:
+    """#364, #365: the drill's cells, their sentences and the data files."""
     cells, rows = drill.cells, drill.rows
+    skipped = data.skipped if data else {}
+    stale = stale or {"rows": [], "readings": [], "skipped": []}
     reading = {key for key, _ in drill.homographs.reading}
     aspect = {key for key, _ in drill.homographs.aspect} - reading
     columns = ("Tatoeba", "Wiktionary", "Generated")
@@ -1111,22 +1404,27 @@ def drill_section(drill: Drill, greek: Result) -> list[str]:
         n = len(group)
         covered = " | ".join(f"{by_source[i]:,} ({percent(by_source[i], n)})" if by_source[i] else "0"
                              for i in range(len(columns)))
-        none = n - sum(by_source.values())
+        listed = sum(1 for c in group if c.key not in rows and c.key in skipped)
+        none = n - sum(by_source.values()) - listed
         waiting = sum(1 for c in group if c.key in drill.waiting)
-        return f"{n:,} | {covered} | {none:,} ({percent(none, n)}) | {waiting:,}"
+        return f"{n:,} | {covered} | {listed:,} | {none:,} ({percent(none, n)}) | {waiting:,}"
 
-    header = "| " + " | ".join(("Cells",) + columns + ("None", "Waiting for a reading verdict")) + " |"
-    rule = "|---" * (len(columns) + 3)  # the columns of `header`, without the closing bar
-    out = ["## Drill cells (#364)", "",
+    header = "| " + " | ".join(("Cells",) + columns + ("Skipped", "None", "Waiting for a reading verdict")) + " |"
+    rule = "|---" * (len(columns) + 4)  # the columns of `header`, without the closing bar
+    out = ["## Drill cells (#364, #365)", "",
            "Every cell the conjugation drill can ask (`drill_cells.py`, a port of 0132's rules: the three Greek "
            "lists' verbs, every tense up to B2, both voices) gets one sentence that holds the cell's whole form by "
-           "0134's match rule, keyed `<word>|<facet>|<person>` in `example_word`. Sources: Tatoeba (#364); "
-           "Wiktionary usage examples and generated sentences come with #365. \"Waiting for a reading verdict\": "
-           "open cells whose found sentences hold them only through a spelling of another reading (match rule 5), "
-           "which takes a sentence only with an `ok` verdict of #365's second pass.", ""]
+           "0134's match rule, keyed `<word>|<facet>|<person>` in `example_word`. Sources, in this order: Tatoeba "
+           "(#364), Wiktionary usage examples and generated sentences from `Scripts/data/drill-examples/` (#365). "
+           "\"Skipped\": cells with no natural sentence, listed in `ell-skipped.tsv`, which the 2.0 gate counts as "
+           "done. \"Waiting for a reading verdict\": open cells whose found sentences hold them only through a "
+           "spelling of another reading (match rule 5), which takes a sentence only with an `ok` verdict of the "
+           "second pass.", ""]
     by_list = collections.Counter(v.list_level for v in drill.pool)
     used = {sid for sid, *_ in rows.values()}
     word_sids = {sid for chosen in greek.words.values() for sid, *_ in chosen}
+    through = sum(1 for k in reading if k in rows and (k, rows[k][3]) in drill.homographs.reading)
+    verdicts = collections.Counter(r["verdict"] for r in data.reading_rows) if data else collections.Counter()
     out += [f"- The pool: {len(drill.pool):,} verbs: " + ", ".join(
                 f"{LEVEL_NAMES[level]} {n:,}" for level, n in sorted(by_list.items()))
             + f"; {sum(1 for v in drill.pool if v.main == drill_cells.PASSIVE):,} with passive forms only, "
@@ -1135,11 +1433,34 @@ def drill_section(drill: Drill, greek: Result) -> list[str]:
             f"sentences: {len(used):,}, of them already word examples: {len(used & word_sids):,}, new: "
             f"{len(used - word_sids):,}",
             f"- Homographs: aspect-only cells (one sentence serves both) {len(aspect):,}; cells with a spelling of "
-            f"another reading {len(reading):,}, of them with a sentence through another of their forms "
-            f"{sum(1 for k in reading if k in rows):,}, waiting for a reading verdict {len(drill.waiting):,}; "
-            "reading verdicts: none yet (#365)",
+            f"another reading {len(reading):,}, of them with a sentence through that spelling (an `ok` verdict, or "
+            f"a data row written for the cell) {through:,}, through another of their forms "
+            f"{sum(1 for k in reading if k in rows) - through:,}, waiting for a reading verdict "
+            f"{len(drill.waiting):,}; reading verdicts in `{READINGS_FILE}`: ok {verdicts['ok']:,}, no "
+            f"{verdicts['no']:,}",
             f"- Spellings in the cells of two verbs ({len(drill.homographs.shared)}): "
             + (", ".join(drill.homographs.shared) or "none") + "."]
+
+    if data is not None:
+        in_file = collections.Counter(r.source for r in data.rows)
+        shipped = collections.Counter(r.source for r in data.rows if r.id in used)
+        scope = [c for c in cells if in_scope(c)]
+        out += ["", "### Data files (#365)", "",
+                f"- `{DATA_FILE}`: " + ", ".join(f"{source} {in_file[source]:,} rows, {shipped[source]:,} in the "
+                                                 "pack" for source in SOURCE_IDS)
+                + f"; stale (cells the drill no longer asks, skipped): {len(stale['rows']):,}",
+                f"- `{READINGS_FILE}`: {len(data.reading_rows):,} verdicts; stale (no drill cell, or no candidate "
+                f"sentence): {len(stale['readings']):,}",
+                f"- `{SKIPPED_FILE}`: {len(skipped):,} cells, {sum(1 for c in scope if c.key in skipped):,} in the "
+                f"2.0 scope; of them with a found sentence, left out: {sum(1 for k in skipped if drill.found.get(k)):,}; "
+                "stale: "
+                f"{len(stale['skipped']):,}",
+                f"- The 2.0 scope (A1 and A2 verbs, tenses up to A2): {len(scope):,} cells; with a sentence "
+                f"{sum(1 for c in scope if c.key in rows):,}, skipped "
+                f"{sum(1 for c in scope if c.key not in rows and c.key in skipped):,}, open {len(missing):,}"
+                + (": " + ", ".join(missing[:50]) + (" …" if len(missing) > 50 else "") if missing else ""),
+                f"- The data file's date (`libredict-drill-ell`'s version): {data.version}; Wiktionary: "
+                f"{data.wiktionary_version}"]
 
     out += ["", "### By verb list and tense level", "", "| Verbs, tenses " + header, "|---" + rule + "|"]
     for level in (1, 2, 3):
@@ -1147,8 +1468,7 @@ def drill_section(drill: Drill, greek: Result) -> list[str]:
             group = [c for c in cells if c.verb_level == level and c.tense_level == tense_level]
             if group:
                 out.append(f"| {LEVEL_NAMES[level]} verbs, {name} tenses | {counts(group)} |")
-    out.append(f"| **A1 and A2 verbs, tenses up to A2 (2.0)** | "
-               f"{counts([c for c in cells if c.verb_level <= 2 and c.tense_level <= 1])} |")
+    out.append(f"| **A1 and A2 verbs, tenses up to A2 (2.0)** | {counts([c for c in cells if in_scope(c)])} |")
     out.append(f"| **All** | {counts(cells)} |")
 
     out += ["", "### By tense and voice", "", "All verbs and tense levels. Main voice: the active, or the passive "
@@ -1169,22 +1489,45 @@ def drill_section(drill: Drill, greek: Result) -> list[str]:
             out.append(f"| {cell(key)} | {forms} | — | | | |")
             continue
         sid, start, length, _ = rows[key]
-        c = greek.candidates[sid]
+        c = greek.candidates[sid] if sid in greek.candidates else drill.data[sid]
         trs = [cell(c.translations[tl][1]) if tl in c.translations else "—" for tl in ("eng", "rus")]
-        shown = c.translations.get("rus") or c.translations.get("eng")
         out.append(f"| {cell(key)} | {forms} | {highlighted(c.text, start, length)} | {' | '.join(trs)} | "
-                   f"{cell(byline(c.author, shown[2] if shown else None))} |")
+                   f"{cell(drill_byline(c, 'rus'))} |")
 
     top = sorted(drill.pool, key=lambda v: (drill_cells.NO_RANK if v.rank is None else v.rank, v.seq))[:20]
     out += ["", "### Open cells of the 20 most frequent verbs", "",
             "By the lists' frequency rank. Each: cells without a sentence of all its cells, then those at tenses "
-            "up to A2.", ""]
+            "up to A2 (skipped ones marked).", ""]
     for verb in top:
         mine = [c for c in cells if c.verb == verb.word]
         open_ = [c for c in mine if c.key not in rows]
-        early = [f"{c.facet} {c.person}" for c in open_ if c.tense_level <= 1]
+        early = [f"{c.facet} {c.person}" + (" (skipped)" if c.key in skipped else "")
+                 for c in open_ if c.tense_level <= 1]
         out.append(f"- {verb.word} ({LEVEL_NAMES[verb.list_level]}, rank {verb.rank}): {len(open_)} of "
                    f"{len(mine)} open; up to A2: " + (", ".join(early) or "none"))
+    if data is None:
+        return out
+
+    out += ["", "### Stale data rows", "", "Rows of cells the drill no longer asks, which the build skips.", "",
+            ", ".join(f"{r.id} {r.cell}" for r in stale["rows"]) or "None."]
+
+    out += ["", "### List words in the generated rows", "",
+            "The share of each generated row's words that are words of the Greek lists up to its verb's level "
+            "(the term or a form of it; names and words above the level count as outside).", ""]
+    buckets = (("100%", 1.0, 1.01), ("90 to 99%", 0.9, 1.0), ("75 to 89%", 0.75, 0.9), ("50 to 74%", 0.5, 0.75),
+               ("below 50%", -1, 0.5))
+    out += ["| Share | Rows |", "|---|---|"] + [f"| {name} | {sum(1 for s, _, _ in share if low <= s < high):,} |"
+                                                for name, low, high in buckets]
+    out += ["", "The 20 lowest, with the words outside the lists:", ""]
+    out += [f"- {r.id} {r.cell} ({s:.0%}): {r.text} — {', '.join(words)}" for s, r, words in share[:20]]
+
+    out += ["", f"### Skipped cells ({len(skipped):,})", "",
+            "The cells with no natural sentence (kyukhin 2026-11-22), with the second pass's reason, in the 2.0 "
+            "scope first.", "", "| Cell | In 2.0 | Reason |", "|---|---|---|"]
+    by_key = {c.key: c for c in cells}
+    for key in sorted(skipped, key=lambda k: (not (k in by_key and in_scope(by_key[k])), k)):
+        out.append(f"| {cell(key)} | {'yes' if key in by_key and in_scope(by_key[key]) else 'no'} | "
+                   f"{cell(skipped[key])} |")
     return out
 
 
@@ -1348,17 +1691,26 @@ def run(writer: sqlite3.Connection, reader: sqlite3.Connection, cache_dir: Path,
     skipped = collections.Counter(tok.lower() for c in results[1].candidates.values() for tok, _, _ in c.tokens
                                   if tok.lower() in english.ambiguous)
 
-    # #364: one sentence per drill cell, from the same Greek candidates.
+    # #364: one sentence per drill cell, from the same Greek candidates;
+    # #365: and from the data files' Wiktionary and generated rows.
     pool, cells = drill_cells.drill_cells(reader)
     infinitives = aorist_infinitives(reader)
-    drill = build_drill(pool, cells, results[0].candidates, infinitives)
-    print(f"  drill: {len(pool):,} verbs, {len(cells):,} cells, {len(drill.rows):,} with a sentence")
+    kaikki, dump_date = kaikki_subset()
+    data = read_drill_data(DRILL_DATA, wiktionary_examples(kaikki), dump_date)
+    by_key = {c.key: c for c in cells}
+    extra = data_candidates(data, by_key)
+    data_problems, stale = data_failures(data, by_key, infinitives, set(results[0].candidates) | set(extra))
+    drill = build_drill(pool, cells, results[0].candidates, infinitives, data_verdicts(data), extra,
+                        {r.id: r.cell for r in data.rows}, data.skipped)
+    missing = open_cells(drill, data.skipped)
+    print(f"  drill: {len(pool):,} verbs, {len(cells):,} cells, {len(drill.rows):,} with a sentence; data rows "
+          f"{len(data.rows):,}, skipped cells {len(data.skipped):,}, open in 2.0 {len(missing):,}")
 
     word_rows = rows_of(results)
     rows = rows_of(results, drill)
     word_part, drill_part = split_rows(rows)
     word_hashes = rows_hashes(word_part)
-    write_rows(writer, rows, f"export {pins[folder]['export_date']}")
+    write_rows(writer, rows, f"export {pins[folder]['export_date']}", data.credits())
     hashes = table_hashes(writer)
     try:
         sizes = {"all": shipped_size(rows), "Greek (ell pack)": shipped_size(rows, "ell"),
@@ -1387,6 +1739,7 @@ def run(writer: sqlite3.Connection, reader: sqlite3.Connection, cache_dir: Path,
     failures.update(drill_failures(rows, cells, infinitives,
                                    collections.ChainMap(*(s.sentences for s in subsets.values()))))
     total = sum(sizes["Word examples (all files)"][0].values())
+    listed = skipped_with_rows(rows, data.skipped)
     drill_total = sum(sizes["Drill rows and the sentences only they use"][0].values())
     unchanged = rows_hashes(word_rows) == word_hashes
     english_three = sum(1 for w in english.list_words if len(results[1].words.get(w, ())) >= 3)
@@ -1414,10 +1767,23 @@ def run(writer: sqlite3.Connection, reader: sqlite3.Connection, cache_dir: Path,
          "equal" if unchanged else "changed", "equal", unchanged),
         ("Drill rows and the sentences only they use, installed", f"{drill_total / 1e6:.2f} MB",
          f"≤ {DRILL_BUDGET / 1e6:.1f} MB", drill_total <= DRILL_BUDGET),
+        ("Drill: every cell of the 2.0 scope (A1 and A2 verbs, tenses up to A2) has a sentence or is listed as "
+         "skipped, and no skipped cell has one (#365)", f"{len(missing)} open, {len(listed)} skipped with a sentence",
+         "0, 0", not missing and not listed),
+        ("Drill: the data files pass the form gate (0134, Checks 1; #365)", f"{len(data_problems)} problems", "0",
+         not data_problems),
     ]
+    failures["data files"] = data_problems
+    failures["open cells"] = missing
+    failures["skipped cells with a sentence"] = listed
+    levels: dict[str, int] = {}
+    for term, level in reader.execute("SELECT term, level_ord FROM wordlist_item WHERE series = ?", (GREEK_LISTS,)):
+        levels[nfc(term)] = min(level, levels.get(nfc(term), level))
+    share = list_word_share(data, by_key, greek, levels)
     report_path.parent.mkdir(parents=True, exist_ok=True)
     report_path.write_text(report(folder, pins, results, english, ambiguity, skipped, verbs, hashes, sizes, gates,
-                                  list_rule, drill_section(drill, results[0]), word_hashes, rows_hashes(drill_part)),
+                                  list_rule, drill_section(drill, results[0], data, stale, missing, share),
+                                  word_hashes, rows_hashes(drill_part)),
                            encoding="utf-8")
 
     print("  " + ", ".join(f"{t} {hashes[t][0]:,}" for t in TABLES) + f"; {total:,} bytes")
@@ -1772,6 +2138,134 @@ def self_check() -> int:
          == {"cell spans": 1, "cell keys": 3}),
         ("drill: the word examples do not change", rows_hashes(rows_of(results)) == rows_hashes(split_rows(rows)[0])),
     ]
+
+    # #365: the data files on the fixture (`drill-examples/`, rows taken from
+    # the generated data and the pinned subset, and `kaikki-examples.jsonl`,
+    # entries of the pinned subset): Wiktionary and generated rows after
+    # Tatoeba, reading verdicts, skips, stale lines, the form gate, the
+    # coverage gate and the two data_source rows.
+    pin = wiktionary_examples(FIXTURE / "kaikki-examples.jsonl")
+    data = read_drill_data(FIXTURE / "drill-examples", pin, "2026-10-01")
+    by_key = {c.key: c for c in cells}
+    extra = data_candidates(data, by_key)
+    known = set(results[0].candidates) | set(extra)
+    data_problems, stale = data_failures(data, by_key, infinitives, known)
+    builds = []
+    for _ in range(2):
+        built = build_drill(pool, cells, results[0].candidates, infinitives, data_verdicts(data), extra,
+                            {r.id: r.cell for r in data.rows}, data.skipped)
+        built_rows = rows_of(results, built)
+        built_conn = new_database(":memory:")
+        write_rows(built_conn, built_rows, "self-check", data.credits())
+        builds.append((built, built_rows, built_conn, table_hashes(built_conn)))
+    full, full_rows, full_conn, full_hashes = builds[0]
+    assert full_hashes == builds[1][3], "two builds of the fixture with its data rows differ"
+    w1, w2, g1, g2, g3, g4, g5, g6 = data.rows
+    stored = {s[0]: s for s in full_rows.sentences}
+    stored_translations = {(t[0], t[1]): t for t in full_rows.translations}
+    missing = open_cells(full, data.skipped)
+    own_cells = {r.id: r.cell for r in data.rows}
+    # A `no` verdict on a cell that is no homograph (θα σου τις γράψουμε for
+    # the future εμείς), and a skipped cell that a sentence holds (g5's).
+    refused = build_drill(pool, cells, results[0].candidates, infinitives,
+                          {**data_verdicts(data), (g1.cell, 1001): "no"}, extra, own_cells, data.skipped)
+    skipping = build_drill(pool, cells, results[0].candidates, infinitives, data_verdicts(data), extra, own_cells,
+                           {**data.skipped, g5.cell: "fixture"})
+    share = {r.id: (s, words) for s, r, words in list_word_share(
+        data, by_key, greek, {nfc(t): level for t, level in reader.execute(
+            "SELECT term, level_ord FROM wordlist_item WHERE series = ?", (GREEK_LISTS,))})}
+
+    def full_sentence(key: str) -> int | None:
+        return full.rows[key][0] if key in full.rows else None
+
+    def gate(rows_: Iterable[DataRow] = (), readings: Iterable[dict] = (), skips: Iterable[dict] = ()) -> list[str]:
+        """The form gate's problems on these lines alone."""
+        probe = replace(data, rows=list(rows_), reading_rows=list(readings), skipped_rows=list(skips))
+        return data_failures(probe, by_key, infinitives, known)[0]
+
+    gate_cases = [
+        ("id outside", gate([replace(g5, id=1_000_000_009)])),
+        ("check 'Russian", gate([replace(g5, check="Russian is clumsy.")])),
+        ("not NFC", gate([replace(g5, text=unicodedata.normalize("NFD", g5.text))])),
+        ("over 15 words", gate([replace(g5, text=g5.text + " " + g5.text)])),
+        ("empty or not NFC", gate([replace(g5, rus="")])),
+        ("not a usage example", gate([replace(w1, text=w1.text.rstrip("."))])),
+        ("differ from the pin", gate([replace(w1, eng=g5.eng)])),
+        ("differ from the pin", gate([replace(w1, page="")])),
+        ("with a page", gate([replace(g5, page="γράφω")])),
+        ("does not hold its cell", gate([replace(g5, cell="αγαπάω|future.active|1sg")])),
+        ("source 'tatoeba'", gate([replace(g5, source="tatoeba")])),
+        ("unique and ascending", gate([g5, g4])),
+        ("the text of another row", gate([g4, replace(g5, text=g4.text, cell=g4.cell)])),
+        ("verdict 'maybe'", gate(readings=[{**data.reading_rows[0], "verdict": "maybe"}])),
+        ("no reason", gate(skips=[{**data.skipped_rows[0], "reason": ""}])),
+    ]
+    checks += [
+        ("#365: the pin takes usage examples, never a quotation; a text met twice keeps its first page",
+         pin == {"Γράφετε βιβλίο;": (1, "γράφω", "Are you writing a book?"), w1.text: (2, "βαρύτητα", w1.eng),
+                 w2.text: (3, "αβασάνιστος", w2.eng)}),
+        ("#365: the fixture's data files pass the form gate", not data_problems),
+        ("#365: the form gate catches bad rows, verdicts and skips",
+         all(any(keyword in p for p in problems) for keyword, problems in gate_cases)
+         and not gate([w1, w2, g5]) and not gate(readings=data.reading_rows, skips=data.skipped_rows)),
+        ("#365: stale rows, verdicts and skips (cells the drill does not ask) are reported and never used",
+         [r.id for r in stale["rows"]] == [g6.id] and [r["cell"] for r in stale["readings"]] == [
+             "μιλάω|present.passive|3sg"] and [r["cell"] for r in stale["skipped"]] == ["τρέχω|present.active|2sg"]
+         and g6.id not in stored),
+        ("#365: Tatoeba comes before a generated row (θα σου τις γράψουμε)",
+         full_sentence(g1.cell) == 1001 and g1.id not in stored),
+        ("#365: a Wiktionary sentence by Wiktionary, its English from the pin, its Russian by LibreDict",
+         full_sentence(w1.cell) == w1.id and stored[w1.id][1:] == ("ell", w1.text, "Wiktionary")
+         and stored_translations[(w1.id, "eng")][3:] == (w1.eng, "Wiktionary")
+         and stored_translations[(w1.id, "rus")][3:] == (w1.rus, "LibreDict")
+         and full_sentence(w2.cell) == w2.id),
+        ("#365: a generated sentence by LibreDict with eng and rus only; θ' αγαπήσεις from Tatoeba is no future",
+         full_sentence(g5.cell) == g5.id and stored[g5.id][3] == "LibreDict"
+         and {lang for sid, lang in stored_translations if sid == g5.id} == {"eng", "rus"}
+         and stored_translations[(g5.id, "rus")][3:] == (g5.rus, "LibreDict")),
+        ("#365: a row counts for its own cell of another reading (γράφετε, έκανα, αγάπησε), never for the other",
+         full_sentence(g2.cell) == g2.id and "γράφω|imperativeContinuous.active|2pl" not in full.rows
+         and full_sentence(g3.cell) == g3.id and "κάνω|imperfect.active|1sg" not in full.rows
+         and full_sentence(g4.cell) == g4.id and "αγαπάω|aorist.active|3sg" not in full.rows),
+        ("#365: the readings file's ok lets Tatoeba's μίλησε fill the aorist; its no keeps it from the imperative",
+         full_sentence("μιλάω|aorist.active|3sg") == 1014 and "μιλάω|imperativeSimple.active|2sg" not in full.rows
+         and "μιλάω|imperativeSimple.active|2sg" not in full.waiting),
+        ("#365: a no verdict keeps its sentence out of any cell, not only a homograph's (Tatoeba's 1001 gives way)",
+         (g1.cell, "θα γράψουμε") not in full.homographs.reading and refused.rows[g1.cell][0] == g1.id
+         and g1.cell not in refused.waiting and full_sentence(g1.cell) == 1001),
+        ("#365: a skipped cell stays without a sentence even when one holds it; the gate catches a row for it",
+         g5.cell not in skipping.rows and skipping.found[g5.cell] >= 1 and g5.cell not in skipping.waiting
+         and not skipped_with_rows(full_rows, data.skipped)
+         and skipped_with_rows(full_rows, {g5.cell: "fixture"}) == [g5.cell]
+         and g5.cell not in open_cells(skipping, {**data.skipped, g5.cell: "fixture"})),
+        ("#365: an explicit no overrides a row's own check",
+         data_verdicts(data)[(g2.cell, g2.id)] == "ok"
+         and data_verdicts(replace(data, readings={(g2.cell, g2.id): "no"}))[(g2.cell, g2.id)] == "no"),
+        ("#365: a row comes first for its own cell, after the first form and never before Tatoeba",
+         cell_order(2_000_000_009, 0, (1, 12, 9), True) < cell_order(2_000_000_001, 0, (0, 3, 1))
+         and cell_order(1_000_000_009, 1, (0, 3, 9), True) > cell_order(1_000_000_001, 0, (1, 12, 1))
+         and cell_order(5, 1, (1, 0, 1, 5)) < cell_order(1_000_000_001, 0, (0, 3, 1), True)),
+        ("#365: sources by id range", (source_of(999_999_999), source_of(1_000_000_001), source_of(2_000_000_001))
+         == (0, 1, 2) and all(source_of(sid) == 0 or sid in extra for sid in stored)),
+        ("#365: the 2.0 gate counts a skipped cell as done, fails on any other open cell, and asks only the scope",
+         "έχω|subjunctiveSimple.active|3sg" not in missing and "έχω|subjunctiveSimple.active|2sg" in missing
+         and all(in_scope(by_key[k]) for k in missing) and "γράφω|imperfect.active|1sg" not in missing
+         and not open_cells(full, {**data.skipped, **dict.fromkeys(missing, "x")})),
+        ("#365: the two data_source rows", full_conn.execute(
+            "SELECT id, version, license FROM data_source ORDER BY id").fetchall()
+         == [("libredict-drill-ell", "2026-11-22", "CC BY-SA 4.0"),
+             ("tatoeba", "self-check", "CC BY 2.0 FR"),
+             ("wiktionary-ell-examples", "enwiktionary 2026-10-01", "CC BY-SA 4.0")]),
+        ("#365: the output and drill gates hold with the data rows; the word examples do not change",
+         not any(output_failures(full_rows, results, subsets, keys).values())
+         and not any(drill_failures(full_rows, cells, infinitives, set(subsets["ell"].sentences)).values())
+         and rows_hashes(rows_of(results)) == rows_hashes(split_rows(full_rows)[0])),
+        ("#365: the list-word share counts a list verb's forms and articles, not other words",
+         0 < share[g5.id][0] < 1 and "αγαπήσεις" not in share[g5.id][1] and "την" not in share[g5.id][1]
+         and "νησί" in share[g5.id][1]),
+    ]
+    for problem in data_problems:
+        print(f"    data files: {problem}")
     failed = [name for name, ok in checks if not ok]
     for name, ok in checks:
         print(f"  {'ok  ' if ok else 'FAIL'} {name}")

@@ -208,7 +208,7 @@ final class InflectionTableTests: XCTestCase {
     }
 
     /// #136: Credits names the source of the word forms, Wiktionary via
-    /// kaikki.org, with its license.
+    /// kaikki.org, with its license; #365: and of the drill's usage examples.
     func testCreditsListsWiktionary() throws {
         _ = tabBarPage.tapSettingsTab()
         let link = app.descendants(matching: .any)[IDs.creditsLink].firstMatch
@@ -216,7 +216,7 @@ final class InflectionTableTests: XCTestCase {
         link.tap()
         let line = app.staticTexts[IDs.creditsWiktionary]
         XCTAssertTrue(line.waitForExistence(timeout: TestData.Timeouts.medium), "Credits must list Wiktionary")
-        XCTAssertEqual(line.label, "Word forms: Wiktionary contributors, via kaikki.org (CC BY-SA 4.0)")
+        XCTAssertEqual(line.label, "Word forms and usage examples: Wiktionary contributors, via kaikki.org (CC BY-SA 4.0)")
     }
 
     // MARK: - Helpers
