@@ -27374,6 +27374,8 @@ final class ExampleDataTests: XCTestCase {
     /// translation and every English one a Russian, Spanish, Arabic or Greek
     /// one; every text is NFC with an author; every word row points at a
     /// sentence of its language, with `ord` 1… and a span on a whole word.
+    /// #364: a drill cell's row (its key holds a `|`) has `ord` 1, and its
+    /// span may cover several words, from the form's first word to the verb.
     func testEveryExampleIsComplete() throws {
         for (pack, lang) in [(PackID.ell, "ell"), (PackID.engLists, "eng")] {
             let file = try BundledDictionary(url: try PackFixtures.file(pack)).read { db in
@@ -27425,11 +27427,13 @@ final class ExampleDataTests: XCTestCase {
                 }
                 let before = start > 0 ? Character(scalars[start - 1]) : " "
                 let after = start + length < scalars.count ? Character(scalars[start + length]) : " "
-                if before.isLetter || after.isLetter || form.unicodeScalars.contains(where: { $0.properties.isWhitespace }) {
-                    problems.append("\(word): \(form) is not a whole word of \(text)")
+                let isCell = word.contains("|")
+                if before.isLetter || after.isLetter
+                    || (!isCell && form.unicodeScalars.contains(where: { $0.properties.isWhitespace })) {
+                    problems.append("\(word): \(form) is not \(isCell ? "whole words" : "a whole word") of \(text)")
                 }
             }
-            for (word, ords) in orders where ords != Array(1...ords.count) || ords.count > 5 {
+            for (word, ords) in orders where ords != Array(1...ords.count) || ords.count > (word.contains("|") ? 1 : 5) {
                 problems.append("\(word): ord \(ords)")
             }
             XCTAssertEqual(problems.prefix(20), [], "\(pack): \(problems.count) problems")
@@ -27480,7 +27484,7 @@ final class ExampleDataTests: XCTestCase {
 
     /// Kirill 2026-11-04: Greek rows are in the Greek pack only, English rows
     /// in the English lists pack only; the bundle, the stub and the other
-    /// packs have none.
+    /// packs have none. #364: so are the drill's cell rows.
     func testExamplesGoWithTheirLanguage() throws {
         let packs = try PackFixtures.all()
         let files = [try TestDictionary.bundledURL(), try stubURL()] + PackID.all.compactMap { packs[$0] }
@@ -27491,11 +27495,14 @@ final class ExampleDataTests: XCTestCase {
                  translations: try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM example_translation") ?? 0,
                  orphans: try Int.fetchOne(db, sql: """
                     SELECT COUNT(*) FROM example_translation WHERE sentence_id NOT IN (SELECT id FROM example_sentence)
-                    """) ?? 0)
+                    """) ?? 0,
+                 cells: try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM example_word WHERE instr(word, '|') > 0") ?? 0)
             }
             let expected = url == packs[.ell] ? ["ell"] : url == packs[.engLists] ? ["eng"] : []
             XCTAssertEqual(file.languages, expected, url.lastPathComponent)
             XCTAssertEqual(file.words, expected, url.lastPathComponent)
+            // #364: the drill's cell rows are Greek, in the Greek pack only.
+            XCTAssertEqual(file.cells > 0, url == packs[.ell], "\(url.lastPathComponent): \(file.cells) cell rows")
             XCTAssertEqual(file.translations > 0, !expected.isEmpty, url.lastPathComponent)
             XCTAssertEqual(file.orphans, 0, "\(url.lastPathComponent): translations go with their sentence")
         }
@@ -27543,6 +27550,193 @@ final class ExampleDataTests: XCTestCase {
             XCTAssertEqual(credit["license"] as String, "CC BY 2.0 FR")
             XCTAssertEqual(credit["url"] as String, "https://tatoeba.org")
         }
+    }
+}
+
+// MARK: - Drill examples (0134, #364)
+//
+// 0134-example-sentences.md, "Drill examples" and its Test plan: the cell
+// rows of the committed Greek pack against the app's own drill pool, so a
+// drift between `Scripts/drill_cells.py` and 0132's rules fails here.
+
+/// #364: one sentence per drill cell, keyed `<word>|<facet>|<person>` in
+/// `example_word` of the Greek pack.
+final class DrillExampleDataTests: XCTestCase {
+    /// The words that may stand between a compound form's words (0134,
+    /// "Match rule" 2); μη(ν) only after να.
+    private static let clitics: Set<String> = ["μου", "σου", "του", "της", "μας", "σας", "τους", "τον", "την", "τη",
+                                                "το", "τα", "τις", "τες", "με", "σε", "μ", "σ", "τ"]
+    private static let negations: Set<String> = ["μη", "μην"]
+
+    private var tempDir: URL!
+    private var db: DatabaseService { .shared }
+
+    override func setUp() async throws {
+        try await super.setUp()
+        await DictAppTests.waitForHostAppLaunch()
+        tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+    }
+
+    override func tearDown() async throws {
+        try? FileManager.default.removeItem(at: tempDir)
+        try await super.tearDown()
+    }
+
+    /// One cell row of the pack.
+    private struct CellRow {
+        let key: String
+        let ord: Int
+        let sentenceID: Int64
+        let text: String
+        let author: String
+        let span: String?
+        let english: String?
+    }
+
+    /// Every cell row of the Greek pack (a key with a `|`), with its
+    /// sentence, the highlighted span and the English translation.
+    private func cellRows() throws -> [CellRow] {
+        try BundledDictionary(url: try PackFixtures.file(.ell)).read { db in
+            try GRDB.Row.fetchAll(db, sql: """
+                SELECT w.word, w.ord, w.sentence_id, w.form_start, w.form_length, s.text, s.author,
+                       (SELECT t.text FROM example_translation t WHERE t.sentence_id = s.id AND t.lang = 'eng') AS english
+                FROM example_word w JOIN example_sentence s ON s.id = w.sentence_id
+                WHERE w.lang = 'ell' AND instr(w.word, '|') > 0 ORDER BY w.word, w.ord
+                """).map { row in
+                let text: String = row["text"]
+                return CellRow(key: row["word"], ord: row["ord"], sentenceID: row["sentence_id"], text: text,
+                               author: row["author"],
+                               span: Self.span(text, start: row["form_start"], length: row["form_length"]),
+                               english: row["english"])
+            }
+        }
+    }
+
+    /// The forms of every cell the drill asks: the app's pool over the
+    /// three Greek lists, each verb's `questions(verb:level: .b2)`, by key.
+    private func drillCells() async throws -> [String: [String]] {
+        try await db.setup(userPath: tempDir.appendingPathComponent("user.sqlite").path,
+                           dictionaryURL: try TestDictionary.bundledURL(), packFiles: try PackFixtures.all())
+        let verbs = try await db.drillVerbs(lists: DrillScope.lists.map(\.id), meaningsLang: "eng")
+        var cells: [String: [String]] = [:]
+        for verb in verbs {
+            for (facet, persons) in ConjugationQuestionBuilder.questions(verb: verb, level: .b2) {
+                for person in persons {
+                    let key = "\(verb.word)|\(facet.rawValue)|\(person.rawValue)".precomposedStringWithCanonicalMapping
+                    cells[key] = verb.forms(facet, person)
+                }
+            }
+        }
+        return cells
+    }
+
+    /// The text of a span in Unicode scalars, or nil when it does not fit.
+    private static func span(_ text: String, start: Int, length: Int) -> String? {
+        let scalars = Array(text.unicodeScalars)
+        guard start >= 0, length > 0, start + length <= scalars.count else { return nil }
+        var view = String.UnicodeScalarView()
+        view.append(contentsOf: scalars[start..<start + length])
+        return String(view)
+    }
+
+    /// A span's words as the match rule reads them: lowercased NFC, without
+    /// punctuation; an elided word, glued to the next or before a space,
+    /// split off without its apostrophe (σ'αγαπούν: σ, αγαπούν; σ' is σ).
+    /// An elided ν' or θ' stays ν or θ: it is never the να or θα of a form.
+    private static func words(_ span: String) -> [String] {
+        let apostrophes = CharacterSet(charactersIn: "'’")
+        return span.precomposedStringWithCanonicalMapping.lowercased().split(whereSeparator: \.isWhitespace)
+            .flatMap { piece -> [String] in
+                var word = String(piece).trimmingCharacters(in: CharacterSet.letters.union(apostrophes).inverted)
+                var split: [String] = []
+                while word.unicodeScalars.count >= 2, let first = word.unicodeScalars.first,
+                      "μστνθ".unicodeScalars.contains(first),
+                      apostrophes.contains(word.unicodeScalars[word.unicodeScalars.index(after: word.unicodeScalars.startIndex)]) {
+                    split.append(String(first))
+                    word = String(String.UnicodeScalarView(word.unicodeScalars.dropFirst(2)))
+                }
+                word = word.trimmingCharacters(in: CharacterSet.letters.inverted)
+                return split + (word.isEmpty ? [] : [word])
+            }
+    }
+
+    /// Whether `words` are `form` (one of a cell's forms) with only clitics,
+    /// and μη(ν) after να, between its words, from its first word to the verb.
+    private static func holds(_ words: [String], _ form: String) -> Bool {
+        let parts = form.split(separator: " ").map(String.init)
+        guard words.first == parts.first, words.last == parts.last else { return false }
+        var matched = 0
+        for word in words {
+            if matched < parts.count, word == parts[matched] {
+                matched += 1
+            } else if !(clitics.contains(word) || (negations.contains(word) && matched > 0 && parts[matched - 1] == "να")) {
+                return false
+            }
+        }
+        return matched == parts.count
+    }
+
+    /// #364: every cell key in `example_word` is a cell of the app's pool
+    /// (`drillVerbs` over the three lists, `questions(verb:level: .b2)`),
+    /// with one row, `ord` 1. So `Scripts/drill_cells.py` asks what the app
+    /// asks.
+    @MainActor
+    func testCellKeysAreDrillCells() async throws {
+        let cells = try await drillCells()
+        let rows = try cellRows()
+        XCTAssertFalse(rows.isEmpty, "the Greek pack has drill rows")
+        let strangers = rows.map(\.key).filter { cells[$0] == nil }
+        XCTAssertEqual(strangers.prefix(20), [], "\(strangers.count) keys are no cell of the drill")
+        let counts = Dictionary(grouping: rows, by: \.key).mapValues(\.count).filter { $0.value != 1 }
+        XCTAssertEqual(counts, [:], "one row per cell")
+        XCTAssertEqual(rows.filter { $0.ord != 1 }.map(\.key).prefix(20), [], "ord 1")
+        // Scalar by scalar: String equality treats NFD and NFC as equal.
+        let notNFC = rows.map(\.key).filter {
+            !$0.unicodeScalars.elementsEqual($0.precomposedStringWithCanonicalMapping.unicodeScalars)
+        }
+        XCTAssertEqual(notNFC, [], "NFC keys")
+    }
+
+    /// #364: every cell row's span, lowercased NFC, is one of its cell's
+    /// forms with only clitics, and μη(ν) after να, between its words:
+    /// θα σου γράψω, να μην το κάνεις, το έχω γράψει (only έχω γράψει lit).
+    @MainActor
+    func testSpansHoldTheCellsForm() async throws {
+        let cells = try await drillCells()
+        var problems: [String] = []
+        for row in try cellRows() {
+            guard let forms = cells[row.key] else { continue }  // testCellKeysAreDrillCells
+            guard let span = row.span else {
+                problems.append("\(row.key): the span is outside \(row.text)")
+                continue
+            }
+            let words = Self.words(span)
+            if !forms.contains(where: { Self.holds(words, $0) }) {
+                problems.append("\(row.key): «\(span)» of «\(row.text)» is none of \(forms)")
+            }
+        }
+        XCTAssertEqual(problems.prefix(20), [], "\(problems.count) problems")
+        XCTAssertTrue(Self.holds(["θα", "σου", "το", "γράψω"], "θα γράψω"))
+        XCTAssertTrue(Self.holds(["να", "μην", "το", "γράψεις"], "να γράψεις"))
+        XCTAssertTrue(Self.holds(Self.words("να σ'αγαπούν"), "να αγαπούν"))
+        XCTAssertTrue(Self.holds(Self.words("Θα σ' ακολουθήσουμε"), "θα ακολουθήσουμε"))
+        XCTAssertFalse(Self.holds(Self.words("ν' ανεβαίνουν"), "να ανεβαίνουν"), "an elided ν' is no να")
+        XCTAssertFalse(Self.holds(Self.words("Θ’ ακούσετε"), "θα ακούσετε"), "an elided θ' is no θα")
+        XCTAssertFalse(Self.holds(["έχω", "ήδη", "γράψει"], "έχω γράψει"), "an adverb between")
+        XCTAssertFalse(Self.holds(["θα", "μην", "γράψω"], "θα γράψω"), "μη(ν) only after να")
+        XCTAssertFalse(Self.holds(["το", "έχω", "γράψει"], "έχω γράψει"), "the span starts at the form's first word")
+    }
+
+    /// #364: κάνω, imperative εσύ (κάνε, κάμε), has a sentence with Κάνε, an
+    /// English translation and a Tatoeba author (an id below 10^9).
+    func testKanoImperativeHasKane() throws {
+        let row = try XCTUnwrap(try cellRows().first { $0.key == "κάνω|imperativeSimple.active|2sg" })
+        XCTAssertEqual(row.span?.lowercased(), "κάνε", row.text)
+        XCTAssertEqual(row.ord, 1)
+        XCTAssertFalse(row.english?.isEmpty ?? true, "an English translation")
+        XCTAssertFalse(row.author.isEmpty)
+        XCTAssertLessThan(row.sentenceID, 1_000_000_000, "a Tatoeba sentence")
     }
 }
 

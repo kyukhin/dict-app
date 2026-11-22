@@ -24,6 +24,13 @@ build_forms, build_morphy and build_wordlists. It fills `example_sentence`,
 `example_translation`, `example_word` and the `tatoeba` data_source row,
 writes `Scripts/reports/examples-qa.md`, then raises if a gate fails.
 
+Drill examples (#364, 0134 "Drill examples"): every cell the conjugation
+drill can ask (`drill_cells.py`, a port of 0132's rules) gets one Greek
+candidate sentence that holds the cell's whole form by the match rule
+(compound forms with clitics between, particles, auxiliaries, homographs).
+Its `example_word` row is keyed `<word>|<facet>|<person>`, `ord` 1, and
+highlights the form from its first word to the verb.
+
 Usage (from the repository root):
     python3 Scripts/build_examples.py --self-check
         offline, on Scripts/fixtures/tatoeba-sample/: builds twice, compares
@@ -64,6 +71,7 @@ from pathlib import Path
 from typing import Callable, Iterable
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import drill_cells  # noqa: E402  (the drill's cells, #364)
 import inputs  # noqa: E402
 from build_greek import normalize_greek  # noqa: E402  (the one Greek folding, #87)
 from build_wordlists import cleaned_variants  # noqa: E402  (0130's cleaned spellings)
@@ -164,8 +172,35 @@ SHORT_WORDS = (3, 10)  # ranked before longer and shorter sentences
 PER_WORD = 5
 TOP_VERBS = 500
 GATE_VERBS = 0.85
-SIZE_BUDGET = 10_000_000  # bytes, the three tables of every file together
+SIZE_BUDGET = 10_000_000  # bytes, the word examples of every file together (#364: drill rows not counted)
 SAMPLES = {"ell": ("γράφω", "είμαι", "σπίτι", "καλός", "μέρα"), "eng": ("go", "house", "write", "good")}
+
+# Drill examples (#364). Sources by sentence id (0134, "Where it lives").
+WIKTIONARY_IDS = 1_000_000_000  # + n, #365
+GENERATED_IDS = 2_000_000_000  # + n, #365
+DRILL_BUDGET = 3_500_000  # bytes installed: the cell rows and the sentences only they use (kyukhin 2026-11-22)
+# The words that may stand between the words of a compound form (match rule 2).
+CLITICS = frozenset({"μου", "σου", "του", "της", "μας", "σας", "τους", "τον", "την", "τη", "το", "τα", "τις", "τες",
+                     "με", "σε", "μ", "σ", "τ"})
+NEGATIONS = frozenset({"μη", "μην"})  # between words only after να
+PARTICLES = frozenset({"θα", "να"})
+# The tokens of an elided θ' and ν', glued or before a space. They only block
+# (rule 3): never the θα or να of a compound form, which needs the whole word.
+ELIDED_PARTICLES = {"θ": "θ'", "ν": "ν'"}
+# A simple tense, perfect or pluperfect never follows these (match rule 3):
+# θα, να, an elided θ' or ν', ας, and μη(ν), after να or prohibitive (Μην ανησυχείς).
+BLOCKERS = PARTICLES | frozenset(ELIDED_PARTICLES.values()) | {"ας"} | NEGATIONS
+AUXILIARIES = frozenset(drill_cells.HAVE.values()) | frozenset(drill_cells.HAD.values())
+# An elided word glued to the next: σ'αγαπώ is σ' and αγαπώ, θ'αγαπούσα θ' and αγαπούσα.
+ELIDED = re.compile(r"([μστνθΜΣΤΝΘ])['’](.+)")
+APOSTROPHES = "'’"
+# Tense families: two cells of one family, person and voice share a reading
+# (the aspect-only homographs: κάνε, θα κάνουν, να κάνουν).
+FAMILY = {"imperativeContinuous": "imperative", "imperativeSimple": "imperative", "future": "future",
+          "futureContinuous": "future", "subjunctiveContinuous": "subjunctive", "subjunctiveSimple": "subjunctive"}
+DRILL_SAMPLES = ("κάνω|imperativeSimple.active|2sg", "γράφω|aorist.active|1sg", "γράφω|future.active|1sg",
+                 "λέω|subjunctiveSimple.active|2sg", "βλέπω|perfect.active|1sg", "έχω|present.active|3sg")
+LEVEL_NAMES = {1: "A1", 2: "A2", 3: "B1"}
 
 # Tatoeba's tags that keep a sentence or translation out. Maintenance tags
 # (every tag starting with "@") say the sentence, its language or a link
@@ -580,6 +615,182 @@ def index(result: Result, keys_of: Callable[[str], Iterable[str]],
     return {key: len(occ) for key, occ in found.items()}, words
 
 
+# ---------------------------------------------------------------------------
+# Drill examples (#364): one sentence per drill cell
+# ---------------------------------------------------------------------------
+
+def drill_tokens(text: str) -> list[tuple[str, int, int]]:
+    """The match rule's tokens of an NFC text: (token lowercased and NFC,
+    start, end) in Unicode scalars. Step 3's runs, with an elided word glued
+    to the next split off (σ'αγαπώ is σ and αγαπώ), and an elided θ' or ν',
+    glued or before a space, as its own token θ' or ν' (θ' αγαπούσα,
+    ν'ανεβαίνουν), which blocks but is never θα or να."""
+    out = []
+    for word, start, _ in tokens(text):
+        while (glued := ELIDED.fullmatch(word)) is not None:
+            head = glued.group(1).lower()
+            out.append((ELIDED_PARTICLES.get(head, head), start, start + 1))
+            start, word = start + 2, glued.group(2)
+        token, end = nfc(word.lower()), start + len(word)
+        if token in ELIDED_PARTICLES and end < len(text) and text[end] in APOSTROPHES:
+            token = ELIDED_PARTICLES[token]
+        out.append((token, start, end))
+    return out
+
+
+def skip_back(toks: list[tuple[str, int, int]], j: int, negations: bool) -> int:
+    """The index of the token before `j` once clitics, and μη(ν) when
+    `negations`, are skipped; -1 at the start."""
+    k = j - 1
+    while k >= 0 and (toks[k][0] in CLITICS or (negations and toks[k][0] in NEGATIONS)):
+        k -= 1
+    return k
+
+
+def find_form(toks: list[tuple[str, int, int]], form: str, infinitives: frozenset[str]) -> tuple[int, int] | None:
+    """The span (start, end) of the first occurrence of a cell form in a
+    sentence's `drill_tokens`, by the match rule (0134, "Match rule"), or
+    None:
+    1. exact words: accents kept, only case ignored;
+    2. a compound form's words in order with only clitics between, and
+       μη(ν) after να: θα σου γράψω, να μην το κάνεις, το έχω γράψει;
+    3. a form that does not start with θα or να never follows θα, να, an
+       elided θ' or ν', ας or μη(ν), clitics skipped: θα έγραφα is no
+       imperfect, Μην ανησυχείς, ας γράφει and ν' ανεβαίνουν no present; an
+       elided θ' or ν' is never the θα or να of a form: θ' ακούσετε is no
+       future;
+    4. έχω or είχα with an aorist infinitive in the next 3 tokens, clitics
+       or one other word between, is an auxiliary: in έχει γράψει and έχει
+       ήδη γράψει, έχει is not έχω's present; in έχει ένα γράμμα it is.
+    The span runs from the form's first word to the verb, clitics between
+    included (rule 6)."""
+    parts = form.split(" ")
+    for j, (tok, _, end) in enumerate(toks):
+        if tok != parts[-1]:
+            continue
+        k = j
+        for need in reversed(parts[:-1]):
+            k = skip_back(toks, k, need == "να")
+            if k < 0 or toks[k][0] != need:
+                break
+        else:
+            if parts[0] not in PARTICLES:
+                before = skip_back(toks, k, False)
+                if before >= 0 and toks[before][0] in BLOCKERS:
+                    continue
+            if parts[-1] in AUXILIARIES and is_auxiliary(toks, j, infinitives):
+                continue
+            return toks[k][1], end
+    return None
+
+
+def is_auxiliary(toks: list[tuple[str, int, int]], j: int, infinitives: frozenset[str]) -> bool:
+    """Whether the έχω or είχα form at `j` is an auxiliary (match rule 4):
+    an aorist infinitive follows within the next 3 tokens, with only clitics
+    and at most one other word between (έχει ήδη γράψει)."""
+    others = 0
+    for tok, _, _ in toks[j + 1:j + 4]:
+        if tok in infinitives:
+            return True
+        if tok not in CLITICS:
+            others += 1
+            if others > 1:
+                return False
+    return False
+
+
+def aorist_infinitives(reader: sqlite3.Connection) -> frozenset[str]:
+    """Every aorist infinitive of the forms tables (γράψει), lowercased NFC:
+    what makes έχω and είχα an auxiliary (match rule 4)."""
+    return frozenset(nfc(form.lower()) for (form,) in reader.execute(
+        "SELECT DISTINCT p.form FROM paradigm p JOIN tagset t ON t.id = p.tagset_id "
+        "WHERE ' ' || t.tags || ' ' LIKE '% infinitive-aorist %'"))
+
+
+@dataclass
+class Homographs:
+    """Spellings that fill several cells (match rule 5), as (cell key, form)."""
+    reading: set[tuple[str, str]]  # another reading: another person, tense, mood, voice or verb
+    aspect: set[tuple[str, str]]  # aspect only: one family, person and voice (κάνε)
+    shared: list[str]  # spellings in the cells of two verbs
+
+
+def homographs(cells: list[drill_cells.DrillCell]) -> Homographs:
+    by_spelling: dict[str, list[drill_cells.DrillCell]] = collections.defaultdict(list)
+    for c in cells:
+        for form in dict.fromkeys(c.forms):
+            by_spelling[form].append(c)
+    reading, aspect, shared = set(), set(), []
+    for form, group in by_spelling.items():
+        if len(group) < 2:
+            continue
+        readings = {(c.verb, c.voice, c.person, FAMILY.get(c.tense, c.tense)) for c in group}
+        (reading if len(readings) > 1 else aspect).update((c.key, form) for c in group)
+        if len({c.verb for c in group}) > 1:
+            shared.append(form)
+    return Homographs(reading, aspect, sorted(shared))
+
+
+def source_of(sid: int) -> int:
+    """A sentence's source by its id (0134): 0 Tatoeba, 1 Wiktionary, 2 generated."""
+    return 0 if sid < WIKTIONARY_IDS else 1 if sid < GENERATED_IDS else 2
+
+
+def cell_order(sid: int, form_index: int, rank: tuple) -> tuple:
+    """The choice's order of a sentence for a cell, lowest first: real
+    sentences first (Tatoeba, Wiktionary, then generated), the cell's first
+    form (the option shown as right) before another, then the source's own
+    rank (Tatoeba: step 5's)."""
+    return (source_of(sid), min(form_index, 1)) + tuple(rank)
+
+
+@dataclass
+class Drill:
+    """The drill's cells and the sentence chosen for each."""
+    pool: list
+    cells: list[drill_cells.DrillCell]
+    homographs: Homographs
+    rows: dict[str, tuple[int, int, int, str]]  # cell key -> (sid, start, length, form)
+    found: dict[str, int]  # cell key -> sentences that hold it
+    waiting: dict[str, int]  # cell key -> sentences held only through another reading, without an ok verdict
+
+
+def build_drill(pool: list, cells: list[drill_cells.DrillCell], candidates: dict[int, Candidate],
+                infinitives: frozenset[str], verdicts: dict[tuple[str, int], str] | None = None) -> Drill:
+    """One Tatoeba candidate per cell (0134, "Choice"). A spelling of
+    another reading counts only with an `ok` verdict for (cell, sentence)
+    (#365's second pass); without one the cell stays open."""
+    verdicts = verdicts or {}
+    homo = homographs(cells)
+    by_last: dict[str, set[int]] = collections.defaultdict(set)
+    for i, c in enumerate(cells):
+        for form in c.forms:
+            by_last[form.rsplit(" ", 1)[-1]].add(i)
+    occurrences: dict[str, list[tuple]] = collections.defaultdict(list)
+    waiting: collections.Counter = collections.Counter()
+    for sid in sorted(candidates):
+        candidate = candidates[sid]
+        toks = drill_tokens(candidate.text)
+        for i in sorted({i for tok, _, _ in toks for i in by_last.get(tok, ())}):
+            c, blocked = cells[i], False
+            for form_index, form in enumerate(c.forms):
+                span = find_form(toks, form, infinitives)
+                if span is None:
+                    continue
+                if (c.key, form) in homo.reading and verdicts.get((c.key, sid)) != "ok":
+                    blocked = True
+                    continue
+                occurrences[c.key].append((cell_order(sid, form_index, candidate.rank), sid, span[0],
+                                           span[1] - span[0], form))
+                break
+            else:
+                if blocked:
+                    waiting[c.key] += 1
+    rows = {key: min(found)[1:] for key, found in occurrences.items()}
+    return Drill(pool, cells, homo, rows, {key: len(found) for key, found in occurrences.items()},
+                 {key: n for key, n in waiting.items() if key not in rows})
+
+
 @dataclass
 class Rows:
     sentences: list[tuple]
@@ -587,14 +798,25 @@ class Rows:
     words: list[tuple]
 
 
-def rows_of(results: list[Result]) -> Rows:
-    """The three tables' rows, sorted by their keys."""
+def is_cell(key: str) -> bool:
+    """A cell key (`<word>|<facet>|<person>`): no word holds a `|`."""
+    return "|" in key
+
+
+def rows_of(results: list[Result], drill: Drill | None = None) -> Rows:
+    """The three tables' rows, sorted by their keys: the word examples, and
+    the drill's cell rows (`ord` 1) when `drill` is given. A sentence that
+    serves several words or cells is one row."""
     sentences, translations, words = [], [], []
     for r in results:
         used = set()
         for key, chosen in r.words.items():
             for order, (sid, start, length, _) in enumerate(chosen, 1):
                 words.append((r.lang, key, order, sid, start, length))
+                used.add(sid)
+        if drill is not None and r.lang == "ell":
+            for key, (sid, start, length, _) in drill.rows.items():
+                words.append(("ell", key, 1, sid, start, length))
                 used.add(sid)
         for sid in used:
             c = r.candidates[sid]
@@ -625,6 +847,32 @@ def table_hashes(conn: sqlite3.Connection) -> dict[str, tuple[int, str]]:
             count += 1
         result[table] = (count, digest.hexdigest())
     return result
+
+
+def rows_hashes(rows: Rows) -> dict[str, tuple[int, str]]:
+    """`table_hashes` of rows not written yet: the same digest of the same
+    rows in key order."""
+    result = {}
+    for table, items in zip(TABLES, (rows.sentences, rows.translations, rows.words)):
+        digest = hashlib.sha256()
+        for row in items:
+            digest.update(json.dumps(row, ensure_ascii=False, separators=(",", ":")).encode() + b"\n")
+        result[table] = (len(items), digest.hexdigest())
+    return result
+
+
+def split_rows(rows: Rows) -> tuple[Rows, Rows]:
+    """The word examples (word rows, their sentences and translations) and
+    the drill's part (cell rows and the sentences only they use)."""
+    words = [w for w in rows.words if not is_cell(w[1])]
+    cells = [w for w in rows.words if is_cell(w[1])]
+    word_ids = {w[3] for w in words}
+    cell_ids = {w[3] for w in cells} - word_ids
+
+    def part(ids: set[int], word_rows: list[tuple]) -> Rows:
+        return Rows([s for s in rows.sentences if s[0] in ids], [t for t in rows.translations if t[0] in ids],
+                    word_rows)
+    return part(word_ids, words), part(cell_ids, cells)
 
 
 def shipped_size(rows: Rows, lang: str | None = None) -> tuple[dict[str, int], int]:
@@ -695,6 +943,8 @@ def output_failures(rows: Rows, results: list[Result], subsets: dict[str, Subset
         if s is None or s[1] != lang:
             references.append(f"{lang} {key} {order}: sentence {sid} not stored in {lang}")
             continue
+        if is_cell(key):
+            continue  # a drill cell's span: `drill_failures`
         text = s[2]
         if not (0 <= start and length > 0 and start + length <= len(text)) or \
                 (text[start:start + length], start, length) not in tokens(text) or \
@@ -707,6 +957,36 @@ def output_failures(rows: Rows, results: list[Result], subsets: dict[str, Subset
             if len(set(orders[key])) != len(orders[key]) or not 1 <= len(chosen) <= PER_WORD:
                 references.append(f"{r.lang} {key}: {len(chosen)} examples, or one sentence twice")
     return {"complete": complete, "spans": spans, "clean": clean, "references": references}
+
+
+def drill_failures(rows: Rows, cells: list[drill_cells.DrillCell], infinitives: frozenset[str],
+                   tatoeba_ids: set[int]) -> dict[str, list[str]]:
+    """The drill's gates (0134, "Report and gates"), on the rows as stored:
+    every cell row's span holds one of its cell's forms by the match rule;
+    every cell key is a cell of the build's list, one row each with `ord` 1;
+    every Tatoeba sentence's id is below 10^9."""
+    texts = {s[0]: s[2] for s in rows.sentences}
+    by_key = {c.key: c for c in cells}
+    spans, keys = [], []
+    count: collections.Counter = collections.Counter()
+    for lang, key, order, sid, start, length in rows.words:
+        if not is_cell(key):
+            continue
+        count[key] += 1
+        cell = by_key.get(key)
+        if lang != "ell" or cell is None or order != 1:
+            keys.append(f"{lang} {key} {order}: not a drill cell, or not ord 1")
+            continue
+        text = texts.get(sid)
+        if text is None:
+            continue  # `output_failures` counts it
+        toks = drill_tokens(text)
+        if (start, start + length) not in {find_form(toks, form, infinitives) for form in cell.forms}:
+            spans.append(f"{key}: span {start}+{length} of {sid} {text!r}")
+    keys += [f"{key}: {n} rows" for key, n in sorted(count.items()) if n != 1]
+    keys += [f"Tatoeba sentence {sid}: id at or above 10^9" for sid, *_ in rows.sentences
+             if sid in tatoeba_ids and sid >= WIKTIONARY_IDS]
+    return {"cell spans": spans, "cell keys": keys}
 
 
 # ---------------------------------------------------------------------------
@@ -819,9 +1099,99 @@ def list_rule_section(r: Result, greek: GreekWords, before: tuple[dict[str, int]
     return out
 
 
+def drill_section(drill: Drill, greek: Result) -> list[str]:
+    """#364: the drill's cells and their sentences."""
+    cells, rows = drill.cells, drill.rows
+    reading = {key for key, _ in drill.homographs.reading}
+    aspect = {key for key, _ in drill.homographs.aspect} - reading
+    columns = ("Tatoeba", "Wiktionary", "Generated")
+
+    def counts(group: list[drill_cells.DrillCell]) -> str:
+        by_source = collections.Counter(source_of(rows[c.key][0]) for c in group if c.key in rows)
+        n = len(group)
+        covered = " | ".join(f"{by_source[i]:,} ({percent(by_source[i], n)})" if by_source[i] else "0"
+                             for i in range(len(columns)))
+        none = n - sum(by_source.values())
+        waiting = sum(1 for c in group if c.key in drill.waiting)
+        return f"{n:,} | {covered} | {none:,} ({percent(none, n)}) | {waiting:,}"
+
+    header = "| " + " | ".join(("Cells",) + columns + ("None", "Waiting for a reading verdict")) + " |"
+    rule = "|---" * (len(columns) + 3)  # the columns of `header`, without the closing bar
+    out = ["## Drill cells (#364)", "",
+           "Every cell the conjugation drill can ask (`drill_cells.py`, a port of 0132's rules: the three Greek "
+           "lists' verbs, every tense up to B2, both voices) gets one sentence that holds the cell's whole form by "
+           "0134's match rule, keyed `<word>|<facet>|<person>` in `example_word`. Sources: Tatoeba (#364); "
+           "Wiktionary usage examples and generated sentences come with #365. \"Waiting for a reading verdict\": "
+           "open cells whose found sentences hold them only through a spelling of another reading (match rule 5), "
+           "which takes a sentence only with an `ok` verdict of #365's second pass.", ""]
+    by_list = collections.Counter(v.list_level for v in drill.pool)
+    used = {sid for sid, *_ in rows.values()}
+    word_sids = {sid for chosen in greek.words.values() for sid, *_ in chosen}
+    out += [f"- The pool: {len(drill.pool):,} verbs: " + ", ".join(
+                f"{LEVEL_NAMES[level]} {n:,}" for level, n in sorted(by_list.items()))
+            + f"; {sum(1 for v in drill.pool if v.main == drill_cells.PASSIVE):,} with passive forms only, "
+            f"{sum(1 for v in drill.pool if v.impersonal):,} impersonal",
+            f"- Cells: {len(cells):,}; with a sentence: {len(rows):,} ({percent(len(rows), len(cells))}); "
+            f"sentences: {len(used):,}, of them already word examples: {len(used & word_sids):,}, new: "
+            f"{len(used - word_sids):,}",
+            f"- Homographs: aspect-only cells (one sentence serves both) {len(aspect):,}; cells with a spelling of "
+            f"another reading {len(reading):,}, of them with a sentence through another of their forms "
+            f"{sum(1 for k in reading if k in rows):,}, waiting for a reading verdict {len(drill.waiting):,}; "
+            "reading verdicts: none yet (#365)",
+            f"- Spellings in the cells of two verbs ({len(drill.homographs.shared)}): "
+            + (", ".join(drill.homographs.shared) or "none") + "."]
+
+    out += ["", "### By verb list and tense level", "", "| Verbs, tenses " + header, "|---" + rule + "|"]
+    for level in (1, 2, 3):
+        for tense_level, name in enumerate(drill_cells.LEVELS):
+            group = [c for c in cells if c.verb_level == level and c.tense_level == tense_level]
+            if group:
+                out.append(f"| {LEVEL_NAMES[level]} verbs, {name} tenses | {counts(group)} |")
+    out.append(f"| **A1 and A2 verbs, tenses up to A2 (2.0)** | "
+               f"{counts([c for c in cells if c.verb_level <= 2 and c.tense_level <= 1])} |")
+    out.append(f"| **All** | {counts(cells)} |")
+
+    out += ["", "### By tense and voice", "", "All verbs and tense levels. Main voice: the active, or the passive "
+            "of a verb with passive forms only; passive: the passive of a verb with both voices.", "",
+            "| Tense | Voice " + header, "|---|---" + rule + "|"]
+    for tense in drill_cells.TENSES:
+        for main, voice in ((True, "main"), (False, "passive")):
+            group = [c for c in cells if c.tense == tense and c.main_voice == main]
+            if group:
+                out.append(f"| {tense} | {voice} | {counts(group)} |")
+
+    out += ["", "### Samples", "", "| Cell | Forms | Sentence | eng | rus | Byline (rus) |",
+            "|---|---|---|---|---|---|"]
+    for key in DRILL_SAMPLES:
+        cell_ = next((c for c in cells if c.key == key), None)
+        forms = cell(" / ".join(cell_.forms)) if cell_ else "not a cell"
+        if key not in rows:
+            out.append(f"| {cell(key)} | {forms} | — | | | |")
+            continue
+        sid, start, length, _ = rows[key]
+        c = greek.candidates[sid]
+        trs = [cell(c.translations[tl][1]) if tl in c.translations else "—" for tl in ("eng", "rus")]
+        shown = c.translations.get("rus") or c.translations.get("eng")
+        out.append(f"| {cell(key)} | {forms} | {highlighted(c.text, start, length)} | {' | '.join(trs)} | "
+                   f"{cell(byline(c.author, shown[2] if shown else None))} |")
+
+    top = sorted(drill.pool, key=lambda v: (drill_cells.NO_RANK if v.rank is None else v.rank, v.seq))[:20]
+    out += ["", "### Open cells of the 20 most frequent verbs", "",
+            "By the lists' frequency rank. Each: cells without a sentence of all its cells, then those at tenses "
+            "up to A2.", ""]
+    for verb in top:
+        mine = [c for c in cells if c.verb == verb.word]
+        open_ = [c for c in mine if c.key not in rows]
+        early = [f"{c.facet} {c.person}" for c in open_ if c.tense_level <= 1]
+        out.append(f"- {verb.word} ({LEVEL_NAMES[verb.list_level]}, rank {verb.rank}): {len(open_)} of "
+                   f"{len(mine)} open; up to A2: " + (", ".join(early) or "none"))
+    return out
+
+
 def report(folder: str, pins: dict, results: list[Result], english: EnglishWords,
            ambiguity: list[tuple], skipped: collections.Counter, verbs: dict, hashes: dict, sizes: dict,
-           gates: list, list_rule: list[str]) -> str:
+           gates: list, list_rule: list[str], drill: list[str] = (), word_hashes: dict | None = None,
+           drill_hashes: dict | None = None) -> str:
     folder_pin = pins[folder]
     out = ["# Example sentences: QA report", "",
            "Written by `Scripts/build_examples.py` on every build of the examples step "
@@ -909,13 +1279,24 @@ def report(folder: str, pins: dict, results: list[Result], english: EnglishWords
                            f"{cell(byline(c.author, shown_tl[2] if shown_tl else None))} |")
             out.append("")
 
-    out += ["## Blocking tags hit", "", "Sentences and translations each tag kept out."]
+    out += list(drill)
+    out += (["", "## Blocking tags hit"] if drill else ["## Blocking tags hit"]) + [
+        "", "Sentences and translations each tag kept out."]
     for r in results:
         out += ["", f"- {'Greek' if r.lang == 'ell' else 'English'}: " + ", ".join(
             f"{tag} ({n:,})" for tag, n in sorted(r.tag_hits.items(), key=lambda x: (-x[1], x[0])))]
 
     out += ["", "## Size and table hashes", "", "| Table | Rows | sha256 of the rows in key order |", "|---|---|---|"]
     out += [f"| `{t}` | {hashes[t][0]:,} | `{hashes[t][1]}` |" for t in TABLES]
+    if word_hashes:
+        out += ["", "The word examples alone (the rows of word keys, their sentences and translations), which the "
+                "drill rows leave unchanged (#364):", "", "| Table | Rows | sha256 of the rows in key order |",
+                "|---|---|---|"]
+        out += [f"| `{t}` | {word_hashes[t][0]:,} | `{word_hashes[t][1]}` |" for t in TABLES]
+    if drill_hashes:
+        out += ["", "The drill rows (the cell rows, and the sentences and translations only they use, #364):", "",
+                "| Table | Rows | sha256 of the rows in key order |", "|---|---|---|"]
+        out += [f"| `{t}` | {drill_hashes[t][0]:,} | `{drill_hashes[t][1]}` |" for t in TABLES]
     out += ["", "| Rows | " + " | ".join(f"`{t}`" for t in TABLES) + " | Installed | Download (xz) |",
             "|---" * (len(TABLES) + 3) + "|"]
     for label, (table_sizes, xz) in sizes.items():
@@ -967,12 +1348,23 @@ def run(writer: sqlite3.Connection, reader: sqlite3.Connection, cache_dir: Path,
     skipped = collections.Counter(tok.lower() for c in results[1].candidates.values() for tok, _, _ in c.tokens
                                   if tok.lower() in english.ambiguous)
 
-    rows = rows_of(results)
+    # #364: one sentence per drill cell, from the same Greek candidates.
+    pool, cells = drill_cells.drill_cells(reader)
+    infinitives = aorist_infinitives(reader)
+    drill = build_drill(pool, cells, results[0].candidates, infinitives)
+    print(f"  drill: {len(pool):,} verbs, {len(cells):,} cells, {len(drill.rows):,} with a sentence")
+
+    word_rows = rows_of(results)
+    rows = rows_of(results, drill)
+    word_part, drill_part = split_rows(rows)
+    word_hashes = rows_hashes(word_part)
     write_rows(writer, rows, f"export {pins[folder]['export_date']}")
     hashes = table_hashes(writer)
     try:
         sizes = {"all": shipped_size(rows), "Greek (ell pack)": shipped_size(rows, "ell"),
-                 "English (eng-lists pack)": shipped_size(rows, "eng")}
+                 "English (eng-lists pack)": shipped_size(rows, "eng"),
+                 "Word examples (all files)": shipped_size(word_part),
+                 "Drill rows and the sentences only they use": shipped_size(drill_part)}
     except sqlite3.OperationalError as error:
         raise RuntimeError(f"The size gate needs SQLite with dbstat: {error}") from error
 
@@ -992,7 +1384,11 @@ def run(writer: sqlite3.Connection, reader: sqlite3.Connection, cache_dir: Path,
     }
 
     failures = output_failures(rows, results, subsets, {"ell": greek.keys, "eng": english.keys})
-    total = sum(sizes["all"][0].values())
+    failures.update(drill_failures(rows, cells, infinitives,
+                                   collections.ChainMap(*(s.sentences for s in subsets.values()))))
+    total = sum(sizes["Word examples (all files)"][0].values())
+    drill_total = sum(sizes["Drill rows and the sentences only they use"][0].values())
+    unchanged = rows_hashes(word_rows) == word_hashes
     english_three = sum(1 for w in english.list_words if len(results[1].words.get(w, ())) >= 3)
     gates = [
         (f"Top-{TOP_VERBS} Greek verbs with 3+ examples", f"{verbs['three']} of {len(top_verbs)} "
@@ -1006,14 +1402,23 @@ def run(writer: sqlite3.Connection, reader: sqlite3.Connection, cache_dir: Path,
          "0", not failures["spans"]),
         ("No stored sentence or translation has a blocking tag",
          f"{len(failures['clean'])}", "0", not failures["clean"]),
-        ("Example tables of all files", f"{total / 1e6:.2f} MB", f"≤ {SIZE_BUDGET / 1e6:.0f} MB",
-         total <= SIZE_BUDGET),
+        ("Word example tables of all files (the drill rows not counted, #364)", f"{total / 1e6:.2f} MB",
+         f"≤ {SIZE_BUDGET / 1e6:.0f} MB", total <= SIZE_BUDGET),
         ("Every translation and word row points at a stored sentence", f"{len(failures['references'])} problems",
          "0", not failures["references"]),
+        ("Drill: every cell row's span holds its cell's form by the match rule",
+         f"{len(failures['cell spans'])} problems", "0", not failures["cell spans"]),
+        ("Drill: every cell key is a drill cell, one row each (`ord` 1); every Tatoeba id below 10^9",
+         f"{len(failures['cell keys'])} problems", "0", not failures["cell keys"]),
+        ("Drill: the word examples do not change (the hash of the word rows)",
+         "equal" if unchanged else "changed", "equal", unchanged),
+        ("Drill rows and the sentences only they use, installed", f"{drill_total / 1e6:.2f} MB",
+         f"≤ {DRILL_BUDGET / 1e6:.1f} MB", drill_total <= DRILL_BUDGET),
     ]
     report_path.parent.mkdir(parents=True, exist_ok=True)
     report_path.write_text(report(folder, pins, results, english, ambiguity, skipped, verbs, hashes, sizes, gates,
-                                  list_rule), encoding="utf-8")
+                                  list_rule, drill_section(drill, results[0]), word_hashes, rows_hashes(drill_part)),
+                           encoding="utf-8")
 
     print("  " + ", ".join(f"{t} {hashes[t][0]:,}" for t in TABLES) + f"; {total:,} bytes")
     for name, measured, needed, ok in gates:
@@ -1065,12 +1470,22 @@ def standalone(output: Path, source: Path, cache_dir: Path) -> int:
     return 0
 
 
+# The tags of a fixture `verb` line's slot and of each person (Wiktextract's).
+FIXTURE_SLOTS = {"present": "present", "imperfect": "imperfect", "aorist": "past perfective",
+                 "dependent": "dependent", "imperativeContinuous": "imperative imperfective",
+                 "imperativeSimple": "imperative perfective", "infinitive": "infinitive-aorist"}
+FIXTURE_PERSONS = ("first-person singular", "second-person singular", "third-person singular",
+                   "first-person plural", "second-person plural", "third-person plural")
+
+
 def fixture_reader(folder: Path) -> sqlite3.Connection:
     """An in-memory file with the tables the step reads, filled from the
-    fixture's `lexicon.tsv`: `lemma` (word, pos, cells), `link` (page,
-    lemma), `headword`, `exception` (form, pos, base), `morphy` (word,
-    pos_mask) and `list` (term, and the series when not the English
-    lists') lines."""
+    fixture's `lexicon.tsv`: `lemma` (word, pos, untagged cells), `verb`
+    (a verb, a slot of `FIXTURE_SLOTS` and its forms per person, εγώ to
+    αυτοί, alternatives split by `/`; an infinitive has one form), `link`
+    (page, lemma), `headword`, `exception` (form, pos, base), `morphy`
+    (word, pos_mask) and `list` (term; the series when not the English
+    lists'; the level of a Greek list, for the drill) lines."""
     from build_dictionaries import SCHEMA as CORE_SCHEMA
     import build_forms
     import build_morphy
@@ -1080,17 +1495,44 @@ def fixture_reader(folder: Path) -> sqlite3.Connection:
     conn.executescript(build_forms.SCHEMA)
     conn.executescript(build_morphy.SCHEMA)
     conn.executescript(build_wordlists.SCHEMA)
-    lemma_ids = {}
+    conn.execute("INSERT INTO tagset(id, tags) VALUES (1, '')")
+    for level, name in enumerate(("a1", "a2", "b1"), 1):
+        conn.execute("INSERT INTO wordlist(id, lang, series, level, level_ord, word_count, data_source, "
+                     "translation_lang) VALUES (?, 'ell', ?, ?, ?, 0, 'fixture', 'eng')",
+                     (f"{GREEK_LISTS}-{name}", GREEK_LISTS, name.upper(), level))
+    lemma_ids, cells_of, seq = {}, collections.Counter(), 0
+
+    def lemma(word: str, pos: str) -> int:
+        if (word, pos) not in lemma_ids:
+            lemma_ids[(word, pos)] = len(lemma_ids) + 1
+            conn.execute("INSERT INTO lemma(id, lang, word, word_normalized, pos) VALUES (?, 'ell', ?, ?, ?)",
+                         (lemma_ids[(word, pos)], word, normalize_greek(word), pos))
+        return lemma_ids[(word, pos)]
+
+    def cell(lemma_id: int, form: str, tags: str) -> None:
+        tagset = conn.execute("SELECT id FROM tagset WHERE tags = ?", (tags,)).fetchone()
+        if tagset is None:
+            tagset = (conn.execute("INSERT INTO tagset(tags) VALUES (?)", (tags,)).lastrowid,)
+        cells_of[lemma_id] += 1
+        conn.execute("INSERT INTO paradigm(lemma_id, ord, form, tagset_id) VALUES (?, ?, ?, ?)",
+                     (lemma_id, cells_of[lemma_id], form, tagset[0]))
+
     for fields in read_lines(folder / "lexicon.tsv"):
         kind, rest = fields[0], fields[1:]
         if kind == "lemma":
             word, pos, cells = rest
-            i = lemma_ids.setdefault((word, pos), len(lemma_ids) + 1)
-            conn.execute("INSERT INTO lemma(id, lang, word, word_normalized, pos) VALUES (?, 'ell', ?, ?, ?)",
-                         (i, word, normalize_greek(word), pos))
-            for order, form in enumerate(cells.split(","), 1):
-                conn.execute("INSERT INTO paradigm(lemma_id, ord, form, tagset_id) VALUES (?, ?, ?, 1)",
-                             (i, order, form))
+            i = lemma(word, pos)
+            for form in cells.split(","):
+                cell(i, form, "")
+        elif kind == "verb":
+            word, slot, forms = rest
+            i = lemma(word, "verb")
+            if slot == "infinitive":
+                cell(i, forms, FIXTURE_SLOTS[slot])
+                continue
+            for person, alternatives in zip(FIXTURE_PERSONS, forms.split(",")):
+                for form in filter(None, alternatives.split("/")):
+                    cell(i, form, " ".join(sorted(f"{FIXTURE_SLOTS[slot]} {person}".split())))
         elif kind == "link":
             page, word = rest
             i = next(i for (w, _), i in lemma_ids.items() if w == word)
@@ -1102,8 +1544,10 @@ def fixture_reader(folder: Path) -> sqlite3.Connection:
         elif kind == "morphy":
             conn.execute("INSERT INTO morphy_lemma(word, pos_mask) VALUES (?, ?)", (rest[0], int(rest[1])))
         elif kind == "list":
-            conn.execute("INSERT INTO wordlist_item(series, term, seq, sort_key) VALUES (?, ?, 0, ?)",
-                         (rest[1] if len(rest) > 1 else ENGLISH_LISTS, rest[0], rest[0]))
+            seq += 1
+            conn.execute("INSERT INTO wordlist_item(series, term, seq, sort_key, level_ord) VALUES (?, ?, ?, ?, ?)",
+                         (rest[1] if len(rest) > 1 else ENGLISH_LISTS, rest[0], seq, rest[0],
+                          int(rest[2]) if len(rest) > 2 else 0))
         else:
             raise RuntimeError(f"lexicon.tsv: unknown line kind {kind!r}")
     return conn
@@ -1114,16 +1558,19 @@ def self_check() -> int:
     reader = fixture_reader(FIXTURE)
     greek, english = GreekWords(reader), EnglishWords(reader)
     subsets = {lang: read_subset({part: FIXTURE / f"{lang}-{part}.tsv" for part in PARTS}) for lang in SUBSETS}
+    pool, cells = drill_cells.drill_cells(reader)
+    infinitives = aorist_infinitives(reader)
     runs = []
     for _ in range(2):
         results = [build_language("ell", subsets["ell"], greek.keys, greek.own),
                    build_language("eng", subsets["eng"], english.keys)]
-        rows = rows_of(results)
+        drill = build_drill(pool, cells, results[0].candidates, infinitives)
+        rows = rows_of(results, drill)
         conn = new_database(":memory:")
         write_rows(conn, rows, "self-check")
-        runs.append((results, rows, conn, table_hashes(conn)))
-    results, rows, conn, hashes = runs[0]
-    assert hashes == runs[1][3], "two builds of the fixture differ"
+        runs.append((results, drill, rows, conn, table_hashes(conn)))
+    results, drill, rows, conn, hashes = runs[0]
+    assert hashes == runs[1][4], "two builds of the fixture differ"
     for table, (count, digest) in hashes.items():
         print(f"  {table:<20} {count:>3} rows  {digest}")
 
@@ -1235,10 +1682,100 @@ def self_check() -> int:
         ("the data_source row", conn.execute("SELECT id, kind, license, url FROM data_source").fetchall()
          == [("tatoeba", "example_sentences", "CC BY 2.0 FR", "https://tatoeba.org")]),
     ]
+
+    # #364: the drill's cells and their sentences (0134, Test plan). The
+    # fixture's drill sentences (1001…) are by a non-native author, so they
+    # rank after the word examples above and leave them as they were.
+    texts = {s[0]: s[2] for s in rows.sentences}
+    asked = {c.key for c in cells}
+
+    def shown(key: str) -> str | None:
+        """The highlighted text of a cell's row."""
+        if key not in drill.rows:
+            return None
+        sid, start, length, _ = drill.rows[key]
+        return texts[sid][start:start + length]
+
+    def sentence(key: str, built: Drill = drill) -> int | None:
+        return built.rows[key][0] if key in built.rows else None
+
+    g, aorist, imperative = "γράφω|", "μιλάω|aorist.active|3sg", "μιλάω|imperativeSimple.active|2sg"
+    checked = build_drill(pool, cells, results[0].candidates, infinitives, {(aorist, 1014): "ok"})
+    drill_failed = drill_failures(rows, cells, infinitives, set(subsets["ell"].sentences))
+    drill_caught = drill_failures(
+        Rows(rows.sentences + [(1_000_000_005, "ell", "Γράφω.", "zeus")], rows.translations,
+             rows.words + [("ell", g + "aorist.active|2sg", 1, 1013, 0, 4),
+                           ("ell", g + "present.active|1sg", 1, 112, 0, 5),
+                           ("ell", g + "aorist.active|3pl", 2, 1013, 0, 4)]),
+        cells, infinitives, set(subsets["ell"].sentences) | {1_000_000_005})
+    checks += [
+        ("drill: the cells are the drill's, never the cited present εγώ",
+         g + "present.active|1sg" not in asked and {g + "present.active|2sg", "αγαπάω|present.active|2sg",
+                                                    "έχω|future.active|1sg"} <= asked),
+        ("drill: θα γράψω is the future; a sentence that is a word example is reused",
+         shown(g + "future.active|1sg") == "Θα γράψω" and sentence(g + "future.active|1sg") == 110),
+        ("drill: clitics and a capital between θα and the verb, highlighted whole",
+         shown(g + "future.active|1pl") == "Θα σου τις γράψουμε"),
+        ("drill: μην after να", shown(g + "subjunctiveSimple.active|2sg") == "να μην τους γράψεις"),
+        ("drill: a clitic before έχω; θα έχω γράψει is no perfect; an adverb between is no match",
+         shown(g + "perfect.active|1sg") == "έχω γράψει" and sentence(g + "perfect.active|1sg") == 1005),
+        ("drill: θα έχω γράψει is the future perfect, never έχω's future",
+         shown(g + "futurePerfect.active|1sg") == "θα έχω γράψει" and "έχω|future.active|1sg" not in drill.rows),
+        ("drill: έχει γράψει is γράφω's perfect, never έχω's present αυτός",
+         shown(g + "perfect.active|3sg") == "Έχει γράψει" and sentence("έχω|present.active|3sg") == 1007),
+        ("drill: έχει with an infinitive a word or clitics later is the auxiliary (έχει ήδη γράψει); έχει ένα γράμμα is έχω",
+         find_form(drill_tokens("Έχει ήδη γράψει ένα γράμμα."), "έχει", infinitives) is None
+         and find_form(drill_tokens("Δεν το έχει πια γράψει."), "έχει", infinitives) is None
+         and find_form(drill_tokens("Έχει ένα γράμμα."), "έχει", infinitives) == (0, 4)
+         and drill.found["έχω|present.active|3sg"] == 2 and sentence("έχω|present.active|3sg") == 1007),
+        ("drill: θα έγραφα is no imperfect", g + "imperfect.active|1sg" in asked
+         and g + "imperfect.active|1sg" not in drill.rows),
+        ("drill: να κάνεις is the subjunctive, both aspects in one sentence, never the present",
+         sentence("κάνω|subjunctiveSimple.active|2sg") == 1009 == sentence("κάνω|subjunctiveContinuous.active|2sg")
+         and "κάνω|present.active|2sg" in asked and "κάνω|present.active|2sg" not in drill.rows),
+        ("drill: an elided clitic glued to its word (μ'αγαπάς)", shown("αγαπάω|present.active|2sg") == "αγαπάς"
+         and drill_tokens("Δε μ'αγαπάς;") == [("δε", 0, 2), ("μ", 3, 4), ("αγαπάς", 5, 11)]),
+        ("drill: an elided ν' or θ', before a space or glued, is a token of its own (both apostrophes)",
+         drill_tokens("Δεν θ' αγαπούσα") == [("δεν", 0, 3), ("θ'", 4, 5), ("αγαπούσα", 7, 15)]
+         and drill_tokens("ν’αγαπάς") == [("ν'", 0, 1), ("αγαπάς", 2, 8)]),
+        ("drill: an elided ν' or θ' is never the να or θα of a form: no subjunctive, no future (θ' αγαπήσεις)",
+         find_form(drill_tokens("Θ' αγαπήσεις ξανά."), "θα αγαπήσεις", infinitives) is None
+         and {"αγαπάω|future.active|2sg", "αγαπάω|subjunctiveContinuous.active|2sg"} <= asked
+         and "αγαπάω|future.active|2sg" not in drill.rows
+         and "αγαπάω|subjunctiveContinuous.active|2sg" not in drill.rows
+         and "αγαπάω|subjunctiveContinuous.active|3sg" not in drill.rows),
+        ("drill: after an elided ν' or θ' no present or imperfect (ν' αγαπάς, θ' αγαπούσα)",
+         sentence("αγαπάω|present.active|2sg") == 1010 and "αγαπάω|present.active|3sg" not in drill.rows
+         and "αγαπάω|imperfect.active|1sg" in asked and "αγαπάω|imperfect.active|1sg" not in drill.rows),
+        ("drill: no simple tense after a prohibitive μη(ν) or ας, clitics skipped (μη μου μιλάς, ας μιλάνε)",
+         {"μιλάω|present.active|2sg", "μιλάω|present.active|3pl"} <= asked
+         and "μιλάω|present.active|2sg" not in drill.rows and "μιλάω|present.active|3pl" not in drill.rows
+         and find_form(drill_tokens("Δε μου μιλάς."), "μιλάς", infinitives) is not None),
+        ("drill: a form without its accent is no match (γραψε)",
+         find_form(drill_tokens("Γραψε ένα γράμμα."), "γράψε", infinitives) is None
+         and all(row[0] != 1011 for row in drill.rows.values())),
+        ("drill: κάνε serves both imperatives (aspect only); the cell's first form wins over κάμε",
+         sentence("κάνω|imperativeSimple.active|2sg") == 1013 == sentence("κάνω|imperativeContinuous.active|2sg")
+         and drill.found["κάνω|imperativeSimple.active|2sg"] == 2
+         and ("κάνω|imperativeSimple.active|2sg", "κάνε") in drill.homographs.aspect),
+        ("drill: μίλησε, another reading, takes a sentence only with an ok verdict",
+         (aorist, "μίλησε") in drill.homographs.reading
+         and (g + "present.active|2pl", "γράφετε") in drill.homographs.reading
+         and aorist not in drill.rows and imperative not in drill.rows and drill.waiting.get(aorist) == 1
+         and sentence(aorist, checked) == 1014 and imperative not in checked.rows),
+        ("drill: real sentences first, Tatoeba before Wiktionary and generated",
+         min([(cell_order(1_000_000_001, 0, (0, 0, 0, 1)), 1_000_000_001), (cell_order(7, 1, (1, -1, 1, 7)), 7),
+              (cell_order(2_000_000_001, 0, ()), 2_000_000_001)])[1] == 7),
+        ("drill: every cell row has ord 1 and its span holds its form; the drill gates hold",
+         not any(drill_failed.values()) and all(w[2] == 1 for w in rows.words if is_cell(w[1]))),
+        ("drill: the gates catch bad cell rows", {gate: len(problems) for gate, problems in drill_caught.items()}
+         == {"cell spans": 1, "cell keys": 3}),
+        ("drill: the word examples do not change", rows_hashes(rows_of(results)) == rows_hashes(split_rows(rows)[0])),
+    ]
     failed = [name for name, ok in checks if not ok]
     for name, ok in checks:
         print(f"  {'ok  ' if ok else 'FAIL'} {name}")
-    for gate, problems in failures.items():
+    for gate, problems in {**failures, **drill_failed}.items():
         for problem in problems:
             print(f"    {gate}: {problem}")
 
