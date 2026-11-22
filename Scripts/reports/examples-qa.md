@@ -53,8 +53,12 @@ Verb ranking (QA only): `frequencywords/el_50k.txt`, sha256 `7ec8f6de52c38f36a04
 | English list words with 3+ examples (reported, not gated) | 6,662 of 8,431 | — | pass |
 | Every span lies inside its text, and its token gives its key | 0 problems | 0 | pass |
 | No stored sentence or translation has a blocking tag | 0 | 0 | pass |
-| Example tables of all files | 9.36 MB | ≤ 10 MB | pass |
+| Word example tables of all files (the drill rows not counted, #364) | 9.36 MB | ≤ 10 MB | pass |
 | Every translation and word row points at a stored sentence | 0 problems | 0 | pass |
+| Drill: every cell row's span holds its cell's form by the match rule | 0 problems | 0 | pass |
+| Drill: every cell key is a drill cell, one row each (`ord` 1); every Tatoeba id below 10^9 | 0 problems | 0 | pass |
+| Drill: the word examples do not change (the hash of the word rows) | equal | equal | pass |
+| Drill rows and the sentences only they use, installed | 0.44 MB | ≤ 3.5 MB | pass |
 
 ## Greek
 
@@ -310,6 +314,101 @@ The 60 most frequent of the 306 tokens whose inferred keys are skipped, with the
 | Hello, Tom. **Good** morning. | Hola Tom. Buenos días. | Γεια σου, Τομ. Καλημέρα. | CM, Shishir · Tatoeba |
 | Nazareth! Can anything **good** come from there? | ¡Nazaret! ¿Puede algo bueno venir de allí? | Μπορεί να βγει κάτι καλό από τη Ναζαρέτ; | mailohilohi, arashi_29 · Tatoeba |
 
+## Drill cells (#364)
+
+Every cell the conjugation drill can ask (`drill_cells.py`, a port of 0132's rules: the three Greek lists' verbs, every tense up to B2, both voices) gets one sentence that holds the cell's whole form by 0134's match rule, keyed `<word>|<facet>|<person>` in `example_word`. Sources: Tatoeba (#364); Wiktionary usage examples and generated sentences come with #365. "Waiting for a reading verdict": open cells whose found sentences hold them only through a spelling of another reading (match rule 5), which takes a sentence only with an `ok` verdict of #365's second pass.
+
+- The pool: 595 verbs: A1 196, A2 66, B1 333; 102 with passive forms only, 4 impersonal
+- Cells: 57,000; with a sentence: 3,768 (6.6%); sentences: 3,555, of them already word examples: 1,933, new: 1,622
+- Homographs: aspect-only cells (one sentence serves both) 317; cells with a spelling of another reading 4,578, of them with a sentence through another of their forms 90, waiting for a reading verdict 697; reading verdicts: none yet (#365)
+- Spellings in the cells of two verbs (43): έχει φερθεί, έχεις φερθεί, έχετε φερθεί, έχουμε φερθεί, έχουν φερθεί, έχω φερθεί, είχα φερθεί, είχαμε φερθεί, είχαν φερθεί, είχατε φερθεί, είχε φερθεί, είχες φερθεί, θα έχει φερθεί, θα έχεις φερθεί, θα έχετε φερθεί, θα έχουμε φερθεί, θα έχουν φερθεί, θα έχω φερθεί, θα φερθεί, θα φερθείς, θα φερθείτε, θα φερθούμε, θα φερθούν, θα φερθούνε, θα φερθώ, να φερθεί, να φερθείς, να φερθείτε, να φερθούμε, να φερθούν, να φερθούνε, να φερθώ, πέστε, πιέστε, φέρθηκα, φέρθηκαν, φέρθηκε, φέρθηκες, φερθήκαμε, φερθήκαν, φερθήκανε, φερθήκατε, φερθείτε.
+
+### By verb list and tense level
+
+| Verbs, tenses | Cells | Tatoeba | Wiktionary | Generated | None | Waiting for a reading verdict |
+|---|---|---|---|---|---|---|
+| A1 verbs, A1 tenses | 4,319 | 1,598 (37.0%) | 0 | 0 | 2,721 (63.0%) | 259 |
+| A1 verbs, A2 tenses | 1,156 | 224 (19.4%) | 0 | 0 | 932 (80.6%) | 17 |
+| A1 verbs, B1 tenses | 5,124 | 518 (10.1%) | 0 | 0 | 4,606 (89.9%) | 147 |
+| A1 verbs, B2 tenses | 8,450 | 258 (3.1%) | 0 | 0 | 8,192 (96.9%) | 4 |
+| A2 verbs, A1 tenses | 1,465 | 222 (15.2%) | 0 | 0 | 1,243 (84.8%) | 48 |
+| A2 verbs, A2 tenses | 394 | 50 (12.7%) | 0 | 0 | 344 (87.3%) | 4 |
+| A2 verbs, B1 tenses | 1,722 | 53 (3.1%) | 0 | 0 | 1,669 (96.9%) | 18 |
+| A2 verbs, B2 tenses | 2,786 | 32 (1.1%) | 0 | 0 | 2,754 (98.9%) | 0 |
+| B1 verbs, A1 tenses | 6,364 | 402 (6.3%) | 0 | 0 | 5,962 (93.7%) | 126 |
+| B1 verbs, A2 tenses | 2,936 | 224 (7.6%) | 0 | 0 | 2,712 (92.4%) | 15 |
+| B1 verbs, B1 tenses | 8,540 | 104 (1.2%) | 0 | 0 | 8,436 (98.8%) | 58 |
+| B1 verbs, B2 tenses | 13,744 | 83 (0.6%) | 0 | 0 | 13,661 (99.4%) | 1 |
+| **A1 and A2 verbs, tenses up to A2 (2.0)** | 7,334 | 2,094 (28.6%) | 0 | 0 | 5,240 (71.4%) | 328 |
+| **All** | 57,000 | 3,768 (6.6%) | 0 | 0 | 53,232 (93.4%) | 697 |
+
+### By tense and voice
+
+All verbs and tense levels. Main voice: the active, or the passive of a verb with passive forms only; passive: the passive of a verb with both voices.
+
+| Tense | Voice | Cells | Tatoeba | Wiktionary | Generated | None | Waiting for a reading verdict |
+|---|---|---|---|---|---|---|---|
+| present | main | 2,955 | 671 (22.7%) | 0 | 0 | 2,284 (77.3%) | 138 |
+| present | passive | 1,973 | 76 (3.9%) | 0 | 0 | 1,897 (96.1%) | 5 |
+| imperfect | main | 3,532 | 248 (7.0%) | 0 | 0 | 3,284 (93.0%) | 67 |
+| imperfect | passive | 1,822 | 4 (0.2%) | 0 | 0 | 1,818 (99.8%) | 3 |
+| aorist | main | 3,470 | 669 (19.3%) | 0 | 0 | 2,801 (80.7%) | 180 |
+| aorist | passive | 1,949 | 64 (3.3%) | 0 | 0 | 1,885 (96.7%) | 0 |
+| future | main | 3,549 | 402 (11.3%) | 0 | 0 | 3,147 (88.7%) | 2 |
+| future | passive | 1,977 | 13 (0.7%) | 0 | 0 | 1,964 (99.3%) | 0 |
+| imperativeContinuous | main | 998 | 34 (3.4%) | 0 | 0 | 964 (96.6%) | 156 |
+| imperativeContinuous | passive | 328 | 0 | 0 | 0 | 328 (100.0%) | 2 |
+| imperativeSimple | main | 1,138 | 193 (17.0%) | 0 | 0 | 945 (83.0%) | 142 |
+| imperativeSimple | passive | 631 | 8 (1.3%) | 0 | 0 | 623 (98.7%) | 0 |
+| futureContinuous | main | 3,482 | 44 (1.3%) | 0 | 0 | 3,438 (98.7%) | 0 |
+| futureContinuous | passive | 1,946 | 2 (0.1%) | 0 | 0 | 1,944 (99.9%) | 0 |
+| perfect | main | 3,482 | 197 (5.7%) | 0 | 0 | 3,285 (94.3%) | 0 |
+| perfect | passive | 1,950 | 12 (0.6%) | 0 | 0 | 1,938 (99.4%) | 0 |
+| pluperfect | main | 3,482 | 32 (0.9%) | 0 | 0 | 3,450 (99.1%) | 0 |
+| pluperfect | passive | 1,950 | 4 (0.2%) | 0 | 0 | 1,946 (99.8%) | 0 |
+| futurePerfect | main | 3,482 | 3 (0.1%) | 0 | 0 | 3,479 (99.9%) | 0 |
+| futurePerfect | passive | 1,950 | 0 | 0 | 0 | 1,950 (100.0%) | 0 |
+| subjunctiveContinuous | main | 3,482 | 337 (9.7%) | 0 | 0 | 3,145 (90.3%) | 0 |
+| subjunctiveContinuous | passive | 1,946 | 10 (0.5%) | 0 | 0 | 1,936 (99.5%) | 0 |
+| subjunctiveSimple | main | 3,549 | 709 (20.0%) | 0 | 0 | 2,840 (80.0%) | 2 |
+| subjunctiveSimple | passive | 1,977 | 36 (1.8%) | 0 | 0 | 1,941 (98.2%) | 0 |
+
+### Samples
+
+| Cell | Forms | Sentence | eng | rus | Byline (rus) |
+|---|---|---|---|---|---|
+| κάνω\|imperativeSimple.active\|2sg | κάνε / κάμε | **Κάνε** αυτό που μπορείς! | Do what you can. | Делай, что можешь! | glavkos, al_ex_an_der · Tatoeba |
+| γράφω\|aorist.active\|1sg | έγραψα | **Έγραψα** ένα τραγούδι για σένα. | I wrote a song for you. | Я написал для тебя песню. | Zeus, marafon · Tatoeba |
+| γράφω\|future.active\|1sg | θα γράψω | **Θα γράψω** ένα γράμμα στον Τομ. | I'm going to write Tom a letter. | Я напишу Тому письмо. | Zeus, Selena777 · Tatoeba |
+| λέω\|subjunctiveSimple.active\|2sg | να πεις | Δε χρειάζεται **να μου το πεις** αυτό. | You don't have to tell me this. | Тебе необязательно мне это говорить. | Zeus, marafon · Tatoeba |
+| βλέπω\|perfect.active\|1sg | έχω δει | Δεν τον **έχω δει** ποτέ. | I've never seen him. | Я никогда его не видел. | Zeus, Selena777 · Tatoeba |
+| έχω\|present.active\|3sg | έχει | Αυτό δεν **έχει** καμία σχέση μαζί σου. | That has nothing to do with you. | Это не имеет никакого отношения к тебе. | glavkos, Hellerick · Tatoeba |
+
+### Open cells of the 20 most frequent verbs
+
+By the lists' frequency rank. Each: cells without a sentence of all its cells, then those at tenses up to A2.
+
+- είμαι (A1, rank 3): 8 of 23 open; up to A2: present.active 3sg, present.active 3pl, future.active 3sg, future.active 3pl, subjunctiveSimple.active 3sg, subjunctiveSimple.active 3pl
+- έχω (A1, rank 15): 5 of 25 open; up to A2: present.active 2pl, future.active 2pl, future.active 3pl, subjunctiveSimple.active 1pl
+- κάνω (A1, rank 23): 25 of 63 open; up to A2: present.active 2pl, aorist.active 1sg, aorist.active 2sg, aorist.active 3sg, aorist.active 1pl, aorist.active 2pl, aorist.active 3pl
+- λέω (A1, rank 26): 80 of 124 open; up to A2: present.active 2pl, present.passive 1sg, present.passive 2sg, present.passive 1pl, present.passive 2pl
+- μπορώ (A1, rank 30): 41 of 62 open; up to A2: present.active 2pl, aorist.active 3sg, aorist.active 1pl, aorist.active 2pl, aorist.active 3pl, future.active 2sg, future.active 3sg, future.active 2pl, imperativeSimple.active 2sg, imperativeSimple.active 2pl, subjunctiveSimple.active 1sg, subjunctiveSimple.active 2sg, subjunctiveSimple.active 1pl, subjunctiveSimple.active 2pl, subjunctiveSimple.active 3pl
+- ξέρω (A1, rank 33): 9 of 25 open; up to A2: present.active 2pl, future.active 1sg, future.active 2sg, future.active 2pl, future.active 3pl, subjunctiveSimple.active 2pl
+- θέλω (A1, rank 34): 47 of 63 open; up to A2: present.active 2pl, aorist.active 3sg, aorist.active 1pl, future.active 1sg, future.active 2sg, future.active 1pl, future.active 2pl, future.active 3pl, imperativeSimple.active 2sg, imperativeSimple.active 2pl, subjunctiveSimple.active 1sg, subjunctiveSimple.active 2sg, subjunctiveSimple.active 3sg, subjunctiveSimple.active 1pl, subjunctiveSimple.active 2pl, subjunctiveSimple.active 3pl
+- πηγαίνω (A1, rank 38): 19 of 63 open; up to A2: present.active 2pl, imperativeSimple.active 2sg, imperativeSimple.active 2pl
+- πρέπει (A1, rank 45): 1 of 3 open; up to A2: subjunctiveSimple.active 3sg
+- βλέπω (A1, rank 52): 86 of 125 open; up to A2: present.active 2pl, future.active 3sg, future.active 3pl, imperativeSimple.active 2pl, present.passive 1sg, present.passive 2sg, present.passive 3sg, present.passive 1pl, present.passive 2pl
+- έρχομαι (A1, rank 53): 27 of 62 open; up to A2: present.passive 2pl, future.passive 1pl
+- παίρνω (A1, rank 64): 98 of 126 open; up to A2: present.active 2sg, present.active 1pl, present.active 2pl, present.active 3pl, future.active 3pl, present.passive 1sg, present.passive 2sg, present.passive 3sg, present.passive 1pl, present.passive 2pl, present.passive 3pl
+- βρίσκω (A1, rank 73): 34 of 63 open; up to A2: present.active 1pl, present.active 2pl
+- γίνομαι (A1, rank 82): 39 of 62 open; up to A2: present.passive 2pl, aorist.passive 1sg, aorist.passive 2sg, aorist.passive 1pl, future.passive 2pl, imperativeSimple.passive 2sg, imperativeSimple.passive 2pl, subjunctiveSimple.passive 1pl
+- νομίζω (A1, rank 83): 119 of 126 open; up to A2: present.active 1pl, present.active 2pl, aorist.active 2sg, aorist.active 3sg, aorist.active 1pl, aorist.active 2pl, aorist.active 3pl, future.active 1sg, future.active 2sg, future.active 3sg, future.active 1pl, future.active 2pl, future.active 3pl, imperativeSimple.active 2sg, imperativeSimple.active 2pl, subjunctiveSimple.active 1sg, subjunctiveSimple.active 2sg, subjunctiveSimple.active 3sg, subjunctiveSimple.active 1pl, subjunctiveSimple.active 2pl, subjunctiveSimple.active 3pl, present.passive 1sg, present.passive 2sg, present.passive 3sg, present.passive 1pl, present.passive 2pl, present.passive 3pl
+- υπάρχω (A1, rank 85): 51 of 61 open; up to A2: present.active 1pl, present.active 2pl, aorist.active 1sg, aorist.active 2sg, aorist.active 1pl, aorist.active 2pl, aorist.active 3pl, future.active 1sg, future.active 2sg, future.active 1pl, future.active 2pl, future.active 3pl, imperativeSimple.active 2pl, subjunctiveSimple.active 1sg, subjunctiveSimple.active 2sg, subjunctiveSimple.active 3sg, subjunctiveSimple.active 1pl, subjunctiveSimple.active 2pl, subjunctiveSimple.active 3pl
+- φεύγω (A1, rank 88): 36 of 63 open; up to A2: present.active 2pl, future.active 3pl
+- μιλάω (A1, rank 89): 85 of 126 open; up to A2: present.active 2pl, aorist.active 3sg, future.active 2sg, future.active 2pl, present.passive 1sg, present.passive 2sg, present.passive 3sg, present.passive 1pl, present.passive 2pl, present.passive 3pl
+- ευχαριστώ (A1, rank 96): 56 of 62 open; up to A2: present.active 2sg, present.active 2pl, present.active 3pl, aorist.active 2sg, aorist.active 3sg, aorist.active 1pl, aorist.active 2pl, aorist.active 3pl, future.active 2sg, future.active 3sg, future.active 1pl, future.active 2pl, future.active 3pl, imperativeSimple.active 2sg, imperativeSimple.active 2pl, subjunctiveSimple.active 3sg, subjunctiveSimple.active 1pl, subjunctiveSimple.active 2pl, subjunctiveSimple.active 3pl
+- μένω (A1, rank 101): 27 of 63 open; up to A2: present.active 2pl, aorist.active 2pl
+
 ## Blocking tags hit
 
 Sentences and translations each tag kept out.
@@ -322,14 +421,32 @@ Sentences and translations each tag kept out.
 
 | Table | Rows | sha256 of the rows in key order |
 |---|---|---|
+| `example_sentence` | 41,921 | `ff4b7afd5dab6a53f414c88d8882a88e3765ccf61a299000d4da66a7d819cc1f` |
+| `example_translation` | 71,814 | `2a2b368f4976c4e91e18ae7703d421a661b036ef132555435538852b47a6c079` |
+| `example_word` | 54,742 | `a77e9d2e661c69b77e59f47aed16b439ce98727cbb491496a7a04c3f42b558bf` |
+
+The word examples alone (the rows of word keys, their sentences and translations), which the drill rows leave unchanged (#364):
+
+| Table | Rows | sha256 of the rows in key order |
+|---|---|---|
 | `example_sentence` | 40,299 | `0895bd783604b8961f91df1a0622ab84c61dff3cb80dc9a69c3f85f6a1213b15` |
 | `example_translation` | 69,968 | `eb70badbab110194862717c94771bc259aa755f32fc45a4f6fbc9218bf1a0ee0` |
 | `example_word` | 50,974 | `22e00f3e97f639a384cae38a5388cd74900b9cc83d6026c1fa03a1e886ce2da6` |
 
+The drill rows (the cell rows, and the sentences and translations only they use, #364):
+
+| Table | Rows | sha256 of the rows in key order |
+|---|---|---|
+| `example_sentence` | 1,622 | `85b7c89180e198b153a300724a6ff0767ef4c0413a412e9f83695b3da5068c57` |
+| `example_translation` | 1,846 | `7f6de3b1362b9f660029cedacbda4b904953397896bdc68a84dce8d7d3808fb7` |
+| `example_word` | 3,768 | `294b0725f2ffa1cb40cc886da58c2d83b489a60b573126f5725d710022cc8b0d` |
+
 | Rows | `example_sentence` | `example_translation` | `example_word` | Installed | Download (xz) |
 |---|---|---|---|---|---|
-| all | 2,629,632 | 5,275,648 | 1,454,080 | 9,359,360 | 2,962,132 |
-| Greek (ell pack) | 962,560 | 843,776 | 585,728 | 2,392,064 | 694,980 |
+| all | 2,752,512 | 5,373,952 | 1,662,976 | 9,789,440 | 3,060,644 |
+| Greek (ell pack) | 1,085,440 | 942,080 | 794,624 | 2,822,144 | 793,920 |
 | English (eng-lists pack) | 1,662,976 | 4,440,064 | 880,640 | 6,983,680 | 2,338,624 |
+| Word examples (all files) | 2,629,632 | 5,275,648 | 1,454,080 | 9,359,360 | 2,962,132 |
+| Drill rows and the sentences only they use | 126,976 | 102,400 | 208,896 | 438,272 | 115,912 |
 
 Bytes from `dbstat` on a VACUUMed file of the rows alone; the xz size is of that file (preset 6), an estimate of each pack's growth.
