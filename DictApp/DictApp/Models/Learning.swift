@@ -1178,6 +1178,24 @@ struct ConjugationFacet: Hashable, Sendable {
     }
 }
 
+/// The key of a drill cell in a pack's `example_word` (0132, "Example in the
+/// answer panel"; 0134, "Drill examples"): `κάνω|imperativeSimple.active|2sg`,
+/// in NFC. Pure.
+enum DrillExampleKey {
+    /// The card's word, so πάω reads πηγαίνω's cells and ντύνομαι its own.
+    static func word(verb: DrillVerb, facet: ConjugationFacet, person: ParadigmLayout.Person) -> String {
+        "\(verb.word)|\(facet.rawValue)|\(person.rawValue)".precomposedStringWithCanonicalMapping
+    }
+
+    /// The parts of a key (DEBUG `-drillPlan`), nil when it is not one.
+    static func parse(_ key: String) -> (word: String, facet: ConjugationFacet, person: ParadigmLayout.Person)? {
+        let parts = key.split(separator: "|", omittingEmptySubsequences: false).map(String.init)
+        guard parts.count == 3, !parts[0].isEmpty, let facet = ConjugationFacet(rawValue: parts[1]),
+              let person = ParadigmLayout.Person(rawValue: parts[2]) else { return nil }
+        return (parts[0].precomposedStringWithCanonicalMapping, facet, person)
+    }
+}
+
 /// A tense level after the ΚΕΓ syllabus: each level adds tenses, and the
 /// drill asks every tense up to its level. It never selects verbs.
 enum DrillLevel: String, CaseIterable, Comparable, Sendable {

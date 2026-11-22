@@ -38648,3 +38648,245 @@ extension ConjugationRunViewModelTests {
         XCTAssertEqual(off.spoken, [], "Speak words off")
     }
 }
+
+// MARK: - 0132, #364: the example in the answer panel
+
+/// The cell key of a drill cell (0132, "Example in the answer panel").
+@MainActor
+final class DrillExampleKeyTests: XCTestCase {
+    /// The key's UTF-8, which SQLite compares: Swift's `==` treats NFC and
+    /// NFD as equal, so it cannot tell whether the key is in NFC.
+    private func bytes(_ key: String) -> [UInt8] { Array(key.utf8) }
+
+    func testKey() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try await DrillFixture.open(in: directory)
+        let verb = try await DrillFixture.verb("κάνω")
+        let facet = ConjugationFacet(.imperativeSimple, .active)
+        let kano = DrillExampleKey.word(verb: verb, facet: facet, person: .secondSingular)
+        XCTAssertEqual(bytes(kano), bytes("κάνω|imperativeSimple.active|2sg".precomposedStringWithCanonicalMapping),
+                       "the format, NFC, the facet's capitals kept")
+        // The key is in NFC: a decomposed word reads as the composed one.
+        let decomposed = DrillVerb(word: "πηγαίνω".decomposedStringWithCanonicalMapping, citation: "πηγαίνω",
+                                   translation: "", listLevel: nil, rank: nil, seq: 0, mainVoice: .active,
+                                   voices: [:], isImpersonal: false)
+        let nfd = DrillExampleKey.word(verb: decomposed, facet: ConjugationFacet(.present, .active), person: .firstSingular)
+        XCTAssertNotEqual(bytes(decomposed.word), bytes("πηγαίνω".precomposedStringWithCanonicalMapping), "the input is NFD")
+        XCTAssertEqual(bytes(nfd), bytes("πηγαίνω|present.active|1sg".precomposedStringWithCanonicalMapping))
+        // πάω is drilled as πηγαίνω (the card's word), so it reads πηγαίνω's cells.
+        let pao = try await DrillFixture.verb("πάω")
+        XCTAssertEqual(DrillExampleKey.word(verb: pao, facet: ConjugationFacet(.aorist, .active), person: .firstPlural),
+                       "πηγαίνω|aorist.active|1pl")
+        // ντύνομαι, in ντύνω's table, keeps its own word and its passive facet.
+        let ntynomai = try await DrillFixture.verb("ντύνομαι")
+        XCTAssertEqual(ntynomai.mainVoice, .passive)
+        XCTAssertEqual(DrillExampleKey.word(verb: ntynomai, facet: ConjugationFacet(.present, .passive),
+                                            person: .thirdSingular),
+                       "ντύνομαι|present.passive|3sg")
+    }
+
+    func testParse() throws {
+        let cell = try XCTUnwrap(DrillExampleKey.parse("κάνω|imperativeSimple.active|2sg"))
+        XCTAssertEqual(cell.word, "κάνω")
+        XCTAssertEqual(cell.facet, ConjugationFacet(.imperativeSimple, .active))
+        XCTAssertEqual(cell.person, .secondSingular)
+        for bad in ["", "κάνω", "κάνω|aorist.active", "κάνω|nope.active|1sg", "κάνω|aorist.active|9sg", "|aorist.active|1sg"] {
+            XCTAssertNil(DrillExampleKey.parse(bad), bad)
+        }
+    }
+}
+
+extension ConjugationRunViewModelTests {
+    private static let kanoKey = "κάνω|imperativeSimple.active|2sg"
+
+    private func sentence(_ lang: String, _ text: String) -> ExampleTranslation {
+        ExampleTranslation(lang: lang, text: text, author: "Hybrid")
+    }
+
+    /// A cell whose sentence has an English translation only (QA, #364).
+    private static let kanoEnglishOnlyKey = "κάνω|present.active|1sg"
+
+    /// Reopens the service with two cell rows under `ell` (κάνε with English
+    /// and Russian, κάνω with English only); the user database stays.
+    private func attachCellExample() async throws {
+        let example = TestDictionary.Example(word: Self.kanoKey, ord: 1, id: 9001, text: "Κάνε αυτό που μπορείς!",
+                                             author: "glavkos", form: 0..<4,
+                                             translations: [sentence("eng", "Do what you can."),
+                                                            sentence("rus", "Делай, что можешь.")])
+        let englishOnly = TestDictionary.Example(word: Self.kanoEnglishOnlyKey, ord: 1, id: 9002,
+                                                 text: "Κάνω ό,τι μπορώ.", author: "glavkos", form: 0..<4,
+                                                 translations: [sentence("eng", "I do what I can.")])
+        var packs = try PackFixtures.all()
+        packs[.ell] = try TestDictionary.make(rows: [], limitedPairs: [], examples: [example, englishOnly],
+                                              at: tempDir.appendingPathComponent("cells-ell.sqlite"))
+        try await db.setup(userPath: tempDir.appendingPathComponent("user.sqlite").path,
+                           dictionaryURL: try TestDictionary.bundledURL(), packFiles: packs)
+    }
+
+    private func cellRun(_ verb: DrillVerb, plan: [String], via: [String: String] = [:]) -> ConjugationRunViewModel {
+        settings.learningVia = via
+        return ConjugationRunViewModel(
+            mode: .verb(verb, level: .a1), db: db, settings: settings,
+            languages: LearningLanguageService(db: db, settings: settings),
+            clock: TestClock("2026-11-04T12:00:00Z").clock,
+            player: FeedbackPlayer(settings: settings, sink: RecordingFeedbackSink()),
+            seed: 364, answerHints: true, length: plan.count, debugPlan: plan)
+    }
+
+    /// The example is the asked cell's: set when the question shows, the
+    /// same after a right and a wrong choice, one read per question, gone
+    /// with the question.
+    func testExampleIsTheAskedCells() async throws {
+        let verb = try await Fixture.verb("κάνω")
+        try await attachCellExample()
+        let none = "κάνω|aorist.active|1sg"
+        let vm = cellRun(verb, plan: [Self.kanoKey, none, Self.kanoKey])
+        let before = await db.exampleReadCount
+        await vm.start()
+        XCTAssertEqual(vm.question?.facet, ConjugationFacet(.imperativeSimple, .active))
+        let shown = try XCTUnwrap(vm.example)
+        XCTAssertEqual(shown.sentence.text, "Κάνε αυτό που μπορείς!")
+        XCTAssertEqual(shown.translation?.text, "Do what you can.")
+        var read = await db.exampleReadCount
+        XCTAssertEqual(read - before, 1, "one read per question")
+        await vm.choose(try XCTUnwrap(vm.question).rightIndex)
+        XCTAssertEqual(vm.example, shown, "unchanged after a right choice")
+        await vm.next()
+        XCTAssertEqual(vm.question?.facet, ConjugationFacet(.aorist, .active))
+        XCTAssertNil(vm.example, "cleared with the question, none for this cell")
+        await vm.choose(try XCTUnwrap(vm.question).rightIndex)
+        XCTAssertNil(vm.example)
+        await vm.next()
+        XCTAssertEqual(vm.example, shown)
+        let question = try XCTUnwrap(vm.question)
+        await vm.choose((question.rightIndex + 1) % question.options.count)
+        XCTAssertEqual(vm.feedback?.outcome, .wrong)
+        XCTAssertEqual(vm.example, shown, "the asked cell's, not the chosen option's")
+        read = await db.exampleReadCount
+        XCTAssertEqual(read - before, 3)
+        XCTAssertNil(vm.errorMessage)
+    }
+
+    /// Greek via English shows English; the limited Greek via Russian shows
+    /// Russian when the row has it.
+    func testExampleTranslationFollowsTheVia() async throws {
+        let verb = try await Fixture.verb("κάνω")
+        try await attachCellExample()
+        let english = cellRun(verb, plan: [Self.kanoKey], via: ["ell": "eng"])
+        await english.start()
+        XCTAssertEqual(english.example?.translation?.lang, "eng")
+        let russian = cellRun(verb, plan: [Self.kanoKey], via: ["ell": "rus"])
+        await russian.start()
+        XCTAssertEqual(russian.example?.translation?.lang, "rus")
+        XCTAssertEqual(russian.example?.translation?.text, "Делай, что можешь.")
+        // QA: via Russian, a sentence with no Russian translation shows the
+        // English one (the run's meanings language), not none.
+        let fallback = cellRun(verb, plan: [Self.kanoEnglishOnlyKey], via: ["ell": "rus"])
+        await fallback.start()
+        XCTAssertEqual(fallback.question?.facet, ConjugationFacet(.present, .active))
+        XCTAssertEqual(fallback.example?.sentence.text, "Κάνω ό,τι μπορώ.")
+        XCTAssertEqual(fallback.example?.translation?.lang, "eng")
+        XCTAssertEqual(fallback.example?.translation?.text, "I do what I can.")
+    }
+
+    /// What a render between two main-actor jobs would show (QA, #364): the
+    /// new question is never on screen before its example is read, and the
+    /// bar never changes once it shows (0132: "the read ends before the
+    /// question appears").
+    func testExampleIsReadBeforeTheQuestionShows() async throws {
+        let verb = try await Fixture.verb("κάνω")
+        try await attachCellExample()
+        let vm = cellRun(verb, plan: [Self.kanoKey, Self.kanoKey])
+        let renders = RenderLog()
+        let observer = vm.objectWillChange.sink { [weak vm] _ in
+            guard let vm else { return }
+            // As SwiftUI does: look once the current job yields.
+            Task { @MainActor in renders.record(vm) }
+        }
+        defer { observer.cancel() }
+        await vm.start()
+        let shown = try XCTUnwrap(vm.example)
+        await vm.choose(try XCTUnwrap(vm.question).rightIndex)
+        await vm.next()
+        XCTAssertEqual(vm.position, 2)
+        let question = try XCTUnwrap(vm.question)
+        await vm.choose((question.rightIndex + 1) % question.options.count)
+        for _ in 0..<5 { await Task.yield() }
+        XCTAssertGreaterThan(renders.questions, 0, "the log saw the questions")
+        XCTAssertEqual(renders.questionsWithoutExample, [], "a question shown before its example was read")
+        XCTAssertEqual(Set(renders.examplesUnderFeedback), [shown.sentence.text], "the bar never changes")
+    }
+
+    /// Two Continue taps while the answer is still being written move on
+    /// once (CodeRabbit, #367): else a late `show()` publishes a question
+    /// that is not `plan[index]`'s, and its answer goes to another cell.
+    func testSecondContinueWhileTheFirstRunsIsIgnored() async throws {
+        let verb = try await Fixture.verb("κάνω")
+        try await attachCellExample()
+        let vm = cellRun(verb, plan: [Self.kanoKey, Self.kanoKey, Self.kanoKey])
+        await vm.start()
+        let right = try XCTUnwrap(vm.question).rightIndex
+        let answer = Task { await vm.choose(right) }
+        let first = Task { await vm.next() }
+        let second = Task { await vm.next() }
+        await answer.value
+        await first.value
+        await second.value
+        XCTAssertEqual(vm.position, 2)
+        XCTAssertNotNil(vm.question)
+    }
+
+    /// The states `testExampleIsReadBeforeTheQuestionShows` saw.
+    @MainActor
+    private final class RenderLog {
+        private(set) var questions = 0
+        /// The position of each question shown while its example was nil.
+        private(set) var questionsWithoutExample: [Int] = []
+        private(set) var examplesUnderFeedback: [String] = []
+
+        func record(_ vm: ConjugationRunViewModel) {
+            guard vm.phase == .question, vm.question != nil else { return }
+            questions += 1
+            if vm.example == nil { questionsWithoutExample.append(vm.position) }
+            if vm.feedback != nil { examplesUnderFeedback.append(vm.example?.sentence.text ?? "none") }
+        }
+    }
+
+    /// No row (the pack's stub, or a pack from before #364) gives no
+    /// example and the feedback as before.
+    func testNoSentenceNoExample() async throws {
+        let verb = try await Fixture.verb("κάνω")
+        // A pack from before #364: the example tables, no cell row. The
+        // real Greek pack has κάνε's row since #364.
+        var packs = try PackFixtures.all()
+        packs[.ell] = try TestDictionary.make(rows: [], limitedPairs: [],
+                                              at: tempDir.appendingPathComponent("no-cells-ell.sqlite"))
+        try await db.setup(userPath: tempDir.appendingPathComponent("user.sqlite").path,
+                           dictionaryURL: try TestDictionary.bundledURL(), packFiles: packs)
+        let vm = cellRun(verb, plan: [Self.kanoKey])
+        await vm.start()
+        XCTAssertNotNil(vm.question)
+        XCTAssertNil(vm.example, "no row for the cell")
+        await vm.choose(try XCTUnwrap(vm.question).rightIndex)
+        XCTAssertNil(vm.example)
+        XCTAssertEqual(vm.feedback?.outcome, .right)
+        XCTAssertNil(vm.errorMessage)
+
+        try await db.setup(userPath: tempDir.appendingPathComponent("user.sqlite").path,
+                           dictionaryURL: try TestDictionary.bundledURL(), packFiles: [:])
+        let stub = cellRun(verb, plan: [Self.kanoKey])
+        await stub.start()
+        XCTAssertNil(stub.example, "the stub is attached")
+        XCTAssertNil(stub.errorMessage)
+    }
+
+    /// DEBUG `-drillPlan`: a key of another verb, or none, is skipped.
+    func testDrillPlanSkipsForeignKeys() async throws {
+        let verb = try await Fixture.verb("κάνω")
+        let vm = cellRun(verb, plan: ["γράφω|aorist.active|1sg", "nonsense", Self.kanoKey])
+        await vm.start()
+        XCTAssertEqual(vm.plan.count, 1)
+        XCTAssertEqual(vm.question?.person, .secondSingular)
+    }
+}

@@ -1050,6 +1050,20 @@ enum LearningLaunchOptions {
     }
 }
 
+extension LearningLaunchOptions {
+    /// `-drillPlan "<cell key>;<cell key>…"` (0132, #364): the drill asks
+    /// exactly these cells, in this order, instead of the planner's plan.
+    static var drillPlan: [String]? {
+        #if DEBUG
+        let arguments = CommandLine.arguments
+        guard let index = arguments.firstIndex(of: "-drillPlan"), arguments.indices.contains(index + 1) else { return nil }
+        return arguments[index + 1].split(separator: ";").map(String.init)
+        #else
+        return nil
+        #endif
+    }
+}
+
 // MARK: - Reminder (#162)
 
 /// What the reminder needs of `UNUserNotificationCenter`, which implements

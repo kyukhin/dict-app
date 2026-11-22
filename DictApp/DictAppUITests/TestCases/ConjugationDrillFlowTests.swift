@@ -36,6 +36,18 @@ final class ConjugationDrillFlowTests: XCTestCase {
         if name.contains("testDrillSpeaksItsVerb") { return greekA1 + ["-drillLength", "2"] }
         if name.contains("testTenseInfoExplainsTheForm") { return greekA1 + ["-drillLength", "2"] }
         if name.contains("testSessionOfFifteen") { return greekA1 }
+        // #364: Practise on κάνω asks the imperative εσύ twice; the open cell is a B2 passive.
+        if name.contains("testAnswerShowsTheCellsExample") || name.contains("testDrillExampleAtTheLargestTextSize") {
+            let plan = "κάνω|imperativeSimple.active|2sg;κάνω|imperativeSimple.active|2sg"
+            if name.contains("LargestText") {
+                return greekA1 + ["-drillLength", "2", "-drillPlan", plan,
+                                  "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"]
+            }
+            return ["-learningLanguages", "ell", "-drillLength", "2", "-drillPlan", plan]
+        }
+        if name.contains("testCellWithoutSentenceShowsNoExample") {
+            return ["-learningLanguages", "ell", "-drillLength", "1", "-drillPlan", "γράφω|futurePerfect.passive|1sg"]
+        }
         if name.contains("testPassiveNote") || name.contains("testPractiseFromDefinition") {
             return ["-learningLanguages", "ell", "-drillLength", "3"]
         }
@@ -368,6 +380,57 @@ final class ConjugationDrillFlowTests: XCTestCase {
         tabBarPage.tapSearchTab()
         let spiti = openDefinition("σπίτι")
         XCTAssertFalse(spiti.practiseButton.waitForExistence(timeout: TestData.Timeouts.short), "a noun has no Practise")
+    }
+
+    /// #364: κάνω, imperative εσύ: after a right and after a wrong answer the
+    /// panel shows the sentence with Κάνε, its translation and the byline,
+    /// under the tense table; the same example both times.
+    func testAnswerShowsTheCellsExample() throws {
+        let drill = openDefinition("κάνω")
+        drill.practise()
+        var labels: [String] = []
+        for right in [true, false] {
+            XCTAssertTrue(drill.waitForQuestion(), "question")
+            XCTAssertFalse(drill.example.exists, "the example waits for the answer")
+            XCTAssertEqual(drill.answer(right: right), right ? "right" : "wrong")
+            XCTAssertTrue(drill.tenseTable.waitForExistence(timeout: TestData.Timeouts.medium), "the whole tense")
+            XCTAssertTrue(drill.example.waitForExistence(timeout: TestData.Timeouts.medium), "the example")
+            XCTAssertGreaterThanOrEqual(drill.example.frame.minY, drill.tenseTable.frame.maxY - 2, "under the table")
+            XCTAssertTrue(drill.run.feedback.descendants(matching: .any)[IDs.example].exists, "in the answer panel")
+            labels.append(drill.example.label)
+            attachScreenshot("drill example, \(right ? "right" : "wrong")")
+            drill.run.tapContinue()
+        }
+        let label = labels[0]
+        XCTAssertTrue(label.contains("Κάνε"), label)
+        // The byline ("From Tatoeba: …") is Latin too: look before it only.
+        let byline = try XCTUnwrap(label.range(of: " From Tatoeba: "), "the byline: \(label)")
+        let sentenceAndTranslation = String(label[..<byline.lowerBound])
+        XCTAssertNotNil(sentenceAndTranslation.range(of: "[A-Za-z]{3}", options: .regularExpression),
+                        "a Latin-script translation: \(label)")
+        XCTAssertEqual(labels[1], label, "the asked cell's, after a wrong answer too")
+    }
+
+    /// #364: a cell without a sentence (a B2 tense) shows the panel as before.
+    func testCellWithoutSentenceShowsNoExample() throws {
+        let drill = openDefinition("γράφω")
+        drill.practise()
+        XCTAssertTrue(drill.waitForQuestion(), "question")
+        XCTAssertEqual(drill.answer(right: true), "right")
+        XCTAssertTrue(drill.tenseTable.waitForExistence(timeout: TestData.Timeouts.medium), "the whole tense")
+        XCTAssertFalse(drill.example.waitForExistence(timeout: TestData.Timeouts.short), "no example")
+    }
+
+    /// #364: at the largest text size the bar scrolls to the example and
+    /// Continue stays hittable.
+    func testDrillExampleAtTheLargestTextSize() throws {
+        let drill = openConjugation()
+        drill.start()
+        XCTAssertTrue(drill.waitForQuestion(), "question")
+        XCTAssertEqual(drill.answer(right: true), "right")
+        XCTAssertTrue(drill.example.waitForExistence(timeout: TestData.Timeouts.medium), "the example")
+        XCTAssertTrue(app.scrollToElement(drill.example), "the bar scrolls to the example")
+        XCTAssertTrue(drill.run.continueButton.isHittable, "Continue stays hittable")
     }
 
     /// No learned language: Practise asks "Learn Greek via English?"; No
