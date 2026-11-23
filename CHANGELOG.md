@@ -5,7 +5,7 @@ All notable changes to **LibreDict** will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [2.0.0] - 2026-12-01
 
 ### Added
 - [#365] Every conjugation drill cell of the A1 and A2 verbs, at tenses up to A2, gets an example: Tatoeba's first, then Wiktionary usage examples, then generated ones checked by a second model pass, each with its source under it. Cells with no natural Greek sentence stay without one.
