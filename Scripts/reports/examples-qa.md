@@ -321,14 +321,14 @@ The 60 most frequent of the 306 tokens whose inferred keys are skipped, with the
 Every cell the conjugation drill can ask (`drill_cells.py`, a port of 0132's rules: the three Greek lists' verbs, every tense up to B2, both voices) gets one sentence that holds the cell's whole form by 0134's match rule, keyed `<word>|<facet>|<person>` in `example_word`. Sources, in this order: Tatoeba (#364), Wiktionary usage examples and generated sentences from `Scripts/data/drill-examples/` (#365). "Skipped": cells with no natural sentence, listed in `ell-skipped.tsv`, which the 2.0 gate counts as done. "Waiting for a reading verdict": open cells whose found sentences hold them only through a spelling of another reading (match rule 5), which takes a sentence only with an `ok` verdict of the second pass.
 
 - The pool: 595 verbs: A1 196, A2 66, B1 333; 102 with passive forms only, 4 impersonal
-- Cells: 57,000; with a sentence: 8,521 (14.9%); sentences: 8,222, of them already word examples: 1,801, new: 6,421
-- Homographs: aspect-only cells (one sentence serves both) 317; cells with a spelling of another reading 4,581, of them with a sentence through that spelling (an `ok` verdict, or a data row written for the cell) 732, through another of their forms 78, waiting for a reading verdict 691; reading verdicts in `ell-readings.tsv`: ok 190, no 1,050
+- Cells: 57,000; with a sentence: 8,509 (14.9%); sentences: 8,211, of them already word examples: 1,792, new: 6,419
+- Homographs: aspect-only cells (one sentence serves both) 317; cells with a spelling of another reading 4,581, of them with a sentence through that spelling (an `ok` verdict, or a data row written for the cell) 734, through another of their forms 74, waiting for a reading verdict 691; reading verdicts in `ell-readings.tsv`: ok 190, no 1,169
 - Spellings in the cells of two verbs (43): έχει φερθεί, έχεις φερθεί, έχετε φερθεί, έχουμε φερθεί, έχουν φερθεί, έχω φερθεί, είχα φερθεί, είχαμε φερθεί, είχαν φερθεί, είχατε φερθεί, είχε φερθεί, είχες φερθεί, θα έχει φερθεί, θα έχεις φερθεί, θα έχετε φερθεί, θα έχουμε φερθεί, θα έχουν φερθεί, θα έχω φερθεί, θα φερθεί, θα φερθείς, θα φερθείτε, θα φερθούμε, θα φερθούν, θα φερθούνε, θα φερθώ, να φερθεί, να φερθείς, να φερθείτε, να φερθούμε, να φερθούν, να φερθούνε, να φερθώ, πέστε, πιέστε, φέρθηκα, φέρθηκαν, φέρθηκε, φέρθηκες, φερθήκαμε, φερθήκαν, φερθήκανε, φερθήκατε, φερθείτε.
 
 ### Data files (#365)
 
-- `ell.tsv`: wiktionary 351 rows, 351 in the pack, generated 4,436 rows, 4,429 in the pack; stale (cells the drill no longer asks, skipped): 0
-- `ell-readings.tsv`: 1,240 verdicts; stale (no drill cell, or no candidate sentence): 71
+- `ell.tsv`: wiktionary 351 rows, 351 in the pack, generated 4,436 rows, 4,431 in the pack; stale (cells the drill no longer asks, skipped): 0
+- `ell-readings.tsv`: 1,359 verdicts; stale (no drill cell, or no candidate sentence): 94
 - `ell-skipped.tsv`: 612 cells, 612 in the 2.0 scope; of them with a found sentence, left out: 3; stale: 0
 - The 2.0 scope (A1 and A2 verbs, tenses up to A2): 7,334 cells; with a sentence 6,722, skipped 612, open 0
 - The data file's date (`libredict-drill-ell`'s version): 2026-11-23; Wiktionary: enwiktionary 2026-10-01
@@ -337,20 +337,20 @@ Every cell the conjugation drill can ask (`drill_cells.py`, a port of 0132's rul
 
 | Verbs, tenses | Cells | Tatoeba | Wiktionary | Generated | Skipped | None | Waiting for a reading verdict |
 |---|---|---|---|---|---|---|---|
-| A1 verbs, A1 tenses | 4,319 | 1,638 (37.9%) | 86 (2.0%) | 2,514 (58.2%) | 81 | 0 (0.0%) | 0 |
+| A1 verbs, A1 tenses | 4,319 | 1,636 (37.9%) | 86 (2.0%) | 2,516 (58.3%) | 81 | 0 (0.0%) | 0 |
 | A1 verbs, A2 tenses | 1,156 | 231 (20.0%) | 25 (2.2%) | 571 (49.4%) | 329 | 0 (0.0%) | 0 |
-| A1 verbs, B1 tenses | 5,124 | 472 (9.2%) | 37 (0.7%) | 73 (1.4%) | 0 | 4,542 (88.6%) | 293 |
-| A1 verbs, B2 tenses | 8,450 | 234 (2.8%) | 28 (0.3%) | 4 (0.0%) | 0 | 8,184 (96.9%) | 74 |
+| A1 verbs, B1 tenses | 5,124 | 469 (9.2%) | 37 (0.7%) | 73 (1.4%) | 0 | 4,545 (88.7%) | 293 |
+| A1 verbs, B2 tenses | 8,450 | 233 (2.8%) | 28 (0.3%) | 4 (0.0%) | 0 | 8,185 (96.9%) | 74 |
 | A2 verbs, A1 tenses | 1,465 | 223 (15.2%) | 24 (1.6%) | 1,109 (75.7%) | 109 | 0 (0.0%) | 0 |
 | A2 verbs, A2 tenses | 394 | 50 (12.7%) | 7 (1.8%) | 244 (61.9%) | 93 | 0 (0.0%) | 0 |
 | A2 verbs, B1 tenses | 1,722 | 48 (2.8%) | 6 (0.3%) | 20 (1.2%) | 0 | 1,648 (95.7%) | 81 |
 | A2 verbs, B2 tenses | 2,786 | 31 (1.1%) | 6 (0.2%) | 0 | 0 | 2,749 (98.7%) | 28 |
-| B1 verbs, A1 tenses | 6,364 | 331 (5.2%) | 81 (1.3%) | 0 | 0 | 5,952 (93.5%) | 141 |
-| B1 verbs, A2 tenses | 2,936 | 205 (7.0%) | 34 (1.2%) | 0 | 0 | 2,697 (91.9%) | 15 |
-| B1 verbs, B1 tenses | 8,540 | 86 (1.0%) | 23 (0.3%) | 0 | 0 | 8,431 (98.7%) | 58 |
-| B1 verbs, B2 tenses | 13,744 | 68 (0.5%) | 12 (0.1%) | 0 | 0 | 13,664 (99.4%) | 1 |
-| **A1 and A2 verbs, tenses up to A2 (2.0)** | 7,334 | 2,142 (29.2%) | 142 (1.9%) | 4,438 (60.5%) | 612 | 0 (0.0%) | 0 |
-| **All** | 57,000 | 3,617 (6.3%) | 369 (0.6%) | 4,535 (8.0%) | 612 | 47,867 (84.0%) | 691 |
+| B1 verbs, A1 tenses | 6,364 | 325 (5.1%) | 81 (1.3%) | 0 | 0 | 5,958 (93.6%) | 141 |
+| B1 verbs, A2 tenses | 2,936 | 204 (6.9%) | 34 (1.2%) | 0 | 0 | 2,698 (91.9%) | 15 |
+| B1 verbs, B1 tenses | 8,540 | 85 (1.0%) | 24 (0.3%) | 0 | 0 | 8,431 (98.7%) | 58 |
+| B1 verbs, B2 tenses | 13,744 | 67 (0.5%) | 12 (0.1%) | 0 | 0 | 13,665 (99.4%) | 1 |
+| **A1 and A2 verbs, tenses up to A2 (2.0)** | 7,334 | 2,140 (29.2%) | 142 (1.9%) | 4,440 (60.5%) | 612 | 0 (0.0%) | 0 |
+| **All** | 57,000 | 3,602 (6.3%) | 370 (0.6%) | 4,537 (8.0%) | 612 | 47,879 (84.0%) | 691 |
 
 ### By tense and voice
 
@@ -359,28 +359,28 @@ All verbs and tense levels. Main voice: the active, or the passive of a verb wit
 | Tense | Voice | Cells | Tatoeba | Wiktionary | Generated | Skipped | None | Waiting for a reading verdict |
 |---|---|---|---|---|---|---|---|---|
 | present | main | 2,955 | 706 (23.9%) | 61 (2.1%) | 717 (24.3%) | 15 | 1,456 (49.3%) | 35 |
-| present | passive | 1,973 | 69 (3.5%) | 32 (1.6%) | 426 (21.6%) | 414 | 1,032 (52.3%) | 1 |
+| present | passive | 1,973 | 68 (3.4%) | 32 (1.6%) | 426 (21.6%) | 414 | 1,033 (52.4%) | 1 |
 | imperfect | main | 3,532 | 223 (6.3%) | 32 (0.9%) | 3 (0.1%) | 0 | 3,274 (92.7%) | 114 |
 | imperfect | passive | 1,822 | 2 (0.1%) | 2 (0.1%) | 0 | 0 | 1,818 (99.8%) | 47 |
-| aorist | main | 3,470 | 708 (20.4%) | 61 (1.8%) | 894 (25.8%) | 32 | 1,775 (51.2%) | 55 |
-| aorist | passive | 1,949 | 59 (3.0%) | 16 (0.8%) | 0 | 0 | 1,874 (96.2%) | 0 |
+| aorist | main | 3,470 | 707 (20.4%) | 61 (1.8%) | 894 (25.8%) | 32 | 1,776 (51.2%) | 55 |
+| aorist | passive | 1,949 | 58 (3.0%) | 16 (0.8%) | 0 | 0 | 1,875 (96.2%) | 0 |
 | future | main | 3,549 | 378 (10.7%) | 42 (1.2%) | 1,147 (32.3%) | 44 | 1,938 (54.6%) | 0 |
 | future | passive | 1,977 | 10 (0.5%) | 2 (0.1%) | 1 (0.1%) | 0 | 1,964 (99.3%) | 0 |
-| imperativeContinuous | main | 998 | 32 (3.2%) | 1 (0.1%) | 2 (0.2%) | 0 | 963 (96.5%) | 318 |
+| imperativeContinuous | main | 998 | 30 (3.0%) | 2 (0.2%) | 2 (0.2%) | 0 | 964 (96.6%) | 318 |
 | imperativeContinuous | passive | 328 | 0 | 0 | 0 | 0 | 328 (100.0%) | 56 |
-| imperativeSimple | main | 1,138 | 173 (15.2%) | 10 (0.9%) | 276 (24.3%) | 75 | 604 (53.1%) | 65 |
+| imperativeSimple | main | 1,138 | 170 (14.9%) | 10 (0.9%) | 278 (24.4%) | 75 | 605 (53.2%) | 65 |
 | imperativeSimple | passive | 631 | 8 (1.3%) | 1 (0.2%) | 1 (0.2%) | 0 | 621 (98.4%) | 0 |
 | futureContinuous | main | 3,482 | 42 (1.2%) | 2 (0.1%) | 45 (1.3%) | 0 | 3,393 (97.4%) | 0 |
 | futureContinuous | passive | 1,946 | 2 (0.1%) | 0 | 0 | 0 | 1,944 (99.9%) | 0 |
-| perfect | main | 3,482 | 181 (5.2%) | 14 (0.4%) | 2 (0.1%) | 0 | 3,285 (94.3%) | 0 |
+| perfect | main | 3,482 | 180 (5.2%) | 14 (0.4%) | 2 (0.1%) | 0 | 3,286 (94.4%) | 0 |
 | perfect | passive | 1,950 | 12 (0.6%) | 4 (0.2%) | 0 | 0 | 1,934 (99.2%) | 0 |
 | pluperfect | main | 3,482 | 27 (0.8%) | 2 (0.1%) | 0 | 0 | 3,453 (99.2%) | 0 |
 | pluperfect | passive | 1,950 | 2 (0.1%) | 1 (0.1%) | 0 | 0 | 1,947 (99.8%) | 0 |
 | futurePerfect | main | 3,482 | 3 (0.1%) | 2 (0.1%) | 0 | 0 | 3,477 (99.9%) | 0 |
 | futurePerfect | passive | 1,950 | 0 | 0 | 0 | 0 | 1,950 (100.0%) | 0 |
-| subjunctiveContinuous | main | 3,482 | 298 (8.6%) | 30 (0.9%) | 43 (1.2%) | 0 | 3,111 (89.3%) | 0 |
+| subjunctiveContinuous | main | 3,482 | 296 (8.5%) | 30 (0.9%) | 43 (1.2%) | 0 | 3,113 (89.4%) | 0 |
 | subjunctiveContinuous | passive | 1,946 | 9 (0.5%) | 1 (0.1%) | 0 | 0 | 1,936 (99.5%) | 0 |
-| subjunctiveSimple | main | 3,549 | 644 (18.1%) | 51 (1.4%) | 978 (27.6%) | 32 | 1,844 (52.0%) | 0 |
+| subjunctiveSimple | main | 3,549 | 640 (18.0%) | 51 (1.4%) | 978 (27.6%) | 32 | 1,848 (52.1%) | 0 |
 | subjunctiveSimple | passive | 1,977 | 29 (1.5%) | 2 (0.1%) | 0 | 0 | 1,946 (98.4%) | 0 |
 
 ### Samples
@@ -415,7 +415,7 @@ By the lists' frequency rank. Each: cells without a sentence of all its cells, t
 - νομίζω (A1, rank 83): 98 of 126 open; up to A2: imperativeSimple.active 2sg (skipped), present.passive 1sg (skipped), present.passive 2sg (skipped), present.passive 3sg (skipped), present.passive 1pl (skipped), present.passive 2pl (skipped), present.passive 3pl (skipped)
 - υπάρχω (A1, rank 85): 45 of 61 open; up to A2: aorist.active 2sg (skipped), aorist.active 1pl (skipped), aorist.active 2pl (skipped), future.active 1sg (skipped), future.active 2sg (skipped), future.active 1pl (skipped), future.active 2pl (skipped), imperativeSimple.active 2pl (skipped), subjunctiveSimple.active 1sg (skipped), subjunctiveSimple.active 2sg (skipped), subjunctiveSimple.active 1pl (skipped), subjunctiveSimple.active 2pl (skipped)
 - φεύγω (A1, rank 88): 33 of 63 open; up to A2: none
-- μιλάω (A1, rank 89): 75 of 126 open; up to A2: none
+- μιλάω (A1, rank 89): 76 of 126 open; up to A2: none
 - ευχαριστώ (A1, rank 96): 37 of 62 open; up to A2: none
 - μένω (A1, rank 101): 25 of 63 open; up to A2: none
 
@@ -1091,9 +1091,9 @@ Sentences and translations each tag kept out.
 
 | Table | Rows | sha256 of the rows in key order |
 |---|---|---|
-| `example_sentence` | 46,722 | `1dc711f95a7195231e758981f2eb25f8392a934c48b296cb6df3068e9bd0e78b` |
-| `example_translation` | 81,411 | `a2457a8daba74958940d31947bcf89db52660e871aba82aaa9cb6ad0ba1e9b77` |
-| `example_word` | 59,498 | `64462fce310c3586146a2b7e1994ee41f7e26bf17df34a6a99994378634c1011` |
+| `example_sentence` | 46,720 | `6f713fc43c3ba78bc10bf5dbfcf4c910eeaba6c029f7fd7df19ba6ba12d25ece` |
+| `example_translation` | 81,410 | `2b12faeb09afd2b15488441ff199e8b3cbd483003e67a636ef81d582ac907b86` |
+| `example_word` | 59,486 | `688e9f61d678e3d299d5ec07a452315fa28feab3fa628d1d7c6579ba673cd06c` |
 
 The word examples alone (the rows of word keys, their sentences and translations), which the drill rows leave unchanged (#364):
 
@@ -1107,16 +1107,16 @@ The drill rows (the cell rows, and the sentences and translations only they use,
 
 | Table | Rows | sha256 of the rows in key order |
 |---|---|---|
-| `example_sentence` | 6,421 | `6ae7798525c4cced694f6b999be87926f1435e1deca3bef125ac170f9a2ca9b7` |
-| `example_translation` | 11,440 | `e035e57b1d0d421952dfcce5e81bb41a4346c955b3c50b6bf3ff7fe3b894fb3f` |
-| `example_word` | 8,521 | `2e09ab7f83623a548457ee98627ea7d52b20fd142e328a7424088da55d2a03a9` |
+| `example_sentence` | 6,419 | `48b99fde4b92a2b25e913593a0c5c98051b1517af4bf7d8b501f5601f80813bc` |
+| `example_translation` | 11,439 | `27d2de3723ed439e805338a180382f1d8f9eff6a6468c9d4126611ca355950e1` |
+| `example_word` | 8,509 | `0cbcb8be676a9d93df05d0b4d1a6cd52906d5452800a59db4d029978598a5c5b` |
 
 | Rows | `example_sentence` | `example_translation` | `example_word` | Installed | Download (xz) |
 |---|---|---|---|---|---|
-| all | 3,264,512 | 6,225,920 | 1,925,120 | 11,415,552 | 3,375,888 |
-| Greek (ell pack) | 1,601,536 | 1,798,144 | 1,052,672 | 4,452,352 | 1,112,684 |
+| all | 3,268,608 | 6,225,920 | 1,925,120 | 11,419,648 | 3,376,036 |
+| Greek (ell pack) | 1,601,536 | 1,798,144 | 1,052,672 | 4,452,352 | 1,112,332 |
 | English (eng-lists pack) | 1,662,976 | 4,440,064 | 880,640 | 6,983,680 | 2,338,624 |
 | Word examples (all files) | 2,629,632 | 5,275,648 | 1,454,080 | 9,359,360 | 2,962,252 |
-| Drill rows and the sentences only they use | 643,072 | 962,560 | 475,136 | 2,080,768 | 440,248 |
+| Drill rows and the sentences only they use | 643,072 | 962,560 | 475,136 | 2,080,768 | 439,416 |
 
 Bytes from `dbstat` on a VACUUMed file of the rows alone; the xz size is of that file (preset 6), an estimate of each pack's growth.
