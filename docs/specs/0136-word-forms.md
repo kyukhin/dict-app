@@ -1,7 +1,7 @@
 # Word forms
 
 > Spec written by Claude (AI) for LibreDict.
-> Status: Implemented (approved by kyukhin on 2026-10-28, the #144 change on 2026-10-31) · Epic: #136 · Tickets: #141, #142, #143, #144, #306, #314 · Updated: 2026-11-16
+> Status: Implemented (approved by kyukhin on 2026-10-28, the #144 change on 2026-10-31) · Epic: #136 · Tickets: #141, #142, #143, #144, #306, #314, #365 · Updated: 2026-11-23
 
 Read [0000-overview.md](0000-overview.md) and [0129-dictionary-file.md](0129-dictionary-file.md) first. This epic builds on #129's read-only `dictionaries.sqlite`. #237 ([0237-downloads.md](0237-downloads.md), Approved) moves the Greek tables (`lemma`, `tagset`, `paradigm`, `form_lookup`, `form_link`) and their `data_source` row into the Greek pack, attached as `ell`: since T2 (#241) their SQL says `ell.` where this spec says `dict.`, and without the Greek pack `ell` is the empty stub: the same tables with no rows, so the queries return nothing and need no special code. `morphy_exception` and `morphy_lemma` stay in the bundle as `dict.`. Numbers marked "measured" come from a prototype of the pipeline, run on 2026-10-27 against the 2026-10-01 Wiktionary snapshot and the 1.4.0 seed.
 
@@ -163,6 +163,8 @@ These tables live in `dictionaries.sqlite`. Size budgets: Greek tables ≤ 25 MB
    - spellings no Greek word has, left by template errors: two accents (`γόνιμός`, `εκστρατεύόμαστε`; acute, grave and circumflex count, breathings and the diaeresis do not), 341 cells in 40 lemmas; a final sigma inside the word (`άφυλλοςος`, the whole word given as the stem), 367 in 15;
    - cells tagged `error-*` (220) or single-word `future` (315).
    No length filter: `δω` (dependent of βλέπω) is real.
+
+   **Table fixes** (kyukhin, 2026-11-23, #365). Some typos in Wiktionary's tables pass every rule and reach the drill as right answers (θυμίζω's present spelled θυμήζ-, so the drill showed θυμήζω). `Scripts/data/forms-fixes.tsv` lists them, one row per cell: the lemma, the cell's tags, the wrong form, the right one and the kind. `replace` puts the right form in the wrong one's place; `first` puts it before the wrong one, which stays an accepted alternative (υπήρξαμε before υπάρξαμε); a right form the cell already has after the wrong one moves there, one before it stays. The fixes apply to each lemma's cells right after the rules above, so the tables, the lookup, search and the drill all see the right form. 21 rows for seven typos: θυμίζω's 14 θυμήζ- cells (present, imperfect plural, continuous imperative plural, participle), νυστάζω's imperative εσείς (νυστάξτε, νυστάχτε stays), υπάρχω's aorist εμείς and εσείς (υπήρξαμε, υπήρξατε first), συμμετέχω's aorist αυτός (συμμετείχε) and imperative εσείς (συμμετάσχετε first), μαλώνω's imperative εσύ (μάλωσε), σερβίρω's present passive αυτοί (σερβιρίζονται for σερβιρίζοναι; σερβίρονται stays first). A gate fails the build when a row's wrong form is no longer in its cell of the subset (a new snapshot fixed it, or the row is wrong), and the QA report lists every fix applied.
 3. **Table guards.**
    - Pronoun tables that mix persons are dropped. They are Wiktionary's shared personal-pronoun template, which made `σας → τα`.
    - **Another word's table.** A table none of whose cells is the headword or begins with its stem (the folded headword without its last two letters, four for -μαι: θυμάμαι → θυμ) is dropped. Wiktionary declined another word there (κρεατομηχανή held μηχανή's forms, υπερβασίλειο αυτοκρατορία's, κολοβός αναληπτικός's) or gave the template no stem (αισώπειος: ος, α, ου): 40 tables, 571 cells, all listed in the QA report. A suppletive table holds its headword, so it stays (βλέπω: είδα, δω).
@@ -182,7 +184,7 @@ These tables live in `dictionaries.sqlite`. Size budgets: Greek tables ≤ 25 MB
 
 **QA report** (`Scripts/reports/forms-qa.md`, rewritten on every build and committed with the dictionary file, so the PR diff shows what changed)
 - Snapshot date and SHA-256 values; counts of lemmas (by pos), tables, cells, lookup keys, ambiguous keys and tagsets.
-- Junk caught per rule: every stoplist hit, allowlist use, table of another word and bare ending in full, samples of the rest. Unresolved link targets (measured: 388) with the top 50.
+- Junk caught per rule: every stoplist hit, allowlist use, table of another word and bare ending in full, samples of the rest. Every table fix applied (#365). Unresolved link targets (measured: 388) with the top 50.
 - Coverage and findability, with the gates below.
 - Size of the forms tables, and a SHA-256 of each table's rows in key order.
 
@@ -199,6 +201,7 @@ These tables live in `dictionaries.sqlite`. Size budgets: Greek tables ≤ 25 MB
 | Top-5,000 findable ≥ 87% | 89.2% (headword 38.9%, via forms 50.3%, lemma missing from the dictionaries 4.4%, unknown 5.5%: names, OCR noise such as `vα`, clipped forms; not Greek 0.9%) |
 | No stoplisted form maps to a verb | 0 after the filter |
 | Forms tables ≤ 25 MB | 24.1 MB |
+| Every table fix (`forms-fixes.tsv`) finds its wrong form in its cell of the subset (#365) | 21 of 21 |
 
 Top-500 adjectives (97.0%) are reported, not gated.
 
@@ -296,6 +299,7 @@ The change goes into `DatabaseService.search` and `searchPreferred` as #138 leav
 | `Scripts/build_forms.py`, `Scripts/build_morphy.py` | New steps (#141, #143), registered in `STEPS` of `build_dictionaries.py`; `build_forms.py` also runs `--standalone` and `--self-check` |
 | `Scripts/inputs.json`, `Scripts/inputs.py` | Entries for the Greek snapshot (a committed file, checked by `inputs.committed()`) and the frequency list |
 | `Scripts/data/kaikki-el-20261001.jsonl.gz` (LFS, `Scripts/data/*.jsonl.gz` in `.gitattributes`), `Scripts/data/forms-allowlist.tsv`, `Scripts/fixtures/kaikki-el-sample.jsonl`, `Scripts/reports/forms-qa.md` | New |
+| `Scripts/data/forms-fixes.tsv` | New: the table fixes and their gate in `build_forms.py`, with `--self-check` cases (#365) |
 | `DictApp/DictApp/Resources/dictionaries.sqlite` | Rebuilt with the E2 tables; `user_version` and `DictionaryFile.formatVersion` bumped in the same PR |
 | `DictApp/DictApp/Services/DatabaseService.swift` | Lemma step in `search` and `searchPreferred`, `Search.mergeLemmaBucket`, `inflection(for:)`; the morphy lookups and the `form_link` check of table links (#143); `Search.HeadOrder`, `headRanksSQL` and the proper-noun filter (#306) |
 | `DictApp/DictApp/Models/Models.swift` | `SearchResult`, `FormMatch` (#142); `Morphy`, pure (#143); the pure table code of #144: `ParadigmCell`, `LemmaParadigm`, `InflectionLookup`, `FormLabel`, `InflectionTable`, `ParadigmLayout` |
@@ -402,3 +406,5 @@ None.
 - 2026-11-12: #314. A lemma that no enabled dictionary spells reads the other spelling of its first cell (Search path step 2), so ξεκινάω and ρωτάω show ξεκινώ and ρωτώ, captioned "present 1sg of ξεκινάω". Only such a lemma: reading the other spelling always would also add αγαπώ to αγαπάω, μιλώ to μιλάω and πάω to πηγαίνω (61 lemmas with rows under both spellings) to every search of their forms, base forms included. The other spelling shares the first cell's tag set, and the first cell must be the lemma itself; ord 1's tag set alone would make θεωρούμαι read θεωρώ and τρία τρεις. Measured with the app on 19,998 Greek queries (every form and key of the 121 lemmas with another spelling, and the 3,000 most frequent keys), in relevance and preferred mode: 2,528 queries change their top 6, each by gaining one of the 17 lemmas' rows (2,444 found nothing before), 20 of them among the 3,000 most frequent; no other query changes.
 - 2026-11-13: #325. A Search row records whether it matched the headword (`SearchResult.matchesHeadword`, `side`), so Definition's speaker reads the search target (Search path step 5). No change to the rows or their order.
 - 2026-11-16 (kyukhin, follow-up 4): a Search row whose headword the query matched at a later word (cream → ice cream) is on the headword side, so its speaker reads the translation (Search path step 5; CodeRabbit, PR #326; `SpeechTargetTests.testLaterWordOfAHeadwordMatchesTheHeadword`). No change to the rows or their order. Step 2's Greek candidate query names the `ell.` tables, as #241 reads them (CodeRabbit, PR #316).
+- 2026-11-23 (kyukhin, #365): table fixes. Seven typos of six verb tables in the pinned subset, found by #365's checkers, reached the drill as right answers. `Scripts/data/forms-fixes.tsv` fixes them cell by cell (21 rows, `replace` or `first`), right after step 2's rules, so search, the inflection table and the drill see θυμίζω, θυμίζεις …, νυστάξτε, υπήρξαμε, υπήρξατε, συμμετείχε, συμμετάσχετε, μάλωσε and σερβιρίζονται. A gate fails the build when a fix's wrong form is no longer in its cell. `--self-check` gains a `replace`, a `first`, a stale fix and the file format. 390,617 cells (+3); θυμίζω's forms now count for its frequency rank (0130), 3,828 → 1,655.
+- 2026-11-23 (#365, CodeRabbit on #370): a `first` fix also moves a right form that the cell already has after the wrong one before it, so the wrong form is never first; `--self-check` gains the case. None of the 21 fixes meets it: the Greek pack is unchanged.

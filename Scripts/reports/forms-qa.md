@@ -15,8 +15,8 @@ Written by `Scripts/build_forms.py` on every build of the forms step ([0136-word
 - Pages: 85,425 (29,449 lemma pages, 55,976 form pages)
 - Lemmas: 27,352 (noun 14,370, adj 5,760, verb 3,934, name 1,813, adv 999, intj 115, num 79, pron 70, conj 53, character 51, symbol 42, prep 41, particle 14, article 7, det 4)
 - Lemmas with a table: 21,998 (noun 13,342, adj 5,569, verb 1,863, name 1,178, pron 24, num 16, det 4, article 2)
-- Table cells: 390,614; lookup rows: 247,480; lookup keys: 236,941, of which ambiguous (more than one lemma): 9,744; tag sets: 970
-- Links: alt_of 3,147, form_of 67,463, gloss 461; aspect taken from the gloss: 5,232; unresolved targets: 388 (613 links); link spellings that are no cell of their lemma's table (`form_link`): 8,997
+- Table cells: 390,617; lookup rows: 247,478; lookup keys: 236,939, of which ambiguous (more than one lemma): 9,744; tag sets: 970
+- Links: alt_of 3,147, form_of 67,463, gloss 461; aspect taken from the gloss: 5,232; unresolved targets: 388 (613 links); link spellings that are no cell of their lemma's table (`form_link`): 8,995
 
 ## Junk caught
 
@@ -70,6 +70,30 @@ Written by `Scripts/build_forms.py` on every build of the forms step ([0136-word
 - παρά in the table of παράς (noun)
 - παρά → παράς (noun, form_of)
 
+### Table fixes (21, all; `Scripts/data/forms-fixes.tsv`)
+
+- θυμήζω → θυμίζω (replace) in the table of θυμίζω: active first-person imperfective indicative present singular
+- θυμήζεις → θυμίζεις (replace) in the table of θυμίζω: active imperfective indicative present second-person singular
+- θυμήζει → θυμίζει (replace) in the table of θυμίζω: active imperfective indicative present singular third-person
+- θυμήζουμε → θυμίζουμε (replace) in the table of θυμίζω: active first-person imperfective indicative plural present
+- θυμήζομε → θυμίζομε (replace) in the table of θυμίζω: active first-person imperfective indicative plural present rare
+- θυμήζετε → θυμίζετε (replace) in the table of θυμίζω: active imperfective indicative plural present second-person
+- θυμήζουν → θυμίζουν (replace) in the table of θυμίζω: active imperfective indicative plural present third-person
+- θυμήζουνε → θυμίζουνε (replace) in the table of θυμίζω: active imperfective indicative plural present third-person
+- θυμήζαμε → θυμίζαμε (replace) in the table of θυμίζω: active first-person imperfect imperfective indicative plural
+- θυμήζατε → θυμίζατε (replace) in the table of θυμίζω: active imperfect imperfective indicative plural second-person
+- θυμήζαν → θυμίζαν (replace) in the table of θυμίζω: active imperfect imperfective indicative plural third-person
+- θυμήζανε → θυμίζανε (replace) in the table of θυμίζω: active imperfect imperfective indicative plural third-person
+- θυμήζετε → θυμίζετε (replace) in the table of θυμίζω: active imperative imperfective plural second-person
+- θυμήζοντας → θυμίζοντας (replace) in the table of θυμίζω: active indeclinable participle present
+- μαλώσε → μάλωσε (replace) in the table of μαλώνω: active imperative perfective second-person singular
+- νύσταξε → νυστάξτε (replace) in the table of νυστάζω: active imperative perfective plural second-person
+- σερβιρίζοναι → σερβιρίζονται (replace) in the table of σερβίρω: imperfective indicative passive plural present third-person
+- συμμμετείχε → συμμετείχε (replace) in the table of συμμετέχω: active indicative past perfective singular third-person
+- συμμετάσχτε → συμμετάσχετε (first) in the table of συμμετέχω: active imperative perfective plural second-person
+- υπάρξαμε → υπήρξαμε (first) in the table of υπάρχω: active first-person indicative past perfective plural
+- υπάρξατε → υπήρξατε (first) in the table of υπάρχω: active indicative past perfective plural second-person
+
 ### Unresolved link targets (top 50)
 
 ενδεδειγμένος (11), στρογγύλος (11), αβάς (8), αββάς (8), λυσιτελής (7), παρασύρω (7), γάτος (6), παραβάζω (6), συμπεριλαμβανόμενος (6), αγγαρείας (5), αγυιόπαις (5), εξελίσσομαι (5), πρωτομάρτυς (5), τετρακισεκατομμύριο (5), ψευδώνυμος (5), αποκλήωση (4), επισημαίνομαι (4), καουμπόικος (4), παρασέρνω (4), παρασημοφορούμαι (4), περισπώμενος (4), πο-πό (4), συλλαμβάνομαι (4), υποβάλλομαι (4), φέρι μποτ (4), ψαρής (4), Ωρίωνας (3), ήλιος m (3), αγκιό (3), αγριοτριαντάφυλλο (3), αλατοποθήκη (3), αμυχής (3), αποθεραπεύομαι (3), ασκεψία (3), βοοειδής (3), γκιό (3), δασύλλιο (3), δευτεραγωνιστής (3), διασώζομαι (3), διατίθεμαι (3), εξελίσσω (3), καθυστέρησης (3), κακάρισμα (3), πιόνιο (3), ρέμα (3), σταυρωμένος (3), συμπρωταγωνιστής (3), τριταγωνιστής (3), χαμομίλι (3), ψαρός (3)
@@ -83,6 +107,7 @@ Written by `Scripts/build_forms.py` on every build of the forms step ([0136-word
 | Top-5,000 findable | 89.2% | ≥ 87% | pass |
 | Stoplisted forms mapping to a verb | 0 | 0 | pass |
 | Forms tables | 24.3 MB | ≤ 25 MB | pass |
+| Table fixes (forms-fixes.tsv) whose wrong form is in the subset | 21 of 21 | all | pass |
 
 **Top-500 verbs**: covered 482 of 500 (96.4%): own table 437, via a linked lemma 45. Missing (18): συμβαίνει, συμβαίνω, υποθέτω, πυροβολώ, ξαναβλέπω, μέλλων, χαρούμενος, προηγούμενος, παρελθών, μεγαλώνω, λειτουργώ, αναλαμβάνω, μεθυσμένος, καταραμένος, επιτίθεμαι, έστω, ξεφεύγω, ξεπερνάω.
 
@@ -93,9 +118,9 @@ Written by `Scripts/build_forms.py` on every build of the forms step ([0136-word
 **Top-5,000 subtitle tokens**:
 
 - headword: 1,944 (38.9%)
-- via forms: 2,517 (50.3%)
+- via forms: 2,518 (50.4%)
 - lemma missing from the dictionaries: 220 (4.4%): σας, μας, σ, απ, ακόμα, μ, μη, κοίτα, σένα, εσένα, ε, συνέβη, τ, χθες, συμβεί, εμάς, γύρω, εσάς, τζακ, πλέον, θ, τζον, ρωτήσω, όντως, μάικλ
-- unknown: 276 (5.5%): γι, ΄, κ., vα, τo, κε, δρ., δεv, άλλον, σαμ, στ, τζο, υποτίθεται, οκ, τον., είvαι, τσάρλι, κου, τομ, φρανκ, μoυ, tι, πρεπε, δώσ, σα
+- unknown: 275 (5.5%): γι, ΄, κ., vα, τo, κε, δρ., δεv, άλλον, σαμ, στ, τζο, υποτίθεται, οκ, τον., είvαι, τσάρλι, κου, τομ, φρανκ, μoυ, tι, πρεπε, δώσ, σα
 - not Greek: 43 (0.9%): o, the, i, s, team, fbi, to, d, a, season, you, episode, t, apos, dna, and, h, of, ok, hey, oh, by, it, cia, for
 
 ## Size and table hashes
@@ -104,7 +129,7 @@ Written by `Scripts/build_forms.py` on every build of the forms step ([0136-word
 |---|---|---|---|
 | `lemma` | 27,352 | 3,170,304 | `e57399c4ea3ee798431d4fcfff0333a16314ed4a7f39fd1c791df0213f55e963` |
 | `tagset` | 970 | 106,496 | `59caeb029d555b1e860c1e5f377980d614ae2a63b0f1b4ebbf70efe462d05631` |
-| `paradigm` | 390,614 | 12,967,936 | `b1bf0c420c5eb8f7d581166cb13525cc655c17ec541a3a638c2a7484e0c75c20` |
-| `form_lookup` | 247,480 | 7,806,976 | `00fa0330a5e5f4bfa45802785aa1dbb3e4d5ef50e8b32519e49f19ae27cb8477` |
-| `form_link` | 8,997 | 249,856 | `25f9d293f489152c5d608f2329853d7eb6a679a4892a4b9c3efcf2441a1f9bc1` |
+| `paradigm` | 390,617 | 12,967,936 | `31b663ae952c476f5b04056211a416397496a0e085b7899712ea6470c6e3112d` |
+| `form_lookup` | 247,478 | 7,806,976 | `052600f03548883b69daf073bc727a3abe85eaab96eb4160c301bab6a9d68b80` |
+| `form_link` | 8,995 | 249,856 | `8fb3f4bcb62575f3d94650d7bc12726a7dc7f5c19a80c2a8d02d1a83c55729ab` |
 | total | | 24,301,568 | |

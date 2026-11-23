@@ -48,7 +48,7 @@ Verb ranking (QA only): `frequencywords/el_50k.txt`, sha256 `7ec8f6de52c38f36a04
 
 | Gate | Measured | Needed | Result |
 |---|---|---|---|
-| Top-500 Greek verbs with 3+ examples | 429 of 500 (85.8%) | ≥ 85% of 500 | pass |
+| Top-500 Greek verbs with 3+ examples | 430 of 500 (86.0%) | ≥ 85% of 500 | pass |
 | Every Greek sentence has an English translation, every English one a rus, spa, arb or ell one; every text an author | 0 problems | 0 | pass |
 | English list words with 3+ examples (reported, not gated) | 6,662 of 8,431 | — | pass |
 | Every span lies inside its text, and its token gives its key | 0 problems | 0 | pass |
@@ -58,7 +58,7 @@ Verb ranking (QA only): `frequencywords/el_50k.txt`, sha256 `7ec8f6de52c38f36a04
 | Drill: every cell row's span holds its cell's form by the match rule | 0 problems | 0 | pass |
 | Drill: every cell key is a drill cell, one row each (`ord` 1); every Tatoeba id below 10^9 | 0 problems | 0 | pass |
 | Drill: the word examples do not change (the hash of the word rows) | equal | equal | pass |
-| Drill rows and the sentences only they use, installed | 2.07 MB | ≤ 3.5 MB | pass |
+| Drill rows and the sentences only they use, installed | 2.08 MB | ≤ 3.5 MB | pass |
 | Drill: every cell of the 2.0 scope (A1 and A2 verbs, tenses up to A2) has a sentence or is listed as skipped, and no skipped cell has one (#365) | 0 open, 0 skipped with a sentence | 0, 0 | pass |
 | Drill: the data files pass the form gate (0134, Checks 1; #365) | 0 problems | 0 | pass |
 
@@ -78,29 +78,29 @@ Verb ranking (QA only): `frequencywords/el_50k.txt`, sha256 `7ec8f6de52c38f36a04
 
 | Language | Candidates with one | Stored | Usable links | No author | Blocking tag |
 |---|---|---|---|---|---|
-| eng | 29,870 | 11,259 | 21,999 | 297 | 15 |
-| rus | 3,172 | 2,049 | 5,829 | 2 | 6 |
+| eng | 29,870 | 11,261 | 21,999 | 297 | 15 |
+| rus | 3,172 | 2,050 | 5,829 | 2 | 6 |
 | spa | 1,865 | 1,001 | 2,886 | 0 | 3 |
 | arb | 264 | 66 | 361 | 2 | 4 |
 
 ### Keys
 
 - Candidates: 29,870, of them by a native author: 21,468
-- Keys with an example: 6,016; with 3 or more: 2,941
-- Stored: 11,259 sentences, 17,298 word rows, 14,375 translations
-- Top-500 verbs with 3 or more: 429 of 500 (85.8%); with one or more: 476
+- Keys with an example: 6,016; with 3 or more: 2,942
+- Stored: 11,261 sentences, 17,301 word rows, 14,378 translations
+- Top-500 verbs with 3 or more: 430 of 500 (86.0%); with one or more: 476
 - Top-500 nouns with 3 or more (reported, not gated): 422 of 500
 - Greek headwords with an example: 5,402 of 51,230
 
-**Top-500 verbs with fewer than 3 examples (71)**, with their count:
+**Top-500 verbs with fewer than 3 examples (70)**, with their count:
 
-γαμάω (0), ερευνάω (2), γαμημένος (1), ορκίζω (1), κανονίζω (1), αντιμετωπίζω (2), ενημερώνω (2), κουνιέμαι (0), αποκαλώ (1), ορκίζομαι (0), χειρίζομαι (1), αποκλείω (2), συνειδητοποιώ (2), μαρτυρώ (0), ξεφορτώνω (2), γαμιέμαι (0), καταραμένος (0), γαμήσου (0), αποκλείομαι (1), αποκλείεται (0), ειδοποιώ (0), βασίζω (1), ελευθερώνω (1), φυλάω (0), διώκω (0), αφαιρώ (2), βεβαιώνω (2), ρισκάρω (1), σιγουρεύω (0), ετοιμάζομαι (1), ξεκαθαρίζω (1), έστω (0), ξεφεύγω (1), εμποδίζω (2), καλεσμένος (2), συμπεριφέρομαι (2), μετατρέπω (0), βεβαιώνομαι (2), εμπλέκω (0), ακουμπάω (0), τρελαίνομαι (1), υπολογίζω (1), περιγράφω (0), ανατινάζω (0), γυρεύω (1), κινδυνεύω (1), δεμένος (0), χέζω (2), τσεκάρω (1), ικετεύω (0), υπερασπίζω (2), καταστρέφομαι (1), ασθενώ (1), ενώνω (0), βουλώνω (0), μπερδεμένος (2), συνέρχομαι (2), αρρωσταίνω (2), παγιδεύω (0), κρυμμένος (1), καταγράφω (1), σιχαίνομαι (2), ενεργοποιώ (2), καρφώνω (0), τοποθετώ (1), αναστατώνω (1), ενισχύω (1), επιχειρώ (1), οργανώνω (2), επιζώ (2), εγκρίνω (2)
+γαμάω (0), ερευνάω (2), γαμημένος (1), ορκίζω (1), κανονίζω (1), αντιμετωπίζω (2), ενημερώνω (2), κουνιέμαι (0), αποκαλώ (1), ορκίζομαι (0), χειρίζομαι (1), αποκλείω (2), συνειδητοποιώ (2), μαρτυρώ (0), ξεφορτώνω (2), γαμιέμαι (0), καταραμένος (0), γαμήσου (0), αποκλείομαι (1), αποκλείεται (0), ειδοποιώ (0), βασίζω (1), ελευθερώνω (1), φυλάω (0), διώκω (0), αφαιρώ (2), βεβαιώνω (2), ρισκάρω (1), σιγουρεύω (0), ετοιμάζομαι (1), ξεκαθαρίζω (1), έστω (0), ξεφεύγω (1), εμποδίζω (2), καλεσμένος (2), συμπεριφέρομαι (2), μετατρέπω (0), βεβαιώνομαι (2), εμπλέκω (0), ακουμπάω (0), τρελαίνομαι (1), υπολογίζω (1), περιγράφω (0), ανατινάζω (0), γυρεύω (1), κινδυνεύω (1), δεμένος (0), χέζω (2), τσεκάρω (1), ικετεύω (0), υπερασπίζω (2), καταστρέφομαι (1), ασθενώ (1), ενώνω (0), βουλώνω (0), μπερδεμένος (2), συνέρχομαι (2), αρρωσταίνω (2), παγιδεύω (0), κρυμμένος (1), καταγράφω (1), σιχαίνομαι (2), ενεργοποιώ (2), καρφώνω (0), τοποθετώ (1), αναστατώνω (1), ενισχύω (1), επιχειρώ (1), οργανώνω (2), επιζώ (2)
 
 ### List words (#339)
 
 A token that is a one-word term of the Greek lists, as written or lowercased, keys that term, itself when it is a headword, and of its lemmas only the verbs (αυτό keys αυτό, not αυτός; πάω keys πάω and πηγαίνω). Other tokens key their lemmas and themselves as headwords, as before. A term's spellings are the term and its cleaned spellings (στη(ν): στη, στην). A list word that is no verb shows its own forms first; a verb keeps one sentence per form, and its own form leads when that pass leaves it out.
 
-- One-word terms of `ky-ell`: 4,525; with an example: 2,820; with 3 or more: 1,946; every example in the term's own form: 1,463
+- One-word terms of `ky-ell`: 4,525; with an example: 2,820; with 3 or more: 1,947; every example in the term's own form: 1,463
 - List words whose examples differ from the plain per-form choice: 903; non-verbs, own forms first: 852; verbs whose dropped own form leads: έρχομαι, ακολουθώ, αλλάζω, αφήνω, βάζω, βγάζω, βγαίνω, βοηθάω, βρίσκω, δίνω, δείχνω, επισκέπτομαι, επιστρέφω, ζητάω, ζω, θυμώνω, καλώ, καπνίζω, κλαίω, κρατάω, κόβω, λέω, λείπω, μιλάω, μπαίνω, νοιάζομαι, ξεκινάω, οδηγώ, πέφτω, παρακολουθώ, περνάω, περπατάω, πηγαίνω, πλένω, πονάω, ρίχνω, σηκώνω, σκοτώνω, στέλνω, σταματάω, συμφωνώ, συνηθίζω, τελειώνω, τραγουδάω, υπάρχω, υποστηρίζω, φέρνω, φεύγω, φοράω, φτάνω, φτιάχνω
 - Keys against the rule without list words, on the same candidates: 6,018 before, 6,016 now; gain examples (none before): 60; lose them all: 62; change them: 1,032
 
@@ -321,36 +321,36 @@ The 60 most frequent of the 306 tokens whose inferred keys are skipped, with the
 Every cell the conjugation drill can ask (`drill_cells.py`, a port of 0132's rules: the three Greek lists' verbs, every tense up to B2, both voices) gets one sentence that holds the cell's whole form by 0134's match rule, keyed `<word>|<facet>|<person>` in `example_word`. Sources, in this order: Tatoeba (#364), Wiktionary usage examples and generated sentences from `Scripts/data/drill-examples/` (#365). "Skipped": cells with no natural sentence, listed in `ell-skipped.tsv`, which the 2.0 gate counts as done. "Waiting for a reading verdict": open cells whose found sentences hold them only through a spelling of another reading (match rule 5), which takes a sentence only with an `ok` verdict of the second pass.
 
 - The pool: 595 verbs: A1 196, A2 66, B1 333; 102 with passive forms only, 4 impersonal
-- Cells: 57,000; with a sentence: 8,509 (14.9%); sentences: 8,210, of them already word examples: 1,801, new: 6,409
-- Homographs: aspect-only cells (one sentence serves both) 317; cells with a spelling of another reading 4,578, of them with a sentence through that spelling (an `ok` verdict, or a data row written for the cell) 729, through another of their forms 78, waiting for a reading verdict 689; reading verdicts in `ell-readings.tsv`: ok 190, no 1,050
+- Cells: 57,000; with a sentence: 8,521 (14.9%); sentences: 8,222, of them already word examples: 1,801, new: 6,421
+- Homographs: aspect-only cells (one sentence serves both) 317; cells with a spelling of another reading 4,581, of them with a sentence through that spelling (an `ok` verdict, or a data row written for the cell) 732, through another of their forms 78, waiting for a reading verdict 691; reading verdicts in `ell-readings.tsv`: ok 190, no 1,050
 - Spellings in the cells of two verbs (43): έχει φερθεί, έχεις φερθεί, έχετε φερθεί, έχουμε φερθεί, έχουν φερθεί, έχω φερθεί, είχα φερθεί, είχαμε φερθεί, είχαν φερθεί, είχατε φερθεί, είχε φερθεί, είχες φερθεί, θα έχει φερθεί, θα έχεις φερθεί, θα έχετε φερθεί, θα έχουμε φερθεί, θα έχουν φερθεί, θα έχω φερθεί, θα φερθεί, θα φερθείς, θα φερθείτε, θα φερθούμε, θα φερθούν, θα φερθούνε, θα φερθώ, να φερθεί, να φερθείς, να φερθείτε, να φερθούμε, να φερθούν, να φερθούνε, να φερθώ, πέστε, πιέστε, φέρθηκα, φέρθηκαν, φέρθηκε, φέρθηκες, φερθήκαμε, φερθήκαν, φερθήκανε, φερθήκατε, φερθείτε.
 
 ### Data files (#365)
 
-- `ell.tsv`: wiktionary 351 rows, 351 in the pack, generated 4,424 rows, 4,417 in the pack; stale (cells the drill no longer asks, skipped): 0
+- `ell.tsv`: wiktionary 351 rows, 351 in the pack, generated 4,436 rows, 4,429 in the pack; stale (cells the drill no longer asks, skipped): 0
 - `ell-readings.tsv`: 1,240 verdicts; stale (no drill cell, or no candidate sentence): 71
-- `ell-skipped.tsv`: 625 cells, 625 in the 2.0 scope; of them with a found sentence, left out: 3; stale: 0
-- The 2.0 scope (A1 and A2 verbs, tenses up to A2): 7,334 cells; with a sentence 6,709, skipped 625, open 0
+- `ell-skipped.tsv`: 612 cells, 612 in the 2.0 scope; of them with a found sentence, left out: 3; stale: 0
+- The 2.0 scope (A1 and A2 verbs, tenses up to A2): 7,334 cells; with a sentence 6,722, skipped 612, open 0
 - The data file's date (`libredict-drill-ell`'s version): 2026-11-23; Wiktionary: enwiktionary 2026-10-01
 
 ### By verb list and tense level
 
 | Verbs, tenses | Cells | Tatoeba | Wiktionary | Generated | Skipped | None | Waiting for a reading verdict |
 |---|---|---|---|---|---|---|---|
-| A1 verbs, A1 tenses | 4,319 | 1,638 (37.9%) | 86 (2.0%) | 2,512 (58.2%) | 83 | 0 (0.0%) | 0 |
+| A1 verbs, A1 tenses | 4,319 | 1,638 (37.9%) | 86 (2.0%) | 2,514 (58.2%) | 81 | 0 (0.0%) | 0 |
 | A1 verbs, A2 tenses | 1,156 | 231 (20.0%) | 25 (2.2%) | 571 (49.4%) | 329 | 0 (0.0%) | 0 |
-| A1 verbs, B1 tenses | 5,124 | 473 (9.2%) | 37 (0.7%) | 73 (1.4%) | 0 | 4,541 (88.6%) | 292 |
+| A1 verbs, B1 tenses | 5,124 | 472 (9.2%) | 37 (0.7%) | 73 (1.4%) | 0 | 4,542 (88.6%) | 293 |
 | A1 verbs, B2 tenses | 8,450 | 234 (2.8%) | 28 (0.3%) | 4 (0.0%) | 0 | 8,184 (96.9%) | 74 |
-| A2 verbs, A1 tenses | 1,465 | 222 (15.2%) | 24 (1.6%) | 1,099 (75.0%) | 120 | 0 (0.0%) | 0 |
+| A2 verbs, A1 tenses | 1,465 | 223 (15.2%) | 24 (1.6%) | 1,109 (75.7%) | 109 | 0 (0.0%) | 0 |
 | A2 verbs, A2 tenses | 394 | 50 (12.7%) | 7 (1.8%) | 244 (61.9%) | 93 | 0 (0.0%) | 0 |
-| A2 verbs, B1 tenses | 1,722 | 48 (2.8%) | 6 (0.3%) | 20 (1.2%) | 0 | 1,648 (95.7%) | 80 |
+| A2 verbs, B1 tenses | 1,722 | 48 (2.8%) | 6 (0.3%) | 20 (1.2%) | 0 | 1,648 (95.7%) | 81 |
 | A2 verbs, B2 tenses | 2,786 | 31 (1.1%) | 6 (0.2%) | 0 | 0 | 2,749 (98.7%) | 28 |
 | B1 verbs, A1 tenses | 6,364 | 331 (5.2%) | 81 (1.3%) | 0 | 0 | 5,952 (93.5%) | 141 |
 | B1 verbs, A2 tenses | 2,936 | 205 (7.0%) | 34 (1.2%) | 0 | 0 | 2,697 (91.9%) | 15 |
 | B1 verbs, B1 tenses | 8,540 | 86 (1.0%) | 23 (0.3%) | 0 | 0 | 8,431 (98.7%) | 58 |
 | B1 verbs, B2 tenses | 13,744 | 68 (0.5%) | 12 (0.1%) | 0 | 0 | 13,664 (99.4%) | 1 |
-| **A1 and A2 verbs, tenses up to A2 (2.0)** | 7,334 | 2,141 (29.2%) | 142 (1.9%) | 4,426 (60.3%) | 625 | 0 (0.0%) | 0 |
-| **All** | 57,000 | 3,617 (6.3%) | 369 (0.6%) | 4,523 (7.9%) | 625 | 47,866 (84.0%) | 689 |
+| **A1 and A2 verbs, tenses up to A2 (2.0)** | 7,334 | 2,142 (29.2%) | 142 (1.9%) | 4,438 (60.5%) | 612 | 0 (0.0%) | 0 |
+| **All** | 57,000 | 3,617 (6.3%) | 369 (0.6%) | 4,535 (8.0%) | 612 | 47,867 (84.0%) | 691 |
 
 ### By tense and voice
 
@@ -358,17 +358,17 @@ All verbs and tense levels. Main voice: the active, or the passive of a verb wit
 
 | Tense | Voice | Cells | Tatoeba | Wiktionary | Generated | Skipped | None | Waiting for a reading verdict |
 |---|---|---|---|---|---|---|---|---|
-| present | main | 2,955 | 704 (23.8%) | 61 (2.1%) | 714 (24.2%) | 20 | 1,456 (49.3%) | 35 |
+| present | main | 2,955 | 706 (23.9%) | 61 (2.1%) | 717 (24.3%) | 15 | 1,456 (49.3%) | 35 |
 | present | passive | 1,973 | 69 (3.5%) | 32 (1.6%) | 426 (21.6%) | 414 | 1,032 (52.3%) | 1 |
-| imperfect | main | 3,532 | 224 (6.3%) | 32 (0.9%) | 3 (0.1%) | 0 | 3,273 (92.7%) | 113 |
+| imperfect | main | 3,532 | 223 (6.3%) | 32 (0.9%) | 3 (0.1%) | 0 | 3,274 (92.7%) | 114 |
 | imperfect | passive | 1,822 | 2 (0.1%) | 2 (0.1%) | 0 | 0 | 1,818 (99.8%) | 47 |
-| aorist | main | 3,470 | 709 (20.4%) | 61 (1.8%) | 892 (25.7%) | 33 | 1,775 (51.2%) | 55 |
+| aorist | main | 3,470 | 708 (20.4%) | 61 (1.8%) | 894 (25.8%) | 32 | 1,775 (51.2%) | 55 |
 | aorist | passive | 1,949 | 59 (3.0%) | 16 (0.8%) | 0 | 0 | 1,874 (96.2%) | 0 |
-| future | main | 3,549 | 378 (10.7%) | 42 (1.2%) | 1,144 (32.2%) | 47 | 1,938 (54.6%) | 0 |
+| future | main | 3,549 | 378 (10.7%) | 42 (1.2%) | 1,147 (32.3%) | 44 | 1,938 (54.6%) | 0 |
 | future | passive | 1,977 | 10 (0.5%) | 2 (0.1%) | 1 (0.1%) | 0 | 1,964 (99.3%) | 0 |
-| imperativeContinuous | main | 998 | 32 (3.2%) | 1 (0.1%) | 2 (0.2%) | 0 | 963 (96.5%) | 317 |
+| imperativeContinuous | main | 998 | 32 (3.2%) | 1 (0.1%) | 2 (0.2%) | 0 | 963 (96.5%) | 318 |
 | imperativeContinuous | passive | 328 | 0 | 0 | 0 | 0 | 328 (100.0%) | 56 |
-| imperativeSimple | main | 1,138 | 173 (15.2%) | 10 (0.9%) | 275 (24.2%) | 76 | 604 (53.1%) | 65 |
+| imperativeSimple | main | 1,138 | 173 (15.2%) | 10 (0.9%) | 276 (24.3%) | 75 | 604 (53.1%) | 65 |
 | imperativeSimple | passive | 631 | 8 (1.3%) | 1 (0.2%) | 1 (0.2%) | 0 | 621 (98.4%) | 0 |
 | futureContinuous | main | 3,482 | 42 (1.2%) | 2 (0.1%) | 45 (1.3%) | 0 | 3,393 (97.4%) | 0 |
 | futureContinuous | passive | 1,946 | 2 (0.1%) | 0 | 0 | 0 | 1,944 (99.9%) | 0 |
@@ -380,7 +380,7 @@ All verbs and tense levels. Main voice: the active, or the passive of a verb wit
 | futurePerfect | passive | 1,950 | 0 | 0 | 0 | 0 | 1,950 (100.0%) | 0 |
 | subjunctiveContinuous | main | 3,482 | 298 (8.6%) | 30 (0.9%) | 43 (1.2%) | 0 | 3,111 (89.3%) | 0 |
 | subjunctiveContinuous | passive | 1,946 | 9 (0.5%) | 1 (0.1%) | 0 | 0 | 1,936 (99.5%) | 0 |
-| subjunctiveSimple | main | 3,549 | 644 (18.1%) | 51 (1.4%) | 975 (27.5%) | 35 | 1,844 (52.0%) | 0 |
+| subjunctiveSimple | main | 3,549 | 644 (18.1%) | 51 (1.4%) | 978 (27.6%) | 32 | 1,844 (52.0%) | 0 |
 | subjunctiveSimple | passive | 1,977 | 29 (1.5%) | 2 (0.1%) | 0 | 0 | 1,946 (98.4%) | 0 |
 
 ### Samples
@@ -431,9 +431,9 @@ The share of each generated row's words that are words of the Greek lists up to 
 
 | Share | Rows |
 |---|---|
-| 100% | 3,735 |
-| 90 to 99% | 78 |
-| 75 to 89% | 592 |
+| 100% | 3,741 |
+| 90 to 99% | 80 |
+| 75 to 89% | 596 |
 | 50 to 74% | 19 |
 | below 50% | 0 |
 
@@ -460,7 +460,7 @@ The 20 lowest, with the words outside the lists:
 - 2000004235 κοιτάω|future.active|2sg (71%): Θα κοιτάξεις τον χάρτη ενώ οδηγώ εγώ; — κοιτάξεις, ενώ
 - 2000000243 περνάω|present.passive|1pl (75%): Η Ελένη κι εγώ συχνά περνιόμαστε για αδερφές. — ελένη, αδερφές
 
-### Skipped cells (625)
+### Skipped cells (612)
 
 The cells with no natural sentence (kyukhin 2026-11-22), with the second pass's reason, in the 2.0 scope first.
 
@@ -671,11 +671,6 @@ The cells with no natural sentence (kyukhin 2026-11-22), with the second pass's 
 | θέλω\|future.active\|1sg | yes | θα θελήσω is not said in 1sg (Greeks say θα θέλω or αν θελήσω) |
 | θέλω\|imperativeSimple.active\|2pl | yes | the imperative θελήστε 'want!' is not said |
 | θέλω\|imperativeSimple.active\|2sg | yes | θέλησε as an order is not everyday Greek |
-| θυμίζω\|present.active\|1pl | yes | the cell's form θυμήζουμε is misspelt in the data (standard θυμίζουμε, as θυμίσαμε); fix the paradigm before writing a sentence |
-| θυμίζω\|present.active\|2pl | yes | the cell's form θυμήζετε is misspelt in the data (standard θυμίζετε, as θυμίσαμε); fix the paradigm before writing a sentence |
-| θυμίζω\|present.active\|2sg | yes | the cell's form θυμήζεις is misspelled in the data (standard θυμίζεις); a sentence with it would break rule 8, one with θυμίζεις fails the match |
-| θυμίζω\|present.active\|3pl | yes | the cell's only form θυμήζουν is misspelt (θυμίζουν); a sentence with it would teach a wrong spelling |
-| θυμίζω\|present.active\|3sg | yes | form misspelled: θυμίζει (the data has θυμήζει) |
 | καθαρίζω\|present.passive\|1pl | yes | "we clean ourselves" is πλενόμαστε in Greek; καθαριζόμαστε is not said |
 | καθαρίζω\|present.passive\|1sg | yes | "I clean myself" is πλένομαι in Greek; καθαρίζομαι has no everyday use |
 | καθαρίζω\|present.passive\|2pl | yes | "you clean yourselves" is πλένεστε in Greek; καθαρίζεστε has no everyday use |
@@ -750,14 +745,8 @@ The cells with no natural sentence (kyukhin 2026-11-22), with the second pass's 
 | μαθαίνω\|present.passive\|1sg | yes | 1sg passive μαθαίνομαι has no use |
 | μαθαίνω\|present.passive\|2pl | yes | 2pl passive μαθαίνεστε has no use; imperative homograph |
 | μαθαίνω\|present.passive\|2sg | yes | "you are learned" is not Greek; μαθαίνομαι is used only of things (3sg/3pl) |
-| μαλώνω\|future.active\|2pl | yes | the form is misspelled in the drill's data (Wiktionary table) |
-| μαλώνω\|future.active\|2sg | yes | the form is misspelled in the drill's data (Wiktionary table) |
-| μαλώνω\|future.active\|3sg | yes | the form is misspelled in the drill's data (Wiktionary table) |
 | μαλώνω\|imperativeSimple.active\|2pl | yes | an imperative 'quarrel!' is not said; the 'scold' sense needs an object pronoun (μαλώστε τον), another form |
-| μαλώνω\|imperativeSimple.active\|2sg | yes | the given form μαλώσε is not the standard imperative (μάλωσε), and an order to quarrel has no natural use |
-| μαλώνω\|subjunctiveSimple.active\|2pl | yes | the form is misspelled in the drill's data (Wiktionary table) |
-| μαλώνω\|subjunctiveSimple.active\|2sg | yes | the form is misspelled in the drill's data (Wiktionary table) |
-| μαλώνω\|subjunctiveSimple.active\|3sg | yes | the form is misspelled in the drill's data (Wiktionary table) |
+| μαλώνω\|imperativeSimple.active\|2sg | yes | an order to quarrel has no natural use |
 | μαντεύω\|present.passive\|1pl | yes | 1pl passive μαντευόμαστε "we are guessed" has no use; present/imperfect homograph |
 | μαντεύω\|present.passive\|1sg | yes | "I am guessed" is not Greek; μαντεύω has no 1sg passive in use |
 | μαντεύω\|present.passive\|2pl | yes | "you are guessed" is not Greek; μαντεύω has no 2pl passive in use |
@@ -791,7 +780,7 @@ The cells with no natural sentence (kyukhin 2026-11-22), with the second pass's 
 | νομίζω\|present.passive\|2sg | yes | νομίζω has no passive in use |
 | νομίζω\|present.passive\|3pl | yes | νομίζονται "are thought" has no everyday use |
 | νομίζω\|present.passive\|3sg | yes | νομίζεται is archaic; everyday Greek has no passive of νομίζω |
-| νυστάζω\|imperativeSimple.active\|2pl | yes | no imperative in use; and νύσταξε is a 2sg/3sg spelling, not 2pl |
+| νυστάζω\|imperativeSimple.active\|2pl | yes | no imperative in use |
 | νυστάζω\|imperativeSimple.active\|2sg | yes | state verb, no order 'be sleepy' |
 | οδηγώ\|present.passive\|1pl | yes | οδηγούμαστε 'we are led' is learned (οδηγούμαστε σε λάθος); no everyday A1 sentence |
 | οδηγώ\|present.passive\|1sg | yes | οδηγούμαι 'I am driven/led' has no everyday use |
@@ -942,8 +931,6 @@ The cells with no natural sentence (kyukhin 2026-11-22), with the second pass's 
 | συλλέγω\|present.passive\|1sg | yes | "I am collected" has no natural use |
 | συλλέγω\|present.passive\|2pl | yes | συλλέγεστε "you (pl.) are collected" has no everyday use for people, and the form is also an imperative and an imperfect |
 | συλλέγω\|present.passive\|2sg | yes | passive συλλέγεσαι 'you are collected' has no use |
-| συμμετέχω\|aorist.active\|3sg | yes | the cell's only form "συμμμετείχε" is misspelled in the data (triple μ); the word is συμμετείχε (the imperfect used as past; the learned aorist is συμμετέσχε), so no sentence can hold the form as given |
-| συμμετέχω\|imperativeSimple.active\|2pl | yes | the form συμμετάσχτε is not standard; Greeks write and say συμμετάσχετε (or λάβετε μέρος), which is not in the cell |
 | συμπαθώ\|imperativeSimple.active\|2pl | yes | συμπαθήστε lives only in the idiom συμπαθήστε με 'excuse me', not in the list sense 'like' |
 | συμπαθώ\|imperativeSimple.active\|2sg | yes | an imperative 'like (someone)!' is not said; συμπάθα με means 'excuse me' |
 | συμπαθώ\|present.passive\|2sg | yes | 2sg passive συμπαθιέσαι 'you are liked' is not in everyday use; Greeks say σε συμπαθούν |
@@ -983,8 +970,8 @@ The cells with no natural sentence (kyukhin 2026-11-22), with the second pass's 
 | τραγουδάω\|present.passive\|2pl | yes | passive τραγουδιέστε 'you are sung' has no use (only 3sg/3pl of songs) |
 | τραγουδάω\|present.passive\|2sg | yes | passive τραγουδιέσαι 'you are sung' has no use (only 3sg/3pl of songs) |
 | τρελαίνομαι\|imperativeSimple.passive\|2pl | yes | a positive order "go crazy!" (τρελαθείτε) is only ad slang; in use the verb comes as μην τρελαθείτε, another cell |
-| υπάρχω\|aorist.active\|1pl | yes | the cell's form υπάρξαμε is non-standard (standard aorist υπήρξαμε), and "we existed" has no everyday use for a learner |
-| υπάρχω\|aorist.active\|2pl | yes | υπάρξατε is a non-standard aorist (standard υπήρξατε) and 2pl 'you existed' lives only in formal speeches |
+| υπάρχω\|aorist.active\|1pl | yes | "we existed" has no everyday use for a learner |
+| υπάρχω\|aorist.active\|2pl | yes | 2pl 'you existed' lives only in formal speeches |
 | υπάρχω\|aorist.active\|2sg | yes | υπήρξες means "you were (a good friend etc.)", formal and not "exist" |
 | υπάρχω\|future.active\|1pl | yes | υπάρχω "exist" with a personal 1pl subject in the simple future has no everyday use (only philosophical) |
 | υπάρχω\|future.active\|1sg | yes | 'I will exist' (θα υπάρξω) has no everyday use |
@@ -1104,32 +1091,32 @@ Sentences and translations each tag kept out.
 
 | Table | Rows | sha256 of the rows in key order |
 |---|---|---|
-| `example_sentence` | 46,708 | `bd29602b97a3a8fe15f613ab89660efca3ac7997d20131479c350ea851a23e06` |
-| `example_translation` | 81,384 | `858dba8a7c4d52621db15289ff97027bb40b277cfcb2cf50cd8c0c98d3721b9e` |
-| `example_word` | 59,483 | `ba86b518c72723c71f5f61a4aa61ed5dfe145353f7783a6293ba15464be6af37` |
+| `example_sentence` | 46,722 | `1dc711f95a7195231e758981f2eb25f8392a934c48b296cb6df3068e9bd0e78b` |
+| `example_translation` | 81,411 | `a2457a8daba74958940d31947bcf89db52660e871aba82aaa9cb6ad0ba1e9b77` |
+| `example_word` | 59,498 | `64462fce310c3586146a2b7e1994ee41f7e26bf17df34a6a99994378634c1011` |
 
 The word examples alone (the rows of word keys, their sentences and translations), which the drill rows leave unchanged (#364):
 
 | Table | Rows | sha256 of the rows in key order |
 |---|---|---|
-| `example_sentence` | 40,299 | `0895bd783604b8961f91df1a0622ab84c61dff3cb80dc9a69c3f85f6a1213b15` |
-| `example_translation` | 69,968 | `eb70badbab110194862717c94771bc259aa755f32fc45a4f6fbc9218bf1a0ee0` |
-| `example_word` | 50,974 | `22e00f3e97f639a384cae38a5388cd74900b9cc83d6026c1fa03a1e886ce2da6` |
+| `example_sentence` | 40,301 | `3d4adc6d1a57fd6957d57f1719425791de627180011ce3f3225da5771c17b5df` |
+| `example_translation` | 69,971 | `017019962e710ccc61903cecc00ff0cb7b1340041f490957c865decd1da9f96d` |
+| `example_word` | 50,977 | `78df621fbb89e7321e0814bdb75108c9be044058c590d7aabdb4a33278aff89f` |
 
 The drill rows (the cell rows, and the sentences and translations only they use, #364):
 
 | Table | Rows | sha256 of the rows in key order |
 |---|---|---|
-| `example_sentence` | 6,409 | `1484a0e44f936dc12b3835ac71c0d65d9a6674549d915f448f6d0733e9d9acec` |
-| `example_translation` | 11,416 | `f542e96e42efea56af78a0f14feca81a20eb716909f47a01e90a021415ff8192` |
-| `example_word` | 8,509 | `50def6054c50d02af871170a0f953ca054665b7d5e6a9154ce15307be6a1a2f1` |
+| `example_sentence` | 6,421 | `6ae7798525c4cced694f6b999be87926f1435e1deca3bef125ac170f9a2ca9b7` |
+| `example_translation` | 11,440 | `e035e57b1d0d421952dfcce5e81bb41a4346c955b3c50b6bf3ff7fe3b894fb3f` |
+| `example_word` | 8,521 | `2e09ab7f83623a548457ee98627ea7d52b20fd142e328a7424088da55d2a03a9` |
 
 | Rows | `example_sentence` | `example_translation` | `example_word` | Installed | Download (xz) |
 |---|---|---|---|---|---|
-| all | 3,264,512 | 6,225,920 | 1,925,120 | 11,415,552 | 3,375,332 |
-| Greek (ell pack) | 1,597,440 | 1,794,048 | 1,052,672 | 4,444,160 | 1,111,808 |
+| all | 3,264,512 | 6,225,920 | 1,925,120 | 11,415,552 | 3,375,888 |
+| Greek (ell pack) | 1,601,536 | 1,798,144 | 1,052,672 | 4,452,352 | 1,112,684 |
 | English (eng-lists pack) | 1,662,976 | 4,440,064 | 880,640 | 6,983,680 | 2,338,624 |
-| Word examples (all files) | 2,629,632 | 5,275,648 | 1,454,080 | 9,359,360 | 2,962,132 |
-| Drill rows and the sentences only they use | 638,976 | 958,464 | 475,136 | 2,072,576 | 440,104 |
+| Word examples (all files) | 2,629,632 | 5,275,648 | 1,454,080 | 9,359,360 | 2,962,252 |
+| Drill rows and the sentences only they use | 643,072 | 962,560 | 475,136 | 2,080,768 | 440,248 |
 
 Bytes from `dbstat` on a VACUUMed file of the rows alone; the xz size is of that file (preset 6), an estimate of each pack's growth.
