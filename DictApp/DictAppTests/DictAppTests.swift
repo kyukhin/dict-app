@@ -30548,6 +30548,32 @@ extension LearningStoreTests {
     }
 }
 
+/// #368: holds an answer's write open until `open()`.
+@MainActor
+final class WriteGate {
+    private(set) var isWaiting = false
+    private var continuation: CheckedContinuation<Void, Never>?
+    private var isOpen = false
+
+    func wait() async {
+        guard !isOpen else { return }
+        isWaiting = true
+        await withCheckedContinuation { continuation = $0 }
+    }
+
+    /// Returns once the write has reached the gate.
+    func untilWaiting() async {
+        for _ in 0..<1000 where !isWaiting { await Task.yield() }
+        XCTAssertTrue(isWaiting, "the write never reached the gate")
+    }
+
+    func open() {
+        isOpen = true
+        continuation?.resume()
+        continuation = nil
+    }
+}
+
 /// `ExerciseRunViewModel` on a temp user database: the trainers grade only
 /// their own cards, write each answer at once, and skip what has no
 /// meaning; each answer takes the learning day of its own moment.
@@ -30580,6 +30606,31 @@ final class ExerciseRunViewModelTests: ExerciseTestCase {
             await vm.next()
         }
         return asked
+    }
+
+    /// #368: two Continue calls while the answer is written move the run
+    /// on once.
+    func testSecondContinueWhileTheFirstRunsIsIgnored() async throws {
+        _ = try await db.writeLearningFixture("myWords5", today: today)
+        let vm = run(.recognition)
+        await vm.start()
+        let right = try XCTUnwrap(vm.question?.rightIndex)
+        let gate = WriteGate()
+        vm.writeGate = { await gate.wait() }
+        let answer = Task { await vm.choose(right) }
+        await gate.untilWaiting()
+        XCTAssertNotNil(vm.feedback)
+        let first = Task { await vm.next() }
+        let second = Task { await vm.next() }
+        for _ in 0..<50 { await Task.yield() }
+        XCTAssertTrue(gate.isWaiting, "the answer's write is still pending")
+        XCTAssertEqual(vm.position, 1)
+        gate.open()
+        await answer.value
+        await first.value
+        await second.value
+        XCTAssertEqual(vm.position, 2)
+        XCTAssertNotNil(vm.question)
     }
 
     private func unaccented(_ text: String) -> String {
@@ -39129,9 +39180,17 @@ extension ConjugationRunViewModelTests {
         let vm = cellRun(verb, plan: [Self.kanoKey, Self.kanoKey, Self.kanoKey])
         await vm.start()
         let right = try XCTUnwrap(vm.question).rightIndex
+        let gate = WriteGate()
+        vm.writeGate = { await gate.wait() }
         let answer = Task { await vm.choose(right) }
+        await gate.untilWaiting()
+        XCTAssertNotNil(vm.feedback)
         let first = Task { await vm.next() }
         let second = Task { await vm.next() }
+        for _ in 0..<50 { await Task.yield() }
+        XCTAssertTrue(gate.isWaiting, "the answer's write is still pending")
+        XCTAssertEqual(vm.position, 1)
+        gate.open()
         await answer.value
         await first.value
         await second.value

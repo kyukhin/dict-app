@@ -541,7 +541,14 @@ final class ExerciseRunViewModel: ObservableObject {
     private var sourceOrder: [String] = []
     /// The source samples, by source and primary part of speech.
     private var samples: [String: [WordChoice]] = [:]
+    #if DEBUG
+    /// Test seam (#368): the answer's write waits here first, so a test can
+    /// hold it open while two Continue calls start.
+    var writeGate: (() async -> Void)?
+    #endif
     private var pendingWrite: Task<Void, Never>?
+    /// A Continue is running (#368): a second one meanwhile is ignored.
+    private var isAdvancing = false
     private var isStarted = false
     /// Today's answers when the run started (#300: the end sound).
     private var answeredBefore = 0
@@ -693,7 +700,11 @@ final class ExerciseRunViewModel: ObservableObject {
     /// Continue, on the bar or the example sheet: the next question, or the
     /// summary after the last.
     func next() async {
-        guard feedback != nil else { return }
+        // Set before the first await: a second Continue during the write
+        // would move `index` on again (#368, as #367).
+        guard feedback != nil, !isAdvancing else { return }
+        isAdvancing = true
+        defer { isAdvancing = false }
         showsExampleSheet = false
         await pendingWrite?.value
         index += 1
@@ -918,6 +929,9 @@ final class ExerciseRunViewModel: ObservableObject {
     /// Writes the answer with the daily goal in force (E10's `learn_day`),
     /// and requeues a wrong card at the end, apart from its word's other card.
     private func write(_ record: AnswerRecord, today: LearnDay, wrongAt index: Int?, lesson: KeptLesson?) async {
+        #if DEBUG
+        await writeGate?()
+        #endif
         do {
             let card = try await db.recordAnswer(record, today: today, goal: settings.learningDailyGoal, lesson: lesson)
             await reminder?.answerRecorded(today: today)
@@ -1149,6 +1163,11 @@ final class ConjugationRunViewModel: ObservableObject {
     private var tenseInfoOpenedAt: Date?
     private var pendingWrite: Task<Void, Never>?
     /// A Continue is moving on: a second tap before `show()` ends is ignored.
+    #if DEBUG
+    /// Test seam (#368): the answer's write waits here first, so a test can
+    /// hold it open while two Continue calls start.
+    var writeGate: (() async -> Void)?
+    #endif
     private var isAdvancing = false
     private var isStarted = false
     private var answeredBefore = 0
@@ -1391,6 +1410,9 @@ final class ConjugationRunViewModel: ObservableObject {
     /// Writes the answer with the daily goal in force (E10's `learn_day`),
     /// then lets the reminder cancel today's when the goal is reached.
     private func write(_ record: AnswerRecord, today: LearnDay) async {
+        #if DEBUG
+        await writeGate?()
+        #endif
         do {
             try await db.recordAnswer(record, today: today, goal: settings.learningDailyGoal)
             await reminder?.answerRecorded(today: today)
