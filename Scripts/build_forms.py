@@ -14,6 +14,8 @@ filtered subset `Scripts/data/kaikki-el-<date>.jsonl.gz` (Git LFS) is the pin:
 `inputs.json` records it with its sha256 and the dump's URL, date and sha256,
 and the step checks it before use. The step works offline; only the
 frequency list of the QA report is downloaded (pinned, to the cache).
+`Scripts/data/forms-fixes.tsv` fixes typos of Wiktionary's tables cell by
+cell (#365); a fix whose wrong form is no longer in the subset fails a gate.
 
 Usage (from the repository root):
     python3 Scripts/build_forms.py --self-check
@@ -59,6 +61,10 @@ REPO = SCRIPTS_DIR.parent
 REPORT = SCRIPTS_DIR / "reports" / "forms-qa.md"
 FIXTURE = SCRIPTS_DIR / "fixtures" / "kaikki-el-sample.jsonl"
 ALLOWLIST = SCRIPTS_DIR / "data" / "forms-allowlist.tsv"
+# Typos of Wiktionary's tables that the subset keeps, fixed cell by cell (#365).
+FIXES = SCRIPTS_DIR / "data" / "forms-fixes.tsv"
+FIX_COLUMNS = ("lemma", "tags", "wrong", "right", "kind")
+FIX_KINDS = ("replace", "first")
 
 DUMP_URL = "https://kaikki.org/dictionary/raw-wiktextract-data.jsonl.gz"
 DUMP_PAGE = "https://kaikki.org/dictionary/rawdata.html"
@@ -269,6 +275,66 @@ def read_allowlist(path: Path = ALLOWLIST) -> set[tuple[str, str, str]]:
     return entries
 
 
+@dataclass(frozen=True)
+class Fix:
+    """A typo of one table cell (forms-fixes.tsv): `replace` puts `right` in
+    the place of `wrong`; `first` puts `right` before `wrong`, which stays,
+    moving a `right` that follows it."""
+    lemma: str
+    tags: tuple
+    wrong: str
+    right: str
+    kind: str
+
+
+def read_fixes(path: Path = FIXES) -> list[Fix]:
+    """The header `FIX_COLUMNS`, then one row per cell; `#` starts a comment
+    line. The tags are the cell's, space-separated."""
+    fixes, header = [], False
+    for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        fields = tuple(nfc(part.strip()) for part in line.split("\t"))
+        if not header:
+            if fields != FIX_COLUMNS:
+                raise RuntimeError(f"{path.name}:{number}: the header must be {' '.join(FIX_COLUMNS)}")
+            header = True
+            continue
+        if len(fields) != len(FIX_COLUMNS) or not all(fields) or fields[4] not in FIX_KINDS:
+            raise RuntimeError(f"{path.name}:{number}: {len(FIX_COLUMNS)} fields, the kind one of {FIX_KINDS}")
+        lemma, tags, wrong, right, kind = fields
+        fixes.append(Fix(lemma, tuple(sorted(set(tags.split()))), wrong, right, kind))
+    if not header:
+        # An empty or comment-only file would apply nothing and pass the
+        # stale gate as 0 of 0 (CodeRabbit on #370).
+        raise RuntimeError(f"{path.name}: no header; the first line that is no comment must be {' '.join(FIX_COLUMNS)}")
+    return fixes
+
+
+def apply_fixes(word: str, cells: list[tuple], fixes: list[Fix], forms: Forms) -> list[tuple]:
+    """Step 2's table fixes on a lemma's cells: each fix whose (wrong, tags)
+    is a cell of the table. A fix that finds its cell in no table is stale
+    (`collect` lists it, `run` fails)."""
+    for fix in fixes:
+        if fix.lemma != word or (fix.wrong, fix.tags) not in cells:
+            continue
+        if fix.kind == "replace":
+            cells = [(fix.right, tags) if (form, tags) == (fix.wrong, fix.tags) else (form, tags)
+                     for form, tags in cells]
+        else:
+            # `first`: the right form goes before the wrong one; one already
+            # before it stays, one after it moves (CodeRabbit on #370).
+            cells, right = list(cells), (fix.right, fix.tags)
+            wrong_at = cells.index((fix.wrong, fix.tags))
+            if right not in cells[:wrong_at]:
+                if right in cells:
+                    cells.remove(right)
+                cells.insert(wrong_at, right)
+        forms.fixed.add(fix)
+        forms.fix_uses.append(f"{fix.wrong} → {fix.right} ({fix.kind}) in the table of {word}: {' '.join(fix.tags)}")
+    return cells
+
+
 # ---------------------------------------------------------------------------
 # The step
 # ---------------------------------------------------------------------------
@@ -294,6 +360,9 @@ class Forms:
         self.bare_endings: list[str] = []
         self.allow_uses: list[str] = []
         self.allowed: set[tuple] = set()               # the allowlist entries used
+        self.fixed: set = set()                        # the table fixes applied (Fix)
+        self.fix_uses: list[str] = []
+        self.stale_fixes: list = []                    # fixes whose wrong form is in no table
         self.unresolved = collections.Counter()
         self.link_kinds = collections.Counter()
         self.link_aspects = 0                          # links whose aspect comes from the gloss
@@ -430,9 +499,13 @@ def bare_ending(form: str, tags: tuple, word: str, endings: set) -> bool:
             and (tags, folded) in endings)
 
 
-def collect(lines, allowlist: set) -> Forms:
-    """Steps 1 to 6 of the spec on the subset's lines, in memory."""
+def collect(lines, allowlist: set, fixes: list[Fix] = ()) -> Forms:
+    """Steps 1 to 6 of the spec on the subset's lines, in memory, with the
+    table fixes (`fixes`) applied to the cells of step 2."""
     forms = Forms()
+    fixes_of: dict[str, list[Fix]] = collections.defaultdict(list)
+    for fix in fixes:
+        fixes_of[fix.lemma].append(fix)
     pages: dict[tuple, list] = {}  # (word, pos) of lemma pages -> their entries
     links: list[Link] = []
     for raw in lines:
@@ -464,6 +537,7 @@ def collect(lines, allowlist: set) -> Forms:
 
         # 2-3. Cells, the pronoun template guard, tables of another word.
         cells = [cell for entry in pages[(word, pos)] for cell in table_cells(entry, forms, word)]
+        cells = apply_fixes(word, cells, fixes_of.get(word, []), forms)
         if pos == "pron" and len(PERSONS & {t for _, tags in cells for t in tags}) > 1:
             for form, _ in cells:
                 forms.catch("cell of a pronoun table that mixes persons", f"{form}@{word}")
@@ -546,6 +620,7 @@ def collect(lines, allowlist: set) -> Forms:
             if key not in forms.lookup or forms.lookup[key][0] > (1, index):
                 forms.lookup[key] = ((1, index), link.tags)
 
+    forms.stale_fixes = [fix for fix in fixes if fix not in forms.fixed]
     # 6. Link spellings: a link page that is no cell of its lemma's table.
     cell_forms = {i: {form for form, _ in cells} for i, cells in forms.cells.items()}
     forms.spelled_links = sorted({(form, i) for form, i in forms.link_forms if form not in cell_forms.get(i, ())})
@@ -741,6 +816,8 @@ def report(forms: Forms, qa: dict, hashes: dict, sizes: dict, pins: dict, gates:
     lines += [f"- {use}" for use in forms.allow_uses] or ["None."]
     if unused:
         lines += ["", "Unused allowlist entries: " + ", ".join(unused)]
+    lines += ["", f"### Table fixes ({len(forms.fix_uses)}, all; `{FIXES.relative_to(REPO)}`)", ""]
+    lines += [f"- {use}" for use in forms.fix_uses] or ["None."]
     lines += ["", "### Unresolved link targets (top 50)", ""]
     top_unresolved = sorted(forms.unresolved.items(), key=lambda x: (-x[1], x[0]))[:50]
     lines += [", ".join(f"{target} ({n})" for target, n in top_unresolved) or "None."]
@@ -782,8 +859,9 @@ def run(conn: sqlite3.Connection, cache_dir: Path, headwords_db: sqlite3.Connect
     subset = inputs.committed(key)
     pins = inputs.pins()
     allowlist = read_allowlist()
+    fixes = read_fixes()
     with gzip.open(subset, "rt", encoding="utf-8") as lines:
-        forms = collect(lines, allowlist)
+        forms = collect(lines, allowlist, fixes)
     write_tables(conn, forms, f"enwiktionary {pins[key]['dump_date']}")
 
     headwords = {row[0] for row in headwords_db.execute(
@@ -812,6 +890,10 @@ def run(conn: sqlite3.Connection, cache_dir: Path, headwords_db: sqlite3.Connect
          "0", not violations),
         ("Forms tables", f"{sum(sizes.values()) / 1e6:.1f} MB", f"≤ {SIZE_BUDGET / 1e6:.0f} MB",
          sum(sizes.values()) <= SIZE_BUDGET),
+        (f"Table fixes ({FIXES.name}) whose wrong form is in the subset",
+         f"{len(fixes) - len(forms.stale_fixes)} of {len(fixes)}" + "".join(
+             f"; stale: {f.wrong} → {f.right} of {f.lemma} ({' '.join(f.tags)})" for f in forms.stale_fixes),
+         "all", not forms.stale_fixes),
     ]
     report_pins = {"subset_key": key, "subset": pins[key], "frequency": pins[FREQUENCY_KEY]}
     report_path.parent.mkdir(parents=True, exist_ok=True)
@@ -964,11 +1046,38 @@ def synthetic_checks() -> list[tuple[str, bool]]:
     shuffled = collect(list(reversed(lines)), set())
     empty = collect([], set())
 
+    # Table fixes (#365): a typo replaced, a right form put first, a stale fix.
+    plural2 = ("active", "imperative", "perfective", "plural", "second-person")
+    present2 = ("active", "imperfective", "indicative", "present", "second-person", "singular")
+    typos = [page("δένω", "verb", [("δένω", present1), ("δήνεις", present2), ("δέσε", imperative),
+                                    ("δέστε", plural2)])]
+    fixes = [Fix("δένω", present2, "δήνεις", "δένεις", "replace"), Fix("δένω", plural2, "δέστε", "δέσετε", "first"),
+             Fix("δένω", present1, "δήνω", "δένω", "replace")]
+    fixed = collect(typos, set(), fixes)
+    first = [Fix("δένω", plural2, "δέστε", "δέσετε", "first")]
+    moved = collect([page("δένω", "verb", [("δένω", present1), ("δέστε", plural2), ("δέσετε", plural2)])], set(), first)
+    kept = collect([page("δένω", "verb", [("δένω", present1), ("δέσετε", plural2), ("δέστε", plural2)])], set(), first)
+
     with tempfile.TemporaryDirectory() as folder:
         allowlist = Path(folder) / "allowlist.tsv"
         allowlist.write_text("# form\tlemma\tpos\n\n"
                              + unicodedata.normalize("NFD", "παρά") + "\tπαράς\tnoun  # reviewed\n", encoding="utf-8")
         parsed = read_allowlist(allowlist)
+        fix_file = Path(folder) / "fixes.tsv"
+        fix_file.write_text("# a comment\n\n" + "\t".join(FIX_COLUMNS) + "\n"
+                            + unicodedata.normalize("NFD", "δένω\tsingular present\tδήνω\tδένω\treplace") + "\n",
+                            encoding="utf-8")
+        parsed_fixes = read_fixes(fix_file)
+        def fixes_refused(text: str) -> bool:
+            fix_file.write_text(text, encoding="utf-8")
+            try:
+                read_fixes(fix_file)
+                return False
+            except RuntimeError:
+                return True
+        bad_kind_refused = fixes_refused("\t".join(FIX_COLUMNS) + "\nδένω\tpresent\tδήνω\tδένω\tswap\n")
+        empty_refused = fixes_refused("")
+        comments_refused = fixes_refused("# only a comment\n\n# and another\n")
 
     return [
         ("synthetic: empty input gives empty tables", not empty.lemmas and not empty.lookup and not empty.cells),
@@ -1007,6 +1116,20 @@ def synthetic_checks() -> list[tuple[str, bool]]:
          and not has_table("noun", [("x", ("nominative", "singular")), ("y", ("archaic", "genitive", "singular"))])),
         ("synthetic: the allowlist file skips comments and blank lines and NFCs its words",
          parsed == {("παρά", "παράς", "noun")}),
+        ("synthetic: a table fix replaces a typo, and the typo is no lookup key any more",
+         ("δένεις", present2) in cells_of(fixed, "δένω") and ("δήνεις", present2) not in cells_of(fixed, "δένω")
+         and "δένω" in lookup_targets(fixed, "δένεις") and not lookup_targets(fixed, "δήνεις")),
+        ("synthetic: a `first` fix puts the right form before the wrong one, which stays",
+         cells_of(fixed, "δένω") == [("δένω", present1), ("δένεις", present2), ("δέσε", imperative),
+                                     ("δέσετε", plural2), ("δέστε", plural2)]),
+        ("synthetic: a `first` fix moves a right form that follows the wrong one before it, and keeps one that precedes",
+         cells_of(moved, "δένω") == cells_of(kept, "δένω") == [("δένω", present1), ("δέσετε", plural2), ("δέστε", plural2)]),
+        ("synthetic: a fix whose wrong form is in no table is stale (the build fails)",
+         fixed.stale_fixes == [fixes[2]] and fixed.fixed == set(fixes[:2]) and len(fixed.fix_uses) == 2),
+        ("synthetic: the fix file has a header, skips comments, NFCs, sorts the tags and refuses an unknown kind",
+         parsed_fixes == [Fix("δένω", ("present", "singular"), "δήνω", "δένω", "replace")] and bad_kind_refused),
+        ("synthetic: an empty or comment-only fix file has no header and is refused",
+         empty_refused and comments_refused),
     ]
 
 

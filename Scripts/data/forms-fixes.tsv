@@ -1,0 +1,30 @@
+# Typos in Wiktionary's conjugation tables that the pinned kaikki subset keeps,
+# fixed where the subset's cells enter build_forms.py (0136, "Pipeline: Greek
+# forms", step 2; kyukhin 2026-11-23, #365). Found by the #365 checkers.
+# One row per cell: the lemma, the cell's tags (sorted, space-separated, as in
+# the subset), the wrong form, the right one, and the kind: `replace` puts the
+# right form in the wrong one's place; `first` puts it before the wrong one,
+# which stays an accepted alternative. The build fails when a row's wrong form
+# is no longer in that cell of the subset (a new snapshot fixed it: drop the row).
+lemma	tags	wrong	right	kind
+θυμίζω	active first-person imperfective indicative present singular	θυμήζω	θυμίζω	replace
+θυμίζω	active imperfective indicative present second-person singular	θυμήζεις	θυμίζεις	replace
+θυμίζω	active imperfective indicative present singular third-person	θυμήζει	θυμίζει	replace
+θυμίζω	active first-person imperfective indicative plural present	θυμήζουμε	θυμίζουμε	replace
+θυμίζω	active first-person imperfective indicative plural present rare	θυμήζομε	θυμίζομε	replace
+θυμίζω	active imperfective indicative plural present second-person	θυμήζετε	θυμίζετε	replace
+θυμίζω	active imperfective indicative plural present third-person	θυμήζουν	θυμίζουν	replace
+θυμίζω	active imperfective indicative plural present third-person	θυμήζουνε	θυμίζουνε	replace
+θυμίζω	active first-person imperfect imperfective indicative plural	θυμήζαμε	θυμίζαμε	replace
+θυμίζω	active imperfect imperfective indicative plural second-person	θυμήζατε	θυμίζατε	replace
+θυμίζω	active imperfect imperfective indicative plural third-person	θυμήζαν	θυμίζαν	replace
+θυμίζω	active imperfect imperfective indicative plural third-person	θυμήζανε	θυμίζανε	replace
+θυμίζω	active imperative imperfective plural second-person	θυμήζετε	θυμίζετε	replace
+θυμίζω	active indeclinable participle present	θυμήζοντας	θυμίζοντας	replace
+νυστάζω	active imperative perfective plural second-person	νύσταξε	νυστάξτε	replace
+υπάρχω	active first-person indicative past perfective plural	υπάρξαμε	υπήρξαμε	first
+υπάρχω	active indicative past perfective plural second-person	υπάρξατε	υπήρξατε	first
+συμμετέχω	active indicative past perfective singular third-person	συμμμετείχε	συμμετείχε	replace
+συμμετέχω	active imperative perfective plural second-person	συμμετάσχτε	συμμετάσχετε	first
+μαλώνω	active imperative perfective second-person singular	μαλώσε	μάλωσε	replace
+σερβίρω	imperfective indicative passive plural present third-person	σερβιρίζοναι	σερβιρίζονται	replace
