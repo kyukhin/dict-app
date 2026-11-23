@@ -204,11 +204,6 @@ cell	reason	checked_by
 θέλω|future.active|1sg	θα θελήσω is not said in 1sg (Greeks say θα θέλω or αν θελήσω)	claude-opus-5-5 2026-11-22
 θέλω|imperativeSimple.active|2pl	the imperative θελήστε 'want!' is not said	claude-opus-5-5 2026-11-22
 θέλω|imperativeSimple.active|2sg	θέλησε as an order is not everyday Greek	claude-opus-5-5 2026-11-22
-θυμίζω|present.active|1pl	the cell's form θυμήζουμε is misspelt in the data (standard θυμίζουμε, as θυμίσαμε); fix the paradigm before writing a sentence	claude-opus-5-5 2026-11-22
-θυμίζω|present.active|2pl	the cell's form θυμήζετε is misspelt in the data (standard θυμίζετε, as θυμίσαμε); fix the paradigm before writing a sentence	claude-opus-5-5 2026-11-22
-θυμίζω|present.active|2sg	the cell's form θυμήζεις is misspelled in the data (standard θυμίζεις); a sentence with it would break rule 8, one with θυμίζεις fails the match	claude-opus-5-5 2026-11-22
-θυμίζω|present.active|3pl	the cell's only form θυμήζουν is misspelt (θυμίζουν); a sentence with it would teach a wrong spelling	claude-opus-5-5 2026-11-22
-θυμίζω|present.active|3sg	form misspelled: θυμίζει (the data has θυμήζει)	claude-opus-5-5 2026-11-23
 καθαρίζω|present.passive|1pl	"we clean ourselves" is πλενόμαστε in Greek; καθαριζόμαστε is not said	claude-opus-5-5 2026-11-22
 καθαρίζω|present.passive|1sg	"I clean myself" is πλένομαι in Greek; καθαρίζομαι has no everyday use	claude-opus-5-5 2026-11-22
 καθαρίζω|present.passive|2pl	"you clean yourselves" is πλένεστε in Greek; καθαρίζεστε has no everyday use	claude-opus-5-5 2026-11-22
@@ -283,14 +278,8 @@ cell	reason	checked_by
 μαθαίνω|present.passive|1sg	1sg passive μαθαίνομαι has no use	claude-opus-5-5 2026-11-22
 μαθαίνω|present.passive|2pl	2pl passive μαθαίνεστε has no use; imperative homograph	claude-opus-5-5 2026-11-22
 μαθαίνω|present.passive|2sg	"you are learned" is not Greek; μαθαίνομαι is used only of things (3sg/3pl)	claude-opus-5-5 2026-11-22
-μαλώνω|future.active|2pl	the form is misspelled in the drill's data (Wiktionary table)	claude-opus-5-5 2026-11-22
-μαλώνω|future.active|2sg	the form is misspelled in the drill's data (Wiktionary table)	claude-opus-5-5 2026-11-22
-μαλώνω|future.active|3sg	the form is misspelled in the drill's data (Wiktionary table)	claude-opus-5-5 2026-11-22
 μαλώνω|imperativeSimple.active|2pl	an imperative 'quarrel!' is not said; the 'scold' sense needs an object pronoun (μαλώστε τον), another form	claude-opus-5-5 2026-11-22
-μαλώνω|imperativeSimple.active|2sg	the given form μαλώσε is not the standard imperative (μάλωσε), and an order to quarrel has no natural use	claude-opus-5-5 2026-11-22
-μαλώνω|subjunctiveSimple.active|2pl	the form is misspelled in the drill's data (Wiktionary table)	claude-opus-5-5 2026-11-22
-μαλώνω|subjunctiveSimple.active|2sg	the form is misspelled in the drill's data (Wiktionary table)	claude-opus-5-5 2026-11-22
-μαλώνω|subjunctiveSimple.active|3sg	the form is misspelled in the drill's data (Wiktionary table)	claude-opus-5-5 2026-11-22
+μαλώνω|imperativeSimple.active|2sg	an order to quarrel has no natural use	claude-opus-5-5 2026-11-22
 μαντεύω|present.passive|1pl	1pl passive μαντευόμαστε "we are guessed" has no use; present/imperfect homograph	claude-opus-5-5 2026-11-22
 μαντεύω|present.passive|1sg	"I am guessed" is not Greek; μαντεύω has no 1sg passive in use	claude-opus-5-5 2026-11-22
 μαντεύω|present.passive|2pl	"you are guessed" is not Greek; μαντεύω has no 2pl passive in use	claude-opus-5-5 2026-11-22
@@ -324,7 +313,7 @@ cell	reason	checked_by
 νομίζω|present.passive|2sg	νομίζω has no passive in use	claude-opus-5-5 2026-11-22
 νομίζω|present.passive|3pl	νομίζονται "are thought" has no everyday use	claude-opus-5-5 2026-11-22
 νομίζω|present.passive|3sg	νομίζεται is archaic; everyday Greek has no passive of νομίζω	claude-opus-5-5 2026-11-22
-νυστάζω|imperativeSimple.active|2pl	no imperative in use; and νύσταξε is a 2sg/3sg spelling, not 2pl	claude-opus-5-5 2026-11-22
+νυστάζω|imperativeSimple.active|2pl	no imperative in use	claude-opus-5-5 2026-11-22
 νυστάζω|imperativeSimple.active|2sg	state verb, no order 'be sleepy'	claude-opus-5-5 2026-11-22
 οδηγώ|present.passive|1pl	οδηγούμαστε 'we are led' is learned (οδηγούμαστε σε λάθος); no everyday A1 sentence	claude-opus-5-5 2026-11-22
 οδηγώ|present.passive|1sg	οδηγούμαι 'I am driven/led' has no everyday use	claude-opus-5-5 2026-11-22
@@ -475,8 +464,6 @@ cell	reason	checked_by
 συλλέγω|present.passive|1sg	"I am collected" has no natural use	claude-opus-5-5 2026-11-22
 συλλέγω|present.passive|2pl	συλλέγεστε "you (pl.) are collected" has no everyday use for people, and the form is also an imperative and an imperfect	claude-opus-5-5 2026-11-22
 συλλέγω|present.passive|2sg	passive συλλέγεσαι 'you are collected' has no use	claude-opus-5-5 2026-11-22
-συμμετέχω|aorist.active|3sg	the cell's only form "συμμμετείχε" is misspelled in the data (triple μ); the word is συμμετείχε (the imperfect used as past; the learned aorist is συμμετέσχε), so no sentence can hold the form as given	claude-opus-5-5 2026-11-22
-συμμετέχω|imperativeSimple.active|2pl	the form συμμετάσχτε is not standard; Greeks write and say συμμετάσχετε (or λάβετε μέρος), which is not in the cell	claude-opus-5-5 2026-11-22
 συμπαθώ|imperativeSimple.active|2pl	συμπαθήστε lives only in the idiom συμπαθήστε με 'excuse me', not in the list sense 'like'	claude-opus-5-5 2026-11-22
 συμπαθώ|imperativeSimple.active|2sg	an imperative 'like (someone)!' is not said; συμπάθα με means 'excuse me'	claude-opus-5-5 2026-11-22
 συμπαθώ|present.passive|2sg	2sg passive συμπαθιέσαι 'you are liked' is not in everyday use; Greeks say σε συμπαθούν	claude-opus-5-5 2026-11-22
@@ -516,8 +503,8 @@ cell	reason	checked_by
 τραγουδάω|present.passive|2pl	passive τραγουδιέστε 'you are sung' has no use (only 3sg/3pl of songs)	claude-opus-5-5 2026-11-22
 τραγουδάω|present.passive|2sg	passive τραγουδιέσαι 'you are sung' has no use (only 3sg/3pl of songs)	claude-opus-5-5 2026-11-22
 τρελαίνομαι|imperativeSimple.passive|2pl	a positive order "go crazy!" (τρελαθείτε) is only ad slang; in use the verb comes as μην τρελαθείτε, another cell	claude-opus-5-5 2026-11-22
-υπάρχω|aorist.active|1pl	the cell's form υπάρξαμε is non-standard (standard aorist υπήρξαμε), and "we existed" has no everyday use for a learner	claude-opus-5-5 2026-11-22
-υπάρχω|aorist.active|2pl	υπάρξατε is a non-standard aorist (standard υπήρξατε) and 2pl 'you existed' lives only in formal speeches	claude-opus-5-5 2026-11-22
+υπάρχω|aorist.active|1pl	"we existed" has no everyday use for a learner	claude-opus-5-5 2026-11-22
+υπάρχω|aorist.active|2pl	2pl 'you existed' lives only in formal speeches	claude-opus-5-5 2026-11-22
 υπάρχω|aorist.active|2sg	υπήρξες means "you were (a good friend etc.)", formal and not "exist"	claude-opus-5-5 2026-11-22
 υπάρχω|future.active|1pl	υπάρχω "exist" with a personal 1pl subject in the simple future has no everyday use (only philosophical)	claude-opus-5-5 2026-11-22
 υπάρχω|future.active|1sg	'I will exist' (θα υπάρξω) has no everyday use	claude-opus-5-5 2026-11-22
