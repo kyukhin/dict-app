@@ -62,6 +62,30 @@ CASE_TAGS = ("nominative", "genitive", "accusative", "vocative")
 GENDER_TAGS = ("masculine", "feminine", "neuter")
 NON_INDICATIVE_MOODS = frozenset({"subjunctive", "optative", "conditional"})
 
+# `DrillVerb.noImperative` (#362): the card words of the verbs the drill
+# never asks, offers or shows an imperative, in either voice. The same 83
+# words as the Swift set; `testNoImperativeMatchesThePythonPort` fails on a
+# drift.
+NO_IMPERATIVE = frozenset(unicodedata.normalize("NFC", word) for word in """
+    θέλω μπορώ αρέσω νομίζω σημαίνω απορώ
+    υπάρχω αρκώ μοιάζω κοστίζω διαρκώ λήγω αποτελώ αντιστοιχώ περισσεύω κατοικώ
+    πεινάω διψάω πονάω αρρωσταίνω νυστάζω κρυώνω πεθαίνω
+    ξημερώνω
+    επιθυμώ ελπίζω ενδιαφέρω συμπαθώ φοβάμαι χρειάζομαι νευριάζω τρελαίνομαι
+    λείπω περιλαμβάνω
+    παθαίνω πνίγομαι γεννάω αργώ καταφέρνω
+    αστράφτω
+    εννοώ ανησυχώ βαριέμαι απελπίζομαι αγχώνομαι ενοχλώ αισιοδοξώ
+    αξίζω ανήκω χρωστάω διαφέρω εξαρτώμαι αποτελούμαι προέρχομαι συμβολίζω χωράω
+    ιδρώνω αιμορραγώ ζαλίζομαι χασμουριέμαι γερνάω σαπίζω αναρρώνω κουράζομαι
+    γεννιέμαι κινδυνεύω φταίω βρομάω
+    δύω πνέω
+    ακούγομαι συνεχίζομαι δημιουργούμαι συμπεριλαμβάνομαι αναπτύσσομαι παράγομαι
+    βραβεύομαι εκδηλώνομαι συζητιέμαι καταστρέφομαι διατηρούμαι παρασκευάζομαι
+    θεραπεύομαι
+    """.split())
+IMPERATIVES = frozenset({"imperativeContinuous", "imperativeSimple"})
+
 
 def nfc(s: str) -> str:
     return unicodedata.normalize("NFC", s)
@@ -294,9 +318,12 @@ class DrillVerb:
         self.list_level, self.rank, self.seq = list_level, rank, seq
         self.main, self.voices, self.impersonal = main, voices, impersonal
         self.cells: dict[Facet, dict[str, Cell]] = {}
+        asks_imperative = word not in NO_IMPERATIVE  # #362
         for voice, vf in voices.items():
             lacks = lacks_dependent(vf)
             for tense in TENSES:
+                if not asks_imperative and tense in IMPERATIVES:
+                    continue
                 for person in tense_persons(tense):
                     if impersonal and person != "3sg":
                         continue

@@ -1351,10 +1351,13 @@ struct DrillVerb: Equatable, Sendable {
         self.mainVoice = mainVoice
         self.voices = voices
         self.isImpersonal = isImpersonal
+        // #362: no imperative cell, of either form or voice, for a verb
+        // whose imperative Greeks hardly use (θέλω). `voices` keep the forms.
+        let asksImperative = !Self.noImperative.contains(word)
         var cells: [ConjugationFacet: [Person: Cell]] = [:]
         for (voice, voiceForms) in voices {
             let lacksDependent = ConjugationTense.lacksDependent(voiceForms)
-            for tense in ConjugationTense.allCases {
+            for tense in ConjugationTense.allCases where asksImperative || !Self.imperatives.contains(tense) {
                 for person in tense.persons where !isImpersonal || person == .thirdSingular {
                     let forms = tense.forms(voiceForms, person, lacksDependent: lacksDependent)
                     guard !forms.isEmpty else { continue }
@@ -1365,6 +1368,36 @@ struct DrillVerb: Equatable, Sendable {
         }
         self.cells = cells
     }
+
+    /// The card words of the verbs the drill never asks, offers or shows an
+    /// imperative (#362; kyukhin 2026-11-23, after a native speaker's read):
+    /// orders Greeks hardly give (θέλησε). 83 verbs, by 0132's groups:
+    /// the issue's, the A1 and A2 verbs #365 skipped, the B1 proposals and
+    /// kyukhin's two. `drill_cells.py` has the same list (`NO_IMPERATIVE`).
+    static let noImperative: Set<String> = Set([
+        // The issue's (24).
+        "θέλω", "μπορώ", "αρέσω", "νομίζω", "σημαίνω", "απορώ",
+        "υπάρχω", "αρκώ", "μοιάζω", "κοστίζω", "διαρκώ", "λήγω", "αποτελώ", "αντιστοιχώ", "περισσεύω", "κατοικώ",
+        "πεινάω", "διψάω", "πονάω", "αρρωσταίνω", "νυστάζω", "κρυώνω", "πεθαίνω",
+        "ξημερώνω",
+        // Skipped by #365 in every simple-imperative cell (16).
+        "επιθυμώ", "ελπίζω", "ενδιαφέρω", "συμπαθώ", "φοβάμαι", "χρειάζομαι", "νευριάζω", "τρελαίνομαι",
+        "λείπω", "περιλαμβάνω",
+        "παθαίνω", "πνίγομαι", "γεννάω", "αργώ", "καταφέρνω",
+        "αστράφτω",
+        // B1 (41) and kyukhin's two (χωράω, βρομάω).
+        "εννοώ", "ανησυχώ", "βαριέμαι", "απελπίζομαι", "αγχώνομαι", "ενοχλώ", "αισιοδοξώ",
+        "αξίζω", "ανήκω", "χρωστάω", "διαφέρω", "εξαρτώμαι", "αποτελούμαι", "προέρχομαι", "συμβολίζω", "χωράω",
+        "ιδρώνω", "αιμορραγώ", "ζαλίζομαι", "χασμουριέμαι", "γερνάω", "σαπίζω", "αναρρώνω", "κουράζομαι",
+        "γεννιέμαι", "κινδυνεύω", "φταίω", "βρομάω",
+        "δύω", "πνέω",
+        "ακούγομαι", "συνεχίζομαι", "δημιουργούμαι", "συμπεριλαμβάνομαι", "αναπτύσσομαι", "παράγομαι",
+        "βραβεύομαι", "εκδηλώνομαι", "συζητιέμαι", "καταστρέφομαι", "διατηρούμαι", "παρασκευάζομαι",
+        "θεραπεύομαι",
+    ].map(\.precomposedStringWithCanonicalMapping))
+
+    /// The tenses `noImperative` leaves out.
+    private static let imperatives: Set<ConjugationTense> = [.imperativeContinuous, .imperativeSimple]
 
     private init(copying verb: DrillVerb, translation: String) {
         word = verb.word

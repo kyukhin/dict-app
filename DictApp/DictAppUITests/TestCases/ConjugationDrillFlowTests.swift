@@ -57,6 +57,10 @@ final class ConjugationDrillFlowTests: XCTestCase {
         }
         if name.contains("testPractiseAsksLearnGreekFirst") { return ["-drillLength", "3"] }
         if name.contains("testRuleOpensTheTensesTopic") { return ["-learningLanguages", "ell", "-drillLength", "2"] }
+        // #362: Practise on έρχομαι asks έλα, its simple imperative εσύ.
+        if name.contains("testErchomaiImperativeShowsRule") {
+            return ["-learningLanguages", "ell", "-drillLength", "1", "-drillPlan", "έρχομαι|imperativeSimple.passive|2sg"]
+        }
         if name.contains("testNoRuleWithoutATopic") {
             return ["-learningLanguages", "ell", "-learningLists", "ky-ell-b1", "-drillLength", "15"]
         }
@@ -581,6 +585,24 @@ final class ConjugationDrillFlowTests: XCTestCase {
         drill.run.tapContinue()
         XCTAssertTrue(drill.waitForQuestion(), "Continue goes on")
         XCTAssertFalse(grammar.ruleButton.exists)
+    }
+
+    /// #362 (0133): the imperative topic lists έρχομαι, so its imperative
+    /// question (έλα) shows Rule, which opens "The imperative".
+    func testErchomaiImperativeShowsRule() throws {
+        let drill = openDefinition("έρχομαι")
+        drill.practise()
+        XCTAssertTrue(drill.waitForQuestion(), "a question")
+        XCTAssertTrue(drill.promptTense.label.hasPrefix("Imperative: simple form"), drill.promptTense.label)
+        let grammar = GrammarPage(app: app)
+        XCTAssertFalse(grammar.ruleButton.exists, "no Rule before the answer")
+        XCTAssertEqual(drill.answer(right: true), "right")
+        XCTAssertTrue(grammar.ruleButton.waitForExistence(timeout: TestData.Timeouts.medium), "Rule beside Continue")
+        grammar.ruleButton.tap()
+        XCTAssertTrue(grammar.sheet.waitForExistence(timeout: TestData.Timeouts.medium), "the sheet")
+        XCTAssertTrue(grammar.waitForTopic(), "the topic")
+        XCTAssertEqual(grammar.title.label, "The imperative")
+        attachScreenshot("έρχομαι, Rule: the imperative")
     }
 
     /// Tenses up to B1 (Greek B1 checked): Practise on γράφω asks tenses

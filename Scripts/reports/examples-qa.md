@@ -321,36 +321,36 @@ The 60 most frequent of the 306 tokens whose inferred keys are skipped, with the
 Every cell the conjugation drill can ask (`drill_cells.py`, a port of 0132's rules: the three Greek lists' verbs, every tense up to B2, both voices) gets one sentence that holds the cell's whole form by 0134's match rule, keyed `<word>|<facet>|<person>` in `example_word`. Sources, in this order: Tatoeba (#364), Wiktionary usage examples and generated sentences from `Scripts/data/drill-examples/` (#365). "Skipped": cells with no natural sentence, listed in `ell-skipped.tsv`, which the 2.0 gate counts as done. "Waiting for a reading verdict": open cells whose found sentences hold them only through a spelling of another reading (match rule 5), which takes a sentence only with an `ok` verdict of the second pass.
 
 - The pool: 595 verbs: A1 196, A2 66, B1 333; 102 with passive forms only, 4 impersonal
-- Cells: 57,000; with a sentence: 8,509 (14.9%); sentences: 8,211, of them already word examples: 1,792, new: 6,419
-- Homographs: aspect-only cells (one sentence serves both) 317; cells with a spelling of another reading 4,581, of them with a sentence through that spelling (an `ok` verdict, or a data row written for the cell) 734, through another of their forms 74, waiting for a reading verdict 691; reading verdicts in `ell-readings.tsv`: ok 190, no 1,169
+- Cells: 56,687; with a sentence: 8,518 (15.0%); sentences: 8,215, of them already word examples: 1,800, new: 6,415
+- Homographs: aspect-only cells (one sentence serves both) 321; cells with a spelling of another reading 4,259, of them with a sentence through that spelling (an `ok` verdict, or a data row written for the cell) 679, through another of their forms 72, waiting for a reading verdict 630; reading verdicts in `ell-readings.tsv`: ok 190, no 1,125
 - Spellings in the cells of two verbs (43): έχει φερθεί, έχεις φερθεί, έχετε φερθεί, έχουμε φερθεί, έχουν φερθεί, έχω φερθεί, είχα φερθεί, είχαμε φερθεί, είχαν φερθεί, είχατε φερθεί, είχε φερθεί, είχες φερθεί, θα έχει φερθεί, θα έχεις φερθεί, θα έχετε φερθεί, θα έχουμε φερθεί, θα έχουν φερθεί, θα έχω φερθεί, θα φερθεί, θα φερθείς, θα φερθείτε, θα φερθούμε, θα φερθούν, θα φερθούνε, θα φερθώ, να φερθεί, να φερθείς, να φερθείτε, να φερθούμε, να φερθούν, να φερθούνε, να φερθώ, πέστε, πιέστε, φέρθηκα, φέρθηκαν, φέρθηκε, φέρθηκες, φερθήκαμε, φερθήκαν, φερθήκανε, φερθήκατε, φερθείτε.
 
 ### Data files (#365)
 
-- `ell.tsv`: wiktionary 351 rows, 351 in the pack, generated 4,436 rows, 4,431 in the pack; stale (cells the drill no longer asks, skipped): 0
-- `ell-readings.tsv`: 1,359 verdicts; stale (no drill cell, or no candidate sentence): 94
-- `ell-skipped.tsv`: 612 cells, 612 in the 2.0 scope; of them with a found sentence, left out: 3; stale: 0
-- The 2.0 scope (A1 and A2 verbs, tenses up to A2): 7,334 cells; with a sentence 6,722, skipped 612, open 0
+- `ell.tsv`: wiktionary 351 rows, 351 in the pack, generated 4,436 rows, 4,426 in the pack; stale (cells the drill no longer asks, skipped): 2
+- `ell-readings.tsv`: 1,315 verdicts; stale (no drill cell, or no candidate sentence): 176
+- `ell-skipped.tsv`: 612 cells, 549 in the 2.0 scope; of them with a found sentence, left out: 1; stale: 63
+- The 2.0 scope (A1 and A2 verbs, tenses up to A2): 7,269 cells; with a sentence 6,720, skipped 549, open 0
 - The data file's date (`libredict-drill-ell`'s version): 2026-11-23; Wiktionary: enwiktionary 2026-10-01
 
 ### By verb list and tense level
 
 | Verbs, tenses | Cells | Tatoeba | Wiktionary | Generated | Skipped | None | Waiting for a reading verdict |
 |---|---|---|---|---|---|---|---|
-| A1 verbs, A1 tenses | 4,319 | 1,636 (37.9%) | 86 (2.0%) | 2,516 (58.3%) | 81 | 0 (0.0%) | 0 |
-| A1 verbs, A2 tenses | 1,156 | 231 (20.0%) | 25 (2.2%) | 571 (49.4%) | 329 | 0 (0.0%) | 0 |
-| A1 verbs, B1 tenses | 5,124 | 469 (9.2%) | 37 (0.7%) | 73 (1.4%) | 0 | 4,545 (88.7%) | 293 |
-| A1 verbs, B2 tenses | 8,450 | 233 (2.8%) | 28 (0.3%) | 4 (0.0%) | 0 | 8,185 (96.9%) | 74 |
-| A2 verbs, A1 tenses | 1,465 | 223 (15.2%) | 24 (1.6%) | 1,109 (75.7%) | 109 | 0 (0.0%) | 0 |
-| A2 verbs, A2 tenses | 394 | 50 (12.7%) | 7 (1.8%) | 244 (61.9%) | 93 | 0 (0.0%) | 0 |
-| A2 verbs, B1 tenses | 1,722 | 48 (2.8%) | 6 (0.3%) | 20 (1.2%) | 0 | 1,648 (95.7%) | 81 |
-| A2 verbs, B2 tenses | 2,786 | 31 (1.1%) | 6 (0.2%) | 0 | 0 | 2,749 (98.7%) | 28 |
-| B1 verbs, A1 tenses | 6,364 | 325 (5.1%) | 81 (1.3%) | 0 | 0 | 5,958 (93.6%) | 141 |
-| B1 verbs, A2 tenses | 2,936 | 204 (6.9%) | 34 (1.2%) | 0 | 0 | 2,698 (91.9%) | 15 |
-| B1 verbs, B1 tenses | 8,540 | 85 (1.0%) | 24 (0.3%) | 0 | 0 | 8,431 (98.7%) | 58 |
-| B1 verbs, B2 tenses | 13,744 | 67 (0.5%) | 12 (0.1%) | 0 | 0 | 13,665 (99.4%) | 1 |
-| **A1 and A2 verbs, tenses up to A2 (2.0)** | 7,334 | 2,140 (29.2%) | 142 (1.9%) | 4,440 (60.5%) | 612 | 0 (0.0%) | 0 |
-| **All** | 57,000 | 3,602 (6.3%) | 370 (0.6%) | 4,537 (8.0%) | 612 | 47,879 (84.0%) | 691 |
+| A1 verbs, A1 tenses | 4,288 | 1,639 (38.2%) | 86 (2.0%) | 2,511 (58.6%) | 52 | 0 (0.0%) | 0 |
+| A1 verbs, A2 tenses | 1,151 | 231 (20.1%) | 25 (2.2%) | 571 (49.6%) | 324 | 0 (0.0%) | 0 |
+| A1 verbs, B1 tenses | 5,094 | 471 (9.2%) | 37 (0.7%) | 73 (1.4%) | 0 | 4,513 (88.6%) | 269 |
+| A1 verbs, B2 tenses | 8,441 | 233 (2.8%) | 28 (0.3%) | 4 (0.0%) | 0 | 8,176 (96.9%) | 74 |
+| A2 verbs, A1 tenses | 1,438 | 223 (15.5%) | 24 (1.7%) | 1,109 (77.1%) | 82 | 0 (0.0%) | 0 |
+| A2 verbs, A2 tenses | 392 | 50 (12.8%) | 7 (1.8%) | 244 (62.2%) | 91 | 0 (0.0%) | 0 |
+| A2 verbs, B1 tenses | 1,695 | 49 (2.9%) | 6 (0.4%) | 20 (1.2%) | 0 | 1,620 (95.6%) | 66 |
+| A2 verbs, B2 tenses | 2,776 | 31 (1.1%) | 6 (0.2%) | 0 | 0 | 2,739 (98.7%) | 26 |
+| B1 verbs, A1 tenses | 6,318 | 333 (5.3%) | 81 (1.3%) | 0 | 0 | 5,904 (93.4%) | 128 |
+| B1 verbs, A2 tenses | 2,894 | 204 (7.0%) | 34 (1.2%) | 0 | 0 | 2,656 (91.8%) | 15 |
+| B1 verbs, B1 tenses | 8,474 | 86 (1.0%) | 23 (0.3%) | 0 | 0 | 8,365 (98.7%) | 51 |
+| B1 verbs, B2 tenses | 13,726 | 67 (0.5%) | 12 (0.1%) | 0 | 0 | 13,647 (99.4%) | 1 |
+| **A1 and A2 verbs, tenses up to A2 (2.0)** | 7,269 | 2,143 (29.5%) | 142 (2.0%) | 4,435 (61.0%) | 549 | 0 (0.0%) | 0 |
+| **All** | 56,687 | 3,617 (6.4%) | 369 (0.7%) | 4,532 (8.0%) | 549 | 47,620 (84.0%) | 630 |
 
 ### By tense and voice
 
@@ -358,18 +358,18 @@ All verbs and tense levels. Main voice: the active, or the passive of a verb wit
 
 | Tense | Voice | Cells | Tatoeba | Wiktionary | Generated | Skipped | None | Waiting for a reading verdict |
 |---|---|---|---|---|---|---|---|---|
-| present | main | 2,955 | 706 (23.9%) | 61 (2.1%) | 717 (24.3%) | 15 | 1,456 (49.3%) | 35 |
+| present | main | 2,955 | 710 (24.0%) | 61 (2.1%) | 716 (24.2%) | 15 | 1,453 (49.2%) | 30 |
 | present | passive | 1,973 | 68 (3.4%) | 32 (1.6%) | 426 (21.6%) | 414 | 1,033 (52.4%) | 1 |
-| imperfect | main | 3,532 | 223 (6.3%) | 32 (0.9%) | 3 (0.1%) | 0 | 3,274 (92.7%) | 114 |
-| imperfect | passive | 1,822 | 2 (0.1%) | 2 (0.1%) | 0 | 0 | 1,818 (99.8%) | 47 |
-| aorist | main | 3,470 | 707 (20.4%) | 61 (1.8%) | 894 (25.8%) | 32 | 1,776 (51.2%) | 55 |
+| imperfect | main | 3,532 | 227 (6.4%) | 32 (0.9%) | 3 (0.1%) | 0 | 3,270 (92.6%) | 109 |
+| imperfect | passive | 1,822 | 2 (0.1%) | 2 (0.1%) | 0 | 0 | 1,818 (99.8%) | 48 |
+| aorist | main | 3,470 | 710 (20.5%) | 61 (1.8%) | 894 (25.8%) | 32 | 1,773 (51.1%) | 52 |
 | aorist | passive | 1,949 | 58 (3.0%) | 16 (0.8%) | 0 | 0 | 1,875 (96.2%) | 0 |
 | future | main | 3,549 | 378 (10.7%) | 42 (1.2%) | 1,147 (32.3%) | 44 | 1,938 (54.6%) | 0 |
 | future | passive | 1,977 | 10 (0.5%) | 2 (0.1%) | 1 (0.1%) | 0 | 1,964 (99.3%) | 0 |
-| imperativeContinuous | main | 998 | 30 (3.0%) | 2 (0.2%) | 2 (0.2%) | 0 | 964 (96.6%) | 318 |
-| imperativeContinuous | passive | 328 | 0 | 0 | 0 | 0 | 328 (100.0%) | 56 |
-| imperativeSimple | main | 1,138 | 170 (14.9%) | 10 (0.9%) | 278 (24.4%) | 75 | 605 (53.2%) | 65 |
-| imperativeSimple | passive | 631 | 8 (1.3%) | 1 (0.2%) | 1 (0.2%) | 0 | 621 (98.4%) | 0 |
+| imperativeContinuous | main | 875 | 30 (3.4%) | 1 (0.1%) | 2 (0.2%) | 0 | 842 (96.2%) | 277 |
+| imperativeContinuous | passive | 315 | 0 | 0 | 0 | 0 | 315 (100.0%) | 53 |
+| imperativeSimple | main | 985 | 174 (17.7%) | 10 (1.0%) | 274 (27.8%) | 12 | 515 (52.3%) | 60 |
+| imperativeSimple | passive | 607 | 8 (1.3%) | 1 (0.2%) | 1 (0.2%) | 0 | 597 (98.4%) | 0 |
 | futureContinuous | main | 3,482 | 42 (1.2%) | 2 (0.1%) | 45 (1.3%) | 0 | 3,393 (97.4%) | 0 |
 | futureContinuous | passive | 1,946 | 2 (0.1%) | 0 | 0 | 0 | 1,944 (99.9%) | 0 |
 | perfect | main | 3,482 | 180 (5.2%) | 14 (0.4%) | 2 (0.1%) | 0 | 3,286 (94.4%) | 0 |
@@ -402,9 +402,9 @@ By the lists' frequency rank. Each: cells without a sentence of all its cells, t
 - έχω (A1, rank 15): 2 of 25 open; up to A2: none
 - κάνω (A1, rank 23): 18 of 63 open; up to A2: none
 - λέω (A1, rank 26): 78 of 124 open; up to A2: none
-- μπορώ (A1, rank 30): 29 of 62 open; up to A2: imperativeSimple.active 2sg (skipped), imperativeSimple.active 2pl (skipped)
+- μπορώ (A1, rank 30): 26 of 59 open; up to A2: none
 - ξέρω (A1, rank 33): 3 of 25 open; up to A2: none
-- θέλω (A1, rank 34): 34 of 63 open; up to A2: future.active 1sg (skipped), imperativeSimple.active 2sg (skipped), imperativeSimple.active 2pl (skipped)
+- θέλω (A1, rank 34): 30 of 59 open; up to A2: future.active 1sg (skipped)
 - πηγαίνω (A1, rank 38): 18 of 63 open; up to A2: none
 - πρέπει (A1, rank 45): 0 of 3 open; up to A2: none
 - βλέπω (A1, rank 52): 76 of 125 open; up to A2: none
@@ -412,8 +412,8 @@ By the lists' frequency rank. Each: cells without a sentence of all its cells, t
 - παίρνω (A1, rank 64): 92 of 126 open; up to A2: present.passive 1sg (skipped), present.passive 2sg (skipped), present.passive 1pl (skipped), present.passive 2pl (skipped)
 - βρίσκω (A1, rank 73): 32 of 63 open; up to A2: none
 - γίνομαι (A1, rank 82): 31 of 62 open; up to A2: none
-- νομίζω (A1, rank 83): 98 of 126 open; up to A2: imperativeSimple.active 2sg (skipped), present.passive 1sg (skipped), present.passive 2sg (skipped), present.passive 3sg (skipped), present.passive 1pl (skipped), present.passive 2pl (skipped), present.passive 3pl (skipped)
-- υπάρχω (A1, rank 85): 45 of 61 open; up to A2: aorist.active 2sg (skipped), aorist.active 1pl (skipped), aorist.active 2pl (skipped), future.active 1sg (skipped), future.active 2sg (skipped), future.active 1pl (skipped), future.active 2pl (skipped), imperativeSimple.active 2pl (skipped), subjunctiveSimple.active 1sg (skipped), subjunctiveSimple.active 2sg (skipped), subjunctiveSimple.active 1pl (skipped), subjunctiveSimple.active 2pl (skipped)
+- νομίζω (A1, rank 83): 91 of 119 open; up to A2: present.passive 1sg (skipped), present.passive 2sg (skipped), present.passive 3sg (skipped), present.passive 1pl (skipped), present.passive 2pl (skipped), present.passive 3pl (skipped)
+- υπάρχω (A1, rank 85): 43 of 59 open; up to A2: aorist.active 2sg (skipped), aorist.active 1pl (skipped), aorist.active 2pl (skipped), future.active 1sg (skipped), future.active 2sg (skipped), future.active 1pl (skipped), future.active 2pl (skipped), subjunctiveSimple.active 1sg (skipped), subjunctiveSimple.active 2sg (skipped), subjunctiveSimple.active 1pl (skipped), subjunctiveSimple.active 2pl (skipped)
 - φεύγω (A1, rank 88): 33 of 63 open; up to A2: none
 - μιλάω (A1, rank 89): 76 of 126 open; up to A2: none
 - ευχαριστώ (A1, rank 96): 37 of 62 open; up to A2: none
@@ -423,7 +423,7 @@ By the lists' frequency rank. Each: cells without a sentence of all its cells, t
 
 Rows of cells the drill no longer asks, which the build skips.
 
-None.
+2000000066 νομίζω|imperativeSimple.active|2pl, 2000000889 μοιάζω|imperativeSimple.active|2sg
 
 ### List words in the generated rows
 
@@ -433,7 +433,7 @@ The share of each generated row's words that are words of the Greek lists up to 
 |---|---|
 | 100% | 3,741 |
 | 90 to 99% | 80 |
-| 75 to 89% | 596 |
+| 75 to 89% | 594 |
 | 50 to 74% | 19 |
 | below 50% | 0 |
 
@@ -504,10 +504,6 @@ The cells with no natural sentence (kyukhin 2026-11-22), with the second pass's 
 | αποφεύγω\|present.passive\|1sg | yes | αποφεύγομαι "I am avoided" is not everyday Greek; one says "με αποφεύγουν" |
 | αποφεύγω\|present.passive\|2pl | yes | 2pl passive "you are avoided" has no everyday use; also imperative and imperfect homograph |
 | αποφεύγω\|present.passive\|2sg | yes | αποφεύγεσαι "you are avoided" is not everyday Greek; one says "σε αποφεύγουν" |
-| αρέσω\|imperativeSimple.active\|2pl | yes | αρέστε, an order to be liked, is not said |
-| αρέσω\|imperativeSimple.active\|2sg | yes | αρέσω has no imperative in use |
-| αργώ\|imperativeSimple.active\|2pl | yes | a positive order "be late!" (αργήστε) is not natural; only μην αργήσετε is |
-| αργώ\|imperativeSimple.active\|2sg | yes | nobody orders 'be late'; άργησε lives only as the aorist |
 | αρκώ\|aorist.active\|1pl | yes | 1pl 'we sufficed' is not in use; Greeks say ήμασταν αρκετοί or φτάσαμε |
 | αρκώ\|aorist.active\|1sg | yes | αρκώ is used in the third person (αρκεί, άρκεσε); "I was enough" (άρκεσα) is not said |
 | αρκώ\|aorist.active\|2pl | yes | αρκώ "suffice" is used in the third person; a personal 2pl aorist "you were enough" is not natural Greek |
@@ -516,22 +512,16 @@ The cells with no natural sentence (kyukhin 2026-11-22), with the second pass's 
 | αρκώ\|future.active\|1sg | yes | αρκώ with a person subject in the simple future ("I will be enough") is not everyday Greek; Greeks say φτάνω or αρκεί |
 | αρκώ\|future.active\|2pl | yes | a person as subject of αρκώ in 2pl is not said; Greeks say θα είστε αρκετοί |
 | αρκώ\|future.active\|2sg | yes | αρκώ with a person subject in the simple future ("you will be enough") is not everyday Greek; Greeks say φτάνεις or αρκεί |
-| αρκώ\|imperativeSimple.active\|2pl | yes | active imperative "suffice!" has no use; Greeks say the passive αρκεστείτε "make do with", another cell |
-| αρκώ\|imperativeSimple.active\|2sg | yes | an imperative 'suffice!' does not exist in use |
 | αρκώ\|present.active\|1pl | yes | αρκούμε 'we are enough' is not said; Greeks say είμαστε αρκετοί |
 | αρκώ\|subjunctiveSimple.active\|1pl | yes | αρκώ is used in the third person; "for us to be enough" is δεν φτάνουμε, not να αρκέσουμε |
 | αρκώ\|subjunctiveSimple.active\|1sg | yes | αρκώ "suffice" is not said of the speaker in the simple subjunctive; "to be enough" for a person is "να είμαι αρκετός" |
 | αρκώ\|subjunctiveSimple.active\|2pl | yes | αρκώ "suffice" takes a thing as subject; a person "you (pl) to suffice" is not said |
 | αρκώ\|subjunctiveSimple.active\|2sg | yes | αρκώ "suffice" takes a thing as subject; a person "you to suffice" is not said |
-| αρρωσταίνω\|imperativeSimple.active\|2pl | yes | no natural positive request to get ill; Greeks only say μην αρρωστήσετε (another cell) |
-| αρρωσταίνω\|imperativeSimple.active\|2sg | yes | 'get ill!' is not said |
 | αστράφτω\|aorist.active\|1pl | yes | αστράφτω "sparkle" is said of things, eyes and lightning; a "we" subject (αστράψαμε) has no natural use |
 | αστράφτω\|aorist.active\|1sg | yes | αστράφτω "sparkle" takes things (a floor, lightning) as subject; a person says άστραψα only in the idiom "άστραψα και βρόντηξα" (flew into a rage) or slang for a slap, neither the list sense |
 | αστράφτω\|aorist.active\|2sg | yes | αστράφτω "sparkle" of a person is a look that lasts (imperfect άστραφτες); a one-off 2sg aorist has no natural use |
 | αστράφτω\|future.active\|1pl | yes | αστράφτω "sparkle" is said of things, eyes and lightning; a "we" subject (θα αστράψουμε) has no natural use |
 | αστράφτω\|future.active\|1sg | yes | θα αστράψω (1sg 'I will sparkle') has no everyday use; colloquially it reads 'I'll slap (you)' |
-| αστράφτω\|imperativeSimple.active\|2pl | yes | an imperative 'sparkle!' to people is not said |
-| αστράφτω\|imperativeSimple.active\|2sg | yes | 'sparkle!' has no natural use as an order |
 | αστράφτω\|present.active\|1pl | yes | αστράφτω "sparkle" is said of things, eyes and lightning; "we sparkle" (αστράφτουμε) is not said (λάμπουμε από χαρά is the idiom) |
 | αφήνω\|present.passive\|2pl | yes | 2pl passive αφήνεστε ('you let yourselves go') has no everyday use a learner of 'leave, let' can match |
 | βοηθάω\|present.passive\|1pl | yes | "we are helped" is said with the active (μας βοηθούν); βοηθιόμαστε is not a natural reciprocal |
@@ -551,8 +541,6 @@ The cells with no natural sentence (kyukhin 2026-11-22), with the second pass's 
 | γελάω\|present.passive\|2pl | yes | γελιέστε exists only as "you are mistaken/fooled", not in the list sense "laugh" |
 | γελάω\|present.passive\|3pl | yes | γελιούνται exists only as "they are fooled/mistaken", not in the list sense "laugh" |
 | γελάω\|present.passive\|3sg | yes | γελιέμαι means "be mistaken, be fooled", not "laugh"; the form lives only in that other sense |
-| γεννάω\|imperativeSimple.active\|2pl | yes | an order "give birth!" to several people is not a natural speech act |
-| γεννάω\|imperativeSimple.active\|2sg | yes | no natural order 'give birth' |
 | γεννάω\|subjunctiveSimple.active\|1pl | yes | "we to give birth" (να γεννήσουμε) has no natural use for εμείς |
 | γιορτάζω\|present.passive\|1pl | yes | 1pl passive of γιορτάζω "we are celebrated" has no everyday use; present/imperfect homograph |
 | γιορτάζω\|present.passive\|1sg | yes | γιορτάζω has no 1sg passive in use ("I am celebrated" is not Greek; one says με γιορτάζουν rarely, or γιορτάζω for a name day) |
@@ -593,8 +581,6 @@ The cells with no natural sentence (kyukhin 2026-11-22), with the second pass's 
 | διαρκώ\|future.active\|1sg | yes | διαρκώ "last" takes an event or thing as subject; a 1sg future "I will last" is not natural Greek |
 | διαρκώ\|future.active\|2pl | yes | διαρκώ 'last' takes a thing or an event as subject; 'you (pl) will last' is not said (Greeks say θα αντέξετε) |
 | διαρκώ\|future.active\|2sg | yes | διαρκώ "last" takes things and events as subject; "you will last" is not Greek (θα αντέξεις) |
-| διαρκώ\|imperativeSimple.active\|2pl | yes | an imperative 'last!' to people is not said |
-| διαρκώ\|imperativeSimple.active\|2sg | yes | 'last' has a thing as subject; no imperative |
 | διαρκώ\|present.active\|1pl | yes | διαρκούμε 'we last' with a personal subject is not said |
 | διαρκώ\|present.active\|2pl | yes | διαρκώ "last" takes an event or thing as subject; a 2pl present "you last" is not natural Greek |
 | διαρκώ\|present.active\|2sg | yes | διαρκώ 'last' takes a thing or event as subject; a person 'you last' (διαρκείς) is not natural Greek (Greeks say αντέχεις) |
@@ -613,8 +599,6 @@ The cells with no natural sentence (kyukhin 2026-11-22), with the second pass's 
 | διαφημίζω\|present.passive\|2sg | yes | διαφημίζεσαι 'you advertise yourself' is rare slang; no natural sentence for an A2 learner |
 | διαφωνώ\|imperativeSimple.active\|2sg | yes | no natural order 'disagree!' |
 | διδάσκω\|imperativeSimple.active\|2sg | yes | δίδαξε as an order is bookish; everyday Greek says μάθε σε |
-| διψάω\|imperativeSimple.active\|2pl | yes | "be thirsty!" (διψάστε) is not an order anyone gives |
-| διψάω\|imperativeSimple.active\|2sg | yes | state verb, no order 'be thirsty' |
 | δοκιμάζω\|present.passive\|1pl | yes | 1pl passive δοκιμαζόμαστε "we are put to the test" is formal only, no everyday use; present/imperfect homograph |
 | δοκιμάζω\|present.passive\|1sg | yes | 1sg passive δοκιμάζομαι 'I am tested, put to the test' has no everyday use at this level |
 | δοκιμάζω\|present.passive\|2pl | yes | δοκιμάζεστε "you are tested" is bookish; "try on, taste" is the active δοκιμάζετε, and the form is also an imperative and an imperfect |
@@ -630,8 +614,6 @@ The cells with no natural sentence (kyukhin 2026-11-22), with the second pass's 
 | ελπίζω\|future.active\|2sg | yes | simple future of the state verb ελπίζω has no natural 2sg use (only set frames like ας ελπίσουμε) |
 | ελπίζω\|future.active\|3pl | yes | state verb: the simple future θα ελπίσουν has no set frame Greeks use |
 | ελπίζω\|future.active\|3sg | yes | simple future of the state verb ελπίζω has no natural 3sg use |
-| ελπίζω\|imperativeSimple.active\|2pl | yes | state verb: the order ελπίστε is not said in everyday Greek |
-| ελπίζω\|imperativeSimple.active\|2sg | yes | state verb; έλπισε as an order is not natural (rule 5, state verbs) |
 | ενδιαφέρω\|aorist.active\|1pl | yes | "we interested (someone)" in the aorist is not natural, and the aorist is spelled like the imperfect |
 | ενδιαφέρω\|aorist.active\|1sg | yes | "I interested someone" (ενδιέφερα) is hardly said, and the spelling is also the imperfect; no sentence fixes one finished event |
 | ενδιαφέρω\|aorist.active\|2pl | yes | "you (pl) interested someone" with a person subject is not natural, and ενδιαφέρατε is also the imperfect, so no finished event can show the aorist |
@@ -639,7 +621,6 @@ The cells with no natural sentence (kyukhin 2026-11-22), with the second pass's 
 | ενδιαφέρω\|future.active\|1pl | yes | a 1pl subject of active ενδιαφέρω "we will interest" is not natural; Greeks say θα κινήσουμε το ενδιαφέρον |
 | ενδιαφέρω\|future.active\|1sg | yes | active ενδιαφέρω 'I interest (someone)' in 1sg future is not said; the list word is ενδιαφέρομαι 'be interested' |
 | ενδιαφέρω\|future.active\|2pl | yes | θα ενδιαφέρετε "you will interest (someone)" has no natural use |
-| ενδιαφέρω\|imperativeSimple.active\|2pl | yes | an imperative 'interest!' of active ενδιαφέρω is not said |
 | ενδιαφέρω\|present.active\|2pl | yes | "you (pl) interest me" is not a natural thing to say, and the imperative reading is close |
 | ενδιαφέρω\|subjunctiveSimple.active\|2sg | yes | ενδιαφέρω with a person subject ("you interest someone") is not everyday Greek; it is used with a thing as subject |
 | ενώνω\|present.passive\|1sg | yes | "I join (a group)" is μπαίνω or συμμετέχω; ενώνομαι for one person has no natural everyday use |
@@ -650,8 +631,6 @@ The cells with no natural sentence (kyukhin 2026-11-22), with the second pass's 
 | επιθυμώ\|aorist.active\|2sg | yes | in the list sense "wish" the aorist is not said in everyday Greek; the living use σε επιθύμησα means "I missed you", another sense |
 | επιθυμώ\|future.active\|2pl | yes | the simple future θα επιθυμήσετε has no natural use; polite Greek says θα επιθυμούσατε or αν επιθυμείτε |
 | επιθυμώ\|future.active\|3sg | yes | θα επιθυμήσει "will wish" is not natural; επιθυμώ lives in the present (επιθυμεί) and in set relative clauses |
-| επιθυμώ\|imperativeSimple.active\|2pl | yes | active imperative "wish!" is not said; Greeks say κάντε μια ευχή |
-| επιθυμώ\|imperativeSimple.active\|2sg | yes | an imperative 'wish!' of επιθυμώ is not said |
 | επιλέγω\|present.passive\|1pl | yes | 1pl passive επιλεγόμαστε "we are selected" is formal only, no everyday use; present/imperfect homograph |
 | επιλέγω\|present.passive\|1sg | yes | "I am selected" is said with the active (με επιλέγουν) or "είμαι επιλεγμένος"; επιλέγομαι has no natural everyday use |
 | επιλέγω\|present.passive\|2pl | yes | "you (pl) are chosen" in the present has no everyday use (Greeks say σας επιλέγουν, or the 3pl επιλέγονται) |
@@ -669,15 +648,11 @@ The cells with no natural sentence (kyukhin 2026-11-22), with the second pass's 
 | ζωγραφίζω\|present.passive\|2pl | yes | ζωγραφίζεστε "you are painted" has no everyday use for people, and the form is also an imperative and an imperfect |
 | ζωγραφίζω\|present.passive\|2sg | yes | ζωγραφίζεσαι "you are painted" has no everyday use for a person |
 | θέλω\|future.active\|1sg | yes | θα θελήσω is not said in 1sg (Greeks say θα θέλω or αν θελήσω) |
-| θέλω\|imperativeSimple.active\|2pl | yes | the imperative θελήστε 'want!' is not said |
-| θέλω\|imperativeSimple.active\|2sg | yes | θέλησε as an order is not everyday Greek |
 | καθαρίζω\|present.passive\|1pl | yes | "we clean ourselves" is πλενόμαστε in Greek; καθαριζόμαστε is not said |
 | καθαρίζω\|present.passive\|1sg | yes | "I clean myself" is πλένομαι in Greek; καθαρίζομαι has no everyday use |
 | καθαρίζω\|present.passive\|2pl | yes | "you clean yourselves" is πλένεστε in Greek; καθαρίζεστε has no everyday use |
 | καθαρίζω\|present.passive\|2sg | yes | "you clean yourself" is πλένεσαι in Greek; καθαρίζεσαι is not said |
 | καλύπτω\|present.passive\|1pl | yes | the real use "we are covered (by insurance)" needs words above A1, and "cover ourselves" is σκεπαζόμαστε |
-| καταφέρνω\|imperativeSimple.active\|2pl | yes | an imperative καταφέρτε 'manage!' is not said in everyday Greek |
-| καταφέρνω\|imperativeSimple.active\|2sg | yes | κατάφερε as an order is not used; Greek says να τα καταφέρεις |
 | καταφέρνω\|present.passive\|1pl | yes | καταφέρνω has no passive in use; καταφερνόμαστε is not said |
 | καταφέρνω\|present.passive\|1sg | yes | 1sg passive καταφέρνομαι has no use |
 | καταφέρνω\|present.passive\|2pl | yes | καταφέρνομαι has no everyday use; "you manage" is the active καταφέρνετε |
@@ -704,15 +679,11 @@ The cells with no natural sentence (kyukhin 2026-11-22), with the second pass's 
 | κοστίζω\|future.active\|1pl | yes | κοστίζω is said of things (prices); a "we" subject (θα κοστίσουμε) has no natural use |
 | κοστίζω\|future.active\|1sg | yes | κοστίζω is said of things (prices); an "I" subject (θα κοστίσω) has no natural use |
 | κοστίζω\|future.active\|2pl | yes | a person as the subject of κοστίζω ("you will cost") is not natural |
-| κοστίζω\|imperativeSimple.active\|2pl | yes | an order "cost!" (κοστίστε) is not said |
-| κοστίζω\|imperativeSimple.active\|2sg | yes | an imperative "cost!" has no use |
 | κοστίζω\|present.active\|2pl | yes | "you (pl) cost" has no natural use for people (Greeks ask πόσο χρεώνετε), and a statement reads as an imperative |
 | κοστίζω\|subjunctiveSimple.active\|1pl | yes | κοστίζω "cost" takes a thing as subject; a 1pl subjunctive "for us to cost" is not natural Greek |
 | κοστίζω\|subjunctiveSimple.active\|1sg | yes | να κοστίσω 'that I cost' has no natural use |
 | κοστίζω\|subjunctiveSimple.active\|2pl | yes | κοστίζω "cost" takes things as subject; "you (pl.) cost" has no natural use |
 | κοστίζω\|subjunctiveSimple.active\|2sg | yes | κοστίζω is said of things (prices); a "you" subject (να κοστίσεις) has no natural use |
-| κρυώνω\|imperativeSimple.active\|2pl | yes | no natural positive request to get cold |
-| κρυώνω\|imperativeSimple.active\|2sg | yes | an order "get cold!" (κρύωσε) is not said |
 | κυκλώνω\|present.passive\|1pl | yes | 1pl passive κυκλωνόμαστε "we are surrounded" is formal only and not the list sense "circle"; present/imperfect homograph |
 | κυκλώνω\|present.passive\|1sg | yes | κυκλώνομαι "I am surrounded" is not in the list sense "circle" and has no everyday use |
 | κυκλώνω\|present.passive\|2pl | yes | κυκλώνεστε "you are surrounded" is not in the list sense "circle" and has no everyday use |
@@ -724,15 +695,11 @@ The cells with no natural sentence (kyukhin 2026-11-22), with the second pass's 
 | λήγω\|future.active\|1sg | yes | λήγω "expire, end" takes things as subject; "I will expire/end" is not Greek |
 | λήγω\|future.active\|2pl | yes | λήγω 'expire, end' takes a thing or an event as subject; 'you (pl) will expire' is not said |
 | λήγω\|future.active\|2sg | yes | λήγω "expire, end" is said of things (a ticket, a contract); a "you" subject (θα λήξεις) is not Greek |
-| λήγω\|imperativeSimple.active\|2pl | yes | λήγω "expire, end" is said of things and events; an order λήξτε to people is not natural |
-| λήγω\|imperativeSimple.active\|2sg | yes | an imperative 'expire!' of λήγω is not said |
 | λήγω\|present.active\|1pl | yes | λήγω "expire, end" takes things as subject; "we expire" has no use |
 | λήγω\|present.active\|2pl | yes | λήγω "expire, end" takes things as subject; "you (pl.) expire" has no use |
 | λήγω\|present.active\|2sg | yes | λήγω "expire, end" is said of things; a "you" subject (λήγεις) is not Greek |
 | λήγω\|subjunctiveSimple.active\|2pl | yes | λήγω "expire, end" takes things as subject; a 2pl subject is not Greek |
 | λήγω\|subjunctiveSimple.active\|2sg | yes | λήγω "expire, end" takes things as subject; "that you expire" has no use |
-| λείπω\|imperativeSimple.active\|2pl | yes | λείπω "be absent" has no natural imperative "be absent!" |
-| λείπω\|imperativeSimple.active\|2sg | yes | the imperative λείψε is only rude 'get lost' (λείψε από δω), not 'be absent' |
 | λύνω\|present.passive\|1pl | yes | 1pl passive λυνόμαστε lives only in the idiom λυνόμαστε στα γέλια "we crack up laughing", a sense a learner cannot match to "solve"; present/imperfect homograph |
 | λύνω\|present.passive\|1sg | yes | λύνομαι lives only in idioms outside the list sense "solve" (λύνομαι στα γέλια "crack up laughing") |
 | λύνω\|present.passive\|2pl | yes | λύνομαι means "come untied" or "burst out (laughing)", not "be solved" for people; no natural 2pl use |
@@ -765,23 +732,15 @@ The cells with no natural sentence (kyukhin 2026-11-22), with the second pass's 
 | μετράω\|present.passive\|1sg | yes | μετριέμαι 'I measure myself (against someone)' is rare and learned; no natural A1 sentence |
 | μετράω\|present.passive\|2pl | yes | μετριέμαι "measure up, compete" is bookish; no everyday 2pl present passive |
 | μετράω\|present.passive\|2sg | yes | μετριέμαι has no use for a person (only the 3pl idiom μετριούνται στα δάχτυλα) |
-| μοιάζω\|imperativeSimple.active\|2pl | yes | no natural positive request to resemble someone |
 | μπερδεύω\|imperativeSimple.active\|2sg | yes | an order to "confuse, tangle" (μπέρδεψε) is not natural; shuffling cards is ανακάτεψε, and the spelling is also aorist αυτός |
-| μπορώ\|imperativeSimple.active\|2pl | yes | the imperative μπορέστε 'can!' is not said |
-| μπορώ\|imperativeSimple.active\|2sg | yes | μπόρεσε as an order is not said; Greek uses να μπορέσεις or προσπάθησε |
 | μυρίζω\|present.passive\|1pl | yes | μυρίζομαι "sense, suspect" is used in the aorist (μυρίστηκα); a 1pl present passive has no everyday use |
 | μυρίζω\|present.passive\|2pl | yes | passive μυρίζεστε ('you sense, suspect') has no everyday use a learner of 'smell' can match |
-| νευριάζω\|imperativeSimple.active\|2pl | yes | an order "get angry!" has no natural use |
-| νευριάζω\|imperativeSimple.active\|2sg | yes | 'get angry!' is not said |
-| νομίζω\|imperativeSimple.active\|2sg | yes | νόμισε has no use as an order |
 | νομίζω\|present.passive\|1pl | yes | νομίζω has no passive in use ("we are thought" is not Greek) |
 | νομίζω\|present.passive\|1sg | yes | νομίζω has no passive in use |
 | νομίζω\|present.passive\|2pl | yes | νομίζω has no passive in use |
 | νομίζω\|present.passive\|2sg | yes | νομίζω has no passive in use |
 | νομίζω\|present.passive\|3pl | yes | νομίζονται "are thought" has no everyday use |
 | νομίζω\|present.passive\|3sg | yes | νομίζεται is archaic; everyday Greek has no passive of νομίζω |
-| νυστάζω\|imperativeSimple.active\|2pl | yes | no imperative in use |
-| νυστάζω\|imperativeSimple.active\|2sg | yes | state verb, no order 'be sleepy' |
 | οδηγώ\|present.passive\|1pl | yes | οδηγούμαστε 'we are led' is learned (οδηγούμαστε σε λάθος); no everyday A1 sentence |
 | οδηγώ\|present.passive\|1sg | yes | οδηγούμαι 'I am driven/led' has no everyday use |
 | οδηγώ\|present.passive\|2sg | yes | "you are driven/guided" has no everyday use for 2sg; οδηγούμαι is bookish (οδηγούμαι από το ένστικτο) |
@@ -798,8 +757,6 @@ The cells with no natural sentence (kyukhin 2026-11-22), with the second pass's 
 | παίρνω\|present.passive\|1sg | yes | "I am taken" has no natural everyday use |
 | παίρνω\|present.passive\|2pl | yes | παίρνεστε lives only in slang ("you two are getting hitched"); no use a learner can match to "take" |
 | παίρνω\|present.passive\|2sg | yes | 2sg passive παίρνεσαι has no use in the "take" sense |
-| παθαίνω\|imperativeSimple.active\|2pl | yes | a positive imperative of παθαίνω ("suffer!") is only a curse; no neutral request exists |
-| παθαίνω\|imperativeSimple.active\|2sg | yes | an imperative πάθε "suffer!" has no natural use |
 | παθαίνω\|present.passive\|1pl | yes | παθαίνω has no passive; παθαινόμαστε is not said |
 | παθαίνω\|present.passive\|1sg | yes | παθαίνω has no passive; παθαίνομαι is not said |
 | παθαίνω\|present.passive\|2sg | yes | παθαίνω has no passive; παθαίνεσαι is not said |
@@ -811,16 +768,10 @@ The cells with no natural sentence (kyukhin 2026-11-22), with the second pass's 
 | παρατηρώ\|present.passive\|1sg | yes | "I am (being) observed" is bookish; everyday Greek says με κοιτάνε; no natural 1sg passive |
 | παρατηρώ\|present.passive\|2pl | yes | "you are (being) observed" is bookish; everyday Greek says σας κοιτάνε; no natural 2pl passive |
 | παρατηρώ\|present.passive\|2sg | yes | 2sg passive παρατηρείσαι "you are observed" has no everyday use |
-| πεθαίνω\|imperativeSimple.active\|2pl | yes | an order "die!" (πεθάνετε) is not a neutral sentence |
-| πεθαίνω\|imperativeSimple.active\|2sg | yes | 'die!' exists only as a curse (offensive) |
-| πεινάω\|imperativeSimple.active\|2pl | yes | the imperative πεινάστε 'be hungry!' is not said |
-| πεινάω\|imperativeSimple.active\|2sg | yes | state verb, no order 'be hungry' |
 | περιγράφω\|present.passive\|1pl | yes | περιγραφόμαστε "we are described" has no everyday use, and the form is also an imperfect |
 | περιγράφω\|present.passive\|1sg | yes | περιγράφομαι "I am described" has no everyday use |
 | περιγράφω\|present.passive\|2pl | yes | περιγράφεστε 'you are described' has no everyday 2pl use |
 | περιγράφω\|present.passive\|2sg | yes | "you are described" (in a book) has no everyday use; Greeks say σε περιγράφει |
-| περιλαμβάνω\|imperativeSimple.active\|2pl | yes | in instructions Greeks write συμπεριλάβετε; περιλάβετε sounds dated |
-| περιλαμβάνω\|imperativeSimple.active\|2sg | yes | "include!" is συμπερίλαβε; περίλαβε is mostly slang "give someone a hard time" |
 | περιλαμβάνω\|present.passive\|1pl | yes | a Greek says «είμαστε κι εμείς στη λίστα;»; περιλαμβανόμαστε for people is bureaucratic only. |
 | περιλαμβάνω\|present.passive\|1sg | yes | a Greek says «είμαι κι εγώ στη λίστα;»; περιλαμβάνομαι for a person is bureaucratic only. |
 | περιλαμβάνω\|present.passive\|2pl | yes | a Greek says «δεν είστε στη λίστα»; περιλαμβάνεστε for people is bureaucratic only. |
@@ -840,10 +791,6 @@ The cells with no natural sentence (kyukhin 2026-11-22), with the second pass's 
 | πλησιάζω\|present.passive\|2pl | yes | πλησιάζω has no passive for people; πλησιάζεστε is not said |
 | πλησιάζω\|present.passive\|2sg | yes | πλησιάζω has no passive for people; πλησιάζεσαι is not said |
 | πλησιάζω\|present.passive\|3pl | yes | πλησιάζονται 'they are approached' is rare; Greeks use the active (τους πλησιάζουν) |
-| πνίγομαι\|imperativeSimple.passive\|2pl | yes | a positive imperative "choke!/drown!" is only a curse; no neutral request exists |
-| πνίγομαι\|imperativeSimple.passive\|2sg | yes | πνίξου is in use only as a curse ('choke!/drown!'); offensive and violent, no neutral sentence |
-| πονάω\|imperativeSimple.active\|2pl | yes | the imperative πονέστε 'hurt!' is not said |
-| πονάω\|imperativeSimple.active\|2sg | yes | 'feel pain!' is not said |
 | πουλάω\|present.passive\|1pl | yes | 1pl passive πουλιόμαστε lives only in the figurative "we sell ourselves (out)"; present/imperfect homograph |
 | πουλάω\|present.passive\|1sg | yes | πουλιέμαι "I am sold / sell out" has no neutral everyday use |
 | πουλάω\|present.passive\|2pl | yes | πουλιέστε is only slang 'you sell out' (betray); no neutral sentence |
@@ -889,8 +836,6 @@ The cells with no natural sentence (kyukhin 2026-11-22), with the second pass's 
 | σημαίνω\|future.active\|2sg | yes | θα σημάνεις exists only in the sense "sound, signal" (bells), not the list sense "mean" |
 | σημαίνω\|future.active\|3pl | yes | θα σημάνουν exists only as "will sound, signal" (bells), never as σημαίνω "mean" |
 | σημαίνω\|future.active\|3sg | yes | the simple future θα σημάνει exists only as "will signal, will mark", not in the list sense "mean" (like σήμανα) |
-| σημαίνω\|imperativeSimple.active\|2pl | yes | σημάνετε exists only as "sound, signal", never as σημαίνω "mean" |
-| σημαίνω\|imperativeSimple.active\|2sg | yes | σήμανε exists only as 'sound, signal' (bells), never as 'mean' |
 | σημαίνω\|present.passive\|1pl | yes | σημαινόμαστε has no use in the sense "mean" |
 | σημαίνω\|present.passive\|1sg | yes | σημαίνομαι has no use in the sense "mean" |
 | σημαίνω\|present.passive\|2pl | yes | σημαίνω "mean" has no passive; σημαίνεστε is not said |
@@ -931,8 +876,6 @@ The cells with no natural sentence (kyukhin 2026-11-22), with the second pass's 
 | συλλέγω\|present.passive\|1sg | yes | "I am collected" has no natural use |
 | συλλέγω\|present.passive\|2pl | yes | συλλέγεστε "you (pl.) are collected" has no everyday use for people, and the form is also an imperative and an imperfect |
 | συλλέγω\|present.passive\|2sg | yes | passive συλλέγεσαι 'you are collected' has no use |
-| συμπαθώ\|imperativeSimple.active\|2pl | yes | συμπαθήστε lives only in the idiom συμπαθήστε με 'excuse me', not in the list sense 'like' |
-| συμπαθώ\|imperativeSimple.active\|2sg | yes | an imperative 'like (someone)!' is not said; συμπάθα με means 'excuse me' |
 | συμπαθώ\|present.passive\|2sg | yes | 2sg passive συμπαθιέσαι 'you are liked' is not in everyday use; Greeks say σε συμπαθούν |
 | συμπληρώνω\|present.passive\|1sg | yes | συμπληρώνομαι "I am completed/filled in" has no use for εγώ |
 | συμπληρώνω\|present.passive\|2pl | yes | συμπληρώνεστε "you (pl.) are completed" has no everyday use, and the form is also an imperative and an imperfect |
@@ -969,7 +912,6 @@ The cells with no natural sentence (kyukhin 2026-11-22), with the second pass's 
 | τραγουδάω\|present.passive\|1sg | yes | passive τραγουδιέμαι 'I am sung' has no use (only 3sg/3pl τραγουδιέται of songs) |
 | τραγουδάω\|present.passive\|2pl | yes | passive τραγουδιέστε 'you are sung' has no use (only 3sg/3pl of songs) |
 | τραγουδάω\|present.passive\|2sg | yes | passive τραγουδιέσαι 'you are sung' has no use (only 3sg/3pl of songs) |
-| τρελαίνομαι\|imperativeSimple.passive\|2pl | yes | a positive order "go crazy!" (τρελαθείτε) is only ad slang; in use the verb comes as μην τρελαθείτε, another cell |
 | υπάρχω\|aorist.active\|1pl | yes | "we existed" has no everyday use for a learner |
 | υπάρχω\|aorist.active\|2pl | yes | 2pl 'you existed' lives only in formal speeches |
 | υπάρχω\|aorist.active\|2sg | yes | υπήρξες means "you were (a good friend etc.)", formal and not "exist" |
@@ -977,7 +919,6 @@ The cells with no natural sentence (kyukhin 2026-11-22), with the second pass's 
 | υπάρχω\|future.active\|1sg | yes | 'I will exist' (θα υπάρξω) has no everyday use |
 | υπάρχω\|future.active\|2pl | yes | "you will exist" (θα υπάρξετε) has no everyday use |
 | υπάρχω\|future.active\|2sg | yes | υπάρχω "exist" with a personal 2sg subject in the simple future has no everyday use |
-| υπάρχω\|imperativeSimple.active\|2pl | yes | an order "exist!" (υπάρξτε) is not a natural speech act |
 | υπάρχω\|subjunctiveSimple.active\|1pl | yes | υπάρχω "exist" with a personal 1pl subject in the simple subjunctive has no everyday use |
 | υπάρχω\|subjunctiveSimple.active\|1sg | yes | να υπάρξω "for me to come into existence" has no everyday use |
 | υπάρχω\|subjunctiveSimple.active\|2pl | yes | υπάρχω with a 2pl person subject ("that you exist") has no everyday use |
@@ -995,8 +936,6 @@ The cells with no natural sentence (kyukhin 2026-11-22), with the second pass's 
 | φέρνω\|present.passive\|2pl | yes | φέρνεστε lives only as colloquial "behave", not the list's "bring" |
 | φέρνω\|present.passive\|2sg | yes | φέρνεσαι means only 'you behave' (colloquial for φέρεσαι), not the list sense 'bring' |
 | φέρνω\|present.passive\|3sg | yes | φέρνεται "is brought" is not said; Greeks use the active (το φέρνουν) |
-| φοβάμαι\|imperativeSimple.passive\|2pl | yes | a positive order "be afraid!" (φοβηθείτε) is not said; only μη φοβηθείτε, another cell |
-| φοβάμαι\|imperativeSimple.passive\|2sg | yes | a positive imperative φοβήσου 'be afraid!' is not said in everyday Greek (only μη φοβάσαι) |
 | φοράω\|present.passive\|1pl | yes | φοριέται is said only of clothes ("is in fashion"); "we are worn" has no use |
 | φοράω\|present.passive\|1sg | yes | φοριέται is said only of clothes ("is in fashion"); "I am worn" has no use |
 | φοράω\|present.passive\|2pl | yes | φοριέται is said only of clothes; "you (pl) are worn" has no use, and it reads as an imperative |
@@ -1054,8 +993,6 @@ The cells with no natural sentence (kyukhin 2026-11-22), with the second pass's 
 | χορεύω\|present.passive\|1sg | yes | χορεύομαι has no use for a person |
 | χορεύω\|present.passive\|2pl | yes | χορεύεστε has no use for a person |
 | χορεύω\|present.passive\|2sg | yes | only "δεν χορεύεται" (of music, 3sg) is said; χορεύεσαι has no use |
-| χρειάζομαι\|imperativeSimple.passive\|2pl | yes | a positive order "need!" (χρειαστείτε) is not a natural speech act |
-| χρειάζομαι\|imperativeSimple.passive\|2sg | yes | χρειάσου "need!" is not used; one cannot order someone to need |
 | χρησιμοποιώ\|present.passive\|1pl | yes | 1pl passive χρησιμοποιούμαστε lives only in the figurative "we are being used (exploited)" |
 | χρησιμοποιώ\|present.passive\|1sg | yes | χρησιμοποιούμαι is only "I am being used (exploited)", not a neutral sentence |
 | χρησιμοποιώ\|present.passive\|2pl | yes | χρησιμοποιείστε "you are being used (exploited)" has no neutral use |
@@ -1078,6 +1015,69 @@ The cells with no natural sentence (kyukhin 2026-11-22), with the second pass's 
 | ψωνίζω\|present.passive\|2sg | yes | ψωνίζομαι is slang (show off, pick someone up), not the list sense "shop" |
 | ψωνίζω\|present.passive\|3pl | yes | passive ψωνίζονται has no everyday use in the sense 'shop' |
 | ψωνίζω\|present.passive\|3sg | yes | 3sg passive ψωνίζεται exists only as slang ("he is full of himself"), not the "shop" sense |
+| αρέσω\|imperativeSimple.active\|2pl | no | αρέστε, an order to be liked, is not said |
+| αρέσω\|imperativeSimple.active\|2sg | no | αρέσω has no imperative in use |
+| αργώ\|imperativeSimple.active\|2pl | no | a positive order "be late!" (αργήστε) is not natural; only μην αργήσετε is |
+| αργώ\|imperativeSimple.active\|2sg | no | nobody orders 'be late'; άργησε lives only as the aorist |
+| αρκώ\|imperativeSimple.active\|2pl | no | active imperative "suffice!" has no use; Greeks say the passive αρκεστείτε "make do with", another cell |
+| αρκώ\|imperativeSimple.active\|2sg | no | an imperative 'suffice!' does not exist in use |
+| αρρωσταίνω\|imperativeSimple.active\|2pl | no | no natural positive request to get ill; Greeks only say μην αρρωστήσετε (another cell) |
+| αρρωσταίνω\|imperativeSimple.active\|2sg | no | 'get ill!' is not said |
+| αστράφτω\|imperativeSimple.active\|2pl | no | an imperative 'sparkle!' to people is not said |
+| αστράφτω\|imperativeSimple.active\|2sg | no | 'sparkle!' has no natural use as an order |
+| γεννάω\|imperativeSimple.active\|2pl | no | an order "give birth!" to several people is not a natural speech act |
+| γεννάω\|imperativeSimple.active\|2sg | no | no natural order 'give birth' |
+| διαρκώ\|imperativeSimple.active\|2pl | no | an imperative 'last!' to people is not said |
+| διαρκώ\|imperativeSimple.active\|2sg | no | 'last' has a thing as subject; no imperative |
+| διψάω\|imperativeSimple.active\|2pl | no | "be thirsty!" (διψάστε) is not an order anyone gives |
+| διψάω\|imperativeSimple.active\|2sg | no | state verb, no order 'be thirsty' |
+| ελπίζω\|imperativeSimple.active\|2pl | no | state verb: the order ελπίστε is not said in everyday Greek |
+| ελπίζω\|imperativeSimple.active\|2sg | no | state verb; έλπισε as an order is not natural (rule 5, state verbs) |
+| ενδιαφέρω\|imperativeSimple.active\|2pl | no | an imperative 'interest!' of active ενδιαφέρω is not said |
+| επιθυμώ\|imperativeSimple.active\|2pl | no | active imperative "wish!" is not said; Greeks say κάντε μια ευχή |
+| επιθυμώ\|imperativeSimple.active\|2sg | no | an imperative 'wish!' of επιθυμώ is not said |
+| θέλω\|imperativeSimple.active\|2pl | no | the imperative θελήστε 'want!' is not said |
+| θέλω\|imperativeSimple.active\|2sg | no | θέλησε as an order is not everyday Greek |
+| καταφέρνω\|imperativeSimple.active\|2pl | no | an imperative καταφέρτε 'manage!' is not said in everyday Greek |
+| καταφέρνω\|imperativeSimple.active\|2sg | no | κατάφερε as an order is not used; Greek says να τα καταφέρεις |
+| κοστίζω\|imperativeSimple.active\|2pl | no | an order "cost!" (κοστίστε) is not said |
+| κοστίζω\|imperativeSimple.active\|2sg | no | an imperative "cost!" has no use |
+| κρυώνω\|imperativeSimple.active\|2pl | no | no natural positive request to get cold |
+| κρυώνω\|imperativeSimple.active\|2sg | no | an order "get cold!" (κρύωσε) is not said |
+| λήγω\|imperativeSimple.active\|2pl | no | λήγω "expire, end" is said of things and events; an order λήξτε to people is not natural |
+| λήγω\|imperativeSimple.active\|2sg | no | an imperative 'expire!' of λήγω is not said |
+| λείπω\|imperativeSimple.active\|2pl | no | λείπω "be absent" has no natural imperative "be absent!" |
+| λείπω\|imperativeSimple.active\|2sg | no | the imperative λείψε is only rude 'get lost' (λείψε από δω), not 'be absent' |
+| μοιάζω\|imperativeSimple.active\|2pl | no | no natural positive request to resemble someone |
+| μπορώ\|imperativeSimple.active\|2pl | no | the imperative μπορέστε 'can!' is not said |
+| μπορώ\|imperativeSimple.active\|2sg | no | μπόρεσε as an order is not said; Greek uses να μπορέσεις or προσπάθησε |
+| νευριάζω\|imperativeSimple.active\|2pl | no | an order "get angry!" has no natural use |
+| νευριάζω\|imperativeSimple.active\|2sg | no | 'get angry!' is not said |
+| νομίζω\|imperativeSimple.active\|2sg | no | νόμισε has no use as an order |
+| νυστάζω\|imperativeSimple.active\|2pl | no | no imperative in use |
+| νυστάζω\|imperativeSimple.active\|2sg | no | state verb, no order 'be sleepy' |
+| παθαίνω\|imperativeSimple.active\|2pl | no | a positive imperative of παθαίνω ("suffer!") is only a curse; no neutral request exists |
+| παθαίνω\|imperativeSimple.active\|2sg | no | an imperative πάθε "suffer!" has no natural use |
+| πεθαίνω\|imperativeSimple.active\|2pl | no | an order "die!" (πεθάνετε) is not a neutral sentence |
+| πεθαίνω\|imperativeSimple.active\|2sg | no | 'die!' exists only as a curse (offensive) |
+| πεινάω\|imperativeSimple.active\|2pl | no | the imperative πεινάστε 'be hungry!' is not said |
+| πεινάω\|imperativeSimple.active\|2sg | no | state verb, no order 'be hungry' |
+| περιλαμβάνω\|imperativeSimple.active\|2pl | no | in instructions Greeks write συμπεριλάβετε; περιλάβετε sounds dated |
+| περιλαμβάνω\|imperativeSimple.active\|2sg | no | "include!" is συμπερίλαβε; περίλαβε is mostly slang "give someone a hard time" |
+| πνίγομαι\|imperativeSimple.passive\|2pl | no | a positive imperative "choke!/drown!" is only a curse; no neutral request exists |
+| πνίγομαι\|imperativeSimple.passive\|2sg | no | πνίξου is in use only as a curse ('choke!/drown!'); offensive and violent, no neutral sentence |
+| πονάω\|imperativeSimple.active\|2pl | no | the imperative πονέστε 'hurt!' is not said |
+| πονάω\|imperativeSimple.active\|2sg | no | 'feel pain!' is not said |
+| σημαίνω\|imperativeSimple.active\|2pl | no | σημάνετε exists only as "sound, signal", never as σημαίνω "mean" |
+| σημαίνω\|imperativeSimple.active\|2sg | no | σήμανε exists only as 'sound, signal' (bells), never as 'mean' |
+| συμπαθώ\|imperativeSimple.active\|2pl | no | συμπαθήστε lives only in the idiom συμπαθήστε με 'excuse me', not in the list sense 'like' |
+| συμπαθώ\|imperativeSimple.active\|2sg | no | an imperative 'like (someone)!' is not said; συμπάθα με means 'excuse me' |
+| τρελαίνομαι\|imperativeSimple.passive\|2pl | no | a positive order "go crazy!" (τρελαθείτε) is only ad slang; in use the verb comes as μην τρελαθείτε, another cell |
+| υπάρχω\|imperativeSimple.active\|2pl | no | an order "exist!" (υπάρξτε) is not a natural speech act |
+| φοβάμαι\|imperativeSimple.passive\|2pl | no | a positive order "be afraid!" (φοβηθείτε) is not said; only μη φοβηθείτε, another cell |
+| φοβάμαι\|imperativeSimple.passive\|2sg | no | a positive imperative φοβήσου 'be afraid!' is not said in everyday Greek (only μη φοβάσαι) |
+| χρειάζομαι\|imperativeSimple.passive\|2pl | no | a positive order "need!" (χρειαστείτε) is not a natural speech act |
+| χρειάζομαι\|imperativeSimple.passive\|2sg | no | χρειάσου "need!" is not used; one cannot order someone to need |
 
 ## Blocking tags hit
 
@@ -1091,9 +1091,9 @@ Sentences and translations each tag kept out.
 
 | Table | Rows | sha256 of the rows in key order |
 |---|---|---|
-| `example_sentence` | 46,720 | `6f713fc43c3ba78bc10bf5dbfcf4c910eeaba6c029f7fd7df19ba6ba12d25ece` |
-| `example_translation` | 81,410 | `2b12faeb09afd2b15488441ff199e8b3cbd483003e67a636ef81d582ac907b86` |
-| `example_word` | 59,486 | `688e9f61d678e3d299d5ec07a452315fa28feab3fa628d1d7c6579ba673cd06c` |
+| `example_sentence` | 46,716 | `99b2e6bdc2833589292dd5da3259cc3b23f6d4d646e7fdd610d5fefc17befcda` |
+| `example_translation` | 81,401 | `51be936aee32a991627ba1b158d8420b9d57c9828b160ab951903a47662619fc` |
+| `example_word` | 59,495 | `49ef1c46eaece7922f0d14e35eb9d43d2518f138c1a0043a1f488dbaa3f48370` |
 
 The word examples alone (the rows of word keys, their sentences and translations), which the drill rows leave unchanged (#364):
 
@@ -1107,16 +1107,16 @@ The drill rows (the cell rows, and the sentences and translations only they use,
 
 | Table | Rows | sha256 of the rows in key order |
 |---|---|---|
-| `example_sentence` | 6,419 | `48b99fde4b92a2b25e913593a0c5c98051b1517af4bf7d8b501f5601f80813bc` |
-| `example_translation` | 11,439 | `27d2de3723ed439e805338a180382f1d8f9eff6a6468c9d4126611ca355950e1` |
-| `example_word` | 8,509 | `0cbcb8be676a9d93df05d0b4d1a6cd52906d5452800a59db4d029978598a5c5b` |
+| `example_sentence` | 6,415 | `7fc0858ba8d5a626298f6705c94e724762a74c76f4375792571e2352cd1cce34` |
+| `example_translation` | 11,430 | `b1d4592a28f7481b9f45aa0f6069e6e6c832e70b36a8402a34e9fd2de5eb03c3` |
+| `example_word` | 8,518 | `ee2b04f2e2f52e2e92667bf9d50f6c0c6f6ecd7b8cb1e1be89b7ff9f66e2f17f` |
 
 | Rows | `example_sentence` | `example_translation` | `example_word` | Installed | Download (xz) |
 |---|---|---|---|---|---|
-| all | 3,268,608 | 6,225,920 | 1,925,120 | 11,419,648 | 3,376,036 |
-| Greek (ell pack) | 1,601,536 | 1,798,144 | 1,052,672 | 4,452,352 | 1,112,332 |
+| all | 3,264,512 | 6,230,016 | 1,925,120 | 11,419,648 | 3,376,248 |
+| Greek (ell pack) | 1,601,536 | 1,798,144 | 1,052,672 | 4,452,352 | 1,112,536 |
 | English (eng-lists pack) | 1,662,976 | 4,440,064 | 880,640 | 6,983,680 | 2,338,624 |
 | Word examples (all files) | 2,629,632 | 5,275,648 | 1,454,080 | 9,359,360 | 2,962,252 |
-| Drill rows and the sentences only they use | 643,072 | 962,560 | 475,136 | 2,080,768 | 439,416 |
+| Drill rows and the sentences only they use | 643,072 | 962,560 | 475,136 | 2,080,768 | 439,140 |
 
 Bytes from `dbstat` on a VACUUMed file of the rows alone; the xz size is of that file (preset 6), an estimate of each pack's growth.

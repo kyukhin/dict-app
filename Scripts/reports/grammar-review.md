@@ -1973,6 +1973,7 @@ For one action, the verb after *να* takes the simple form of the subjunctive (
 Words:
 - γράφω: read, say (Greek – English (WordNet)); write (Greek – English (FreeDict))
 - διαβάζω: read (Greek – English (WordNet)); read (Greek – English (FreeDict))
+- έρχομαι: come, come up (Greek – English (WordNet)); come, happen (Greek – English (FreeDict))
 
 Related topics: `ell-na-perfective` να + the simple form
 
