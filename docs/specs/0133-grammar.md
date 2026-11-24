@@ -1,7 +1,7 @@
 # Grammar reference
 
 > Spec written by Claude (AI) for LibreDict.
-> Status: Implemented, with a revision for epic #292 (#295: the Grammar section on Greek's tab, with Conjugation; #297: the Grammar list), approved by kyukhin on 2026-11-10 and built (PRs #303, #304, #305); the rest approved by kyukhin on 2026-11-04 · Epic: #133 · Tickets: #171, #172, #173, #174; #295, #297 · Updated: 2026-11-10
+> Status: Implemented, with a revision for epic #292 (#295: the Grammar section on Greek's tab, with Conjugation; #297: the Grammar list), approved by kyukhin on 2026-11-10 and built (PRs #303, #304, #305); the rest approved by kyukhin on 2026-11-04; έρχομαι in the imperative topic (#362) approved by kyukhin on 2026-11-23 · Epic: #133 · Tickets: #171, #172, #173, #174; #295, #297; #362 · Updated: 2026-11-23
 
 Read [0000-overview.md](0000-overview.md), [0129-dictionary-file.md](0129-dictionary-file.md) and [0136-word-forms.md](0136-word-forms.md) (the Greek paradigms, `ParadigmLayout`, `InflectionTable`) first. Then the specs this epic builds on, approved by kyukhin on 2026-11-04. 0237 and 0130 are on master; 0131 comes with PR #235 and 0132 with PR #247, which merge before this spec: [0237-downloads.md](0237-downloads.md) (#237: every language's data comes in its pack), [0130-word-lists.md](0130-word-lists.md) (E3: learned languages, the Greek lists, `entry(for:sourceOrder:)`), [0131-learning.md](0131-learning.md) (E4: the Learn home, "Learn %@?", the run views) and [0132-conjugation-drill.md](0132-conjugation-drill.md) (E5: `ConjugationTense`, the drill, Practise on Definition). No number in this spec is measured: the content does not exist yet. Sizes are estimates, checked by the build.
 
@@ -69,7 +69,7 @@ The Grammar section lists the topics that apply to the entry, in topic order:
 | αγαπάω, μπορώ | Present tense: second conjugation, then the same four |
 | πηγαίνω | Present tense: first conjugation · Irregular aorists · the future, να and the imperative. πάω shows πηγαίνω's table (#144), so it gets the same, plus any topic that lists πάω |
 | έχω | είμαι and έχω · the future · να (and the imperative only if its table has one; έχω has no aorist) |
-| έρχομαι | Irregular aorists (it is listed there). Verbs with passive forms only get no class topic in 2.0: the deponent topic is A2 (#175) |
+| έρχομαι | Irregular aorists · The imperative (both list it; the imperative since #362). Verbs with passive forms only get no class topic in 2.0: the deponent topic is A2 (#175) |
 | σπίτι, Αθήνα | Articles and gender · Noun endings |
 | καλός (adjective) | Adjective agreement |
 | σε, εγώ, δεν | The topic that lists them (σε + article; personal pronouns; negation) |
@@ -91,7 +91,7 @@ The rules:
 ### Rule in the drill (#174)
 
 - After each answer, the feedback bar shows **Rule** next to Continue when the question has a topic: the topic of the question's tense that the rules above give for the drilled verb, in the voice asked. Aorist of γράφω → the regular aorist; of πηγαίνω → irregular aorists; present of αγαπάω → the second conjugation.
-- No button for tenses without a 2.0 topic (the imperfect, the continuous future and subjunctive, the perfect tenses). A passive facet gets Rule only for a verb with passive forms only, and only from a topic that lists it, never from a class topic (kyukhin, 2026-11-08): the aorist of έρχομαι (ήρθα) → irregular aorists; θυμάμαι, which no topic lists, has none. The passive of a verb with both voices (γράφομαι) has none: its topics teach the active forms.
+- No button for tenses without a 2.0 topic (the imperfect, the continuous future and subjunctive, the perfect tenses). A passive facet gets Rule only for a verb with passive forms only, and only from a topic that lists it, never from a class topic (kyukhin, 2026-11-08): the aorist of έρχομαι (ήρθα) → irregular aorists; θυμάμαι, which no topic lists, has none; its imperative (έλα, ελάτε) → the imperative, which lists έρχομαι in `words` since #362 (kyukhin, 2026-11-21; έλα / ελάτε confirmed 2026-11-23), so the question shows Rule. Other passive-only verbs wait for the A2 deponent topic (#175). The passive of a verb with both voices (γράφομαι) has none: its topics teach the active forms.
 - Rule opens the topic in a sheet over the run, with Done. In the sheet, words and related topics open inside the sheet; there is no Practise, on the topic or on a Definition opened from it. Done returns to the same answer's feedback.
 - It sits after the answer, so it never helps answer the question and does not count in the answer's time (`duration_ms`).
 
@@ -117,7 +117,7 @@ The rules:
 | 14 | `ell-aorist-irregular` | Irregular aorists | Forms: πηγαίνω, βλέπω, λέω · aorist | `aorist` | | πηγαίνω, βλέπω, λέω, τρώω, πίνω, έρχομαι, βγαίνω, μπαίνω, παίρνω, βρίσκω | `ell-aorist-regular` |
 | 15 | `ell-future` | The future with θα | Forms: γράφω, αγαπάω · future | `future` | `verb` | θα | `ell-na-perfective`, `ell-aorist-regular` |
 | 16 | `ell-na-perfective` | να + the simple form | Forms: γράφω, πηγαίνω · subjunctiveSimple | `subjunctiveSimple` | `verb` | να | `ell-future`, `ell-imperative` |
-| 17 | `ell-imperative` | The imperative | Forms: γράφω, διαβάζω · imperativeSimple | `imperativeSimple`, `imperativeContinuous` | `verb` | | `ell-na-perfective` |
+| 17 | `ell-imperative` | The imperative | Forms: γράφω, διαβάζω · imperativeSimple | `imperativeSimple`, `imperativeContinuous` | `verb` | γράφω, διαβάζω; έρχομαι (#362) | `ell-na-perfective` |
 
 - **Authoring.** An LLM drafts every topic from its own knowledge of Greek, in the structure above, in plain English for an A1 learner. Nothing is copied or paraphrased from a textbook, a website or the ΚΕΓ syllabus: the syllabus only placed these topics at A1 (kyukhin, 2026-10-22), and no third-party text is put in the drafting prompt. Examples are the author's own everyday sentences in A1 vocabulary, with no real people or brands. Transliteration only in the alphabet topic.
 - **Russian texts** (kyukhin, 2026-11-04, for Greek via Russian): every one of the 17 topics also has a Russian text, `Scripts/data/grammar/rus/<topic id>.md`, with the same front matter, the same forms tables and the same Greek examples, translated into Russian. It is written for Russian speakers, not translated word for word, under the same authoring rules. Its Watch out items name the mistakes Russian speakers make:
@@ -521,3 +521,6 @@ Unit classes go in `DictAppTests.swift`; async tests and mostly-async classes ar
 - 2026-11-10: Revision for epic #292 (Draft, awaiting kyukhin's approval): the Grammar section sits after Trainers on Greek's pair tab and holds the topics row ("Topics · 17") and E5's Conjugation row (#295); the Grammar list drops its only level header, shows "17 topics · A1" under the title and ends with an "A2 · Coming soon" row that is not a button (#297).
 - 2026-11-10: The #292/#300 revision approved by kyukhin.
 - 2026-11-10: The #292/#300 revision is built (PRs #303, #304, #305).
+- 2026-11-23 (kyukhin, #362; Draft, waiting for kyukhin's review): the imperative topic lists έρχομαι in its `words` (both `eng` and `rus` files), so the drill's imperative question of έρχομαι shows Rule, and έρχομαι's Definition and the topic's word rows link each other. Front matter only: the review hashes do not change. Other passive-only verbs wait for the A2 deponent topic (0132, Open question 10).
+- 2026-11-23: #362 approved by kyukhin: έλα / ελάτε is right; other passive-only verbs wait for #175 (0132, Decisions).
+- 2026-11-23 (#362, as built): the Behaviour table's έρχομαι row adds The imperative, as the topic now lists it; the pack gains the `grammar_link` row (`ell-imperative`, word, έρχομαι), and `reviewed.tsv` is unchanged.

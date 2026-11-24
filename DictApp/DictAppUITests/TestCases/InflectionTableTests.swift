@@ -130,6 +130,26 @@ final class InflectionTableTests: XCTestCase {
         attachScreenshot("καλός")
     }
 
+    /// #362 (0136, "Imperative cells"): βλέπω's simple imperative shows δες
+    /// and δείτε; ιδές, now a rare form, is in no cell, in the main forms or
+    /// in all of them.
+    func testBlepoImperative() throws {
+        let page = InflectionTablePage.open("βλέπω", source: TestData.Sources.freedictEllEng,
+                                            from: tabBarPage.tapSearchTab(), app: app)
+        let singular = page.cell(IDs.verbCell(slot: "imperative_simple", person: "2sg"))
+        XCTAssertEqual(singular.label, "imperative, simple, εσύ, δες")
+        XCTAssertEqual(page.cell(IDs.verbCell(slot: "imperative_simple", person: "2pl")).label,
+                       "imperative, simple, εσείς, δείτε")
+        let rare = page.table.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", "ιδές"))
+        XCTAssertFalse(rare.firstMatch.exists, "no ιδές in the main forms")
+        XCTAssertTrue(page.reveal(singular))
+        attachScreenshot("βλέπω, the imperative")
+        page.tapAllForms()
+        XCTAssertTrue(page.allFormsButton.waitForExistence(timeout: TestData.Timeouts.medium))
+        XCTAssertEqual(page.allFormsButton.label, "Main forms")
+        XCTAssertFalse(rare.firstMatch.exists, "no ιδές in all forms")
+    }
+
     /// VoiceOver reads a cell as "column, row, form", and each data cell is
     /// one element.
     func testCellLabel() throws {

@@ -12837,6 +12837,111 @@ final class WordFormsLookupTests: XCTestCase {
             XCTAssertEqual(try lemmas(of: "μας", pos: "pron", in: db), ["μας"])
         }
     }
+
+    /// #362 (0136, "Imperative cells"): the 35 past forms Wiktionary put in
+    /// imperative εσύ cells (`drop` rows of `Scripts/data/forms-fixes.tsv`)
+    /// are gone from those cells, and each still finds its verb through its
+    /// own past cell (διήρκεσε → διαρκώ, aorist); the 5 the review kept stay
+    /// in theirs; βλέπω's ιδές, now rare, still finds βλέπω.
+    func testNoPastFormInAnImperativeCell() throws {
+        // (verb, form, the εσύ cell's aspect: perfective is the simple imperative)
+        let dropped: [(String, String, String)] = [
+            ("προτείνω", "προέτεινε", "perfective"), ("προτείνω", "προέτεινε", "imperfective"),
+            ("διαρκώ", "διήρκεσε", "perfective"), ("ελπίζω", "ήλπισε", "perfective"),
+            ("διαφέρω", "διέφερε", "perfective"), ("διαφέρω", "διέφερε", "imperfective"),
+            ("παράγω", "παρήγαγε", "perfective"), ("παράγω", "παρήγε", "imperfective"),
+            ("προβάλλω", "πρέβαλε", "perfective"), ("προβάλλω", "πρέβαλλε", "imperfective"),
+            ("συνδυάζω", "συνεδύασε", "perfective"),
+            ("ανακράζω", "ανέκραξε", "perfective"), ("ανακράζω", "ανέκραζε", "imperfective"),
+            ("ανακτώ", "ανέκτησε", "perfective"), ("ανατρέφω", "ανέτρεφε", "imperfective"),
+            ("αποκομίζω", "απεκόμισε", "perfective"), ("αποσυνδέω", "αποσυνέδεσε", "perfective"),
+            ("αποτυγχάνω", "απέτυχε", "perfective"), ("διανύω", "διήνυσε", "perfective"),
+            ("διασχίζω", "διέσχισε", "perfective"), ("διασχίζω", "διέσχιζε", "imperfective"),
+            ("ελαφραίνω", "ελάφρυνε", "imperfective"), ("επιζώ", "επέζησε", "perfective"),
+            ("καρτερώ", "καρτέραγε", "imperfective"),
+            ("παρατείνω", "παρέτεινε", "perfective"), ("παρατείνω", "παρέτεινε", "imperfective"),
+            ("σπεύδω", "έσπευσε", "perfective"), ("σπεύδω", "έσπευδε", "imperfective"),
+            ("συντάσσω", "συνέταξε", "perfective"), ("συντάσσω", "συνέτασσε", "imperfective"),
+            ("τσούζω", "έτσουξε", "perfective"), ("τσούζω", "έτσουζε", "imperfective"),
+            ("υπερβαίνω", "υπερέβαινε", "imperfective"),
+            ("υποφέρω", "υπέφερε", "perfective"), ("υποφέρω", "υπέφερε", "imperfective"),
+        ]
+        let kept: [(String, String, String)] = [
+            ("μπαίνω", "έμπαινε", "imperfective"), ("βογκάω", "βόγγηξε", "perfective"),
+            ("βογκάω", "βόγγησε", "perfective"), ("επαναπροωθώ", "επαναπροώθησε", "perfective"),
+            ("καρτερώ", "καρτέρησε", "perfective"),
+        ]
+        XCTAssertEqual(dropped.count, 35)
+        try readDictionaryFile { db in
+            func imperativeCells(_ form: String, of verb: String, _ aspect: String) throws -> Int {
+                try Int.fetchOne(db, sql: """
+                    SELECT COUNT(*) FROM paradigm AS p JOIN lemma AS l ON l.id = p.lemma_id
+                    JOIN tagset AS t ON t.id = p.tagset_id
+                    WHERE p.form = ? AND l.word = ? AND l.pos = 'verb'
+                      AND ' ' || t.tags || ' ' LIKE '% imperative %' AND ' ' || t.tags || ' ' LIKE ?
+                      AND ' ' || t.tags || ' ' LIKE '% second-person %' AND ' ' || t.tags || ' ' LIKE '% singular %'
+                    """, arguments: [form, verb, "% \(aspect) %"]) ?? 0
+            }
+            func caption(_ form: String, of verb: String) throws -> Set<String>? {
+                try String.fetchOne(db, sql: """
+                    SELECT t.tags FROM form_lookup AS f JOIN lemma AS l ON l.id = f.lemma_id
+                    JOIN tagset AS t ON t.id = f.tagset_id WHERE f.form_norm = ? AND l.word = ? AND l.pos = 'verb'
+                    """, arguments: [Search.foldGreek(form), verb]).map { Set($0.split(separator: " ").map(String.init)) }
+            }
+            for (verb, form, aspect) in dropped {
+                XCTAssertEqual(try imperativeCells(form, of: verb, aspect), 0, "\(form) left \(verb)'s \(aspect) imperative")
+                let tags = try caption(form, of: verb)
+                XCTAssertTrue(tags?.contains("past") == true || tags?.contains("imperfect") == true,
+                              "\(form) → \(verb) through its past cell: \(String(describing: tags))")
+            }
+            for (verb, form, aspect) in kept {
+                XCTAssertEqual(try imperativeCells(form, of: verb, aspect), 1, "\(form) stays in \(verb)'s imperative")
+            }
+            XCTAssertTrue(try lemmas(of: "ιδές", pos: "verb", in: db).contains("βλέπω"), "the rare ιδές is still searchable")
+        }
+    }
+
+    /// #362 (QA of #370): σερβίρω's table fixes in the pack. The present
+    /// εμείς is σερβίρουμε / σερβιρίζουμε (no σερβιρίζω), the passive one
+    /// gains σερβιρόμαστε, and every passive form is spelt σερβιρ- as the
+    /// page's head forms are, never σερβαρ-; at B2 the drill asks σερβιρ-
+    /// forms only.
+    func testServiroFixes() throws {
+        let cells = try readDictionaryFile { db in
+            try Row.fetchAll(db, sql: """
+                SELECT p.form, t.tags FROM paradigm AS p JOIN lemma AS l ON l.id = p.lemma_id
+                JOIN tagset AS t ON t.id = p.tagset_id WHERE l.word = 'σερβίρω' AND l.pos = 'verb' ORDER BY p.ord
+                """).map { ParadigmCell(form: $0["form"], tags: $0["tags"] as String) }
+        }
+        func forms(_ tags: String) -> [String] {
+            let wanted = Set(tags.split(separator: " ").map(String.init))
+            return cells.filter { $0.tags == wanted }.map(\.form)
+        }
+        XCTAssertEqual(forms("active first-person imperfective indicative plural present"), ["σερβίρουμε", "σερβιρίζουμε"])
+        XCTAssertEqual(forms("first-person imperfective indicative passive plural present"),
+                       ["σερβιρόμαστε", "σερβιριζόμαστε"])
+        XCTAssertEqual(forms("first-person indicative passive past perfective singular"), ["σερβιρίστηκα"])
+        XCTAssertEqual(forms("dependent first-person indicative passive perfective singular"), ["σερβιριστώ"])
+        XCTAssertEqual(forms("first-person imperfect imperfective indicative passive singular").first, "σερβιριζόμουν")
+        XCTAssertEqual(forms("imperative passive perfective second-person singular"), ["σερβιρίσου"])
+        XCTAssertEqual(forms("imperative passive perfective plural second-person"), ["σερβιριστείτε"])
+        XCTAssertEqual(forms("participle passive past"), ["σερβιρισμένος"])
+        XCTAssertEqual(cells.filter { $0.form.hasPrefix("σερβαρ") }.map(\.form), [], "no σερβαρ- form is left")
+
+        let paradigm = LemmaParadigm(word: "σερβίρω", pos: "verb", cells: cells, isLinked: false)
+        let verb = try XCTUnwrap(DrillVerb.make(word: "σερβίρω", paradigm: paradigm, translation: ""))
+        XCTAssertTrue(verb.hasPassive)
+        var asked = 0
+        for (facet, persons) in ConjugationQuestionBuilder.questions(verb: verb, level: .b2) {
+            for person in persons {
+                asked += 1
+                let cell = verb.forms(facet, person)
+                XCTAssertTrue(cell.allSatisfy { Search.foldGreek($0).contains("σερβιρ") },
+                              "\(facet.rawValue) \(person.rawValue): \(cell)")
+            }
+        }
+        XCTAssertGreaterThan(asked, 100)
+    }
 }
 
 // MARK: - Issue #142: search by inflected Greek form (0136-word-forms.md)
@@ -15909,6 +16014,43 @@ final class ParadigmLayoutTests: XCTestCase {
         XCTAssertEqual(greek.cellsByID["inflection_cell_active_aorist_1sg"]?.accessibilityText, "αόριστος, εγώ, έγραψα")
         XCTAssertEqual(greek.section("active_indicative")?.columns.map(\.title),
                        ["Ενεστώτας", "Παρατατικός", "Αόριστος", "Μέλλοντας"])
+    }
+
+    /// #362 (0136, "Imperative cells"): βλέπω's simple imperative shows δες
+    /// and δείτε. ιδές is a `rare` cell, so neither the table nor the drill
+    /// shows it; `WordFormsLookupTests.testNoPastFormInAnImperativeCell`
+    /// finds βλέπω for it.
+    @MainActor
+    func testBlepoSimpleImperative() async throws {
+        let table = try await InflectionFixture.table("βλέπω", pos: "verb")
+        XCTAssertEqual(table.forms("inflection_cell_active_imperative_simple_2sg"), ["δες"])
+        XCTAssertEqual(table.forms("inflection_cell_active_imperative_simple_2pl"), ["δείτε"])
+        XCTAssertFalse(table.sections.contains { $0.rows.contains { $0.cells.contains { $0.forms.contains("ιδές") } } },
+                       "no table cell shows ιδές")
+        let found = try await InflectionFixture.paradigm("βλέπω", pos: "verb")
+        let paradigm = try XCTUnwrap(found)
+        XCTAssertEqual(paradigm.cells.filter { $0.form == "ιδές" }.map(\.tags),
+                       [["active", "imperative", "informal", "perfective", "rare", "second-person", "singular"]])
+        let verb = try XCTUnwrap(DrillVerb.make(word: "βλέπω", paradigm: paradigm, translation: ""))
+        XCTAssertEqual(verb.forms(ConjugationFacet(.imperativeSimple, .active), .secondSingular), ["δες"])
+        XCTAssertFalse(DrillFixture.everyForm(of: verb).contains("ιδές"), "the drill never asks or offers ιδές")
+    }
+
+    /// #362: the simple imperative εσύ of -άω verbs keeps the short form as
+    /// an accepted form after the -ησε one (μίλησε / μίλα); five verbs ask
+    /// the short form first, as κάνε (σταμάτα / σταμάτησε).
+    @MainActor
+    func testShortFormsOfTheSimpleImperative() async throws {
+        let expected = [("μιλάω", ["μίλησε", "μίλα"], "μίλα"), ("σταματάω", ["σταμάτα", "σταμάτησε"], "σταμάτα"),
+                        ("ξυπνάω", ["ξύπνα", "ξύπνησε"], "ξύπνα"), ("παρατάω", ["παράτα", "παράτησε"], "παράτα"),
+                        ("προχωράω", ["προχώρα", "προχώρησε"], "προχώρα"),
+                        ("χαμογελάω", ["χαμογέλα", "χαμογέλασε"], "χαμογέλα")]
+        for (word, simple, short) in expected {
+            let table = try await InflectionFixture.table(word, pos: "verb")
+            XCTAssertEqual(table.forms("inflection_cell_active_imperative_simple_2sg"), simple, word)
+            XCTAssertEqual(table.forms("inflection_cell_active_imperative_continuous_2sg")?.first, short,
+                           "\(word): the continuous imperative is the short form")
+        }
     }
 }
 
@@ -23316,6 +23458,11 @@ final class GrammarLinksTests: XCTestCase {
         XCTAssertEqual(deponent, "ell-aorist-irregular", "έρχομαι is listed by the irregular aorists")
         let deponentFuture = try await rule("έρχομαι", .future, .passive)
         XCTAssertNil(deponentFuture, "no class topic for a passive facet")
+        // #362: the imperative topic lists έρχομαι, so έλα and ελάτε show Rule.
+        for tense in [ConjugationTense.imperativeSimple, .imperativeContinuous] {
+            let imperative = try await rule("έρχομαι", tense, .passive)
+            XCTAssertEqual(imperative, "ell-imperative", "έρχομαι \(tense.rawValue).passive")
+        }
         let unlisted = try await DrillFixture.verb("θυμάμαι")
         XCTAssertEqual(unlisted.mainVoice, .passive)
         for facet in unlisted.cells.keys {
@@ -23364,8 +23511,11 @@ final class GrammarLinksTests: XCTestCase {
         let withoutTopic: Set<ConjugationTense> = [.imperfect, .futureContinuous, .subjunctiveContinuous, .perfect,
                                                    .pluperfect, .futurePerfect]
         // A passive facet's only Rule: the listing topic of a verb with
-        // passive forms only.
-        let listing: [String: [ConjugationTense: String]] = ["έρχομαι": [.aorist: "ell-aorist-irregular"]]
+        // passive forms only. #362: the imperative topic lists έρχομαι too.
+        let listing: [String: [ConjugationTense: String]] = [
+            "έρχομαι": [.aorist: "ell-aorist-irregular", .imperativeSimple: "ell-imperative",
+                        .imperativeContinuous: "ell-imperative"],
+        ]
         for word in ["γράφω", "πηγαίνω", "αγαπάω", "έχω", "έρχομαι"] {
             let verb = try await DrillFixture.verb(word)
             var checked = 0
@@ -23461,7 +23611,7 @@ final class DefinitionViewModelGrammarTests: XCTestCase {
             ("αγαπάω", "verb", "freedict-ell-eng", ["ell-present-2", "ell-aorist-regular"] + tail),
             ("πηγαίνω", "verb", "freedict-ell-eng", ["ell-present-1", "ell-aorist-irregular"] + tail),
             ("πάω", "verb", "wordnet-ell-eng", ["ell-present-1", "ell-aorist-irregular"] + tail),
-            ("έρχομαι", "verb", "freedict-ell-eng", ["ell-aorist-irregular"]),
+            ("έρχομαι", "verb", "freedict-ell-eng", ["ell-aorist-irregular", "ell-imperative"]),
             ("Αθήνα", "proper noun", "freedict-ell-eng", ["ell-articles", "ell-noun-endings"]),
             ("καλός", "adjective", "wordnet-ell-eng", ["ell-adjectives"]),
             ("σε", "", "freedict-ell-eng", ["ell-se-prepositions"]),
@@ -23492,7 +23642,7 @@ final class DefinitionViewModelGrammarTests: XCTestCase {
             ("έχω", ["ell-eimai-echo", "ell-future", "ell-na-perfective", "ell-imperative"]),
             ("είμαι", ["ell-eimai-echo", "ell-future", "ell-na-perfective"]),
             ("ζω", ["ell-present-2", "ell-aorist-regular"] + tail),
-            ("έρχομαι", ["ell-aorist-irregular"]),
+            ("έρχομαι", ["ell-aorist-irregular", "ell-imperative"]),  // both list it (#362)
         ]
         for source in ["freedict-ell-eng", "wordnet-ell-eng"] {
             for row in rows {
@@ -24751,6 +24901,96 @@ final class DrillVerbTests: XCTestCase {
         XCTAssertNil(DrillVerb.make(word: "μέλλει", paradigm: LemmaParadigm(word: "μέλλει", pos: "verb", cells: cells,
                                                                            isLinked: false), translation: ""))
     }
+
+    /// #362: a verb of `DrillVerb.noImperative` (θέλω, πεινάω; φοβάμαι, with
+    /// passive forms only) has no imperative cell, of either form or voice:
+    /// `questions` lists none, no option or tense row comes from one, and
+    /// its other cells are those of the same verb unlisted. Its `voices`
+    /// keep the forms (the tables, the ⓘ example). γράφω keeps both
+    /// imperatives, and Practise on Definition builds the same θέλω.
+    func testNoImperativeVerbs() async throws {
+        let imperatives: Set<ConjugationTense> = [.imperativeSimple, .imperativeContinuous]
+        func isImperative(_ facet: ConjugationFacet) -> Bool { imperatives.contains(facet.tense) }
+        for word in ["θέλω", "πεινάω", "φοβάμαι"] {
+            XCTAssertTrue(DrillVerb.noImperative.contains(word), word)
+            let verb = try await Fixture.verb(word)
+            XCTAssertFalse(verb.cells.keys.contains(where: isImperative), "\(word): no imperative cell")
+            XCTAssertFalse(ConjugationQuestionBuilder.questions(verb: verb, level: .b2).contains { isImperative($0.facet) },
+                           "\(word): no imperative question")
+            XCTAssertTrue(verb.voices.values.contains { voice in
+                imperatives.contains { tense in tense.persons.contains { !tense.forms(voice, $0).isEmpty } }
+            }, "\(word): the table keeps its imperative forms")
+            // The same verb under a word that is not listed: every cell.
+            let unlisted = DrillVerb(word: verb.word + "*", citation: verb.citation, translation: verb.translation,
+                                     listLevel: verb.listLevel, rank: verb.rank, seq: verb.seq,
+                                     mainVoice: verb.mainVoice, voices: verb.voices, isImpersonal: verb.isImpersonal)
+            XCTAssertTrue(unlisted.cells.keys.contains(where: isImperative), "\(word) has imperative cells unlisted")
+            XCTAssertEqual(verb.cells, unlisted.cells.filter { !isImperative($0.key) }, "\(word): the other cells as before")
+        }
+        let fobamai = try await Fixture.verb("φοβάμαι")
+        XCTAssertEqual(fobamai.mainVoice, .passive, "φοβάμαι has passive forms only")
+
+        let grafo = try await Fixture.verb("γράφω")
+        XCTAssertFalse(DrillVerb.noImperative.contains("γράφω"))
+        for facet in ["imperativeSimple.active", "imperativeContinuous.active"] {
+            XCTAssertNotNil(Fixture.questions(grafo, .b2)[facet], "γράφω keeps \(facet)")
+        }
+
+        let thelo = try await Fixture.verb("θέλω")
+        let otherForms = Set(thelo.cells.values.flatMap { $0.values.flatMap(\.forms) })
+        let imperativeOnly = Set(thelo.voices.values.flatMap { voice in
+            imperatives.flatMap { tense in tense.persons.flatMap { tense.forms(voice, $0) } }
+        }).subtracting(otherForms)
+        XCTAssertTrue(imperativeOnly.contains("θελήστε"), "an imperative form no other cell has")
+        var built = 0
+        for seed in UInt64(1)...3 {
+            for (facet, persons) in ConjugationQuestionBuilder.questions(verb: thelo, level: .b2) {
+                for person in persons {
+                    let question = try XCTUnwrap(Fixture.build(thelo, facet.tense, person, voice: facet.voice,
+                                                               level: .b2, seed: seed))
+                    built += 1
+                    let label = "\(facet.rawValue) \(person.rawValue) seed \(seed)"
+                    XCTAssertFalse(question.optionSlots.contains { isImperative($0.facet) }, label)
+                    XCTAssertTrue(Set(question.options).isDisjoint(with: imperativeOnly), "\(label): \(question.options)")
+                }
+            }
+        }
+        XCTAssertGreaterThan(built, 100)
+
+        let settings = SettingsService(store: InMemoryKeyValueStore())
+        let languages = LearningLanguageService(settings: settings, packs: FakePairPacks(languagesWithLists: ["ell"]),
+                                                uiLanguage: { "en" })
+        let definition = DefinitionViewModel(entry: InflectionFixture.entry("θέλω", pos: "verb"), db: .shared,
+                                             settings: settings, languages: languages, hasVoice: { _ in false })
+        await definition.loadInflection(locale: Locale(identifier: "en"))
+        let practised = try XCTUnwrap(definition.drillVerb, "θέλω gives Practise")
+        XCTAssertEqual(practised.cells, thelo.cells, "Practise asks no imperative of θέλω either")
+    }
+
+    /// #362 (QA): `drill_cells.py`'s `NO_IMPERATIVE` holds exactly the words
+    /// of `DrillVerb.noImperative`, in NFC. `DrillExampleDataTests` catches a
+    /// drift only where a dropped cell has a pack row, and the count only a
+    /// removal, so a verb taken out of (or swapped in) one list alone would
+    /// pass both: the examples build would skip cells the drill asks.
+    func testNoImperativeMatchesThePythonPort() throws {
+        let script = PackFixtures.assets.deletingLastPathComponent().appendingPathComponent("Scripts/drill_cells.py")
+        let source = try String(contentsOf: script, encoding: .utf8)
+        let start = try XCTUnwrap(source.range(of: "NO_IMPERATIVE = frozenset("), "NO_IMPERATIVE in drill_cells.py")
+        let open = try XCTUnwrap(source.range(of: "\"\"\"", range: start.upperBound..<source.endIndex), "its word block")
+        let close = try XCTUnwrap(source.range(of: "\"\"\"", range: open.upperBound..<source.endIndex), "its end")
+        let block = source[open.upperBound..<close.lowerBound]
+        XCTAssertFalse(block.contains("#"), "no comment inside the word block")
+        let words = block.split(whereSeparator: \.isWhitespace).map(String.init)
+        XCTAssertEqual(words.count, Set(words).count, "no word twice in the port")
+        let port = Set(words.map(\.precomposedStringWithCanonicalMapping))
+        XCTAssertEqual(port.count, 83)
+        XCTAssertEqual(port.subtracting(DrillVerb.noImperative).sorted(), [], "only in drill_cells.py")
+        XCTAssertEqual(DrillVerb.noImperative.subtracting(port).sorted(), [], "only in DrillVerb.noImperative")
+        // Scalar by scalar: Set<String> equality treats NFD and NFC as equal.
+        XCTAssertEqual(DrillVerb.noImperative.filter {
+            !$0.unicodeScalars.elementsEqual($0.precomposedStringWithCanonicalMapping.unicodeScalars)
+        }, [], "the Swift set is NFC")
+    }
 }
 
 /// Options (0132, "Options"): 4 distinct real forms of the verb, exactly one
@@ -25071,6 +25311,26 @@ final class ConjugationQuestionTests: XCTestCase {
         })
         XCTAssertGreaterThan(orders.count, 1, "the right option moves")
     }
+
+    /// #362 (0136, "Imperative cells"): five -άω verbs ask their short form
+    /// as the simple imperative εσύ, as κάνω asks κάνε, and accept the -ησε
+    /// form, which is never offered as a wrong option. μιλάω keeps μίλησε
+    /// asked and never offers μίλα there.
+    func testShortFormIsAskedAsKane() async throws {
+        let expected = [("σταματάω", "σταμάτα", "σταμάτησε"), ("ξυπνάω", "ξύπνα", "ξύπνησε"),
+                        ("παρατάω", "παράτα", "παράτησε"), ("προχωράω", "προχώρα", "προχώρησε"),
+                        ("χαμογελάω", "χαμογέλα", "χαμογέλασε"), ("μιλάω", "μίλησε", "μίλα")]
+        for (word, asked, accepted) in expected {
+            let verb = try await Fixture.verb(word)
+            XCTAssertEqual(verb.forms(ConjugationFacet(.imperativeSimple, .active), .secondSingular), [asked, accepted], word)
+            for seed in UInt64(1)...5 {
+                let question = try XCTUnwrap(Fixture.build(verb, .imperativeSimple, .secondSingular, level: .b2, seed: seed))
+                XCTAssertEqual(question.options[question.rightIndex], asked, "\(word) seed \(seed)")
+                XCTAssertEqual(question.rightForms, [asked, accepted])
+                XCTAssertFalse(question.options.contains(accepted), "\(word) seed \(seed): \(question.options)")
+            }
+        }
+    }
 }
 
 /// `DatabaseService.drillVerbs(lists:meaningsLang:)` on a copy of the Greek
@@ -25388,6 +25648,30 @@ final class DrillVerbPoolTests: XCTestCase {
         // come from Greek B1, not A2's πειράζει and εξετάσεις.
         XCTAssertEqual(perList, [1: 196, 2: 66, 3: 333])
         XCTAssertEqual(Set(verbs.map(\.word)).count, verbs.count)
+    }
+
+    /// #362: every word of `DrillVerb.noImperative` is the card word of a
+    /// verb of the three lists whose table has imperative forms, so a typo
+    /// or a verb that left the lists fails; none of them has an imperative
+    /// cell.
+    @MainActor
+    func testNoImperativeWordsAreDrillVerbs() async throws {
+        try await db.setup(userPath: tempDir.appendingPathComponent("packs.sqlite").path,
+                           dictionaryURL: try TestDictionary.bundledURL(), packFiles: try PackFixtures.all())
+        let verbs = try await db.drillVerbs(lists: DrillScope.lists.map(\.id), meaningsLang: "eng")
+        let byWord = Dictionary(uniqueKeysWithValues: verbs.map { ($0.word, $0) })
+        let imperatives: [ConjugationTense] = [.imperativeSimple, .imperativeContinuous]
+        XCTAssertEqual(DrillVerb.noImperative.count, 83)
+        for word in DrillVerb.noImperative.sorted() {
+            guard let verb = byWord[word] else {
+                XCTFail("\(word) is no card word of the three lists' verbs")
+                continue
+            }
+            XCTAssertTrue(verb.voices.values.contains { voice in
+                imperatives.contains { tense in tense.persons.contains { !tense.forms(voice, $0).isEmpty } }
+            }, "\(word)'s table has imperative forms")
+            XCTAssertFalse(verb.cells.keys.contains { imperatives.contains($0.tense) }, "\(word) asks no imperative")
+        }
     }
 
     /// #330: a list word that is a lemma of another part of speech and of
@@ -27784,7 +28068,15 @@ final class DrillExampleDataTests: XCTestCase {
         let rows = Set(try cellRows().map(\.key))
         let skipped = Set(try Self.dataRows("ell-skipped.tsv").compactMap { $0["cell"] })
         XCTAssertFalse(skipped.isEmpty)
-        XCTAssertEqual(skipped.subtracting(scope).sorted().prefix(20), [], "every skipped cell is in the scope")
+        // #362: the skips of the imperative cells of `DrillVerb.noImperative`
+        // are stale, cells the drill no longer asks: reported, never used.
+        let stale = skipped.subtracting(scope)
+        let strangers = stale.filter { key in
+            let parts = key.split(separator: "|").map(String.init)
+            return !(parts.count == 3 && DrillVerb.noImperative.contains(parts[0]) && parts[1].hasPrefix("imperative"))
+        }
+        XCTAssertEqual(strangers.sorted().prefix(20), [], "every skipped cell is in the scope, or a stale imperative")
+        XCTAssertEqual(stale.count, 63, "the stale skips of #362")
         let open = scope.subtracting(rows).subtracting(skipped).sorted()
         XCTAssertEqual(open.prefix(20), [], "\(open.count) cells of the 2.0 scope have no sentence")
         XCTAssertEqual(skipped.intersection(rows).sorted(), [], "a skipped cell stays without an example")
@@ -33276,6 +33568,35 @@ final class ConjugationPlannerTests: XCTestCase {
             XCTAssertEqual(plan.count, 9, "10 A1 questions without the paused one")
             XCTAssertTrue(plan.allSatisfy { $0.origin == .new })
             XCTAssertFalse(plan.contains { $0.verb.word == "γράφω" && $0.facet.tense == .aorist })
+        }
+    }
+
+    /// #362 (0132, "Imperatives", Cards): a due card of an imperative facet
+    /// of a `noImperative` verb, answered before the change, is never
+    /// planned again, in a session or in Practise, while the verb's other
+    /// tenses are; the same due card of γράφω still comes first.
+    func testNoImperativeCardIsNeverPlanned() throws {
+        let thelo = try Fixture.verb("θέλω"), grafo = try Fixture.verb("γράφω")
+        XCTAssertTrue(DrillVerb.noImperative.contains(thelo.word))
+        let yesterday = today.adding(days: -1)
+        let cards = [Fixture.card("θέλω", "imperativeSimple.active", step: 2, due: yesterday),
+                     Fixture.card("θέλω", "imperativeContinuous.active", step: 1, due: yesterday),
+                     Fixture.card("γράφω", "imperativeSimple.active", step: 2, due: today)]
+        func isImperative(_ item: DrillItem) -> Bool {
+            [.imperativeSimple, .imperativeContinuous].contains(item.facet.tense)
+        }
+        for seed in UInt64(1)...20 {
+            let plan = Fixture.session([thelo, grafo], level: .b2, cards: cards, seed: seed)
+            XCTAssertEqual(plan.count, 15, "seed \(seed)")
+            XCTAssertFalse(plan.contains { $0.verb.word == "θέλω" && isImperative($0) }, "seed \(seed)")
+            XCTAssertTrue(plan.contains { $0.verb.word == "θέλω" }, "θέλω's other tenses, seed \(seed)")
+            XCTAssertEqual(plan.first.map { "\($0.verb.word) \($0.facet.rawValue) \($0.origin)" },
+                           "γράφω imperativeSimple.active due", "the only plannable due card first, seed \(seed)")
+            XCTAssertEqual(plan.filter { $0.origin == .due }.count, 1, "θέλω's due cards are not due items, seed \(seed)")
+
+            let practise = Fixture.verbRun(thelo, level: .b2, cards: cards, seed: seed)
+            XCTAssertEqual(practise.count, 15, "seed \(seed)")
+            XCTAssertFalse(practise.contains(where: isImperative), "Practise on θέλω, seed \(seed)")
         }
     }
 

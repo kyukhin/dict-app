@@ -4,8 +4,13 @@
 # One row per cell: the lemma, the cell's tags (sorted, space-separated, as in
 # the subset), the wrong form, the right one, and the kind: `replace` puts the
 # right form in the wrong one's place; `first` puts it before the wrong one,
-# which stays an accepted alternative. The build fails when a row's wrong form
-# is no longer in that cell of the subset (a new snapshot fixed it: drop the row).
+# which stays an accepted alternative (a right form the cell holds after it
+# moves there). With `-` as the right form (#362): `drop` takes the form out of
+# its cell, `keep` changes nothing and records a reviewed past-form flag, `rare`
+# tags the form rare (hidden from the tables and the drill, still searchable).
+# The build fails when a row's wrong form is no longer in that cell of the
+# subset (a new snapshot fixed it: drop the row), and when an imperative form
+# spelt like a past form of its verb has no `drop` or `keep` row (#362).
 lemma	tags	wrong	right	kind
 θυμίζω	active first-person imperfective indicative present singular	θυμήζω	θυμίζω	replace
 θυμίζω	active imperfective indicative present second-person singular	θυμήζεις	θυμίζεις	replace
@@ -28,3 +33,89 @@ lemma	tags	wrong	right	kind
 συμμετέχω	active imperative perfective plural second-person	συμμετάσχτε	συμμετάσχετε	first
 μαλώνω	active imperative perfective second-person singular	μαλώσε	μάλωσε	replace
 σερβίρω	imperfective indicative passive plural present third-person	σερβιρίζοναι	σερβιρίζονται	replace
+# #362 (kyukhin 2026-11-23, 0136 "Imperative cells"): every imperative form the past-form flag
+# catches, reviewed: `drop` a past form Wiktionary put in the cell, `keep` a real imperative.
+# The drill verbs' flags:
+μπαίνω	active imperative imperfective informal second-person singular	έμπαινε	-	keep
+προτείνω	active imperative perfective second-person singular	προέτεινε	-	drop
+προτείνω	active imperative imperfective second-person singular	προέτεινε	-	drop
+διαρκώ	active imperative perfective second-person singular	διήρκεσε	-	drop
+ελπίζω	active imperative perfective second-person singular	ήλπισε	-	drop
+διαφέρω	active imperative perfective second-person singular	διέφερε	-	drop
+διαφέρω	active imperative imperfective second-person singular	διέφερε	-	drop
+παράγω	active imperative perfective second-person singular	παρήγαγε	-	drop
+παράγω	active imperative imperfective second-person singular	παρήγε	-	drop
+προβάλλω	active imperative perfective second-person singular	πρέβαλε	-	drop
+προβάλλω	active imperative imperfective second-person singular	πρέβαλλε	-	drop
+συνδυάζω	active imperative perfective second-person singular	συνεδύασε	-	drop
+# The other lemmas' flags:
+ανακράζω	active imperative perfective second-person singular	ανέκραξε	-	drop
+ανακράζω	active imperative imperfective second-person singular	ανέκραζε	-	drop
+ανακτώ	active imperative perfective second-person singular	ανέκτησε	-	drop
+ανατρέφω	active imperative imperfective second-person singular	ανέτρεφε	-	drop
+αποκομίζω	active imperative perfective second-person singular	απεκόμισε	-	drop
+αποσυνδέω	active imperative perfective second-person singular	αποσυνέδεσε	-	drop
+αποτυγχάνω	active imperative perfective second-person singular	απέτυχε	-	drop
+βογκάω	active imperative perfective second-person singular	βόγγηξε	-	keep
+βογκάω	active imperative perfective second-person singular	βόγγησε	-	keep
+διανύω	active imperative perfective second-person singular	διήνυσε	-	drop
+διασχίζω	active imperative perfective second-person singular	διέσχισε	-	drop
+διασχίζω	active imperative imperfective second-person singular	διέσχιζε	-	drop
+ελαφραίνω	active imperative imperfective second-person singular	ελάφρυνε	-	drop
+επαναπροωθώ	active imperative perfective second-person singular	επαναπροώθησε	-	keep
+επιζώ	active imperative perfective second-person singular	επέζησε	-	drop
+καρτερώ	active imperative perfective second-person singular	καρτέρησε	-	keep
+καρτερώ	active imperative imperfective second-person singular	καρτέραγε	-	drop
+παρατείνω	active imperative perfective second-person singular	παρέτεινε	-	drop
+παρατείνω	active imperative imperfective second-person singular	παρέτεινε	-	drop
+σπεύδω	active imperative perfective second-person singular	έσπευσε	-	drop
+σπεύδω	active imperative imperfective second-person singular	έσπευδε	-	drop
+συντάσσω	active imperative perfective second-person singular	συνέταξε	-	drop
+συντάσσω	active imperative imperfective second-person singular	συνέτασσε	-	drop
+τσούζω	active imperative perfective second-person singular	έτσουξε	-	drop
+τσούζω	active imperative imperfective second-person singular	έτσουζε	-	drop
+υπερβαίνω	active imperative imperfective second-person singular	υπερέβαινε	-	drop
+υποφέρω	active imperative perfective second-person singular	υπέφερε	-	drop
+υποφέρω	active imperative imperfective second-person singular	υπέφερε	-	drop
+# βλέπω's ιδές, hidden as rare and still searchable (#362):
+βλέπω	active imperative informal perfective second-person singular	ιδές	-	rare
+# The short form asked as the simple imperative, as κάνε is (#362):
+σταματάω	active imperative perfective second-person singular	σταμάτησε	σταμάτα	first
+ξυπνάω	active imperative perfective second-person singular	ξύπνησε	ξύπνα	first
+παρατάω	active imperative perfective second-person singular	παράτησε	παράτα	first
+προχωράω	active imperative perfective second-person singular	προχώρησε	προχώρα	first
+χαμογελάω	active imperative perfective second-person singular	χαμογέλασε	χαμογέλα	first
+# σερβίρω (#362, QA of #370): the omitted σερβιρόμαστε, the present εμείς, and every passive form
+# spelt σερβαρ- where the subset's head forms give σερβιρ- (σερβιρίστηκα, σερβιρισμένος).
+σερβίρω	first-person imperfective indicative passive plural present	σερβιριζόμαστε	σερβιρόμαστε	first
+σερβίρω	active first-person imperfective indicative plural present	σερβιρίζω	σερβιρίζουμε	replace
+σερβίρω	dependent first-person indicative passive perfective singular	σερβαριστώ	σερβιριστώ	replace
+σερβίρω	dependent indicative passive perfective second-person singular	σερβαριστείς	σερβιριστείς	replace
+σερβίρω	dependent indicative passive perfective singular third-person	σερβαριστεί	σερβιριστεί	replace
+σερβίρω	dependent first-person indicative passive perfective plural	σερβαριστούμε	σερβιριστούμε	replace
+σερβίρω	dependent indicative passive perfective plural second-person	σερβαριστείτε	σερβιριστείτε	replace
+σερβίρω	dependent indicative passive perfective plural third-person	σερβαριστούν	σερβιριστούν	replace
+σερβίρω	dependent indicative passive perfective plural third-person	σερβαριστούνε	σερβιριστούνε	replace
+σερβίρω	first-person imperfect imperfective indicative passive singular	σερβαριζόμουν	σερβιριζόμουν	replace
+σερβίρω	first-person imperfect imperfective indicative passive singular	σερβαριζόμουνα	σερβιριζόμουνα	replace
+σερβίρω	first-person indicative passive past perfective singular	σερβαρίστηκα	σερβιρίστηκα	replace
+σερβίρω	imperfect imperfective indicative passive second-person singular	σερβαριζόσουν	σερβιριζόσουν	replace
+σερβίρω	imperfect imperfective indicative passive second-person singular	σερβαριζόσουνα	σερβιριζόσουνα	replace
+σερβίρω	indicative passive past perfective second-person singular	σερβαρίστηκες	σερβιρίστηκες	replace
+σερβίρω	imperfect imperfective indicative passive singular third-person	σερβαριζόταν	σερβιριζόταν	replace
+σερβίρω	imperfect imperfective indicative passive singular third-person	σερβαριζότανε	σερβιριζότανε	replace
+σερβίρω	indicative passive past perfective singular third-person	σερβαρίστηκε	σερβιρίστηκε	replace
+σερβίρω	first-person imperfect imperfective indicative passive plural	σερβαριζόμασταν	σερβιριζόμασταν	replace
+σερβίρω	first-person imperfect imperfective indicative informal passive plural	σερβαριζόμαστε	σερβιριζόμαστε	replace
+σερβίρω	first-person indicative passive past perfective plural	σερβαριστήκαμε	σερβιριστήκαμε	replace
+σερβίρω	imperfect imperfective indicative passive plural second-person	σερβαριζόσασταν	σερβιριζόσασταν	replace
+σερβίρω	imperfect imperfective indicative informal passive plural second-person	σερβαριζόσαστε	σερβιριζόσαστε	replace
+σερβίρω	indicative passive past perfective plural second-person	σερβαριστήκατε	σερβιριστήκατε	replace
+σερβίρω	imperfect imperfective indicative informal passive plural third-person	σερβαριζόντουσαν	σερβιριζόντουσαν	replace
+σερβίρω	indicative passive past perfective plural third-person	σερβαρίστηκαν	σερβιρίστηκαν	replace
+σερβίρω	indicative passive past perfective plural third-person	σερβαριστήκαν	σερβιριστήκαν	replace
+σερβίρω	indicative passive past perfective plural third-person	σερβαριστήκανε	σερβιριστήκανε	replace
+σερβίρω	imperative passive perfective second-person singular	σερβαρίσου	σερβιρίσου	replace
+σερβίρω	imperative passive perfective plural second-person	σερβαριστείτε	σερβιριστείτε	replace
+σερβίρω	participle passive past	σερβαρισμένος	σερβιρισμένος	replace
+σερβίρω	infinitive-aorist passive	σερβαριστεί	σερβιριστεί	replace

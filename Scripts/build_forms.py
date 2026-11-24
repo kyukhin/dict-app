@@ -15,7 +15,10 @@ filtered subset `Scripts/data/kaikki-el-<date>.jsonl.gz` (Git LFS) is the pin:
 and the step checks it before use. The step works offline; only the
 frequency list of the QA report is downloaded (pinned, to the cache).
 `Scripts/data/forms-fixes.tsv` fixes typos of Wiktionary's tables cell by
-cell (#365); a fix whose wrong form is no longer in the subset fails a gate.
+cell (#365) and reviews its imperative cells (#362: a past form dropped or
+kept, a rare form tagged); a fix whose wrong form is no longer in the subset
+fails a gate, and so does an imperative cell spelt like a past form of its
+verb (the past-form flag) without a `drop` or `keep` row.
 
 Usage (from the repository root):
     python3 Scripts/build_forms.py --self-check
@@ -55,16 +58,23 @@ from pathlib import Path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import inputs  # noqa: E402
 from build_greek import normalize_greek  # noqa: E402  (the one Greek folding, #87)
+from drill_cells import verb_slot  # noqa: E402  (`ParadigmLayout.verbSlot`, the tables' slots)
 
 SCRIPTS_DIR = Path(__file__).resolve().parent
 REPO = SCRIPTS_DIR.parent
 REPORT = SCRIPTS_DIR / "reports" / "forms-qa.md"
 FIXTURE = SCRIPTS_DIR / "fixtures" / "kaikki-el-sample.jsonl"
 ALLOWLIST = SCRIPTS_DIR / "data" / "forms-allowlist.tsv"
-# Typos of Wiktionary's tables that the subset keeps, fixed cell by cell (#365).
+# Typos of Wiktionary's tables that the subset keeps, fixed cell by cell
+# (#365), and the reviewed imperative cells (#362).
 FIXES = SCRIPTS_DIR / "data" / "forms-fixes.tsv"
 FIX_COLUMNS = ("lemma", "tags", "wrong", "right", "kind")
-FIX_KINDS = ("replace", "first")
+FIX_KINDS = ("replace", "first", "drop", "keep", "rare")
+# The kinds that name no right form: `-` in its column (#362).
+NO_RIGHT_KINDS = frozenset({"drop", "keep", "rare"})
+NO_RIGHT = "-"
+# The kinds that review a past-form flag (#362).
+FLAG_KINDS = frozenset({"drop", "keep"})
 
 DUMP_URL = "https://kaikki.org/dictionary/raw-wiktextract-data.jsonl.gz"
 DUMP_PAGE = "https://kaikki.org/dictionary/rawdata.html"
@@ -277,9 +287,12 @@ def read_allowlist(path: Path = ALLOWLIST) -> set[tuple[str, str, str]]:
 
 @dataclass(frozen=True)
 class Fix:
-    """A typo of one table cell (forms-fixes.tsv): `replace` puts `right` in
+    """A fix of one table cell (forms-fixes.tsv): `replace` puts `right` in
     the place of `wrong`; `first` puts `right` before `wrong`, which stays,
-    moving a `right` that follows it."""
+    moving a `right` that follows it. With `-` as `right` (#362): `drop`
+    takes `wrong` out of the cell, `keep` changes nothing (a reviewed
+    past-form flag), `rare` tags `wrong` rare, which hides it from the
+    tables and the drill and keeps it searchable."""
     lemma: str
     tags: tuple
     wrong: str
@@ -303,6 +316,9 @@ def read_fixes(path: Path = FIXES) -> list[Fix]:
         if len(fields) != len(FIX_COLUMNS) or not all(fields) or fields[4] not in FIX_KINDS:
             raise RuntimeError(f"{path.name}:{number}: {len(FIX_COLUMNS)} fields, the kind one of {FIX_KINDS}")
         lemma, tags, wrong, right, kind = fields
+        if (right == NO_RIGHT) != (kind in NO_RIGHT_KINDS):
+            raise RuntimeError(f"{path.name}:{number}: `{NO_RIGHT}` as the right form for "
+                               f"{', '.join(sorted(NO_RIGHT_KINDS))} only, a right form for the others")
         fixes.append(Fix(lemma, tuple(sorted(set(tags.split()))), wrong, right, kind))
     if not header:
         # An empty or comment-only file would apply nothing and pass the
@@ -311,28 +327,93 @@ def read_fixes(path: Path = FIXES) -> list[Fix]:
     return fixes
 
 
-def apply_fixes(word: str, cells: list[tuple], fixes: list[Fix], forms: Forms) -> list[tuple]:
+def apply_fixes(word: str, cells: list[tuple], fixes: list[Fix], forms: Forms) -> tuple[list[tuple], list[tuple]]:
     """Step 2's table fixes on a lemma's cells: each fix whose (wrong, tags)
     is a cell of the table. A fix that finds its cell in no table is stale
-    (`collect` lists it, `run` fails)."""
+    (`collect` lists it, `run` fails). Returns the cells and the ones that
+    `drop` rows took out."""
+    dropped = []
     for fix in fixes:
-        if fix.lemma != word or (fix.wrong, fix.tags) not in cells:
+        cell = (fix.wrong, fix.tags)
+        if fix.lemma != word or cell not in cells:
             continue
         if fix.kind == "replace":
-            cells = [(fix.right, tags) if (form, tags) == (fix.wrong, fix.tags) else (form, tags)
-                     for form, tags in cells]
-        else:
-            # `first`: the right form goes before the wrong one; one already
-            # before it stays, one after it moves (CodeRabbit on #370).
+            cells = [(fix.right, tags) if (form, tags) == cell else (form, tags) for form, tags in cells]
+        elif fix.kind == "first":
+            # The right form goes before the wrong one; one already before
+            # it stays, one after it moves (CodeRabbit on #370; the short
+            # imperatives of #362).
             cells, right = list(cells), (fix.right, fix.tags)
-            wrong_at = cells.index((fix.wrong, fix.tags))
+            wrong_at = cells.index(cell)
             if right not in cells[:wrong_at]:
                 if right in cells:
                     cells.remove(right)
                 cells.insert(wrong_at, right)
+        elif fix.kind == "drop":
+            # A cell left without a form is gone: the table shows "—" (#362).
+            cells = [c for c in cells if c != cell]
+            dropped.append(cell)
+        elif fix.kind == "rare":
+            # The rule for rare forms then hides it from the tables and the
+            # drill; form_lookup keeps it (#362: ιδές).
+            rare = (fix.wrong, tuple(sorted(set(fix.tags) | {"rare"})))
+            cells = [rare if c == cell else c for c in cells]
+        # `keep` changes nothing: a reviewed past-form flag (#362).
         forms.fixed.add(fix)
-        forms.fix_uses.append(f"{fix.wrong} → {fix.right} ({fix.kind}) in the table of {word}: {' '.join(fix.tags)}")
-    return cells
+        change = fix.wrong if fix.kind in NO_RIGHT_KINDS else f"{fix.wrong} → {fix.right}"
+        forms.fix_uses.append(f"{change} ({fix.kind}) in the table of {word}: {' '.join(fix.tags)}")
+    return cells, dropped
+
+
+# The imperative tenses and the cells each is compared with by the past-form
+# flag (#362): the simple imperative comes from the dependent, the
+# continuous one from the present.
+IMPERATIVE_REFERENCE = {"imperativeSimple": "dependent", "imperativeContinuous": "present"}
+PAST_SLOTS = frozenset({"aorist", "imperfect"})
+# A reference form's letters that the imperative may lack at its end.
+FLAG_MARGIN = 4
+
+
+def finite_slot(tags: tuple) -> tuple[str, str] | None:
+    """(slot, person) of a shown finite cell (`ParadigmLayout.verbSlot`), else None."""
+    match = verb_slot(frozenset(tags))
+    return (match[1][1], match[1][2]) if match and match[1][0] == "finite" else None
+
+
+def past_form_flags(cells: list[tuple], dropped: list[tuple] = ()) -> list[tuple]:
+    """The past-form flag (#362), on a verb's cells after the fixes: an
+    imperative form (εσύ or εσείς, either voice) spelt (NFC, lowercase) as
+    an aorist or imperfect form of the same verb, any person or voice, that
+    shares fewer first letters (folded) with every form of its reference
+    (the dependent for the simple imperative, the present for the
+    continuous one; same person, either voice) than that form's length less
+    `FLAG_MARGIN`. διήρκεσε (διαρκέσεις) is flagged; μίλησε (μιλήσεις) and
+    έλα are not. The cells that `drop` rows took out are checked too, so
+    the report lists every flag with its row. Returns (form, tags) pairs in
+    table order, each once."""
+    past, references = set(), collections.defaultdict(list)
+    for form, tags in cells:
+        slot = finite_slot(tags)
+        if slot and slot[0] in PAST_SLOTS:
+            past.add(nfc(form).lower())
+        elif slot and slot[0] in IMPERATIVE_REFERENCE.values():
+            references[slot].append(letters(form))
+    flags = []
+    for form, tags in list(cells) + list(dropped):
+        slot = finite_slot(tags)
+        if not slot or slot[0] not in IMPERATIVE_REFERENCE or nfc(form).lower() not in past:
+            continue
+        folded = letters(form)
+        if all(len(os.path.commonprefix([folded, ref])) < len(ref) - FLAG_MARGIN
+               for ref in references[(IMPERATIVE_REFERENCE[slot[0]], slot[1])]):
+            if (form, tags) not in flags:
+                flags.append((form, tags))
+    return flags
+
+
+def unreviewed_flags(forms: Forms) -> list[tuple]:
+    """The gate of #362: the flags without a `drop` or `keep` row."""
+    return [flag for flag in forms.flags if flag[3] not in FLAG_KINDS]
 
 
 # ---------------------------------------------------------------------------
@@ -363,6 +444,7 @@ class Forms:
         self.fixed: set = set()                        # the table fixes applied (Fix)
         self.fix_uses: list[str] = []
         self.stale_fixes: list = []                    # fixes whose wrong form is in no table
+        self.flags: list[tuple] = []                   # #362: (lemma, form, tags, the reviewing row's kind or None)
         self.unresolved = collections.Counter()
         self.link_kinds = collections.Counter()
         self.link_aspects = 0                          # links whose aspect comes from the gloss
@@ -537,7 +619,12 @@ def collect(lines, allowlist: set, fixes: list[Fix] = ()) -> Forms:
 
         # 2-3. Cells, the pronoun template guard, tables of another word.
         cells = [cell for entry in pages[(word, pos)] for cell in table_cells(entry, forms, word)]
-        cells = apply_fixes(word, cells, fixes_of.get(word, []), forms)
+        cells, dropped = apply_fixes(word, cells, fixes_of.get(word, []), forms)
+        if pos == "verb":
+            # The past-form flag (#362), with the row that reviewed each.
+            reviews = {(f.wrong, f.tags): f.kind for f in fixes_of.get(word, []) if f.kind in FLAG_KINDS}
+            forms.flags += [(word, form, tags, reviews.get((form, tags)))
+                            for form, tags in past_form_flags(cells, dropped)]
         if pos == "pron" and len(PERSONS & {t for _, tags in cells for t in tags}) > 1:
             for form, _ in cells:
                 forms.catch("cell of a pronoun table that mixes persons", f"{form}@{word}")
@@ -818,6 +905,11 @@ def report(forms: Forms, qa: dict, hashes: dict, sizes: dict, pins: dict, gates:
         lines += ["", "Unused allowlist entries: " + ", ".join(unused)]
     lines += ["", f"### Table fixes ({len(forms.fix_uses)}, all; `{FIXES.relative_to(REPO)}`)", ""]
     lines += [f"- {use}" for use in forms.fix_uses] or ["None."]
+    lines += ["", f"### Imperative cells spelt like a past form ({len(forms.flags)}, all; #362)", "",
+              "The past-form flag and the row of `forms-fixes.tsv` that reviewed it; a flag without a "
+              "`drop` or `keep` row fails the build.", ""]
+    lines += [f"- {form} in the table of {word}: {' '.join(tags)}: {kind or 'NO ROW'}"
+              for word, form, tags, kind in forms.flags] or ["None."]
     lines += ["", "### Unresolved link targets (top 50)", ""]
     top_unresolved = sorted(forms.unresolved.items(), key=lambda x: (-x[1], x[0]))[:50]
     lines += [", ".join(f"{target} ({n})" for target, n in top_unresolved) or "None."]
@@ -877,6 +969,7 @@ def run(conn: sqlite3.Connection, cache_dir: Path, headwords_db: sqlite3.Connect
         raise RuntimeError(f"The size gate needs SQLite with dbstat: {error}") from error
 
     violations = stop_violations(forms, allowlist)
+    unreviewed = unreviewed_flags(forms)
     verbs, nouns = qa["top"]["verb"], qa["top"]["noun"]
     findable = qa["classes"]["headword"] + qa["classes"]["via forms"]
     gates = [
@@ -894,6 +987,10 @@ def run(conn: sqlite3.Connection, cache_dir: Path, headwords_db: sqlite3.Connect
          f"{len(fixes) - len(forms.stale_fixes)} of {len(fixes)}" + "".join(
              f"; stale: {f.wrong} → {f.right} of {f.lemma} ({' '.join(f.tags)})" for f in forms.stale_fixes),
          "all", not forms.stale_fixes),
+        ("Imperative cells spelt like a past form (#362) with a drop or keep row",
+         f"{len(forms.flags) - len(unreviewed)} of {len(forms.flags)}" + "".join(
+             f"; no row: {form} of {word} ({' '.join(tags)})" for word, form, tags, _ in unreviewed),
+         "all", not unreviewed),
     ]
     report_pins = {"subset_key": key, "subset": pins[key], "frequency": pins[FREQUENCY_KEY]}
     report_path.parent.mkdir(parents=True, exist_ok=True)
@@ -1133,6 +1230,111 @@ def synthetic_checks() -> list[tuple[str, bool]]:
     ]
 
 
+def synthetic_imperative_checks() -> list[tuple[str, bool]]:
+    """The imperative cells of #362, on made-up pages shaped like the real
+    ones: the kinds `drop`, `keep` and `rare`, `first` on a form the cell
+    holds, stale rows of every kind, the past-form flag and its gate."""
+    def page(word, pos, forms=()):
+        return json.dumps({"word": word, "pos": pos, "lang_code": "el", "senses": [{"glosses": ["a meaning"]}],
+                           "forms": [{"form": f, "tags": list(t), "source": "conjugation"} for f, t in forms]},
+                          ensure_ascii=False)
+
+    def tags(*words):
+        return tuple(sorted(words))
+
+    present1 = tags("active", "first-person", "imperfective", "indicative", "present", "singular")
+    present2 = tags("active", "imperfective", "indicative", "present", "second-person", "singular")
+    dependent2 = tags("active", "dependent", "indicative", "perfective", "second-person", "singular")
+    aorist3 = tags("active", "indicative", "past", "perfective", "singular", "third-person")
+    imperfect3 = tags("active", "imperfect", "imperfective", "indicative", "singular", "third-person")
+    simple2 = tags("active", "imperative", "perfective", "second-person", "singular")
+    continuous2 = tags("active", "imperative", "imperfective", "second-person", "singular")
+    informal2 = tags("active", "imperative", "imperfective", "informal", "second-person", "singular")
+    seen2 = tags("active", "imperative", "informal", "perfective", "second-person", "singular")
+    passive1 = tags("first-person", "imperfective", "indicative", "passive", "present", "singular")
+    passive_dependent2 = tags("dependent", "indicative", "passive", "perfective", "second-person", "singular")
+    lines = [
+        # A past form the cell's only form (διαρκώ) and one after the right form (προτείνω).
+        page("διαρκώ", "verb", [("διαρκώ", present1), ("διαρκέσεις", dependent2), ("διήρκεσε", aorist3),
+                                ("διήρκεσε", simple2)]),
+        page("προτείνω", "verb", [("προτείνω", present1), ("προτείνεις", dependent2), ("προέτεινε", aorist3),
+                                  ("πρότεινε", simple2), ("προέτεινε", simple2)]),
+        # A past form that is also an informal imperative (μπαίνω: έμπαινε, kept).
+        page("μπαίνω", "verb", [("μπαίνω", present1), ("μπαίνεις", present2), ("έμπαινε", imperfect3),
+                                ("μπαίνε", continuous2), ("έμπαινε", informal2)]),
+        # μίλησε shares its stem with μιλήσεις; μίλα is the short form.
+        page("μιλάω", "verb", [("μιλάω", present1), ("μιλάς", present2), ("μιλήσεις", dependent2), ("μίλησε", aorist3),
+                               ("μίλα", continuous2), ("μίλησε", simple2), ("μίλα", simple2)]),
+        # έλα is no past form.
+        page("έρχομαι", "verb", [("έρχομαι", passive1), ("έρθεις", passive_dependent2), ("ήρθε", aorist3),
+                                 ("έλα", simple2)]),
+        page("βλέπω", "verb", [("βλέπω", present1), ("δεις", dependent2), ("είδε", aorist3), ("δες", simple2),
+                               ("ιδές", seen2)]),
+    ]
+    rows = [Fix("διαρκώ", simple2, "διήρκεσε", "-", "drop"), Fix("προτείνω", simple2, "προέτεινε", "-", "drop"),
+            Fix("μπαίνω", informal2, "έμπαινε", "-", "keep"), Fix("βλέπω", seen2, "ιδές", "-", "rare"),
+            Fix("μιλάω", simple2, "μίλησε", "μίλα", "first")]
+    plain = collect(lines, set())
+    fixed = collect(lines, set(), rows)
+    unkept = collect(lines, set(), [row for row in rows if row.kind != "keep"])
+    stale_rows = [Fix("μιλάω", simple2, "μίλησες", "μίλα", kind) if kind in ("replace", "first")
+                  else Fix("μιλάω", simple2, "μίλησες", "-", kind) for kind in FIX_KINDS]
+    stale = collect(lines, set(), stale_rows)
+    words = {i: w for i, w, _, _ in fixed.lemmas}
+
+    def cells_of(forms, word):
+        ids = [i for i, w, _, _ in forms.lemmas if w == word]
+        return [cell for i in ids for cell in forms.cells.get(i, [])]
+
+    def lookup(forms, form):
+        return {words[i] for (norm, i) in forms.lookup if norm == normalize_greek(form)}
+
+    def flagged(forms):
+        return {(word, form): kind for word, form, _, kind in forms.flags}
+
+    with tempfile.TemporaryDirectory() as folder:
+        fix_file = Path(folder) / "fixes.tsv"
+        def refused(row: str) -> bool:
+            fix_file.write_text("\t".join(FIX_COLUMNS) + "\n" + row + "\n", encoding="utf-8")
+            try:
+                read_fixes(fix_file)
+                return False
+            except RuntimeError:
+                return True
+        dash_checks = (refused("διαρκώ\tsimple\tδιήρκεσε\tδιάρκεσε\tdrop")
+                       and refused("μιλάω\tsimple\tμίλησε\t-\tfirst")
+                       and not refused("διαρκώ\tsimple\tδιήρκεσε\t-\tdrop"))
+
+    return [
+        ("synthetic #362: the flag catches διήρκεσε (διαρκέσεις) and προέτεινε, and έμπαινε (μπαίνεις)",
+         set(flagged(plain)) == {("διαρκώ", "διήρκεσε"), ("προτείνω", "προέτεινε"), ("μπαίνω", "έμπαινε")}),
+        ("synthetic #362: the flag spares μίλησε (μιλήσεις), the short form μίλα, έλα and ιδές",
+         not {"μιλάω", "έρχομαι", "βλέπω"} & {word for word, _ in flagged(plain)}),
+        ("synthetic #362: a `drop` takes its form out; a cell left without a form is gone",
+         cells_of(fixed, "προτείνω") == [("προτείνω", present1), ("προτείνεις", dependent2), ("προέτεινε", aorist3),
+                                         ("πρότεινε", simple2)]
+         and not [c for c in cells_of(fixed, "διαρκώ") if c[1] == simple2]
+         and "διαρκώ" in lookup(fixed, "διήρκεσε") and fixed.lookup[(normalize_greek("διήρκεσε"),
+             next(i for i, w in words.items() if w == "διαρκώ"))][1] == aorist3),
+        ("synthetic #362: a `keep` changes nothing", cells_of(fixed, "μπαίνω") == cells_of(plain, "μπαίνω")),
+        ("synthetic #362: a `rare` tags its form, which stays searchable",
+         ("ιδές", tuple(sorted(seen2 + ("rare",)))) in cells_of(fixed, "βλέπω")
+         and ("ιδές", seen2) not in cells_of(fixed, "βλέπω") and "βλέπω" in lookup(fixed, "ιδές")),
+        ("synthetic #362: `first` moves a form the cell holds before the one named (μίλα / μίλησε)",
+         [f for f, t in cells_of(fixed, "μιλάω") if t == simple2] == ["μίλα", "μίλησε"]),
+        ("synthetic #362: the flags list their rows, a dropped form among them",
+         flagged(fixed) == {("διαρκώ", "διήρκεσε"): "drop", ("προτείνω", "προέτεινε"): "drop",
+                            ("μπαίνω", "έμπαινε"): "keep"} and not unreviewed_flags(fixed)),
+        ("synthetic #362: a flag without a drop or keep row fails the gate",
+         [(w, f) for w, f, _, _ in unreviewed_flags(plain)] == [("διαρκώ", "διήρκεσε"), ("μπαίνω", "έμπαινε"),
+                                                                ("προτείνω", "προέτεινε")]
+         and [(w, f) for w, f, _, _ in unreviewed_flags(unkept)] == [("μπαίνω", "έμπαινε")]),
+        ("synthetic #362: a stale row of every kind fails",
+         stale.stale_fixes == stale_rows and not stale.fixed),
+        ("synthetic #362: `-` is the right form of drop, keep and rare only", dash_checks),
+    ]
+
+
 def synthetic_template_checks() -> list[tuple[str, bool]]:
     """The rules for Wiktionary template errors and links, on made-up pages:
     notes and ' - ' variants, misspellings, another word's table, bare
@@ -1350,6 +1552,7 @@ def self_check() -> int:
     ]
     checks += synthetic_checks()
     checks += synthetic_template_checks()
+    checks += synthetic_imperative_checks()
     checks += synthetic_link_checks()
     failed = [name for name, ok in checks if not ok]
     for name, ok in checks:

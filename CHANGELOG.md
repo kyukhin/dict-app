@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- [#362] The Greek conjugation drill no longer asks the imperative of 83 verbs Greeks hardly give orders with (θέλω, μπορώ, πεινάω), and the imperative cells lose the past forms Wiktionary put there; βλέπω shows δες, σερβίρω its regular passive, and έρχομαι's imperative links to its grammar rule.
+
 ### Fixed
 - [#368] A second Continue tap right after an answer in a word run no longer records the answer against another word.
 

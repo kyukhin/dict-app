@@ -5,7 +5,7 @@ level: A1
 order: 17
 tenses: imperativeSimple, imperativeContinuous
 classes: verb
-words: γράφω, διαβάζω
+words: γράφω, διαβάζω, έρχομαι
 topics: ell-na-perfective
 ---
 # The imperative
