@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- [#368] A second Continue tap right after an answer in a word run no longer records the answer against another word.
+
+## [2.0.0] - 2026-12-01
+
 ### Added
 - [#365] Every conjugation drill cell of the A1 and A2 verbs, at tenses up to A2, gets an example: Tatoeba's first, then Wiktionary usage examples, then generated ones checked by a second model pass, each with its source under it. Cells with no natural Greek sentence stay without one.
 - [#364] After an answer, the conjugation drill shows a sentence with exactly the asked form, when the Greek pack has one.
@@ -69,7 +74,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - [#315] Reading Mode is a light bulb that lights up yellow when on, and turning it on shows "The screen stays on" for 2 seconds.
 
 ### Fixed
-- [#368] A second Continue tap right after an answer in a word run no longer records the answer against another word.
 - [#365] Seven typos in Wiktionary's Greek conjugation tables, such as θυμίζω's present; the drill asks the right forms.
 - [#330] The conjugation drill asks, offers and shows impersonal verbs only in αυτός, also verbs the lists give only in the third person such as επιτρέπεται, and list nouns such as φορά no longer enter it as verbs.
 - [#138] History and Recent words reopen a word in the dictionary it was read in.
