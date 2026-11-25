@@ -748,6 +748,21 @@ cell	sentence_id	verdict	checked_by	reason
 πεινάω|imperativeSimple.active|2sg	2846666	no	claude-opus-5-5 2026-11-22	The form πείνασε does not occur; πείνα here is the noun.
 πεινάω|present.active|2pl	5538258	ok	claude-opus-5-5 2026-11-22	A statement about εσείς now after νομίζω πως: present.
 περιλαμβάνω|imperfect.passive|3sg	10006790	no	claude-opus-5-5 2026-11-23	Tatoeba check, content: offensive: medical sexual content (vaginal inflammation).
+περιμένω|aorist.active|1pl	5512839	ok	claude-opus-5-5 2026-11-24	"Until 2:30" bounds the wait: aorist, not imperfect.
+περιμένω|aorist.active|1sg	1503112	ok	claude-opus-5-5 2026-11-24	Two hours bound the wait: aorist, not imperfect.
+περιμένω|aorist.active|2pl	5579668	ok	claude-opus-5-5 2026-11-24	One occasion the speaker missed: aorist, as "didn't wait" shows.
+περιμένω|aorist.active|2sg	5579667	ok	claude-opus-5-5 2026-11-24	One occasion the speaker missed: aorist, as "didn't wait" shows.
+περιμένω|aorist.active|3pl	7796633	no	claude-opus-5-5 2026-11-24	A bare "Όλοι περίμεναν", no bound and no frame: aorist or imperfect.
+περιμένω|aorist.active|3sg	1538365	ok	claude-opus-5-5 2026-11-24	Two hours bound the wait: aorist, not imperfect.
+περιμένω|imperativeSimple.active|2pl	1499749	ok	claude-opus-5-5 2026-11-24	An order to wait a minute: imperative, not the present.
+περιμένω|imperativeSimple.active|2sg	2907159	ok	claude-opus-5-5 2026-11-24	An order to wait a little: imperative; both imperatives are one word.
+περιμένω|imperfect.active|1pl	2436529	ok	claude-opus-5-5 2026-11-24	An expectation, a state: imperfect.
+περιμένω|imperfect.active|1sg	3017158	ok	claude-opus-5-5 2026-11-24	An expectation, a state: imperfect.
+περιμένω|imperfect.active|2pl	5524028	ok	claude-opus-5-5 2026-11-24	What you expected, a state: imperfect.
+περιμένω|imperfect.active|2sg	5524025	ok	claude-opus-5-5 2026-11-24	What you expected, a state: imperfect.
+περιμένω|imperfect.active|3pl	7796633	no	claude-opus-5-5 2026-11-24	A bare "Όλοι περίμεναν", no bound and no frame: aorist or imperfect.
+περιμένω|imperfect.active|3sg	13302048	ok	claude-opus-5-5 2026-11-24	An expectation, a state: imperfect.
+περιμένω|perfect.active|1sg	2509011	no	claude-opus-5-5 2026-11-24	Tatoeba check, greek: γι'αυτήν needs a space after the apostrophe (γι' αυτήν).
 περιμένω|present.active|2pl	1499749	no	claude-opus-5-5 2026-11-22	Περιμένετε ένα λεπτό is a request: imperative, not present.
 περνάω|aorist.active|2sg	2398843	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: «Πως» should be the interrogative «Πώς».
 περνάω|aorist.active|3sg	2918520	no	claude-opus-5-5 2026-11-23	Tatoeba check, rus: The Russian says evening ("вечер") where the Greek says afternoon ("απόγευμα").
