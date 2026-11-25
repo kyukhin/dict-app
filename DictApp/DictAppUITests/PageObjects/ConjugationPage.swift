@@ -48,6 +48,7 @@ final class ConjugationPage: BasePage {
     var promptTense: XCUIElement { element(IDs.promptTense) }
     var promptPerson: XCUIElement { element(IDs.promptPerson) }
     var passiveNote: XCUIElement { element(IDs.passiveNote) }
+    var irregularNote: XCUIElement { element(IDs.irregularNote) }
     /// #331: the verb the question spoke as it appeared, the verb's value
     /// (NFC); empty when it spoke nothing.
     var spokenVerb: String {

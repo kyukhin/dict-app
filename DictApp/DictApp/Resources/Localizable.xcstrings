@@ -17189,6 +17189,42 @@
         }
       }
     },
+    "drill.irregularNote": {
+      "comment": "Conjugation drill: the small note under the person of an aorist-stem form of an irregular verb (πήρα). Lowercase.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "irregular"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "неправильная форма"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "forma irregular"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "صيغة غير قياسية"
+          }
+        },
+        "el": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ανώμαλος τύπος"
+          }
+        }
+      }
+    },
     "drill.practise": {
       "comment": "Definition: the button under a Greek verb's table that drills its conjugation.",
       "extractionState": "manual",

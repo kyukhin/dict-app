@@ -6,7 +6,7 @@ order: 17
 tenses: imperativeSimple, imperativeContinuous
 classes: verb
 words: γράφω, διαβάζω, έρχομαι
-topics: ell-na-perfective
+topics: ell-na-perfective, ell-aorist-irregular
 ---
 # Повелительное наклонение
 

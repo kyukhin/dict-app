@@ -1363,7 +1363,10 @@ final class ConjugationRunViewModel: ObservableObject {
                 // first question the phase stays `.question`, so a question
                 // set before this await would show without its example.
                 let shown = await loadExample(of: built)
-                question = built
+                var shownQuestion = built
+                shownQuestion.showsIrregularNote = GrammarLinks.marksIrregular(
+                    verb: built.verb, facet: built.facet, links: grammarLinks)
+                question = shownQuestion
                 if !isLeft { spokenWord = speaker.speak(built)?.text ?? "" }
                 ruleTopic = GrammarLinks.ruleTopic(verb: built.verb, facet: built.facet, topics: grammarTopics,
                                                    links: grammarLinks)

@@ -146,6 +146,9 @@ TENSES = ("present", "imperfect", "aorist", "future", "imperativeContinuous", "i
 CLASSES = ("verb", "verb.conj1", "verb.conj2", "verb.passive", "noun", "adj")
 LINK_KINDS = (("word", "words"), ("topic", "topics"), ("tense", "tenses"), ("class", "classes"))
 MAX_WORDS = 16  # topic 14 links the 16 verbs it teaches (Kirill, 2026-11-07)
+# The one topic with no word cap: it lists every irregular aorist of the Greek
+# lists, which is also the drill's "irregular" list (#363, 0133).
+UNCAPPED_TOPICS = {"ell-aorist-irregular"}
 MAX_RULE_WORDS = 120
 # The tenses and classes of 0133's Content table, by topic id, in order:
 # #174's links depend on them. They are front matter, which the review hash
@@ -986,7 +989,7 @@ def check_links(topic: Topic, known: set, data: sqlite3.Connection, errors: list
             errors.append(f"{topic.id}: class {name!r} is not one of {', '.join(CLASSES)}")
     if not links["words"] and not links["topics"]:
         errors.append(f"{topic.id}: no word or topic link")
-    if len(links["words"]) > MAX_WORDS:
+    if topic.id not in UNCAPPED_TOPICS and len(links["words"]) > MAX_WORDS:
         errors.append(f"{topic.id}: {len(links['words'])} words, at most {MAX_WORDS}")
 
 
@@ -1561,6 +1564,17 @@ def self_check() -> int:
             reason = INVALID_CASES.get(case, "?")
             ok = len(result.errors) == 1 and reason in result.errors[0]
             checks.append((f"invalid {case}: " + ("; ".join(result.errors) or "no error"), ok))
+        # #363: the 17-word fixture under the uncapped topic's id has no cap error.
+        source = merged_source([VALID, INVALID / "seventeen-words"], Path(folder) / "uncapped")
+        for explain in ("eng",):
+            old = source / explain / "ell-seventeen-words.md"
+            text = old.read_text(encoding="utf-8").replace("ell-seventeen-words", "ell-aorist-irregular")
+            (source / explain / "ell-aorist-irregular.md").write_text(text, encoding="utf-8")
+            old.unlink()
+        result = compile_topics(source, data, allow_unreviewed=True, languages=english_only)
+        checks.append(("the uncapped topic ell-aorist-irregular lists 17 words with no cap error; another topic "
+                       "does not", not any("words, at most" in e for e in result.errors)
+                       and INVALID_CASES["seventeen-words"] == "17 words, at most 16"))
         # The long rule less one word: 120 words pass.
         source = merged_source([VALID, INVALID / "long-rule"], Path(folder) / "rule-of-120")
         path = source / "eng" / "ell-long-rule.md"

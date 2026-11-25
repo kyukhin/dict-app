@@ -6,7 +6,7 @@ order: 16
 tenses: subjunctiveSimple
 classes: verb
 words: να
-topics: ell-future, ell-imperative
+topics: ell-future, ell-imperative, ell-aorist-irregular
 ---
 # να + the simple form
 

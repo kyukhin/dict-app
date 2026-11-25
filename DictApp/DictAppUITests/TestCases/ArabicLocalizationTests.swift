@@ -894,6 +894,34 @@ final class ArabicLocalizationTests: XCTestCase {
         attachScreenshot("drill example (ar)")
     }
 
+    /// 0132, #363: πήρα's question carries the note "صيغة غير قياسية", and the
+    /// note sits in the question's column, not off screen.
+    func testDrillIrregularNoteInArabic() throws {
+        app.terminate()
+        app.launchArguments += ["-learningLanguages", "ell", "-learningLists", "ky-ell-a1", "-drillLength", "2",
+                                "-learningAnswerHints", "-learningSeed", "168",
+                                "-drillPlan", "παίρνω|aorist.active|1sg;παίρνω|present.active|1sg"]
+        app.launch()
+        XCTAssertTrue(app.waitForDictionariesReady(), "Search screen after launch")
+        tapTab(ArabicTab.learn)
+        let learnPage = LearnPage(app: app)
+        XCTAssertTrue(learnPage.waitForHome(timeout: TestData.Timeouts.long), "the Learn home")
+        let drill = learnPage.openConjugation()
+        drill.start()
+        XCTAssertTrue(drill.waitForQuestion(), "a question")
+        XCTAssertTrue(drill.irregularNote.waitForExistence(timeout: TestData.Timeouts.medium), "the note")
+        XCTAssertEqual(drill.irregularNote.label, "صيغة غير قياسية")
+        XCTAssertFalse(drill.passiveNote.exists)
+        let screen = app.windows.firstMatch.frame
+        XCTAssertGreaterThanOrEqual(drill.irregularNote.frame.minX, screen.minX - 1)
+        XCTAssertLessThanOrEqual(drill.irregularNote.frame.maxX, screen.maxX + 1)
+        attachScreenshot("πήρα, irregular note (ar)")
+        XCTAssertEqual(drill.answer(right: true), "right")
+        drill.run.tapContinue()
+        XCTAssertTrue(drill.waitForQuestion(), "the present question")
+        XCTAssertFalse(drill.irregularNote.exists, "παίρνεις is regular")
+    }
+
     /// 0132, #168: the drill in Arabic, mirrored. The row reads "تصريف
     /// الأفعال"; "Tenses up to" runs from the right (A1 rightmost); the
     /// verbs line starts with U+200F; the verb stands on the right, written

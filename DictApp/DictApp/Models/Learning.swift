@@ -1078,6 +1078,13 @@ enum ConjugationTense: String, CaseIterable, Sendable {
         }
     }
 
+    /// The tenses built on the aorist stem (#363), where an irregular aorist
+    /// shows: the aorist, the simple future, subjunctive and imperative, and
+    /// the perfect tenses (aorist infinitive).
+    static let aoristStem: Set<ConjugationTense> = [
+        .aorist, .future, .subjunctiveSimple, .imperativeSimple, .perfect, .pluperfect, .futurePerfect,
+    ]
+
     /// A voice with present forms and no dependent form.
     static func lacksDependent(_ voice: ParadigmLayout.VoiceForms) -> Bool {
         func has(_ slot: ParadigmLayout.FiniteSlot) -> Bool {
@@ -1586,6 +1593,9 @@ struct ConjugationQuestion: Sendable {
 
     /// A verb with passive forms only: the "passive" note next to the tense.
     var showsPassiveNote: Bool { verb.mainVoice == .passive }
+    /// The "irregular" note (#363): the aorist-stem form of a verb that
+    /// "Irregular aorists" lists. Set by the run when it publishes the question.
+    var showsIrregularNote = false
     /// The passive of a verb with both voices: "passive" in the tense line.
     var showsVoice: Bool { facet.voice == .passive && verb.mainVoice == .active }
 }
@@ -2938,7 +2948,8 @@ enum DrillText {
     /// reads them, in one stop as before #329: "Aorist, εγώ"; "Present,
     /// passive, εσύ" for γράφομαι; "Aorist, εγώ, passive" for έρχομαι.
     static func promptLabel(_ question: ConjugationQuestion, locale: Locale) -> AttributedString {
-        let note = question.showsPassiveNote ? [(localized("drill.passiveNote", locale), false)] : []
+        var note = question.showsPassiveNote ? [(localized("drill.passiveNote", locale), false)] : []
+        if question.showsIrregularNote { note.append((localized("drill.irregularNote", locale), false)) }
         return spoken(tenseLabels(question, locale: locale).map { ($0, false) } + [(question.person.pronoun, true)]
                       + note, locale: locale)
     }
@@ -3725,6 +3736,23 @@ enum GrammarLinks {
         let byTopic = gather(links)
         return Self.topics(for: subject, topics: topics, links: links)
             .first { byTopic[$0.id]?.tenses.contains(facet.tense) ?? false }
+    }
+
+    /// The topic whose `words` are the drill's "irregular" list (#363).
+    static let irregularAorists = "ell-aorist-irregular"
+
+    /// Whether the drill marks this question "irregular" (0132, "Irregular
+    /// forms (#363)"): an aorist-stem tense in the verb's main voice, with a
+    /// dependent form (not the θα / να + present fallback), of a verb that
+    /// `irregularAorists` lists by its word or citation.
+    static func marksIrregular(verb: DrillVerb, facet: ConjugationFacet, links: [GrammarLink]) -> Bool {
+        guard ConjugationTense.aoristStem.contains(facet.tense), facet.voice == verb.mainVoice,
+              let voice = verb.voices[facet.voice], !ConjugationTense.lacksDependent(voice) else { return false }
+        let words = Set([verb.word, verb.citation].map(\.precomposedStringWithCanonicalMapping))
+        return links.contains {
+            $0.topicID == irregularAorists && $0.kind == .word
+                && words.contains($0.key.precomposedStringWithCanonicalMapping)
+        }
     }
 
     private static func gather(_ links: [GrammarLink]) -> [String: Links] {

@@ -361,6 +361,7 @@ struct AccessibilityIdentifiers {
         static let promptTense = "drill_prompt_tense"
         static let promptPerson = "drill_prompt_person"
         static let passiveNote = "drill_passive_note"
+        static let irregularNote = "drill_irregular_note"
         /// #329: the ⓘ after the form's name ("About Aorist") and its
         /// popover: what the form is for, a Greek example, its translation
         /// (none in a Greek UI).

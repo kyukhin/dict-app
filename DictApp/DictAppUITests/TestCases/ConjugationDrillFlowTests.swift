@@ -52,6 +52,17 @@ final class ConjugationDrillFlowTests: XCTestCase {
         if name.contains("testCellWithoutSentenceShowsNoExample") {
             return ["-learningLanguages", "ell", "-drillLength", "1", "-drillPlan", "γράφω|futurePerfect.passive|1sg"]
         }
+        // #363: παίρνω's simple imperative (πάρε) is irregular, its present is not.
+        if name.contains("testIrregularNote") {
+            return ["-learningLanguages", "ell", "-drillLength", "2", "-drillPlan",
+                    "παίρνω|imperativeSimple.active|2sg;παίρνω|present.active|2sg"]
+        }
+        // #363: ήρθα has the passive and the irregular note, two lines, at the largest text size.
+        if name.contains("testPassiveAndIrregularNotesAreTwoLines") {
+            return ["-learningLanguages", "ell", "-learningLists", "ky-ell-a1", "-drillLength", "1", "-drillPlan",
+                    "έρχομαι|aorist.passive|1sg",
+                    "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"]
+        }
         if name.contains("testPassiveNote") || name.contains("testPractiseFromDefinition") {
             return ["-learningLanguages", "ell", "-drillLength", "3"]
         }
@@ -362,8 +373,49 @@ final class ConjugationDrillFlowTests: XCTestCase {
         tabBarPage.tapSearchTab()
         drill = openDefinition("γράφω")
         drill.practise()
-        let grafo = answerAll(drill, each: { _ in XCTAssertFalse(drill.passiveNote.exists, "no note") })
+        let grafo = answerAll(drill, each: { _ in
+            XCTAssertFalse(drill.passiveNote.exists, "no note")
+            XCTAssertFalse(drill.irregularNote.exists, "γράφω is not irregular (#363)")
+        })
         XCTAssertEqual(grafo.count, 3)
+    }
+
+    /// #363 (0132): Practise on παίρνω, `-drillPlan` its simple imperative
+    /// then its present: the first question shows the "irregular" note, the
+    /// second none; neither has the "passive" note.
+    func testIrregularNote() throws {
+        let drill = openDefinition("παίρνω")
+        drill.practise()
+        XCTAssertTrue(drill.waitForQuestion(), "the imperative question")
+        XCTAssertTrue(drill.promptTense.label.hasPrefix("Imperative: simple form"), drill.promptTense.label)
+        XCTAssertTrue(drill.irregularNote.waitForExistence(timeout: TestData.Timeouts.medium), "the irregular note")
+        XCTAssertEqual(drill.irregularNote.label, "irregular")
+        XCTAssertFalse(drill.passiveNote.exists, "παίρνω has an active voice")
+        XCTAssertEqual(drill.answer(right: true), "right")
+        XCTAssertFalse(drill.run.feedback.descendants(matching: .any)[IDs.irregularNote].exists,
+                       "no second note in the feedback bar")
+        drill.run.tapContinue()
+        XCTAssertTrue(drill.waitForQuestion(), "the present question")
+        XCTAssertEqual(drill.promptTense.label, "Present")
+        XCTAssertFalse(drill.irregularNote.exists, "παίρνεις is regular")
+    }
+
+    /// #363: ήρθα, at the largest text size: "passive" then "irregular", on
+    /// two lines, the second under the first and both on screen.
+    func testPassiveAndIrregularNotesAreTwoLines() throws {
+        let drill = openConjugation()
+        drill.start()
+        XCTAssertTrue(drill.waitForQuestion(), "the aorist question")
+        XCTAssertTrue(drill.irregularNote.waitForExistence(timeout: TestData.Timeouts.medium), "the irregular note")
+        XCTAssertTrue(drill.passiveNote.exists, "the passive note")
+        XCTAssertEqual(drill.passiveNote.label, "passive")
+        XCTAssertEqual(drill.irregularNote.label, "irregular")
+        XCTAssertGreaterThanOrEqual(drill.irregularNote.frame.minY, drill.passiveNote.frame.maxY - 2,
+                                    "irregular under passive")
+        let screen = app.windows.firstMatch.frame
+        XCTAssertGreaterThan(drill.irregularNote.frame.minX, screen.minX - 1)
+        XCTAssertLessThanOrEqual(drill.irregularNote.frame.maxX, screen.maxX + 1, "not cut off")
+        attachScreenshot("ήρθα, passive and irregular at the largest text size")
     }
 
     /// Greek learned: Practise under γράφω's table starts its drill at once;
