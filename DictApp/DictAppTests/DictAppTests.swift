@@ -12838,11 +12838,13 @@ final class WordFormsLookupTests: XCTestCase {
         }
     }
 
-    /// #362 (0136, "Imperative cells"): the 35 past forms Wiktionary put in
+    /// #362 (0136, "Imperative cells"): the 33 past forms Wiktionary put in
     /// imperative εσύ cells (`drop` rows of `Scripts/data/forms-fixes.tsv`)
     /// are gone from those cells, and each still finds its verb through its
     /// own past cell (διήρκεσε → διαρκώ, aorist); the 5 the review kept stay
-    /// in theirs; βλέπω's ιδές, now rare, still finds βλέπω.
+    /// in theirs; βλέπω's ιδές, now rare, still finds βλέπω. #378: προβάλλω's
+    /// πρέβαλε and πρέβαλλε were the πρε- typo of its aorist and imperfect,
+    /// no past forms: they leave the list and find no verb.
     func testNoPastFormInAnImperativeCell() throws {
         // (verb, form, the εσύ cell's aspect: perfective is the simple imperative)
         let dropped: [(String, String, String)] = [
@@ -12850,7 +12852,6 @@ final class WordFormsLookupTests: XCTestCase {
             ("διαρκώ", "διήρκεσε", "perfective"), ("ελπίζω", "ήλπισε", "perfective"),
             ("διαφέρω", "διέφερε", "perfective"), ("διαφέρω", "διέφερε", "imperfective"),
             ("παράγω", "παρήγαγε", "perfective"), ("παράγω", "παρήγε", "imperfective"),
-            ("προβάλλω", "πρέβαλε", "perfective"), ("προβάλλω", "πρέβαλλε", "imperfective"),
             ("συνδυάζω", "συνεδύασε", "perfective"),
             ("ανακράζω", "ανέκραξε", "perfective"), ("ανακράζω", "ανέκραζε", "imperfective"),
             ("ανακτώ", "ανέκτησε", "perfective"), ("ανατρέφω", "ανέτρεφε", "imperfective"),
@@ -12871,7 +12872,7 @@ final class WordFormsLookupTests: XCTestCase {
             ("βογκάω", "βόγγησε", "perfective"), ("επαναπροωθώ", "επαναπροώθησε", "perfective"),
             ("καρτερώ", "καρτέρησε", "perfective"),
         ]
-        XCTAssertEqual(dropped.count, 35)
+        XCTAssertEqual(dropped.count, 33)
         try readDictionaryFile { db in
             func imperativeCells(_ form: String, of verb: String, _ aspect: String) throws -> Int {
                 try Int.fetchOne(db, sql: """
@@ -12898,6 +12899,9 @@ final class WordFormsLookupTests: XCTestCase {
                 XCTAssertEqual(try imperativeCells(form, of: verb, aspect), 1, "\(form) stays in \(verb)'s imperative")
             }
             XCTAssertTrue(try lemmas(of: "ιδές", pos: "verb", in: db).contains("βλέπω"), "the rare ιδές is still searchable")
+            for typo in ["πρέβαλε", "πρέβαλλε"] {
+                XCTAssertFalse(try lemmas(of: typo, pos: "verb", in: db).contains("προβάλλω"), "\(typo) is no form of προβάλλω")
+            }
         }
     }
 
@@ -12941,6 +12945,196 @@ final class WordFormsLookupTests: XCTestCase {
             }
         }
         XCTAssertGreaterThan(asked, 100)
+    }
+
+    // MARK: #378: verb tables fixed by hand (0136, "Three tables", "More tables")
+
+    /// A verb's cells in the pack, in table order.
+    private func verbCells(_ word: String) throws -> [ParadigmCell] {
+        try readDictionaryFile { db in
+            try Row.fetchAll(db, sql: """
+                SELECT p.form, t.tags FROM paradigm AS p JOIN lemma AS l ON l.id = p.lemma_id
+                JOIN tagset AS t ON t.id = p.tagset_id WHERE l.word = ? AND l.pos = 'verb' ORDER BY p.ord
+                """, arguments: [word]).map { ParadigmCell(form: $0["form"], tags: $0["tags"] as String) }
+        }
+    }
+
+    /// The forms of the cells with exactly these tags, in table order.
+    private func forms(_ cells: [ParadigmCell], _ tags: String) -> [String] {
+        let wanted = ParadigmCell.tags(tags)
+        return cells.filter { $0.tags == wanted }.map(\.form)
+    }
+
+    /// The caption tags `form_lookup` gives a form of a verb, nil without a row.
+    private func caption(_ form: String, of verb: String, in db: Database) throws -> String? {
+        try String.fetchOne(db, sql: """
+            SELECT t.tags FROM form_lookup AS f JOIN lemma AS l ON l.id = f.lemma_id
+            JOIN tagset AS t ON t.id = f.tagset_id WHERE f.form_norm = ? AND l.word = ? AND l.pos = 'verb'
+            """, arguments: [Search.foldGreek(form), verb])
+    }
+
+    /// The drill verb of a table as Practise builds it (own table, no list).
+    private func drillVerb(_ word: String, _ cells: [ParadigmCell]) throws -> DrillVerb {
+        let paradigm = LemmaParadigm(word: word, pos: "verb", cells: cells, isLinked: false)
+        return try XCTUnwrap(DrillVerb.make(word: word, paradigm: paradigm, translation: ""), word)
+    }
+
+    private static let aorist = ["active first-person indicative past perfective singular",
+                                 "active indicative past perfective second-person singular",
+                                 "active indicative past perfective singular third-person",
+                                 "active first-person indicative past perfective plural",
+                                 "active indicative past perfective plural second-person",
+                                 "active indicative past perfective plural third-person"]
+
+    /// #378, "Three tables": επιμένω's aorist leaves the dependent's cells
+    /// for its own, προβάλλω reads πρόβαλα / προέβαλα and πρόβαλλα /
+    /// προέβαλλα with the imperative πρόβαλε, προβάλετε / προβάλτε,
+    /// τεμπελιάζω's perfective forms are spelt τεμπελ-; the lookups follow,
+    /// and the drill asks the right forms. Both επιμένω and προβάλλω have an
+    /// aorist in their main voice, so #363 can list them as irregular.
+    func testThreeTablesFromWiktionary() throws {
+        let epimeno = try verbCells("επιμένω")
+        let aorists = [["επέμεινα"], ["επέμεινες"], ["επέμεινε"], ["επιμείναμε"], ["επιμείνατε"],
+                       ["επέμειναν", "επιμείναν", "επιμείνανε"]]
+        for (tags, expected) in zip(Self.aorist, aorists) {
+            XCTAssertEqual(forms(epimeno, tags), expected, "επιμένω: \(tags)")
+        }
+        let moved = Set(aorists.flatMap { $0 })
+        XCTAssertEqual(epimeno.filter { $0.tags.contains("dependent") && moved.contains($0.form) }.map(\.form), [],
+                       "no aorist form is left in the dependent's cells")
+        XCTAssertEqual(forms(epimeno, "active indeclinable participle present"), ["επιμένοντας"])
+
+        let provallo = try verbCells("προβάλλω")
+        XCTAssertEqual(forms(provallo, Self.aorist[0]), ["πρόβαλα", "προέβαλα"])
+        XCTAssertEqual(forms(provallo, Self.aorist[2]), ["πρόβαλε", "προέβαλε"])
+        XCTAssertEqual(forms(provallo, "active first-person imperfect imperfective indicative singular"),
+                       ["πρόβαλλα", "προέβαλλα"])
+        XCTAssertEqual(forms(provallo, "active imperative perfective second-person singular"), ["πρόβαλε"])
+        XCTAssertEqual(forms(provallo, "active imperative perfective plural second-person"), ["προβάλετε", "προβάλτε"])
+        XCTAssertEqual(forms(provallo, "active imperative imperfective second-person singular"), [],
+                       "the continuous imperative εσύ stays empty")
+        XCTAssertEqual(forms(provallo, "imperative passive perfective rare second-person singular"), ["προβάλου"])
+        XCTAssertEqual(forms(provallo, "imperative passive perfective second-person singular"), [])
+        XCTAssertEqual(provallo.filter { $0.form.hasPrefix("πρέβαλ") }.map(\.form), [], "no πρέβαλ- form")
+
+        let tempeliazo = try verbCells("τεμπελιάζω")
+        XCTAssertEqual(tempeliazo.filter { $0.form.hasPrefix("τεμπαλ") || $0.form.hasPrefix("τεμπάλ") }.map(\.form), [])
+        let perfective = tempeliazo.filter { $0.tags.contains("perfective") || $0.tags.contains("infinitive-aorist") }
+        XCTAssertEqual(perfective.count, 19)
+        XCTAssertTrue(perfective.allSatisfy { $0.form.hasPrefix("τεμπελ") || $0.form.hasPrefix("τεμπέλ") },
+                      "\(perfective.map(\.form))")
+
+        try readDictionaryFile { db in
+            XCTAssertEqual(try caption("επέμεινα", of: "επιμένω", in: db), Self.aorist[0], "aorist 1sg, not dependent")
+            XCTAssertEqual(try caption("πρόβαλε", of: "προβάλλω", in: db), Self.aorist[2])
+            XCTAssertEqual(try caption("προέβαλε", of: "προβάλλω", in: db), Self.aorist[2])
+            XCTAssertTrue(try lemmas(of: "προβάλου", pos: "verb", in: db).contains("προβάλλω"), "the rare προβάλου")
+            XCTAssertTrue(try lemmas(of: "τεμπέλιασα", pos: "verb", in: db).contains("τεμπελιάζω"))
+            XCTAssertEqual(try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM form_link WHERE form = 'τεμπέλιασα'"), 0,
+                           "τεμπέλιασα is a cell now, no link spelling")
+            XCTAssertEqual(try lemmas(of: "επιμένοντας", pos: "verb", in: db), ["επιμένω"])
+            for typo in ["πρέβαλα", "τεμπάλιασα"] {
+                XCTAssertEqual(try lemmas(of: typo, in: db), [], "\(typo) finds nothing")
+            }
+        }
+
+        let aoristFacet = ConjugationFacet(.aorist, .active)
+        let epimenoVerb = try drillVerb("επιμένω", epimeno)
+        let b1 = ConjugationQuestionBuilder.questions(verb: epimenoVerb, level: .b1)
+        XCTAssertEqual(b1.first { $0.facet == aoristFacet }?.persons, ParadigmLayout.Person.allCases)
+        XCTAssertEqual(epimenoVerb.forms(aoristFacet, .firstSingular).first, "επέμεινα")
+        XCTAssertEqual(epimenoVerb.forms(ConjugationFacet(.future, .active), .firstSingular), ["θα επιμείνω"])
+        let provalloVerb = try drillVerb("προβάλλω", provallo)
+        XCTAssertEqual(provalloVerb.forms(aoristFacet, .firstSingular).first, "πρόβαλα")
+        XCTAssertEqual(provalloVerb.forms(ConjugationFacet(.imperativeSimple, .active), .secondSingular), ["πρόβαλε"])
+        let tempeliazoVerb = try drillVerb("τεμπελιάζω", tempeliazo)
+        var asked = 0
+        for (facet, persons) in ConjugationQuestionBuilder.questions(verb: tempeliazoVerb, level: .b2) {
+            for person in persons {
+                asked += 1
+                XCTAssertFalse(tempeliazoVerb.forms(facet, person).contains { Search.foldGreek($0).contains("τεμπαλ") },
+                               "\(facet.rawValue) \(person.rawValue)")
+            }
+        }
+        XCTAssertGreaterThan(asked, 50)
+    }
+
+    /// #378, "More tables": περιμένω gains its aorist (spelt as the
+    /// imperfect), simple imperative, dependent (spelt as the present) and
+    /// aorist infinitive, so its Future is θα + the dependent, not the
+    /// fallback, and B1 asks its continuous Future; απέχω its aorist απείχα
+    /// and the asked imperative απόσχετε; the imperatives σύνθεσε, χτένισε
+    /// and the continuous σύνθετε, χτένιζε, μάλωνε; συλλέγω's σύλλεξε
+    /// without its rare tag; βοηθάω's βόη- forms and αφήνω's αφήκ- ones
+    /// hidden as rare, still searchable.
+    func testMoreTablesFromWiktionary() throws {
+        let perimeno = try verbCells("περιμένω")
+        XCTAssertEqual(forms(perimeno, Self.aorist[0]), ["περίμενα"])
+        XCTAssertEqual(forms(perimeno, Self.aorist[5]), ["περίμεναν", "περιμέναν", "περιμένανε"])
+        XCTAssertEqual(forms(perimeno, "active imperative perfective second-person singular"), ["περίμενε"])
+        XCTAssertEqual(forms(perimeno, "active imperative perfective plural second-person"), ["περιμένετε"])
+        XCTAssertEqual(forms(perimeno, "active dependent first-person indicative perfective singular"), ["περιμένω"])
+        XCTAssertEqual(forms(perimeno, "active infinitive-aorist"), ["περιμένει"])
+
+        let apecho = try verbCells("απέχω")
+        XCTAssertEqual(forms(apecho, Self.aorist[0]), ["απείχα"])
+        XCTAssertEqual(forms(apecho, Self.aorist[5]), ["απείχαν", "απείχανε"])
+        XCTAssertEqual(forms(apecho, "active imperative perfective plural second-person"), ["απόσχετε"])
+        XCTAssertEqual(forms(apecho, "active imperative perfective plural rare second-person"), ["απόσχτε"])
+
+        let simple2 = "active imperative perfective second-person singular"
+        let continuous2 = "active imperative imperfective second-person singular"
+        let syntheto = try verbCells("συνθέτω"), chtenizo = try verbCells("χτενίζω"), malono = try verbCells("μαλώνω")
+        XCTAssertEqual(forms(syntheto, simple2), ["σύνθεσε"])
+        XCTAssertEqual(forms(syntheto, continuous2), ["σύνθετε"])
+        XCTAssertEqual(forms(chtenizo, simple2), ["χτένισε"])
+        XCTAssertEqual(forms(chtenizo, continuous2), ["χτένιζε"])
+        XCTAssertEqual(forms(malono, continuous2), ["μάλωνε"])
+        let syllego = try verbCells("συλλέγω")
+        XCTAssertEqual(forms(syllego, simple2), ["σύλλεξε"])
+        XCTAssertEqual(syllego.filter { $0.form == "σύλλεξε" && $0.tags.contains("rare") }.count, 0, "not rare")
+
+        let voithao = try verbCells("βοηθάω")
+        let voi = voithao.filter { $0.form.hasPrefix("βόη") || $0.form.hasPrefix("βοηθούνεν") }
+        XCTAssertEqual(voi.count, 10)
+        XCTAssertTrue(voi.allSatisfy { $0.tags.contains("rare") }, "\(voi.map(\.form))")
+        XCTAssertEqual(forms(voithao, Self.aorist[0]), ["βοήθησα"], "no βόη- form shows in the aorist")
+        let afino = try verbCells("αφήνω")
+        let afik = afino.filter { ($0.form.hasPrefix("αφήκ") || $0.form.hasPrefix("άφηκ")) && !$0.tags.contains("participle") }
+        XCTAssertEqual(afik.count, 14)
+        XCTAssertTrue(afik.allSatisfy { $0.tags.contains("rare") }, "\(afik.map(\.form))")
+
+        try readDictionaryFile { db in
+            XCTAssertTrue(try lemmas(of: "βόηθα", pos: "verb", in: db).contains("βοηθάω"), "βόηθα still finds βοηθάω")
+            XCTAssertTrue(try lemmas(of: "αφήκω", pos: "verb", in: db).contains("αφήνω"), "αφήκω still finds αφήνω")
+            XCTAssertTrue(try lemmas(of: "απείχαμε", pos: "verb", in: db).contains("απέχω"))
+            XCTAssertEqual(try caption("απείχαμε", of: "απέχω", in: db), Self.aorist[3], "aorist 1pl")
+        }
+
+        let perimenoVerb = try drillVerb("περιμένω", perimeno)
+        let a1 = ConjugationQuestionBuilder.questions(verb: perimenoVerb, level: .a1)
+        XCTAssertEqual(a1.first { $0.facet == ConjugationFacet(.aorist, .active) }?.persons, ParadigmLayout.Person.allCases)
+        XCTAssertEqual(a1.first { $0.facet == ConjugationFacet(.imperativeSimple, .active) }?.persons,
+                       [ParadigmLayout.Person.secondSingular, .secondPlural])
+        XCTAssertEqual(perimenoVerb.forms(ConjugationFacet(.future, .active), .firstSingular), ["θα περιμένω"])
+        let b1 = ConjugationQuestionBuilder.questions(verb: perimenoVerb, level: .b1)
+        XCTAssertEqual(b1.first { $0.facet == ConjugationFacet(.futureContinuous, .active) }?.persons,
+                       ParadigmLayout.Person.allCases,
+                       "a verb with a dependent asks its continuous Future at B1 (the fallback gives none)")
+        XCTAssertEqual(perimenoVerb.forms(ConjugationFacet(.futureContinuous, .active), .thirdPlural),
+                       ["θα περιμένουν", "θα περιμένουνε"])
+
+        let apechoVerb = try drillVerb("απέχω", apecho)
+        let simple = ConjugationFacet(.imperativeSimple, .active)
+        XCTAssertEqual(apechoVerb.forms(simple, .secondPlural), ["απόσχετε"])
+        for seed in UInt64(1)...3 {
+            let question = try XCTUnwrap(DrillFixture.build(apechoVerb, .imperativeSimple, .secondPlural, level: .a1,
+                                                            seed: seed))
+            XCTAssertEqual(question.options[question.rightIndex], "απόσχετε", "seed \(seed)")
+            XCTAssertFalse(question.options.contains("απόσχτε"), "the rare απόσχτε is never offered")
+        }
+        let afinoVerb = try drillVerb("αφήνω", afino)
+        XCTAssertEqual(afinoVerb.forms(ConjugationFacet(.aorist, .active), .firstSingular), ["άφησα"])
     }
 }
 

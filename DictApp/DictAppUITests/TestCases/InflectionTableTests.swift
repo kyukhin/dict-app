@@ -150,6 +150,31 @@ final class InflectionTableTests: XCTestCase {
         XCTAssertFalse(rare.firstMatch.exists, "no ιδές in all forms")
     }
 
+    /// #378 (0136, "Three tables"): επιμένω has an Aorist, επέμεινα, which
+    /// Wiktionary had tagged dependent, and its Future is θα επιμείνω alone.
+    func testEpimenoAorist() throws {
+        let page = InflectionTablePage.open("επιμένω", source: TestData.Sources.freedictEllEng,
+                                            from: tabBarPage.tapSearchTab(), app: app)
+        let aorist = page.cell(IDs.verbCell(slot: "aorist", person: "1sg"))
+        XCTAssertEqual(aorist.label, "aorist, εγώ, επέμεινα")
+        XCTAssertEqual(page.cell(IDs.verbCell(slot: "future", person: "1sg")).label, "future, εγώ, θα επιμείνω")
+        XCTAssertTrue(page.reveal(aorist))
+        attachScreenshot("επιμένω, the aorist")
+    }
+
+    /// #378 (0136, "More tables"): περιμένω has an Aorist, spelt as its
+    /// imperfect, and a simple imperative.
+    func testPerimenoAorist() throws {
+        let page = InflectionTablePage.open("περιμένω", source: TestData.Sources.freedictEllEng,
+                                            from: tabBarPage.tapSearchTab(), app: app)
+        let aorist = page.cell(IDs.verbCell(slot: "aorist", person: "1sg"))
+        XCTAssertEqual(aorist.label, "aorist, εγώ, περίμενα")
+        let simple = page.cell(IDs.verbCell(slot: "imperative_simple", person: "2sg"))
+        XCTAssertEqual(simple.label, "imperative, simple, εσύ, περίμενε")
+        XCTAssertTrue(page.reveal(aorist))
+        attachScreenshot("περιμένω, the aorist")
+    }
+
     /// VoiceOver reads a cell as "column, row, form", and each data cell is
     /// one element.
     func testCellLabel() throws {

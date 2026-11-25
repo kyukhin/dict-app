@@ -8,9 +8,14 @@
 # moves there). With `-` as the right form (#362): `drop` takes the form out of
 # its cell, `keep` changes nothing and records a reviewed past-form flag, `rare`
 # tags the form rare (hidden from the tables and the drill, still searchable).
+# With `-` as the wrong form (#378): `add` puts the right form in a verb's cell
+# that lacks it, after the lemma's last cell; its tags must be a tag set some
+# cell of the subset has, with a shown verb slot. Rows apply in file order.
 # The build fails when a row's wrong form is no longer in that cell of the
-# subset (a new snapshot fixed it: drop the row), and when an imperative form
-# spelt like a past form of its verb has no `drop` or `keep` row (#362).
+# subset (a new snapshot fixed it: drop the row), when an `add`'s cell already
+# holds its form or its verb has no table, when a `keep` reviews no flag, and
+# when an imperative form spelt like a past form of its verb has no `drop` or
+# `keep` row (#362).
 lemma	tags	wrong	right	kind
 θυμίζω	active first-person imperfective indicative present singular	θυμήζω	θυμίζω	replace
 θυμίζω	active imperfective indicative present second-person singular	θυμήζεις	θυμίζεις	replace
@@ -45,7 +50,8 @@ lemma	tags	wrong	right	kind
 διαφέρω	active imperative imperfective second-person singular	διέφερε	-	drop
 παράγω	active imperative perfective second-person singular	παρήγαγε	-	drop
 παράγω	active imperative imperfective second-person singular	παρήγε	-	drop
-προβάλλω	active imperative perfective second-person singular	πρέβαλε	-	drop
+# προβάλλω's πρέβαλε, the aorist's πρε- typo: a `replace` with πρόβαλε since #378 (0136 "Three tables").
+προβάλλω	active imperative perfective second-person singular	πρέβαλε	πρόβαλε	replace
 προβάλλω	active imperative imperfective second-person singular	πρέβαλλε	-	drop
 συνδυάζω	active imperative perfective second-person singular	συνεδύασε	-	drop
 # The other lemmas' flags:
@@ -119,3 +125,130 @@ lemma	tags	wrong	right	kind
 σερβίρω	imperative passive perfective plural second-person	σερβαριστείτε	σερβιριστείτε	replace
 σερβίρω	participle passive past	σερβαρισμένος	σερβιρισμένος	replace
 σερβίρω	infinitive-aorist passive	σερβαριστεί	σερβιριστεί	replace
+# #378 (kyukhin 2026-11-24, 0136 "Three tables"): three verb tables fixed by hand.
+# επιμένω: Wiktionary tags the aorist dependent; each form leaves the dependent's cell for the aorist's.
+επιμένω	active dependent first-person indicative perfective singular	επέμεινα	-	drop
+επιμένω	active dependent indicative perfective second-person singular	επέμεινες	-	drop
+επιμένω	active dependent indicative perfective singular third-person	επέμεινε	-	drop
+επιμένω	active dependent first-person indicative perfective plural	επιμείναμε	-	drop
+επιμένω	active dependent indicative perfective plural second-person	επιμείνατε	-	drop
+επιμένω	active dependent indicative perfective plural third-person	επέμειναν	-	drop
+επιμένω	active dependent indicative perfective plural third-person	επιμείναν	-	drop
+επιμένω	active dependent indicative perfective plural third-person	επιμείνανε	-	drop
+επιμένω	active first-person indicative past perfective singular	-	επέμεινα	add
+επιμένω	active indicative past perfective second-person singular	-	επέμεινες	add
+επιμένω	active indicative past perfective singular third-person	-	επέμεινε	add
+επιμένω	active first-person indicative past perfective plural	-	επιμείναμε	add
+επιμένω	active indicative past perfective plural second-person	-	επιμείνατε	add
+επιμένω	active indicative past perfective plural third-person	-	επέμειναν	add
+επιμένω	active indicative past perfective plural third-person	-	επιμείναν	add
+επιμένω	active indicative past perfective plural third-person	-	επιμείνανε	add
+# επιμένω's present participle: επιμένοντας, not επιμένουσα (the feminine of the learned επιμένων).
+επιμένω	active indeclinable participle present	επιμένουσα	επιμένοντας	replace
+# προβάλλω: the aorist and the imperfect spelt πρε-; the formal προέβαλα … and προέβαλλα … as second forms.
+προβάλλω	active first-person indicative past perfective singular	πρέβαλα	πρόβαλα	replace
+προβάλλω	active indicative past perfective second-person singular	πρέβαλες	πρόβαλες	replace
+προβάλλω	active indicative past perfective singular third-person	πρέβαλε	πρόβαλε	replace
+προβάλλω	active indicative past perfective plural third-person	πρέβαλαν	πρόβαλαν	replace
+προβάλλω	active first-person indicative past perfective singular	-	προέβαλα	add
+προβάλλω	active indicative past perfective second-person singular	-	προέβαλες	add
+προβάλλω	active indicative past perfective singular third-person	-	προέβαλε	add
+προβάλλω	active indicative past perfective plural third-person	-	προέβαλαν	add
+προβάλλω	active first-person imperfect imperfective indicative singular	πρέβαλλα	πρόβαλλα	replace
+προβάλλω	active imperfect imperfective indicative second-person singular	πρέβαλλες	πρόβαλλες	replace
+προβάλλω	active imperfect imperfective indicative singular third-person	πρέβαλλε	πρόβαλλε	replace
+προβάλλω	active imperfect imperfective indicative plural third-person	πρέβαλλαν	πρόβαλλαν	replace
+προβάλλω	active first-person imperfect imperfective indicative singular	-	προέβαλλα	add
+προβάλλω	active imperfect imperfective indicative second-person singular	-	προέβαλλες	add
+προβάλλω	active imperfect imperfective indicative singular third-person	-	προέβαλλε	add
+προβάλλω	active imperfect imperfective indicative plural third-person	-	προέβαλλαν	add
+# προβάλλω's imperative: προβάλετε asked, προβάλτε accepted; the passive προβάλου, regular but unused, rare.
+προβάλλω	active imperative perfective plural second-person	προβάλτε	προβάλετε	first
+προβάλλω	imperative passive perfective second-person singular	προβάλου	-	rare
+# τεμπελιάζω: every perfective form spelt τεμπαλ-.
+τεμπελιάζω	active dependent first-person indicative perfective singular	τεμπαλιάσω	τεμπελιάσω	replace
+τεμπελιάζω	active dependent indicative perfective second-person singular	τεμπαλιάσεις	τεμπελιάσεις	replace
+τεμπελιάζω	active dependent indicative perfective singular third-person	τεμπαλιάσει	τεμπελιάσει	replace
+τεμπελιάζω	active dependent first-person indicative perfective plural	τεμπαλιάσουμε	τεμπελιάσουμε	replace
+τεμπελιάζω	active dependent first-person indicative perfective plural rare	τεμπαλιάσομε	τεμπελιάσομε	replace
+τεμπελιάζω	active dependent indicative perfective plural second-person	τεμπαλιάσετε	τεμπελιάσετε	replace
+τεμπελιάζω	active dependent indicative perfective plural third-person	τεμπαλιάσουν	τεμπελιάσουν	replace
+τεμπελιάζω	active dependent indicative perfective plural third-person	τεμπαλιάσουνε	τεμπελιάσουνε	replace
+τεμπελιάζω	active first-person indicative past perfective singular	τεμπάλιασα	τεμπέλιασα	replace
+τεμπελιάζω	active indicative past perfective second-person singular	τεμπάλιασες	τεμπέλιασες	replace
+τεμπελιάζω	active indicative past perfective singular third-person	τεμπάλιασε	τεμπέλιασε	replace
+τεμπελιάζω	active first-person indicative past perfective plural	τεμπαλιάσαμε	τεμπελιάσαμε	replace
+τεμπελιάζω	active indicative past perfective plural second-person	τεμπαλιάσατε	τεμπελιάσατε	replace
+τεμπελιάζω	active indicative past perfective plural third-person	τεμπάλιασαν	τεμπέλιασαν	replace
+τεμπελιάζω	active indicative past perfective plural third-person	τεμπαλιάσαν	τεμπελιάσαν	replace
+τεμπελιάζω	active indicative past perfective plural third-person	τεμπαλιάσανε	τεμπελιάσανε	replace
+τεμπελιάζω	active imperative perfective second-person singular	τεμπάλιασε	τεμπέλιασε	replace
+τεμπελιάζω	active imperative perfective plural second-person	τεμπαλιάστε	τεμπελιάστε	replace
+τεμπελιάζω	infinitive-aorist	τεμπαλιάσει	τεμπελιάσει	replace
+# #378, "More tables" (kyukhin 2026-11-24, Open questions 10 to 14).
+# περιμένω: the aorist, spelt as the imperfect, and the simple imperative, which the subset lacks; the
+# dependent, spelt as the present as κρίνω's; the aorist infinitive περιμένει.
+περιμένω	active first-person indicative past perfective singular	-	περίμενα	add
+περιμένω	active indicative past perfective second-person singular	-	περίμενες	add
+περιμένω	active indicative past perfective singular third-person	-	περίμενε	add
+περιμένω	active first-person indicative past perfective plural	-	περιμέναμε	add
+περιμένω	active indicative past perfective plural second-person	-	περιμένατε	add
+περιμένω	active indicative past perfective plural third-person	-	περίμεναν	add
+περιμένω	active indicative past perfective plural third-person	-	περιμέναν	add
+περιμένω	active indicative past perfective plural third-person	-	περιμένανε	add
+περιμένω	active imperative perfective second-person singular	-	περίμενε	add
+περιμένω	active imperative perfective plural second-person	-	περιμένετε	add
+περιμένω	active dependent first-person indicative perfective singular	-	περιμένω	add
+περιμένω	active dependent indicative perfective second-person singular	-	περιμένεις	add
+περιμένω	active dependent indicative perfective singular third-person	-	περιμένει	add
+περιμένω	active dependent first-person indicative perfective plural	-	περιμένουμε	add
+περιμένω	active dependent indicative perfective plural second-person	-	περιμένετε	add
+περιμένω	active dependent indicative perfective plural third-person	-	περιμένουν	add
+περιμένω	active dependent indicative perfective plural third-person	-	περιμένουνε	add
+περιμένω	active infinitive-aorist	-	περιμένει	add
+# απέχω: the aorist απείχα …, its persons as the subset's παρέχω; the simple imperative εσείς απόσχετε
+# asked, απόσχτε rare.
+απέχω	active first-person indicative past perfective singular	-	απείχα	add
+απέχω	active indicative past perfective second-person singular	-	απείχες	add
+απέχω	active indicative past perfective singular third-person	-	απείχε	add
+απέχω	active first-person indicative past perfective plural	-	απείχαμε	add
+απέχω	active indicative past perfective plural second-person	-	απείχατε	add
+απέχω	active indicative past perfective plural third-person	-	απείχαν	add
+απέχω	active indicative past perfective plural third-person	-	απείχανε	add
+απέχω	active imperative perfective plural second-person	-	απόσχετε	add
+απέχω	active imperative perfective plural second-person	απόσχτε	-	rare
+# The imperatives εσύ that Wiktionary stresses on the penult (συνθέσε): σύνθεσε, σύνθετε, χτένισε, χτένιζε, μάλωνε.
+συνθέτω	active imperative perfective second-person singular	συνθέσε	σύνθεσε	replace
+συνθέτω	active imperative imperfective second-person singular	συνθέτε	σύνθετε	replace
+χτενίζω	active imperative perfective second-person singular	χτενίσε	χτένισε	replace
+χτενίζω	active imperative imperfective second-person singular	χτενίζε	χτένιζε	replace
+μαλώνω	active imperative imperfective second-person singular	μαλώνε	μάλωνε	replace
+# συλλέγω: σύλλεξε without its rare tag.
+συλλέγω	active imperative perfective rare second-person singular	σύλλεξε	-	drop
+συλλέγω	active imperative perfective second-person singular	-	σύλλεξε	add
+# βοηθάω: the βόη- forms and the dialectal βοηθούνεν(ε) rare, still searchable.
+βοηθάω	active first-person indicative past perfective singular	βόηθησα	-	rare
+βοηθάω	active indicative past perfective second-person singular	βόηθησες	-	rare
+βοηθάω	active indicative past perfective singular third-person	βόηθησε	-	rare
+βοηθάω	active first-person imperfect imperfective indicative singular	βόηθαγα	-	rare
+βοηθάω	active imperfect imperfective indicative second-person singular	βόηθαγες	-	rare
+βοηθάω	active imperfect imperfective indicative singular third-person	βόηθαγε	-	rare
+βοηθάω	active imperative imperfective second-person singular	βόηθα	-	rare
+βοηθάω	active imperative imperfective second-person singular	βόηθαγε	-	rare
+βοηθάω	active imperfective indicative plural present third-person	βοηθούνεν	-	rare
+βοηθάω	active imperfective indicative plural present third-person	βοηθούνενε	-	rare
+# αφήνω: the second forms in αφήκ-, άφηκ- rare, still searchable.
+αφήνω	active dependent first-person indicative perfective singular	αφήκω	-	rare
+αφήνω	active dependent indicative perfective second-person singular	αφήκεις	-	rare
+αφήνω	active dependent indicative perfective singular third-person	αφήκει	-	rare
+αφήνω	active dependent first-person indicative perfective plural	αφήκουμε	-	rare
+αφήνω	active dependent indicative perfective plural second-person	αφήκετε	-	rare
+αφήνω	active dependent indicative perfective plural third-person	αφήκουν	-	rare
+αφήνω	active dependent indicative perfective plural third-person	αφήκουνε	-	rare
+αφήνω	active first-person indicative past perfective singular	άφηκα	-	rare
+αφήνω	active indicative past perfective second-person singular	άφηκες	-	rare
+αφήνω	active indicative past perfective singular third-person	άφηκε	-	rare
+αφήνω	active first-person indicative past perfective plural	αφήκαμε	-	rare
+αφήνω	active indicative past perfective plural second-person	αφήκατε	-	rare
+αφήνω	active indicative past perfective plural third-person	άφηκαν	-	rare
+αφήνω	active infinitive-aorist	αφήκει	-	rare
