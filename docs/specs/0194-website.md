@@ -1,6 +1,5 @@
 # Website
 
-> Spec written by Claude (AI) for LibreDict.
 > Status: Approved by kyukhin on 2026-11-09 · Epic: #194 · Tickets: #29 · Updated: 2026-11-09
 
 ## Why

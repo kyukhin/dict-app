@@ -1,6 +1,5 @@
 # Word lists by level and list import
 
-> Spec written by Claude (AI) for LibreDict.
 > Status: Implemented, with a revision for epic #292 (#295: lists per pair tab; #298: "Learning from"), approved by kyukhin on 2026-11-10 and built (PRs #303, #304, #305); the rest approved by kyukhin on 2026-11-04 · Epic: #130 · Tickets: #151, #152, #153, #154, #155; #295, #298; #339, #346 · Updated: 2026-11-17
 
 Read [0000-overview.md](0000-overview.md), [0129-dictionary-file.md](0129-dictionary-file.md) and [0136-word-forms.md](0136-word-forms.md) first, and 0237 (#237, downloads), written in parallel. E3 adds static list data, which ships in each language's pack (0237's install of the language's lists), one migration to the user database, a Lists screen in the Learn tab and list import. E4 (#131, learning, spec 0131) and E10 (#166, statistics, spec 0166) are drafted in parallel and build on the interface in "For E4 and E10". Numbers marked "measured" come from a prototype run on 2026-11-03 against master `7df5f05` (`dictionaries.sqlite` format 3), kyukhin's three CSVs of 2026-10-22, CEFR-J and Octanove at the pinned commit, and FrequencyWords 2018.

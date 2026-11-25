@@ -1,6 +1,5 @@
 # Dictionaries as one read-only file
 
-> Spec written by Claude (AI) for LibreDict.
 > Status: Approved by kyukhin on 2026-11-04 with #237 (before it on 2026-10-30, first on 2026-10-28) · Epic: #129 · Tickets: #112, #138, #139, #140, #213, #216; #237 changes it ([0237](0237-downloads.md)) · Updated: 2026-11-08
 
 This spec is the #112 design. It replaces the Bundled data, Database, Launch and Imported dictionaries sections of [0000-overview.md](0000-overview.md) once implemented. Order: #138, then #139 and #140, then #213.

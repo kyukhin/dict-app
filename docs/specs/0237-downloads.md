@@ -1,6 +1,5 @@
 # Dictionaries and word lists downloaded at setup
 
-> Spec written by Claude (AI) for LibreDict.
 > Status: Approved by kyukhin on 2026-11-04 · Epic: #237 · Tickets: #240 (T1, done), #241 (T2, done), #242 (T3, done), #243 (T4), #244 (T5, done), #245 (T6), #246 (T7) · Updated: 2026-11-23
 
 Read [0000-overview.md](0000-overview.md), [0129-dictionary-file.md](0129-dictionary-file.md) and [0136-word-forms.md](0136-word-forms.md) first. This epic changes 0129's single bundled file into an English bundle plus language packs, attached the same way. E3 ([0130](0130-word-lists.md), word lists) and E4 ([0131](0131-learning.md), learning) are drafted in parallel and call this spec's API ("For E3 and E4"). Numbers marked "measured" come from a prototype of the cut, run on 2026-11-03 and 11-04 against the dictionary file of master `fc8c930` (151,674,880 bytes, sha256 `24a1494d…`), Python 3.14.0, SQLite 3.51.2, on a Mac under heavy load (timings are relative).
