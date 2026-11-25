@@ -1593,6 +1593,74 @@ Words:
 - δίνω: allow, grant (Greek – English (WordNet)); give (Greek – English (FreeDict))
 - ξέρω: know (Greek – English (WordNet)); know (Greek – English (FreeDict))
 - θέλω: demand (Greek – English (WordNet)); want, wish, like, will (Greek – English (FreeDict))
+- καταλαβαίνω: catch, pick up (Greek – English (WordNet)); understand, comprehend, be on the same page (Greek – English (FreeDict))
+- βάζω: admit, let in, include (Greek – English (WordNet)); put (Greek – English (FreeDict))
+- φέρνω: bring (Greek – English (WordNet)); ish (Greek – English (FreeDict))
+- μαθαίνω: know (Greek – English (WordNet)); learn, accustomed (Greek – English (FreeDict))
+- βγάζω: draw, take out (Greek – English (WordNet))
+- στέλνω: send, send out (Greek – English (WordNet)); send (Greek – English (FreeDict))
+- ανεβαίνω: ascend, go up (Greek – English (WordNet)); ascend, get, go, rise, come (Greek – English (FreeDict))
+- κατεβαίνω: descend, fall, go down, come down (Greek – English (WordNet)); come down, descend, come, get, go (Greek – English (FreeDict))
+- πλένω: cleanse, clean (Greek – English (WordNet)); wash, brush (teeth) (Greek – English (FreeDict))
+- σημαίνω: chatter, click (Greek – English (WordNet)); mean (Greek – English (FreeDict))
+- παθαίνω: suffer, sustain, have, get (Greek – English (WordNet))
+- προλαβαίνω: catch (Greek – English (WordNet)); catch up, avert, catch, get around to, in time, make it (Greek – English (FreeDict))
+- πεθαίνω: die, decease, perish, go, exit, pass away, expire, pass, kick the bucket, cash in one's chips, buy the farm, conk, give-up the ghost, drop dead, pop off, choke, croak, snuff it (Greek – English (WordNet)); die, decease, bite the dust (Greek – English (FreeDict))
+- πετυχαίνω: pick up (Greek – English (WordNet)); achieve, hit a home run, succeed (Greek – English (FreeDict))
+- παραγγέλλω: order (Greek – English (WordNet)); order, bespeak (Greek – English (FreeDict))
+- παράγω: beget, get, engender, father, mother, sire, generate, bring forth (Greek – English (WordNet)); produce, churn (Greek – English (FreeDict))
+- ζεσταίνω: heat, heat up (Greek – English (WordNet)); heat, warm (Greek – English (FreeDict))
+- πικραίνω: pain, anguish, hurt (Greek – English (WordNet))
+- απολυμαίνω: disinfect (Greek – English (WordNet)); disinfect (Greek – English (FreeDict))
+- γλυκαίνω: sweeten (Greek – English (FreeDict))
+- θερμαίνω: heat, heat up (Greek – English (WordNet)); heat, warm (Greek – English (FreeDict))
+- αναφέρω: reference, cite (Greek – English (WordNet)); mention (Greek – English (FreeDict))
+- προσφέρω: distribute, give out, hand out, pass out (Greek – English (WordNet)); offer (Greek – English (FreeDict))
+- αποφεύγω: abstain, refrain, desist (Greek – English (WordNet)); avoid, abstain from, refrain from (Greek – English (FreeDict))
+- συμμετέχω: enter, participate (Greek – English (WordNet)); participate (Greek – English (FreeDict))
+- καταφέρνω: do, manage (Greek – English (WordNet)); accomplish, succeed, pull off (Greek – English (FreeDict))
+- μεταφέρω: advance, bring forward (Greek – English (WordNet)); transport, convey, transfer (Greek – English (FreeDict))
+- επαναλαμβάνω: repeat, reiterate, ingeminate, iterate, restate, retell (Greek – English (WordNet)); repeat, review, reprise (Greek – English (FreeDict))
+- ενδιαφέρω: interest (Greek – English (WordNet)); interest (Greek – English (FreeDict))
+- περιλαμβάνω: embrace, encompass, comprehend, cover (Greek – English (WordNet)); contain, include (Greek – English (FreeDict))
+- παραμένω: bide, abide, stay (Greek – English (WordNet)); remain, stay put (Greek – English (FreeDict))
+- επιμένω: insist, take a firm stand (Greek – English (WordNet)); insist, persist (Greek – English (FreeDict))
+- παρέχω: administer, dispense (Greek – English (WordNet)); provide (Greek – English (FreeDict))
+- ξαναπαίρνω: reshoot (Greek – English (WordNet))
+- καταπίνω: swallow, get down (Greek – English (WordNet)); swallow (Greek – English (FreeDict))
+- διαφέρω: differ (Greek – English (WordNet)); differ (Greek – English (FreeDict))
+- παραλαμβάνω: receive, collect, pick up (Greek – English (FreeDict))
+- παραδίδω: concede, yield, cede, grant (Greek – English (WordNet)); deliver, hand in, turn over to (Greek – English (FreeDict))
+- εκδίδω: issue (Greek – English (WordNet)); issue, publish (Greek – English (FreeDict))
+- επιβάλλω: impose, enforce (Greek – English (FreeDict))
+- προβάλλω: mutiny (Greek – English (WordNet)); project, stick out (Greek – English (FreeDict))
+- απέχω: abstain, refrain, desist (Greek – English (WordNet)); away, far, off, way (Greek – English (FreeDict))
+- αρέσω: please, like (Greek – English (FreeDict))
+- προτείνω: propose, suggest, advise (Greek – English (WordNet)); reach out (Greek – English (FreeDict))
+- κρίνω: decide, settle, resolve, adjudicate (Greek – English (WordNet)); judge, critique (Greek – English (FreeDict))
+- σερβίρω: serve, help (Greek – English (WordNet))
+- περιμένω: ask, require, expect (Greek – English (WordNet)); wait, expect, wait for (Greek – English (FreeDict))
+- αποθαρρύνω: daunt, dash, scare off, pall, frighten off, scare away, frighten away, scare (Greek – English (WordNet)); discourage (Greek – English (FreeDict))
+- κλίνω: dip (Greek – English (WordNet)); decline, slope, conjugate, inflect, tend (Greek – English (FreeDict))
+- πέφτω: dip (Greek – English (WordNet)); fall, drop (Greek – English (FreeDict))
+- αρρωσταίνω: have (Greek – English (WordNet)); sicken, become sick (Greek – English (FreeDict))
+- υπάρχω: become (Greek – English (WordNet)); exist (Greek – English (FreeDict))
+- καίω: burn, fire, burn down (Greek – English (WordNet)); burn (Greek – English (FreeDict))
+- κλαίω: cry, weep (Greek – English (FreeDict))
+- φταίω: fault (Greek – English (FreeDict))
+- αυξάνω: grow (Greek – English (WordNet)); increase (Greek – English (FreeDict))
+- χορταίνω: be full (Greek – English (WordNet)); full (Greek – English (FreeDict))
+- τρέφω: nourish, nurture, sustain (Greek – English (WordNet)); feed (Greek – English (FreeDict))
+- απολαμβάνω: enjoy, bask, relish, savor, savour (Greek – English (WordNet)); enjoy (Greek – English (FreeDict))
+- γίνομαι: become, go, get (Greek – English (WordNet)); become, happen, carry out, make (Greek – English (FreeDict))
+- κάθομαι: settle, root, take root, steady down, settle down (Greek – English (WordNet)); sit (Greek – English (FreeDict))
+- φαίνομαι: resemble (Greek – English (WordNet)); appear, seem (Greek – English (FreeDict))
+- χαίρομαι: rejoice, joy (Greek – English (WordNet)); rejoice, happy (Greek – English (FreeDict))
+- βρέχομαι: wet (Greek – English (FreeDict))
+- βρίσκομαι: be (Greek – English (WordNet)); be, lie, to be situated (Greek – English (FreeDict))
+- προέρχομαι: be due, flow from (Greek – English (WordNet)); originate, spring, come from, harken back (Greek – English (FreeDict))
+- ντρέπομαι: be ashamed (Greek – English (FreeDict))
+- στέκομαι: stand, stand up (Greek – English (WordNet)); stand (Greek – English (FreeDict))
 
 Related topics: `ell-aorist-regular` The aorist of regular verbs and the augment
 
@@ -1745,7 +1813,7 @@ Some of the most common verbs have an aorist stem you learn by heart. The ending
 Words:
 - θα: will, could, going to, shall, would (Greek – English (FreeDict))
 
-Related topics: `ell-na-perfective` να + the simple form, `ell-aorist-regular` The aorist of regular verbs and the augment
+Related topics: `ell-na-perfective` να + the simple form, `ell-aorist-regular` The aorist of regular verbs and the augment, `ell-aorist-irregular` Irregular aorists
 
 Tenses: future. Classes: verb.
 
@@ -1872,7 +1940,7 @@ Verbs with an irregular aorist have their own simple forms: *θα πάω*, *θα
 Words:
 - να: that, should (Greek – English (FreeDict))
 
-Related topics: `ell-future` The future with θα, `ell-imperative` The imperative
+Related topics: `ell-future` The future with θα, `ell-imperative` The imperative, `ell-aorist-irregular` Irregular aorists
 
 Tenses: subjunctiveSimple. Classes: verb.
 
@@ -1975,7 +2043,7 @@ Words:
 - διαβάζω: read (Greek – English (WordNet)); read (Greek – English (FreeDict))
 - έρχομαι: come, come up (Greek – English (WordNet)); come, happen (Greek – English (FreeDict))
 
-Related topics: `ell-na-perfective` να + the simple form
+Related topics: `ell-na-perfective` να + the simple form, `ell-aorist-irregular` Irregular aorists
 
 Tenses: imperativeSimple, imperativeContinuous. Classes: verb.
 

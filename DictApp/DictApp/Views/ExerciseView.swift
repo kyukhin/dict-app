@@ -1079,6 +1079,7 @@ struct ConjugationQuestionView: View {
                     }
                     personLine
                     passiveNote
+                    irregularNote
                 }
             }
             // The ⓘ comes after the prompt, not between the form's name and
@@ -1148,6 +1149,18 @@ struct ConjugationQuestionView: View {
                 .foregroundStyle(.secondary)
                 .accessibilityHidden(voiceOver)
                 .accessibilityIdentifier("drill_passive_note")
+        }
+    }
+
+    /// #363: under the passive note, so ήρθα has two lines.
+    @ViewBuilder
+    private var irregularNote: some View {
+        if question.showsIrregularNote {
+            Text("drill.irregularNote")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .accessibilityHidden(voiceOver)
+                .accessibilityIdentifier("drill_irregular_note")
         }
     }
 }

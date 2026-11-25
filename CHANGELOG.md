@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- [#363] The Greek conjugation drill marks an aorist-stem form of an irregular verb (πήρα, θα πάρω, πάρε) with a small "irregular" note, which VoiceOver reads. The Irregular aorists topic now lists 84 verbs, and the future, να and imperative topics link to it.
 - [#362] The Greek conjugation drill no longer asks the imperative of 83 verbs Greeks hardly give orders with (θέλω, μπορώ, πεινάω), and the imperative cells lose the past forms Wiktionary put there; βλέπω shows δες, σερβίρω its regular passive, and έρχομαι's imperative links to its grammar rule.
 
 ### Fixed

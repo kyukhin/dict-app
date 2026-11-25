@@ -6,7 +6,7 @@ order: 15
 tenses: future
 classes: verb
 words: θα
-topics: ell-na-perfective, ell-aorist-regular
+topics: ell-na-perfective, ell-aorist-regular, ell-aorist-irregular
 ---
 # The future with θα
 

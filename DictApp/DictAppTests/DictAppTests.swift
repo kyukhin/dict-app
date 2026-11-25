@@ -39766,3 +39766,337 @@ extension ConjugationRunViewModelTests {
         XCTAssertEqual(vm.question?.person, .secondSingular)
     }
 }
+
+// MARK: - The "irregular" note (0132, #363)
+
+@MainActor
+final class DrillIrregularNoteTests: XCTestCase {
+    private typealias Fixture = DrillFixture
+    private typealias Facet = ConjugationFacet
+    private var tempDir: URL!
+
+    override func setUp() async throws {
+        try await super.setUp()
+        tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try await Fixture.open(in: tempDir)
+    }
+
+    override func tearDown() async throws {
+        try? FileManager.default.removeItem(at: tempDir)
+        try await super.tearDown()
+    }
+
+    private func links(_ words: [String], topic: String = GrammarLinks.irregularAorists,
+                       kind: GrammarLink.Kind = .word) -> [GrammarLink] {
+        words.enumerated().map { GrammarLink(topicID: topic, kind: kind, key: $1, ord: $0 + 1) }
+    }
+
+    private func marks(_ verb: DrillVerb, _ facet: Facet, _ links: [GrammarLink]) -> Bool {
+        GrammarLinks.marksIrregular(verb: verb, facet: facet, links: links)
+    }
+
+    /// The facets of `verb` that carry the note, as raw values, sorted.
+    private func marked(_ verb: DrillVerb, _ links: [GrammarLink]) -> [String] {
+        verb.cells.keys.filter { marks(verb, $0, links) }.map(\.rawValue).sorted()
+    }
+
+    /// The tenses of 0132 rule 1, written out (not read from `aoristStem`).
+    private static let noted: Set<String> = ["aorist", "future", "subjunctiveSimple", "imperativeSimple", "perfect",
+                                             "pluperfect", "futurePerfect"]
+    private static let unnoted = ["present", "imperfect", "imperativeContinuous", "futureContinuous",
+                                  "subjunctiveContinuous"]
+
+    /// παίρνω: the aorist, the simple future, subjunctive and imperative
+    /// carry the note, and at B2 the perfect tenses; the present, the
+    /// imperfect and the continuous forms do not, nor the passive's πάρθηκα.
+    func testAoristStemTensesOfAListedVerb() async throws {
+        let paizo = try await Fixture.verb("παίρνω")
+        XCTAssertEqual(paizo.mainVoice, .active)
+        let listed = links(["παίρνω"])
+        let facets = Set(paizo.cells.keys)
+        for tense in ["aorist", "future", "subjunctiveSimple", "imperativeSimple"] {
+            XCTAssertTrue(facets.contains(Facet(ConjugationTense(rawValue: tense)!, .active)), "παίρνω has \(tense)")
+            XCTAssertTrue(marks(paizo, Facet(ConjugationTense(rawValue: tense)!, .active), listed), tense)
+        }
+        for tense in Self.unnoted {
+            let facet = Facet(ConjugationTense(rawValue: tense)!, .active)
+            XCTAssertFalse(marks(paizo, facet, listed), "\(tense) is built on the present stem")
+        }
+        for tense in ["perfect", "pluperfect", "futurePerfect"] {
+            let facet = Facet(ConjugationTense(rawValue: tense)!, .active)
+            XCTAssertTrue(facets.contains(facet), "παίρνω has \(tense)")
+            XCTAssertTrue(marks(paizo, facet, listed), "\(tense): the aorist infinitive (Open question 14)")
+        }
+        let passiveAorist = Facet(.aorist, .passive)
+        XCTAssertTrue(facets.contains(passiveAorist), "παίρνω has πάρθηκα")
+        for facet in facets where facet.voice == .passive {
+            XCTAssertFalse(marks(paizo, facet, listed), "\(facet.rawValue): the passive is taught elsewhere")
+        }
+        // Whatever the verb has, the note is on exactly the active aorist-stem facets.
+        let expected = facets.filter { $0.voice == .active && Self.noted.contains($0.tense.rawValue) }
+            .map(\.rawValue).sorted()
+        XCTAssertEqual(marked(paizo, listed), expected)
+        XCTAssertGreaterThanOrEqual(expected.count, 7)
+    }
+
+    /// έρχομαι has passive forms only: its main voice is the passive, so
+    /// ήρθα and έλα carry the note.
+    func testPassiveOnlyVerb() async throws {
+        let erchomai = try await Fixture.verb("έρχομαι")
+        XCTAssertEqual(erchomai.mainVoice, .passive)
+        let listed = links(["έρχομαι"])
+        XCTAssertTrue(marks(erchomai, Facet(.aorist, .passive), listed))
+        XCTAssertTrue(marks(erchomai, Facet(.imperativeSimple, .passive), listed))
+        XCTAssertTrue(marks(erchomai, Facet(.future, .passive), listed))
+        XCTAssertFalse(marks(erchomai, Facet(.present, .passive), listed), "έρχομαι, εγώ is regular in form")
+        XCTAssertFalse(marks(erchomai, Facet(.imperativeContinuous, .passive), listed))
+        XCTAssertEqual(marked(erchomai, links([])), [], "unlisted: none")
+        // Not listed by the topic of the same kind: a θυμάμαι (passive only) has none.
+        let thymame = try await Fixture.verb("θυμάμαι")
+        XCTAssertEqual(thymame.mainVoice, .passive)
+        XCTAssertEqual(marked(thymame, listed), [], "θυμάμαι is not on the list")
+    }
+
+    /// πάω is asked as πηγαίνω: the list's πηγαίνω matches it; a decomposed
+    /// key matches too, a near word does not.
+    func testLinkedVerb() async throws {
+        let pao = try await Fixture.verb("πάω")
+        XCTAssertEqual(pao.citation, "πηγαίνω", "πάω's table is πηγαίνω's")
+        let aorist = Facet(.aorist, .active)
+        XCTAssertTrue(marks(pao, aorist, links(["πηγαίνω"])), "by the verb the drill asks")
+        XCTAssertTrue(marks(pao, aorist, links(["κάνω", "πηγαίνω"])), "among others")
+        XCTAssertFalse(marks(pao, aorist, links(["πηγαίνα", "πάει", "κάνω"])), "no prefix or near match")
+        let decomposed = "παίρνω".decomposedStringWithCanonicalMapping
+        XCTAssertNotEqual(decomposed.unicodeScalars.count, "παίρνω".unicodeScalars.count)
+        let paizo = try await Fixture.verb("παίρνω")
+        XCTAssertTrue(marks(paizo, aorist, links([decomposed])), "NFD key")
+        // Another word's tonos does not match: πάρνω is not παίρνω.
+        XCTAssertFalse(marks(paizo, aorist, links(["πάρνω"])))
+    }
+
+    /// ξέρω has no aorist: the drill builds θα ξέρω and να ξέρω from the
+    /// present, and they carry no note although the verb is listed.
+    func testFallbackHasNone() async throws {
+        let xero = try await Fixture.verb("ξέρω")
+        let listed = links(["ξέρω"])
+        XCTAssertTrue(ConjugationTense.lacksDependent(try XCTUnwrap(xero.voices[.active])), "no dependent forms")
+        for tense in ConjugationTense.allCases {
+            XCTAssertFalse(marks(xero, Facet(tense, .active), listed), tense.rawValue)
+        }
+        XCTAssertEqual(marked(xero, listed), [])
+        // The same list marks a verb that has the dependent form.
+        let paizo = try await Fixture.verb("παίρνω")
+        XCTAssertTrue(marks(paizo, Facet(.future, .active), links(["ξέρω", "παίρνω"])))
+    }
+
+    /// περιμένω (0133, group C): #378 gave it its aorist, spelt as the
+    /// imperfect, and its dependent, spelt as the present, so rule 3 holds.
+    /// With the pack's own list its aorist and its simple future (θα
+    /// περιμένω, no longer the fallback) carry the note; its present does not.
+    func testPerimenoAoristIsIrregular() async throws {
+        let perimeno = try await Fixture.verb("περιμένω")
+        XCTAssertFalse(ConjugationTense.lacksDependent(try XCTUnwrap(perimeno.voices[.active])),
+                       "a dependent since #378")
+        let aorist = Facet(.aorist, .active)
+        XCTAssertEqual(perimeno.forms(aorist, .firstSingular), ["περίμενα"])
+        let links = try await DatabaseService.shared.grammarLinks(lang: "ell")
+        XCTAssertTrue(links.contains { $0.topicID == GrammarLinks.irregularAorists && $0.key == "περιμένω" },
+                      "the pack lists περιμένω")
+        XCTAssertTrue(marks(perimeno, aorist, links), "περίμενα")
+        XCTAssertTrue(marks(perimeno, Facet(.future, .active), links), "θα περιμένω")
+        XCTAssertFalse(marks(perimeno, Facet(.present, .active), links), "περιμένω, the present")
+    }
+
+    /// No links (the stub, a failed read, a pack from before #363), links of
+    /// another kind or another topic: no note.
+    func testNoLinksNoNote() async throws {
+        let paizo = try await Fixture.verb("παίρνω")
+        let aorist = Facet(.aorist, .active)
+        XCTAssertFalse(marks(paizo, aorist, []))
+        XCTAssertFalse(marks(paizo, aorist, links(["παίρνω"], kind: .topic)), "a topic link")
+        XCTAssertFalse(marks(paizo, aorist, links(["aorist"], kind: .tense)), "a tense link")
+        XCTAssertFalse(marks(paizo, aorist, links(["verb"], kind: .wordClass)), "a class link")
+        XCTAssertFalse(marks(paizo, aorist, links(["παίρνω"], topic: "ell-aorist-regular")),
+                       "the word of another topic")
+        XCTAssertFalse(marks(paizo, aorist, links(["παίρνω"], topic: "ell-future")), "the future topic's words")
+    }
+
+    /// γράφω, listed by no topic: no facet of either voice has the note,
+    /// even with the other 16 on the list.
+    func testUnlistedVerbHasNone() async throws {
+        let grafo = try await Fixture.verb("γράφω")
+        XCTAssertGreaterThan(grafo.cells.count, 20)
+        XCTAssertTrue(Set(grafo.cells.keys.map(\.voice)).isSuperset(of: [.active, .passive]))
+        let sixteen = links(["πηγαίνω", "έρχομαι", "κάνω", "βλέπω", "λέω", "τρώω", "πίνω", "βγαίνω", "μπαίνω",
+                             "παίρνω", "βρίσκω", "μένω", "φεύγω", "δίνω", "ξέρω", "θέλω"])
+        for facet in grafo.cells.keys {
+            XCTAssertFalse(marks(grafo, facet, sixteen), "γράφω \(facet.rawValue)")
+        }
+        XCTAssertEqual(marked(grafo, sixteen), [])
+        // Listed, the very same verb would have the note: the test can fail.
+        XCTAssertFalse(marked(grafo, links(["γράφω"])).isEmpty)
+    }
+
+    /// With #362: θέλω has no imperative question. At B2 its aorist, simple
+    /// future and simple subjunctive questions carry the note, and so do the
+    /// perfect tenses; its present and imperfect do not.
+    func testNoImperativeVerb() async throws {
+        let thelo = try await Fixture.verb("θέλω")
+        XCTAssertTrue(DrillVerb.noImperative.contains(thelo.word), "θέλω is a noImperative verb")
+        let listed = links(["θέλω"])
+        let asked = ConjugationQuestionBuilder.questions(verb: thelo, level: .b2).map(\.facet)
+        XCTAssertFalse(asked.contains { $0.tense == .imperativeSimple || $0.tense == .imperativeContinuous },
+                       "no imperative question")
+        let noted = asked.filter { marks(thelo, $0, listed) }.map(\.tense.rawValue)
+        for tense in ["aorist", "future", "subjunctiveSimple"] {
+            XCTAssertTrue(noted.contains(tense), "θέλω \(tense)")
+        }
+        XCTAssertTrue(noted.allSatisfy(Self.noted.contains), "\(noted)")
+        for facet in asked where !Self.noted.contains(facet.tense.rawValue) {
+            XCTAssertFalse(marks(thelo, facet, listed), facet.rawValue)
+        }
+        XCTAssertFalse(noted.contains("present"))
+    }
+}
+
+// MARK: - The note in the run, in the text, in the pack (0132, 0133; #363)
+
+extension ConjugationRunViewModelTests {
+    private func noteRun(_ plan: [String], verb: DrillVerb) -> ConjugationRunViewModel {
+        ConjugationRunViewModel(
+            mode: .verb(verb, level: .b2), db: db, settings: settings,
+            languages: LearningLanguageService(db: db, settings: settings),
+            clock: TestClock("2026-11-04T12:00:00Z").clock,
+            player: FeedbackPlayer(settings: settings, sink: RecordingFeedbackSink()),
+            seed: 363, answerHints: true, length: plan.count, debugPlan: plan)
+    }
+
+    /// The real pack: παίρνω's aorist and imperative questions are published
+    /// with the note, its present and its passive aorist without; γράφω's
+    /// aorist without. The note stays through the answer and goes with the
+    /// question. With the stub (no grammar), none.
+    func testIrregularNoteFollowsTheTopic() async throws {
+        let paizo = try await Fixture.verb("παίρνω")
+        let plan = ["παίρνω|aorist.active|1sg", "παίρνω|present.active|1sg", "παίρνω|aorist.passive|1sg",
+                    "παίρνω|imperativeSimple.active|2sg"]
+        let vm = noteRun(plan, verb: paizo)
+        await vm.start()
+        XCTAssertNil(vm.errorMessage)
+        var seen: [String] = []
+        while vm.phase == .question, let question = vm.question {
+            let marked = question.showsIrregularNote
+            seen.append("\(question.facet.rawValue):\(marked)")
+            await vm.choose(question.rightIndex)
+            XCTAssertEqual(vm.question?.showsIrregularNote, marked, "stays after the answer")
+            await vm.next()
+        }
+        XCTAssertEqual(seen, ["aorist.active:true", "present.active:false", "aorist.passive:false",
+                              "imperativeSimple.active:true"])
+
+        let grafo = try await Fixture.verb("γράφω")
+        let other = noteRun(["γράφω|aorist.active|1sg", "γράφω|aorist.active|1sg"], verb: grafo)
+        await other.start()
+        XCTAssertEqual(other.question?.facet, ConjugationFacet(.aorist, .active))
+        XCTAssertEqual(other.question?.showsIrregularNote, false)
+
+        try await db.setup(userPath: tempDir.appendingPathComponent("stub-user.sqlite").path,
+                           dictionaryURL: try TestDictionary.bundledURL(), packFiles: [:])
+        let stub = noteRun(plan, verb: paizo)
+        await stub.start()
+        XCTAssertEqual(stub.phase, .question)
+        XCTAssertEqual(stub.question?.showsIrregularNote, false, "no pack, no list, no note")
+    }
+
+    /// The note follows the list the run read: έρχομαι's ήρθα has it, with
+    /// the passive note.
+    func testIrregularNoteOnAPassiveOnlyVerbInARun() async throws {
+        let erchomai = try await Fixture.verb("έρχομαι")
+        let vm = noteRun(["έρχομαι|aorist.passive|1sg"], verb: erchomai)
+        await vm.start()
+        XCTAssertEqual(vm.question?.showsPassiveNote, true)
+        XCTAssertEqual(vm.question?.showsIrregularNote, true)
+    }
+}
+
+extension DrillQuestionTextTests {
+    /// #363: VoiceOver reads the note after "passive", in the prompt's one
+    /// stop; the present of παίρνω has none.
+    func testIrregularNoteInThePromptLabel() async throws {
+        let paizo = try await Fixture.verb("παίρνω")
+        var aorist = try XCTUnwrap(Fixture.build(paizo, .aorist, .firstSingular, level: .a1))
+        XCTAssertFalse(aorist.showsIrregularNote, "the builder does not set it")
+        XCTAssertEqual(String(DrillText.promptLabel(aorist, locale: en).characters), "Aorist, εγώ")
+        aorist.showsIrregularNote = true
+        let spoken = DrillText.promptLabel(aorist, locale: en)
+        XCTAssertEqual(String(spoken.characters), "Aorist, εγώ, irregular")
+        XCTAssertEqual(spoken.runs.compactMap(\.languageIdentifier), ["el"], "only the pronoun is Greek")
+        XCTAssertEqual(DrillText.tenseLine(aorist, locale: en), "Aorist · εγώ", "the visible line has no note")
+
+        let erchomai = try await Fixture.verb("έρχομαι")
+        var ilthe = try XCTUnwrap(Fixture.build(erchomai, .aorist, .firstSingular, voice: .passive, level: .a2))
+        ilthe.showsIrregularNote = true
+        XCTAssertEqual(String(DrillText.promptLabel(ilthe, locale: en).characters), "Aorist, εγώ, passive, irregular")
+
+        let present = try XCTUnwrap(Fixture.build(paizo, .present, .secondSingular, level: .a1))
+        XCTAssertEqual(String(DrillText.promptLabel(present, locale: en).characters), "Present, εσύ")
+
+        let arabic = String(DrillText.promptLabel(aorist, locale: Locale(identifier: "ar")).characters)
+        XCTAssertTrue(arabic.contains("صيغة غير قياسية"), arabic)
+        let greek = String(DrillText.promptLabel(aorist, locale: Locale(identifier: "el")).characters)
+        XCTAssertTrue(greek.contains("ανώμαλος τύπος"), greek)
+    }
+}
+
+extension GrammarContentTests {
+    /// 0133's list as kyukhin approved it (2026-11-24): the 16, then groups
+    /// A, B, C, D and P1 in the table's order, with απέχω (B) and περιμένω (C)
+    /// once #378 gave them aorists.
+    private static let approvedIrregularAorists = [
+        "πηγαίνω", "έρχομαι", "κάνω", "βλέπω", "λέω", "τρώω", "πίνω", "βγαίνω", "μπαίνω", "παίρνω", "βρίσκω",
+        "μένω", "φεύγω", "δίνω", "ξέρω", "θέλω",
+        "καταλαβαίνω", "βάζω", "φέρνω", "μαθαίνω", "βγάζω", "στέλνω", "ανεβαίνω", "κατεβαίνω", "πλένω",
+        "σημαίνω", "παθαίνω", "προλαβαίνω", "πεθαίνω", "πετυχαίνω", "παραγγέλλω", "παράγω", "ζεσταίνω",
+        "πικραίνω", "απολυμαίνω", "γλυκαίνω", "θερμαίνω",
+        "αναφέρω", "προσφέρω", "αποφεύγω", "συμμετέχω", "καταφέρνω", "μεταφέρω", "επαναλαμβάνω", "ενδιαφέρω",
+        "περιλαμβάνω", "παραμένω", "επιμένω", "παρέχω", "ξαναπαίρνω", "καταπίνω", "διαφέρω", "παραλαμβάνω",
+        "παραδίδω", "εκδίδω", "επιβάλλω", "προβάλλω", "απέχω",
+        "αρέσω", "προτείνω", "κρίνω", "σερβίρω", "περιμένω", "αποθαρρύνω", "κλίνω",
+        "πέφτω", "αρρωσταίνω", "υπάρχω", "καίω", "κλαίω", "φταίω", "αυξάνω", "χορταίνω", "τρέφω", "απολαμβάνω",
+        "γίνομαι", "κάθομαι", "φαίνομαι", "χαίρομαι", "βρέχομαι", "βρίσκομαι", "προέρχομαι", "ντρέπομαι",
+        "στέκομαι",
+    ]
+
+    /// #363: the pack's word links of `ell-aorist-irregular` are the approved
+    /// 84, in order, each once and in NFC; each is a drill verb of the three
+    /// Greek lists with an aorist in its main voice (so a typo fails), ξέρω
+    /// aside, which has none. επιμένω, περιμένω and απέχω have one since #378.
+    func testIrregularAoristsListsTheApprovedVerbs() async throws {
+        let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+        try await DrillFixture.open(in: tempDir)
+        let links = try await DatabaseService.shared.grammarLinks(lang: "ell")
+        let listed = links.filter { $0.topicID == GrammarLinks.irregularAorists && $0.kind == .word }
+            .sorted { $0.ord < $1.ord }.map(\.key)
+        XCTAssertEqual(Self.approvedIrregularAorists.count, 84)
+        XCTAssertEqual(Set(Self.approvedIrregularAorists).count, 84)
+        XCTAssertEqual(listed, Self.approvedIrregularAorists)
+        // String == ignores canonical equivalence, so compare the scalars.
+        XCTAssertTrue(listed.allSatisfy {
+            $0.unicodeScalars.elementsEqual($0.precomposedStringWithCanonicalMapping.unicodeScalars)
+        }, "NFC")
+
+        let verbs = try await DatabaseService.shared.drillVerbs(lists: ["ky-ell-a1", "ky-ell-a2", "ky-ell-b1"],
+                                                                meaningsLang: "eng")
+        var missing: [String] = [], noAorist: [String] = []
+        for word in listed {
+            // The word or the citation, as the drill's note matches them.
+            guard let verb = verbs.first(where: { $0.word == word || $0.citation == word }) else {
+                missing.append(word)
+                continue
+            }
+            if (verb.cells[ConjugationFacet(.aorist, verb.mainVoice)] ?? [:]).isEmpty { noAorist.append(word) }
+        }
+        XCTAssertEqual(missing, [], "not a drill verb of the Greek lists")
+        XCTAssertEqual(noAorist, ["ξέρω"], "an aorist in the main voice, ξέρω aside")
+    }
+}
