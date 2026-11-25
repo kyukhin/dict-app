@@ -1,6 +1,5 @@
 # Quick dictionary switching on Search
 
-> Spec written by Claude (AI) for LibreDict.
 > Status: Implemented (approved by kyukhin on 2026-10-30) · Epic: #146 · Tickets: #145, #307 · Updated: 2026-11-12
 
 Read [0000-overview.md](0000-overview.md) first. This epic changes the Search screen and how the Dictionary Order list is held in memory. It adds no data, no preference key and no migration. E1 ([0129](0129-dictionary-file.md)) and E2 ([0136](0136-word-forms.md)) change the same search path: see "Search, preferred mode, E1 and E2".

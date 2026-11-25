@@ -1,6 +1,5 @@
 # Example sentences
 
-> Spec written by Claude (AI) for LibreDict.
 > Status: Implemented (approved by kyukhin on 2026-11-04); the drill examples (#364, #365) approved by kyukhin on 2026-11-22 · Epic: #134 · Tickets: #177, #178, #339, #364, #365, #362, #378 · Updated: 2026-11-24
 
 Read [0000-overview.md](0000-overview.md), [0129-dictionary-file.md](0129-dictionary-file.md) and [0136-word-forms.md](0136-word-forms.md) first, then the approved specs this epic builds on, still in open PRs: 0237 (downloads: the English bundle and the language packs), 0130 (word lists: `WordKey`) and 0131 (learning). Numbers marked "measured" come from a prototype of the pipeline, run on 2026-11-04 against the Tatoeba export of 2026-10-31 (pinned below) and the dictionary file of master `e9997dd` (151,674,880 bytes, sha256 `24a1494d…`), Python 3.14.0, SQLite 3.51.2.

@@ -9,7 +9,7 @@ LibreDict is developed spec-first. Every feature (epic) has a spec in this folde
 3. **Statuses:** Planned (listed in the index, not written yet) → Draft (written, waiting for review) → Approved (kyukhin reviewed the whole spec; the header records his approval and its date) → Implemented. No development before Approved.
 4. **Spec and code travel together.** The PR that implements a ticket updates its spec (decisions, test plan, status). Any deviation found during development is written into the spec in the same PR, with the reason. If the deviation is visible to the user or changes the architecture (data model, storage, migrations, module boundaries, dependencies), the spec goes back to Draft and the PR waits for kyukhin's re-approval. Smaller implementation details only get a History line, and the PR is flagged "spec changed" in the daily merge batch.
 5. **Implemented:** when the epic's last ticket merges, the status becomes Implemented. Later changes keep the spec current and add a line to its History.
-6. **Authorship:** every spec states in its header that it was written by Claude (AI). Commit messages and PR descriptions don't mention it.
+6. **Authorship:** the specs are drafted by Claude and approved by kyukhin; a spec's header does not repeat it. Commit messages and PR descriptions don't mention Claude. A claim that rests on someone's read keeps its attribution in the text ("Claude's read in a separate session, accepted by kyukhin").
 7. **Style:** English, short and concrete. A spec is read before every task.
 
 ## Template
@@ -17,7 +17,6 @@ LibreDict is developed spec-first. Every feature (epic) has a spec in this folde
 ```markdown
 # <Feature>
 
-> Spec written by Claude (AI) for LibreDict.
 > Status: Draft | Approved by kyukhin on YYYY-MM-DD | Implemented · Epic: #N · Tickets: #A, #B · Updated: YYYY-MM-DD
 
 ## Why

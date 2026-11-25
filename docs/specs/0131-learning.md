@@ -1,6 +1,5 @@
 # Learning words with spaced repetition
 
-> Spec written by Claude (AI) for LibreDict.
 > Status: Implemented, with a revision for epic #292 (tickets #293, #295, #296, #298, #299; #297 is in 0133) and for #300, approved by kyukhin on 2026-11-10 and built (PRs #303, #304, #305); the rest approved by kyukhin on 2026-11-04 · Epic: #131, revised by #292 · Tickets: #157, #158, #159, #160, #161, #162; #293, #295, #296, #298, #299, #300; #331; #291 (sound themes, kyukhin 2026-11-15); #337; #340 (the Mellstroy theme, kyukhin 2026-11-16); #355 · Updated: 2026-11-20
 
 Read [0000-overview.md](0000-overview.md) and [0129-dictionary-file.md](0129-dictionary-file.md) first. This epic is designed together with [0166-learning-statistics.md](0166-learning-statistics.md) (E10, #166), which computes the daily goal, the streak and every number from this epic's answer log. Word lists are E3 (#130, [0130-word-lists.md](0130-word-lists.md), drafted at the same time). This spec follows E3's interface ("For E4 and E10" there); "Depends on E3" records how, and the three points where it differs. The conjugation drill (E5, #132) reuses the cards, the scheduler and the log ("For E5"). The pair tabs of #292 also change 0130, 0132, 0133 and 0166 where they describe the Learn tab.

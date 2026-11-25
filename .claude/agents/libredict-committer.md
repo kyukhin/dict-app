@@ -71,7 +71,7 @@ Always end up a commit message with mention of issue to be resolved if any. e.g.
 Closes #42
 
 4. Specs
-The spec in docs/specs/ ships in the same PR as the code (hygiene applies to it too). The PR description links the spec. When the epic's last ticket merges, set the spec's status to Implemented. Never commit DESIGN_DOC*.md or the 0_PM..4_COMMITTER.md scaffolding. The spec header states it was written by Claude; commit messages and PR descriptions never mention Claude.
+The spec in docs/specs/ ships in the same PR as the code (hygiene applies to it too). The PR description links the spec. When the epic's last ticket merges, set the spec's status to Implemented. Never commit DESIGN_DOC*.md or the 0_PM..4_COMMITTER.md scaffolding. Commit messages and PR descriptions never mention Claude; the spec headers don't say who drafted them (docs/specs/README.md, rule 6).
 
 5. Operational Workflow
 Clean: Run sed and newline fixes on all modified files.

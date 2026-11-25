@@ -1,6 +1,5 @@
 # LibreDict overview
 
-> Spec written by Claude (AI) for LibreDict.
 > Status: Approved by kyukhin on 2026-10-27 · Epic: — · Tickets: — · Updated: 2026-11-16
 
 This spec describes the app as shipped in 1.4.0 (tag `v1.4.0`, master `f0f806e`), plus the v2.0.0 changes merged since (see History). Read it before any design, development, testing or review task, then read the spec of your epic. It describes the code as it is now. The last sections list what v2.0.0 will change. Paths are relative to the repo root. Links work from this folder.

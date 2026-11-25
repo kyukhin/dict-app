@@ -1,6 +1,5 @@
 # Word forms
 
-> Spec written by Claude (AI) for LibreDict.
 > Status: Implemented (approved by kyukhin on 2026-10-28, the #144 change on 2026-10-31); the imperative cells (#362) approved by kyukhin on 2026-11-23; three tables (#378) approved by kyukhin on 2026-11-24, with "More tables" (Open questions 5 to 14) · Epic: #136 · Tickets: #141, #142, #143, #144, #306, #314, #365, #362, #378 · Updated: 2026-11-24
 
 Read [0000-overview.md](0000-overview.md) and [0129-dictionary-file.md](0129-dictionary-file.md) first. This epic builds on #129's read-only `dictionaries.sqlite`. #237 ([0237-downloads.md](0237-downloads.md), Approved) moves the Greek tables (`lemma`, `tagset`, `paradigm`, `form_lookup`, `form_link`) and their `data_source` row into the Greek pack, attached as `ell`: since T2 (#241) their SQL says `ell.` where this spec says `dict.`, and without the Greek pack `ell` is the empty stub: the same tables with no rows, so the queries return nothing and need no special code. `morphy_exception` and `morphy_lemma` stay in the bundle as `dict.`. Numbers marked "measured" come from a prototype of the pipeline, run on 2026-10-27 against the 2026-10-01 Wiktionary snapshot and the 1.4.0 seed.

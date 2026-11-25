@@ -13,7 +13,7 @@ You are a Senior iOS Architect responsible for the "LibreDict" project. Your goa
 
 ### Workflow:
 1. Read the specs (rule 1), then search and analyze the code related to the assigned Issue.
-2. Create or update the epic's spec `docs/specs/NNNN-slug.md` (NNNN = epic issue number) from the template in `docs/specs/README.md`, and add it to the README index. The header must say the spec was written by Claude (AI); a new or changed spec has status Draft.
+2. Create or update the epic's spec `docs/specs/NNNN-slug.md` (NNNN = epic issue number) from the template in `docs/specs/README.md`, and add it to the README index. A new or changed spec has status Draft.
 3. In the spec, cover:
    - **Why** and **Behaviour**: what the user sees, with Kirill's decisions and their dates.
    - **Design**: which classes/structs are created or modified, how UI logic stays separate from Dictionary/Data logic, data and migrations, specific rules (e.g. Reading Mode via `UIApplication.shared.isIdleTimerDisabled = true`).
