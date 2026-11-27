@@ -1,5 +1,5 @@
-cell	sentence_id	verdict	checked_by	reason
-μιλάω|aorist.active|3sg	1014	ok	fixture	the aorist reading
-μιλάω|imperativeSimple.active|2sg	1014	no	fixture	not the imperative
-αγαπάω|aorist.active|3sg	2000000004	no	fixture	the imperative, not the aorist
-μιλάω|present.passive|3sg	1014	no	fixture	stale: no such cell
+cell	sentence_id	texts_sha256	verdict	checked_by	reason
+μιλάω|aorist.active|3sg	1014	c7082d929ef750bd	ok	fixture	the aorist reading
+μιλάω|imperativeSimple.active|2sg	1014	c7082d929ef750bd	no	fixture	not the imperative
+αγαπάω|aorist.active|3sg	2000000004	ef8b4197ac2f8a78	no	fixture	the imperative, not the aorist
+μιλάω|present.passive|3sg	1014	c7082d929ef750bd	no	fixture	stale: no such cell

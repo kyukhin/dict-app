@@ -13136,6 +13136,75 @@ final class WordFormsLookupTests: XCTestCase {
         let afinoVerb = try drillVerb("αφήνω", afino)
         XCTAssertEqual(afinoVerb.forms(ConjugationFacet(.aorist, .active), .firstSingular), ["άφησα"])
     }
+
+    // MARK: #371: the pilot tables (0136, "Pilot tables")
+
+    /// #371, "Pilot tables", the five verbs of the sample review (2026-11-27):
+    /// συνθέτω's passive is συντίθεμαι, its first and second persons rare, so
+    /// the drill asks only συντίθεται and συντίθενται (present, continuous
+    /// Future and να) and never offers a rare form; παράγω's simple
+    /// imperative εσείς is παραγάγετε; πετάω's πετάγονται replaces
+    /// πετάτγονται; μελετάω and προτιμάω ask -άται, -ώνται first and accept
+    /// the -ιέ- forms after them. And κλίνω (2026-11-26) asks κλίνετε and
+    /// accepts κλίντε.
+    func testPilotTablesFromWiktionary() throws {
+        let present3sg = "imperfective indicative passive present singular third-person"
+        let present3pl = "imperfective indicative passive plural present third-person"
+        let syntheto = try verbCells("συνθέτω")
+        XCTAssertEqual(forms(syntheto, present3sg), ["συντίθεται"])
+        XCTAssertEqual(forms(syntheto, present3pl), ["συντίθενται"])
+        XCTAssertEqual(forms(syntheto, "first-person imperfective indicative passive present rare singular"),
+                       ["συντίθεμαι"])
+        XCTAssertEqual(syntheto.filter { $0.form.hasPrefix("συνθέτ") && $0.tags.contains("passive") }.map(\.form), [],
+                       "no passive form keeps the subset's συνθέτ- stem")
+        let synthetoVerb = try drillVerb("συνθέτω", syntheto)
+        let thirdPersons: [ParadigmLayout.Person] = [.thirdSingular, .thirdPlural]
+        let b1 = ConjugationQuestionBuilder.questions(verb: synthetoVerb, level: .b1)
+        for tense in [ConjugationTense.present, .futureContinuous, .subjunctiveContinuous] {
+            XCTAssertEqual(b1.first { $0.facet == ConjugationFacet(tense, .passive) }?.persons, thirdPersons,
+                           "the passive \(tense.rawValue) asks αυτός and αυτοί only")
+        }
+        let b2 = ConjugationQuestionBuilder.questions(verb: synthetoVerb, level: .b2)
+        XCTAssertNil(b2.first { $0.facet == ConjugationFacet(.imperativeContinuous, .passive) },
+                     "the rare συντίθεστε leaves no continuous passive imperative to ask")
+        XCTAssertEqual(synthetoVerb.forms(ConjugationFacet(.futureContinuous, .passive), .thirdSingular),
+                       ["θα συντίθεται"])
+        XCTAssertEqual(synthetoVerb.forms(ConjugationFacet(.subjunctiveContinuous, .passive), .thirdPlural),
+                       ["να συντίθενται"])
+        XCTAssertEqual(synthetoVerb.forms(ConjugationFacet(.present, .passive), .firstSingular), [], "rare: not asked")
+        let rare: Set<String> = ["συντίθεμαι", "συντίθεσαι", "συντίθεστε", "θα συντίθεμαι", "να συντίθεστε"]
+        for seed in UInt64(1)...5 {
+            let question = try XCTUnwrap(DrillFixture.build(synthetoVerb, .present, .thirdSingular, voice: .passive,
+                                                            level: .b1, seed: seed))
+            XCTAssertEqual(question.options[question.rightIndex], "συντίθεται", "seed \(seed)")
+            XCTAssertTrue(rare.isDisjoint(with: question.options), "seed \(seed): \(question.options)")
+        }
+
+        let paragoVerb = try drillVerb("παράγω", try verbCells("παράγω"))
+        XCTAssertEqual(paragoVerb.forms(ConjugationFacet(.imperativeSimple, .active), .secondPlural), ["παραγάγετε"])
+
+        let petao = try verbCells("πετάω")
+        XCTAssertEqual(forms(petao, present3pl), ["πετιούνται", "πετιόνται", "πετάγονται"])
+        XCTAssertFalse(petao.contains { $0.form == "πετάτγονται" }, "the typo is gone")
+
+        for (word, third, plural) in [("μελετάω", "μελετάται", "μελετώνται"), ("προτιμάω", "προτιμάται", "προτιμώνται")] {
+            let verb = try drillVerb(word, try verbCells(word))
+            let passive = ConjugationFacet(.present, .passive)
+            XCTAssertEqual(verb.forms(passive, .thirdSingular).first, third, word)
+            XCTAssertEqual(verb.forms(passive, .thirdSingular).count, 2, "\(word): the -ιέ- form stays accepted")
+            XCTAssertEqual(verb.forms(passive, .thirdPlural).first, plural, word)
+        }
+
+        let klinoVerb = try drillVerb("κλίνω", try verbCells("κλίνω"))
+        XCTAssertEqual(klinoVerb.forms(ConjugationFacet(.imperativeSimple, .active), .secondPlural), ["κλίνετε", "κλίντε"])
+        for seed in UInt64(1)...5 {
+            let question = try XCTUnwrap(DrillFixture.build(klinoVerb, .imperativeSimple, .secondPlural, level: .a1,
+                                                            seed: seed))
+            XCTAssertEqual(question.options[question.rightIndex], "κλίνετε", "seed \(seed)")
+            XCTAssertEqual(question.rightForms, ["κλίνετε", "κλίντε"], "κλίντε is accepted")
+            XCTAssertFalse(question.options.contains("κλίντε"), "seed \(seed): κλίντε is never a wrong option")
+        }
+    }
 }
 
 // MARK: - Issue #142: search by inflected Greek form (0136-word-forms.md)
@@ -28076,15 +28145,17 @@ final class DrillExampleDataTests: XCTestCase {
         let author: String
         let span: String?
         let english: String?
+        let russian: String?
     }
 
     /// Every cell row of the Greek pack (a key with a `|`), with its
-    /// sentence, the highlighted span and the English translation.
+    /// sentence, the highlighted span and the English and Russian translations.
     private func cellRows() throws -> [CellRow] {
         try BundledDictionary(url: try PackFixtures.file(.ell)).read { db in
             try GRDB.Row.fetchAll(db, sql: """
                 SELECT w.word, w.ord, w.sentence_id, w.form_start, w.form_length, s.text, s.author,
-                       (SELECT t.text FROM example_translation t WHERE t.sentence_id = s.id AND t.lang = 'eng') AS english
+                       (SELECT t.text FROM example_translation t WHERE t.sentence_id = s.id AND t.lang = 'eng') AS english,
+                       (SELECT t.text FROM example_translation t WHERE t.sentence_id = s.id AND t.lang = 'rus') AS russian
                 FROM example_word w JOIN example_sentence s ON s.id = w.sentence_id
                 WHERE w.lang = 'ell' AND instr(w.word, '|') > 0 ORDER BY w.word, w.ord
                 """).map { row in
@@ -28092,7 +28163,7 @@ final class DrillExampleDataTests: XCTestCase {
                 return CellRow(key: row["word"], ord: row["ord"], sentenceID: row["sentence_id"], text: text,
                                author: row["author"],
                                span: Self.span(text, start: row["form_start"], length: row["form_length"]),
-                               english: row["english"])
+                               english: row["english"], russian: row["russian"])
             }
         }
     }
@@ -28240,39 +28311,44 @@ final class DrillExampleDataTests: XCTestCase {
         }
     }
 
-    /// #365: every cell the drill asks of the A1 and A2 lists' verbs at
-    /// tenses up to A2 (kyukhin 2026-11-22) has a sentence, or is listed in
-    /// `ell-skipped.tsv` as a cell with no natural one (kyukhin 2026-11-22).
-    /// The app's own pool and `questions(verb:level: .a2)`, so a drift in
-    /// `Scripts/drill_cells.py` fails here too.
+    /// #365, #371: every cell the drill asks of the three lists' verbs at
+    /// tenses up to B1 (kyukhin 2026-11-23; 2.0 asked the A1 and A2 verbs up
+    /// to A2) has a sentence, or is listed in `ell-skipped.tsv` as a cell
+    /// with no natural one (kyukhin 2026-11-22). The app's own pool and
+    /// `questions(verb:level: .b1)`, so a drift in `Scripts/drill_cells.py`
+    /// fails here too.
     @MainActor
     func testEveryCellInScopeHasASentence() async throws {
         try await db.setup(userPath: tempDir.appendingPathComponent("user.sqlite").path,
                            dictionaryURL: try TestDictionary.bundledURL(), packFiles: try PackFixtures.all())
         let verbs = try await db.drillVerbs(lists: DrillScope.lists.map(\.id), meaningsLang: "eng")
-        var scope: Set<String> = []
-        for verb in verbs where (verb.listLevel ?? .max) <= 2 {
-            for (facet, persons) in ConjugationQuestionBuilder.questions(verb: verb, level: .a2) {
-                for person in persons {
-                    scope.insert("\(verb.word)|\(facet.rawValue)|\(person.rawValue)".precomposedStringWithCanonicalMapping)
+        var scope: Set<String> = [], b1Scope: Set<String> = []
+        for verb in verbs {
+            for (level, onlyUpTo) in [(DrillLevel.a2, 2), (DrillLevel.b1, 3)] where (verb.listLevel ?? .max) <= onlyUpTo {
+                for (facet, persons) in ConjugationQuestionBuilder.questions(verb: verb, level: level) {
+                    for person in persons {
+                        let key = "\(verb.word)|\(facet.rawValue)|\(person.rawValue)".precomposedStringWithCanonicalMapping
+                        if level == .a2 { scope.insert(key) } else { b1Scope.insert(key) }
+                    }
                 }
             }
         }
         XCTAssertGreaterThan(scope.count, 7_000, "the 2.0 scope")
+        XCTAssertGreaterThan(b1Scope.count, 31_000, "the B1/B1 scope")
         let rows = Set(try cellRows().map(\.key))
         let skipped = Set(try Self.dataRows("ell-skipped.tsv").compactMap { $0["cell"] })
         XCTAssertFalse(skipped.isEmpty)
         // #362: the skips of the imperative cells of `DrillVerb.noImperative`
         // are stale, cells the drill no longer asks: reported, never used.
-        let stale = skipped.subtracting(scope)
+        let stale = skipped.subtracting(b1Scope)
         let strangers = stale.filter { key in
             let parts = key.split(separator: "|").map(String.init)
             return !(parts.count == 3 && DrillVerb.noImperative.contains(parts[0]) && parts[1].hasPrefix("imperative"))
         }
-        XCTAssertEqual(strangers.sorted().prefix(20), [], "every skipped cell is in the scope, or a stale imperative")
+        XCTAssertEqual(strangers.sorted().prefix(20), [], "every skipped cell is in the B1/B1 scope, or a stale imperative")
         XCTAssertEqual(stale.count, 63, "the stale skips of #362")
-        let open = scope.subtracting(rows).subtracting(skipped).sorted()
-        XCTAssertEqual(open.prefix(20), [], "\(open.count) cells of the 2.0 scope have no sentence")
+        let open = b1Scope.subtracting(rows).subtracting(skipped).sorted()
+        XCTAssertEqual(open.prefix(20), [], "\(open.count) cells of the B1/B1 scope have no sentence")
         XCTAssertEqual(skipped.intersection(rows).sorted(), [], "a skipped cell stays without an example")
     }
 
@@ -28373,6 +28449,55 @@ final class DrillExampleDataTests: XCTestCase {
             }
         }
         XCTAssertEqual(problems, [], "\(problems.count) of the 'no' verdicts are not applied")
+    }
+
+    /// #371: every cell row of the Greek pack was checked for the cell it
+    /// serves (0134, "B1 drill examples", "Verdicts tied to the text"): it is
+    /// its data row's own cell (`ell.tsv`, `check` ok), or `ell-readings.tsv`
+    /// has an `ok` for it, each with the `texts_sha256` of what the pair
+    /// ships with: the first 16 hex digits of the sha256 of the NFC text,
+    /// English and Russian joined by a tab (CodeRabbit on #384). The build's
+    /// pair gate (`build_examples.PAIR_GATE`) holds the same. A data row's own
+    /// `check` also covers only the text, English and Russian the row holds
+    /// in `ell.tsv` now, as the build's `data_verdicts` requires: a row edited
+    /// after its check has no own ok, even before the pack is cut again.
+    func testEveryShippedPairWasChecked() throws {
+        func isHash(_ hash: String) -> Bool { hash.count == 16 && hash.allSatisfy { $0.isHexDigit && !$0.isUppercase } }
+        func textsHash(_ texts: [String]) -> String {
+            let joined = texts.map(\.precomposedStringWithCanonicalMapping).joined(separator: "\t")
+            return String(SHA256.hash(data: Data(joined.utf8)).map { String(format: "%02x", $0) }.joined().prefix(16))
+        }
+        var own: [Int64: String] = [:], editedSinceCheck: [String] = []
+        for row in try Self.dataRows("ell.tsv") where row["check"] == "ok" {
+            let hash = row["texts_sha256"] ?? ""
+            XCTAssertTrue(isHash(hash), "texts_sha256 of \(row["id"] ?? "")")
+            guard hash == textsHash([row["text"] ?? "", row["eng"] ?? "", row["rus"] ?? ""]) else {
+                editedSinceCheck.append(row["id"] ?? "")
+                continue
+            }
+            if let id = Int64(row["id"] ?? "") { own[id] = "\(row["cell"] ?? "")#\(hash)" }
+        }
+        var verdicts: [String: (verdict: String, hash: String)] = [:]
+        for line in try Self.dataRows("ell-readings.tsv") {
+            let hash = line["texts_sha256"] ?? ""
+            XCTAssertTrue(isHash(hash), "texts_sha256 of \(line["cell"] ?? "") \(line["sentence_id"] ?? "")")
+            verdicts["\(line["cell"] ?? "")#\(line["sentence_id"] ?? "")"] = (line["verdict"] ?? "", hash)
+        }
+        XCTAssertGreaterThan(verdicts.values.filter { $0.verdict == "ok" }.count, 3_000, "the Tatoeba check's ok")
+        var unchecked: [String] = [], stale: [String] = []
+        for row in try cellRows() {
+            let digest = textsHash([row.text, row.english ?? "", row.russian ?? ""])
+            // A data row's own ok counts only on the texts it was given on (CodeRabbit on #384).
+            if own[row.sentenceID] == "\(row.key)#\(digest)" { continue }
+            guard let verdict = verdicts["\(row.key)#\(row.sentenceID)"], verdict.verdict == "ok" else {
+                unchecked.append("\(row.key) \(row.sentenceID)")
+                continue
+            }
+            if verdict.hash != digest { stale.append("\(row.key) \(row.sentenceID)") }
+        }
+        XCTAssertEqual(stale.prefix(20), [], "\(stale.count) shipped pairs whose ok was given on other texts")
+        XCTAssertEqual(unchecked.prefix(20), [], "\(unchecked.count) shipped pairs no check covers; data rows "
+                       + "edited since their check: \(editedSinceCheck.prefix(20))")
     }
 }
 
@@ -40050,7 +40175,8 @@ extension DrillQuestionTextTests {
 extension GrammarContentTests {
     /// 0133's list as kyukhin approved it (2026-11-24): the 16, then groups
     /// A, B, C, D and P1 in the table's order, with απέχω (B) and περιμένω (C)
-    /// once #378 gave them aorists.
+    /// once #378 gave them aorists, and καταστρέφομαι, πλένομαι and
+    /// συμπεριλαμβάνομαι moved from P2 to P1 (#371, 2026-11-25).
     private static let approvedIrregularAorists = [
         "πηγαίνω", "έρχομαι", "κάνω", "βλέπω", "λέω", "τρώω", "πίνω", "βγαίνω", "μπαίνω", "παίρνω", "βρίσκω",
         "μένω", "φεύγω", "δίνω", "ξέρω", "θέλω",
@@ -40063,11 +40189,11 @@ extension GrammarContentTests {
         "αρέσω", "προτείνω", "κρίνω", "σερβίρω", "περιμένω", "αποθαρρύνω", "κλίνω",
         "πέφτω", "αρρωσταίνω", "υπάρχω", "καίω", "κλαίω", "φταίω", "αυξάνω", "χορταίνω", "τρέφω", "απολαμβάνω",
         "γίνομαι", "κάθομαι", "φαίνομαι", "χαίρομαι", "βρέχομαι", "βρίσκομαι", "προέρχομαι", "ντρέπομαι",
-        "στέκομαι",
+        "στέκομαι", "καταστρέφομαι", "πλένομαι", "συμπεριλαμβάνομαι",
     ]
 
     /// #363: the pack's word links of `ell-aorist-irregular` are the approved
-    /// 84, in order, each once and in NFC; each is a drill verb of the three
+    /// 87 (84, and #371's three), in order, each once and in NFC; each is a drill verb of the three
     /// Greek lists with an aorist in its main voice (so a typo fails), ξέρω
     /// aside, which has none. επιμένω, περιμένω and απέχω have one since #378.
     func testIrregularAoristsListsTheApprovedVerbs() async throws {
@@ -40077,8 +40203,8 @@ extension GrammarContentTests {
         let links = try await DatabaseService.shared.grammarLinks(lang: "ell")
         let listed = links.filter { $0.topicID == GrammarLinks.irregularAorists && $0.kind == .word }
             .sorted { $0.ord < $1.ord }.map(\.key)
-        XCTAssertEqual(Self.approvedIrregularAorists.count, 84)
-        XCTAssertEqual(Set(Self.approvedIrregularAorists).count, 84)
+        XCTAssertEqual(Self.approvedIrregularAorists.count, 87)
+        XCTAssertEqual(Set(Self.approvedIrregularAorists).count, 87)
         XCTAssertEqual(listed, Self.approvedIrregularAorists)
         // String == ignores canonical equivalence, so compare the scalars.
         XCTAssertTrue(listed.allSatisfy {

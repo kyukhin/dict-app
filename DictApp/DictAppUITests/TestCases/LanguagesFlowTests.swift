@@ -69,12 +69,12 @@ final class LanguagesFlowTests: XCTestCase {
         XCTAssertTrue(languages.element(IDs.row("eng")).exists, "English is listed")
         XCTAssertTrue(languages.waitForInstalled("rus", timeout: TestData.Timeouts.medium),
                       "Russian, installed at launch, shows Installed")
-        XCTAssertEqual(Self.visible(languages.button(IDs.download("ell")).label), "Download · 12.3 MB")
+        XCTAssertEqual(Self.visible(languages.button(IDs.download("ell")).label), "Download · 13.5 MB")
         attachScreenshot("Languages, Russian installed")
 
         languages.tapDownload("ell")
         XCTAssertTrue(languages.waitForInstalled("ell"), "Greek installs")
-        XCTAssertEqual(Self.visible(languages.element(IDs.installed("ell")).label), "Installed · 62.7 MB")
+        XCTAssertEqual(Self.visible(languages.element(IDs.installed("ell")).label), "Installed · 69.2 MB")
         languages.tapDownload("spa")
         XCTAssertTrue(languages.waitForInstalled("spa"), "Spanish installs")
         attachScreenshot("Languages, Greek and Spanish installed")
@@ -150,10 +150,10 @@ final class LanguagesFlowTests: XCTestCase {
         languages.tapDownload("ell")
         let greekProgress = languages.element(IDs.progress("ell"))
         XCTAssertTrue(greekProgress.waitForExistence(timeout: TestData.Timeouts.medium), "Greek shows its progress")
-        let downloading = NSPredicate(format: "value CONTAINS %@ AND value CONTAINS %@", " of ", "12.3 MB")
+        let downloading = NSPredicate(format: "value CONTAINS %@ AND value CONTAINS %@", " of ", "13.5 MB")
         XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: downloading, object: greekProgress)],
                                       timeout: TestData.Timeouts.long), .completed,
-                       "the bar reads '… of 12.3 MB'; got '\(String(describing: greekProgress.value))'")
+                       "the bar reads '… of 13.5 MB'; got '\(String(describing: greekProgress.value))'")
         XCTAssertTrue(languages.button(IDs.cancel("ell")).exists, "a download can be cancelled")
 
         languages.tapDownload("spa")
