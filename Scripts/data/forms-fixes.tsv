@@ -252,3 +252,56 @@ lemma	tags	wrong	right	kind
 αφήνω	active indicative past perfective plural second-person	αφήκατε	-	rare
 αφήνω	active indicative past perfective plural third-person	άφηκαν	-	rare
 αφήνω	active infinitive-aorist	αφήκει	-	rare
+# #371 (Claude's read in a separate session, accepted by kyukhin on 2026-11-26; 0136 "Pilot tables"): seven drill
+# verbs' tables the pilot met.
+# απελπίζω (the drill's απελπίζομαι): every passive form in -όμ-, -όσ-, -ότ-, -όντ- spelt with σ for ζ.
+απελπίζω	first-person imperfective indicative passive plural present	απελπισόμαστε	απελπιζόμαστε	replace
+απελπίζω	imperfective indicative passive plural present second-person	απελπισόσαστε	απελπιζόσαστε	replace
+απελπίζω	first-person imperfect imperfective indicative passive singular	απελπισόμουν	απελπιζόμουν	replace
+απελπίζω	first-person imperfect imperfective indicative passive singular	απελπισόμουνα	απελπιζόμουνα	replace
+απελπίζω	imperfect imperfective indicative passive second-person singular	απελπισόσουν	απελπιζόσουν	replace
+απελπίζω	imperfect imperfective indicative passive second-person singular	απελπισόσουνα	απελπιζόσουνα	replace
+απελπίζω	imperfect imperfective indicative passive singular third-person	απελπισόταν	απελπιζόταν	replace
+απελπίζω	imperfect imperfective indicative passive singular third-person	απελπισότανε	απελπιζότανε	replace
+απελπίζω	first-person imperfect imperfective indicative passive plural	απελπισόμασταν	απελπιζόμασταν	replace
+απελπίζω	first-person imperfect imperfective indicative informal passive plural	απελπισόμαστε	απελπιζόμαστε	replace
+απελπίζω	imperfect imperfective indicative passive plural second-person	απελπισόσασταν	απελπιζόσασταν	replace
+απελπίζω	imperfect imperfective indicative informal passive plural second-person	απελπισόσαστε	απελπιζόσαστε	replace
+απελπίζω	imperfect imperfective indicative informal passive plural third-person	απελπισόντουσαν	απελπιζόντουσαν	replace
+# συναντάω: the continuous imperative εσύ συνάντα; συνάνταγε stays in the imperfect αυτός.
+συναντάω	active imperative imperfective second-person singular	συνάνταγε	συνάντα	replace
+# καίω: the continuous imperative εσείς καίτε, as the present εσείς has it first.
+καίω	active imperative imperfective plural second-person	καίγετε	καίτε	replace
+# προσθέτω: the passive εσείς προστίθεστε, in the present and the continuous imperative.
+προσθέτω	imperfective indicative passive plural present second-person	προστίθεσθε	προστίθεστε	replace
+προσθέτω	imperative imperfective passive plural second-person	προστίθεσθε	προστίθεστε	replace
+# απασχολώ: the passive imperfect εσύ απασχολούσουν asked, απασχολιόσουν accepted after it.
+απασχολώ	imperfect imperfective indicative passive second-person singular	απασχολιόσουν	απασχολούσουν	first
+# εμφανίζω (the drill's εμφανίζομαι): the passive aorist αυτοί εμφανστήκαν, εμφανστήκανε lack their ι.
+εμφανίζω	indicative passive past perfective plural third-person	εμφανστήκαν	εμφανιστήκαν	replace
+εμφανίζω	indicative passive past perfective plural third-person	εμφανστήκανε	εμφανιστήκανε	replace
+# κλίνω: the simple imperative εσείς κλίνετε asked, the colloquial κλίντε accepted after it.
+κλίνω	active imperative perfective plural second-person	κλίντε	κλίνετε	first
+# #371 (Claude's read in a separate session, accepted by kyukhin (2026-11-27); 0136 "Pilot tables"): five more
+# drill verbs' tables, from the review of the sample.
+# παράγω: the simple imperative εσείς παραγάγετε; Greek shortens -ετε after ν, ρ, σ, ξ, ψ, never after γ.
+παράγω	active imperative perfective plural second-person	παραγάγτε	παραγάγετε	replace
+# πετάω: the passive present αυτοί πετάγονται, misspelt πετάτγονται.
+πετάω	imperfective indicative passive plural present third-person	πετάτγονται	πετάγονται	replace
+# συνθέτω: the standard passive is συντίθεμαι, as προσθέτω's; the first and second persons are not drilled (rare).
+συνθέτω	imperfective indicative passive present singular third-person	συνθέτεται	συντίθεται	replace
+συνθέτω	imperfective indicative passive plural present third-person	συνθέτονται	συντίθενται	replace
+συνθέτω	first-person imperfective indicative passive present singular	συνθέτομαι	συντίθεμαι	replace
+συνθέτω	first-person imperfective indicative passive present singular	συντίθεμαι	-	rare
+συνθέτω	imperfective indicative passive present second-person singular	συνθέτεσαι	συντίθεσαι	replace
+συνθέτω	imperfective indicative passive present second-person singular	συντίθεσαι	-	rare
+συνθέτω	imperfective indicative passive plural present second-person	συνθέτεστε	συντίθεστε	replace
+συνθέτω	imperfective indicative passive plural present second-person	συντίθεστε	-	rare
+συνθέτω	imperative imperfective passive plural second-person	συνθέτεστε	συντίθεστε	replace
+συνθέτω	imperative imperfective passive plural second-person	συντίθεστε	-	rare
+# μελετάω: the passive present αυτός and αυτοί μελετάται, μελετώνται asked; μελετιέται, μελετιούνται accepted after them.
+μελετάω	imperfective indicative passive present singular third-person	μελετιέται	μελετάται	first
+μελετάω	imperfective indicative passive plural present third-person	μελετιούνται	μελετώνται	first
+# προτιμάω: the passive present αυτός and αυτοί προτιμάται, προτιμώνται asked; προτιμιέται, προτιμιούνται accepted after them.
+προτιμάω	imperfective indicative passive present singular third-person	προτιμιέται	προτιμάται	first
+προτιμάω	imperfective indicative passive plural present third-person	προτιμιούνται	προτιμώνται	first

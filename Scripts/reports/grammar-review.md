@@ -1661,6 +1661,9 @@ Words:
 - προέρχομαι: be due, flow from (Greek – English (WordNet)); originate, spring, come from, harken back (Greek – English (FreeDict))
 - ντρέπομαι: be ashamed (Greek – English (FreeDict))
 - στέκομαι: stand, stand up (Greek – English (WordNet)); stand (Greek – English (FreeDict))
+- καταστρέφομαι: done for (Greek – English (FreeDict))
+- πλένομαι: wash, lave (Greek – English (WordNet))
+- συμπεριλαμβάνομαι: included (Greek – English (FreeDict))
 
 Related topics: `ell-aorist-regular` The aorist of regular verbs and the augment
 

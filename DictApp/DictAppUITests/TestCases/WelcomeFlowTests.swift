@@ -140,22 +140,22 @@ final class WelcomeFlowTests: XCTestCase {
     }
 
     /// QA #245 (0237, "First launch"): after Download each chosen language
-    /// shows its progress in the rows' order, Greek "… of 12.3 MB" and
+    /// shows its progress in the rows' order, Greek "… of 13.5 MB" and
     /// Spanish "Waiting"; Done closes the sheet and the downloads go on
     /// (Settings → Languages still shows them).
     func testProgressThenDoneKeepsDownloading() throws {
         let welcome = launch(downloads: "slow")
         welcome.toggle("spa")
         welcome.toggle("ell")
-        XCTAssertEqual(UITestHelpers.visible(welcome.downloadButton.label), "Download 19.2 MB")
+        XCTAssertEqual(UITestHelpers.visible(welcome.downloadButton.label), "Download 20.4 MB")
         welcome.tapDownload()
 
         let greek = welcome.element(Packs.progress("ell"))
         XCTAssertTrue(greek.waitForExistence(timeout: TestData.Timeouts.medium), "Greek, first in the rows, downloads")
-        let downloading = NSPredicate(format: "value CONTAINS %@ AND value CONTAINS %@", " of ", "12.3 MB")
+        let downloading = NSPredicate(format: "value CONTAINS %@ AND value CONTAINS %@", " of ", "13.5 MB")
         XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: downloading, object: greek)],
                                       timeout: TestData.Timeouts.long), .completed,
-                       "the bar reads '… of 12.3 MB'; got '\(String(describing: greek.value))'")
+                       "the bar reads '… of 13.5 MB'; got '\(String(describing: greek.value))'")
         XCTAssertEqual(welcome.element(Packs.progress("spa")).value as? String, "Waiting", "Spanish waits its turn")
         XCTAssertFalse(welcome.element(Packs.row("arb")).exists, "only the chosen languages")
         attachScreenshot("Welcome, Greek downloading, Spanish waiting")

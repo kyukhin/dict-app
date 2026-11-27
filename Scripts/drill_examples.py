@@ -18,12 +18,24 @@ Usage (from the repository root):
         and the allowed words, DIR/words-<level>.tsv; else todo.tsv on stdout
     python3 Scripts/drill_examples.py --add FILE
         appends FILE's rows (the data file's columns; `id` ignored, `page`
-        optional) to ell.tsv with new ids in their source's range; a
-        Wiktionary row without a page gets its entry from the pinned subset
-    python3 Scripts/drill_examples.py --sample 50 [--source FILE]
+        and `texts_sha256` optional) to ell.tsv with new ids in their
+        source's range; a Wiktionary row without a page gets its entry from
+        the pinned subset, a checked row (`check` ok) without a
+        `texts_sha256` the hash of its text, English and Russian as added:
+        the check was given on those (#371)
+    python3 Scripts/drill_examples.py --sample 50 [--base REV] [--source FILE]
         writes Scripts/reports/drill-examples-sample.md: rows that did not
         come from Tatoeba, drawn with a seed taken from ell.tsv's sha256, so
-        nobody picks them; the form is highlighted when FILE is there
+        nobody picks them; the form is highlighted when FILE is there. With
+        --base, only the rows a ticket adds: those whose id is not in REV's
+        ell.tsv (a git revision, #371)
+    python3 Scripts/drill_examples.py --pairs [--source FILE] [--out DIR]
+        the cell rows of FILE (a built full file or Greek pack) whose (cell,
+        sentence) no verdict covers: neither the data row's own cell nor a
+        verdict in ell-readings.tsv, each tied to the Greek, English and
+        Russian FILE ships with the sentence (`texts_sha256`). The next batch
+        of the check (#371), one row per pair, with the hash its verdict
+        line takes; DIR/pairs.tsv, else stdout
 """
 
 from __future__ import annotations
@@ -33,6 +45,7 @@ import collections
 import hashlib
 import os
 import random
+import subprocess
 import sys
 from pathlib import Path
 
@@ -55,6 +68,7 @@ TENSE_TITLES = {
 PRONOUNS = dict(zip(drill_cells.PERSONS, ("εγώ", "εσύ", "αυτός", "εμείς", "εσείς", "αυτοί")))
 TODO_COLUMNS = ("cell", "form", "forms", "verb", "list_term", "translation", "level", "tense", "voice", "person",
                 "homograph", "other_readings")
+PAIR_COLUMNS = ("cell", "sentence_id", "texts_sha256", "source", "form", "text", "eng", "rus")
 
 
 def read_rows() -> list[dict[str, str]]:
@@ -81,7 +95,7 @@ def add(path: Path) -> int:
     rows = read_rows()
     lines = path.read_text(encoding="utf-8").split("\n")
     header = lines[0].split("\t")
-    lacking = [c for c in bx.DATA_COLUMNS if c not in header and c not in ("id", "page")]
+    lacking = [c for c in bx.DATA_COLUMNS if c not in header and c not in ("id", "page", "texts_sha256")]
     if lacking:
         sys.exit(f"{path}: no column {', '.join(lacking)}")
     texts = {r["text"] for r in rows}
@@ -105,6 +119,8 @@ def add(path: Path) -> int:
         if row["source"] == "wiktionary" and not row["page"]:
             pin = pin or bx.wiktionary_examples(bx.kaikki_subset()[0])
             row["page"] = pin.get(row["text"], (0, "", ""))[1]
+        if row["check"] == "ok" and not row["texts_sha256"]:
+            row["texts_sha256"] = bx.texts_hash(row["text"], row["eng"], row["rus"])
         row["id"] = str(next_id[row["source"]])
         next_id[row["source"]] += 1
         texts.add(row["text"])
@@ -159,10 +175,26 @@ def todo(source: Path, scope: str, out: Path | None) -> int:
     return 0
 
 
-def sample(count: int, source: Path | None) -> int:
+def base_ids(rev: str) -> set[str]:
+    """The ids of ell.tsv at a git revision (#371: the rows a ticket adds
+    are the others)."""
+    relative = (DATA / bx.DATA_FILE).relative_to(bx.REPO).as_posix()
+    shown = subprocess.run(["git", "-C", str(bx.REPO), "show", f"{rev}:{relative}"], capture_output=True, text=True,
+                           encoding="utf-8")
+    if shown.returncode != 0:
+        sys.exit(f"--base {rev}: {shown.stderr.strip()}")
+    lines = shown.stdout.split("\n")
+    column = lines[0].split("\t").index("id")
+    return {line.split("\t")[column] for line in lines[1:] if line}
+
+
+def sample(count: int, source: Path | None, base: str | None = None) -> int:
     path = DATA / bx.DATA_FILE
     digest = hashlib.sha256(path.read_bytes()).hexdigest()
     rows = read_rows()
+    if base is not None:
+        old = base_ids(base)
+        rows = [r for r in rows if r["id"] not in old]
     chosen = sorted(random.Random(int(digest, 16)).sample(rows, min(count, len(rows))), key=lambda r: int(r["id"]))
     forms: dict[str, tuple[str, ...]] = {}
     infinitives: frozenset[str] = frozenset()
@@ -175,9 +207,10 @@ def sample(count: int, source: Path | None) -> int:
            "Written by `Scripts/drill_examples.py --sample` "
            "([0134-example-sentences.md](../../docs/specs/0134-example-sentences.md), \"Checks\", 3). Do not edit "
            "by hand.", "",
-           f"{len(chosen)} of the {len(rows):,} rows of `Scripts/data/drill-examples/{bx.DATA_FILE}` (" +
+           f"{len(chosen)} of the {len(rows):,} rows of `Scripts/data/drill-examples/{bx.DATA_FILE}`"
+           + (f" that `{base}`'s file does not hold, the rows the ticket adds" if base is not None else "") + " (" +
            ", ".join(f"{source} {by_source[source]:,}" for source in bx.SOURCE_IDS) + "), drawn by "
-           "`random.Random(int(sha256, 16)).sample(rows, 50)` with the file's sha256 "
+           f"`random.Random(int(sha256, 16)).sample(rows, {count})` with the file's sha256 "
            f"`{digest}`, so nobody picks them; in id order.", "",
            "kyukhin reads the Greek, the English and the Russian. A wrong form or a wrong meaning: its cause is "
            "fixed, the rows it touched are generated again and a new sample is drawn. A Wiktionary row's Greek and "
@@ -195,21 +228,59 @@ def sample(count: int, source: Path | None) -> int:
     return 0
 
 
+def pairs(source: Path, out: Path | None) -> int:
+    """The cell rows of a built file that no verdict covers (#371): the pair
+    gate's misses (`build_examples.unchecked_pairs`), as the next batch of
+    the check, in sentence id order."""
+    reader = bx.read_only(source)
+    found = reader.execute("""
+        SELECT w.word, w.sentence_id, w.form_start, w.form_length, s.text,
+               (SELECT text FROM example_translation t WHERE t.sentence_id = s.id AND t.lang = 'eng'),
+               (SELECT text FROM example_translation t WHERE t.sentence_id = s.id AND t.lang = 'rus')
+        FROM example_word w JOIN example_sentence s ON s.id = w.sentence_id
+        WHERE w.lang = 'ell' AND instr(w.word, '|') > 0 ORDER BY w.sentence_id, w.word""").fetchall()
+    data = bx.read_drill_data(DATA, {}, "")
+    texts = {sid: (text, eng or "", rus or "") for _, sid, _, _, text, eng, rus in found}
+    verdicts = bx.data_verdicts(data, texts)
+    stored = bx.Rows([], [], [("ell", key, 1, sid, start, length) for key, sid, start, length, *_ in found])
+    open_ = set(bx.unchecked_pairs(stored, verdicts))
+    names = ("tatoeba", "wiktionary", "generated")
+    rows = [(key, str(sid), bx.texts_hash(*texts[sid]), names[bx.source_of(sid)], text[start:start + length], text,
+             eng or "", rus or "") for key, sid, start, length, text, eng, rus in found if (key, sid) in open_]
+    text = "\n".join("\t".join(r) for r in [PAIR_COLUMNS, *rows]) + "\n"
+    if out is None:
+        sys.stdout.write(text)
+    else:
+        out.mkdir(parents=True, exist_ok=True)
+        (out / "pairs.tsv").write_text(text, encoding="utf-8")
+    print(f"{len(rows):,} of {len(found):,} cell rows have no verdict"
+          + (f": {out / 'pairs.tsv'}" if out is not None else ""), file=sys.stderr)
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--todo", action="store_true", help="List the open cells of a scope.")
     mode.add_argument("--add", type=Path, metavar="FILE", help="Append rows to ell.tsv with new ids.")
     mode.add_argument("--sample", type=int, metavar="N", help="Write the review sample of N rows.")
+    mode.add_argument("--pairs", action="store_true", help="List the cell rows of --source that no verdict covers.")
     parser.add_argument("--scope", default="A2/A2", help="Verb lists up to / tenses up to (default A2/A2: 2.0).")
     parser.add_argument("--source", type=Path, default=DEFAULT_SOURCE,
                         help="A built full file or Greek pack (default: the cache's full file).")
-    parser.add_argument("--out", type=Path, help="With --todo: write todo.tsv and words-<level>.tsv here.")
+    parser.add_argument("--out", type=Path,
+                        help="With --todo: write todo.tsv and words-<level>.tsv here; with --pairs: pairs.tsv.")
+    parser.add_argument("--base", metavar="REV",
+                        help="With --sample: draw only the rows whose id is not in REV's ell.tsv (a git revision).")
     args = parser.parse_args()
+    if args.base and not args.sample:
+        parser.error("--base goes with --sample")
     if args.add:
         return add(args.add)
     if args.sample:
-        return sample(args.sample, args.source)
+        return sample(args.sample, args.source, args.base)
+    if args.pairs:
+        return pairs(args.source, args.out)
     return todo(args.source, args.scope, args.out)
 
 

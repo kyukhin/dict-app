@@ -15,7 +15,7 @@ Written by `Scripts/build_forms.py` on every build of the forms step ([0136-word
 - Pages: 85,425 (29,449 lemma pages, 55,976 form pages)
 - Lemmas: 27,352 (noun 14,370, adj 5,760, verb 3,934, name 1,813, adv 999, intj 115, num 79, pron 70, conj 53, character 51, symbol 42, prep 41, particle 14, article 7, det 4)
 - Lemmas with a table: 21,998 (noun 13,342, adj 5,569, verb 1,863, name 1,178, pron 24, num 16, det 4, article 2)
-- Table cells: 390,619; lookup rows: 247,485; lookup keys: 236,946, of which ambiguous (more than one lemma): 9,744; tag sets: 975
+- Table cells: 390,621; lookup rows: 247,484; lookup keys: 236,945, of which ambiguous (more than one lemma): 9,744; tag sets: 975
 - Links: alt_of 3,147, form_of 67,463, gloss 461; aspect taken from the gloss: 5,232; unresolved targets: 388 (613 links); link spellings that are no cell of their lemma's table (`form_link`): 8,993
 
 ## Junk caught
@@ -70,7 +70,7 @@ Written by `Scripts/build_forms.py` on every build of the forms step ([0136-word
 - παρά in the table of παράς (noun)
 - παρά → παράς (noun, form_of)
 
-### Table fixes (211, all; `Scripts/data/forms-fixes.tsv`)
+### Table fixes (248, all; `Scripts/data/forms-fixes.tsv`)
 
 - ανέκραξε (drop) in the table of ανακράζω: active imperative perfective second-person singular
 - ανέκραζε (drop) in the table of ανακράζω: active imperative imperfective second-person singular
@@ -85,6 +85,20 @@ Written by `Scripts/build_forms.py` on every build of the forms step ([0136-word
 - απείχανε (add) in the table of απέχω: active indicative past perfective plural third-person
 - απόσχετε (add) in the table of απέχω: active imperative perfective plural second-person
 - απόσχτε (rare) in the table of απέχω: active imperative perfective plural second-person
+- απασχολιόσουν → απασχολούσουν (first) in the table of απασχολώ: imperfect imperfective indicative passive second-person singular
+- απελπισόμαστε → απελπιζόμαστε (replace) in the table of απελπίζω: first-person imperfective indicative passive plural present
+- απελπισόσαστε → απελπιζόσαστε (replace) in the table of απελπίζω: imperfective indicative passive plural present second-person
+- απελπισόμουν → απελπιζόμουν (replace) in the table of απελπίζω: first-person imperfect imperfective indicative passive singular
+- απελπισόμουνα → απελπιζόμουνα (replace) in the table of απελπίζω: first-person imperfect imperfective indicative passive singular
+- απελπισόσουν → απελπιζόσουν (replace) in the table of απελπίζω: imperfect imperfective indicative passive second-person singular
+- απελπισόσουνα → απελπιζόσουνα (replace) in the table of απελπίζω: imperfect imperfective indicative passive second-person singular
+- απελπισόταν → απελπιζόταν (replace) in the table of απελπίζω: imperfect imperfective indicative passive singular third-person
+- απελπισότανε → απελπιζότανε (replace) in the table of απελπίζω: imperfect imperfective indicative passive singular third-person
+- απελπισόμασταν → απελπιζόμασταν (replace) in the table of απελπίζω: first-person imperfect imperfective indicative passive plural
+- απελπισόμαστε → απελπιζόμαστε (replace) in the table of απελπίζω: first-person imperfect imperfective indicative informal passive plural
+- απελπισόσασταν → απελπιζόσασταν (replace) in the table of απελπίζω: imperfect imperfective indicative passive plural second-person
+- απελπισόσαστε → απελπιζόσαστε (replace) in the table of απελπίζω: imperfect imperfective indicative informal passive plural second-person
+- απελπισόντουσαν → απελπιζόντουσαν (replace) in the table of απελπίζω: imperfect imperfective indicative informal passive plural third-person
 - απεκόμισε (drop) in the table of αποκομίζω: active imperative perfective second-person singular
 - αποσυνέδεσε (drop) in the table of αποσυνδέω: active imperative perfective second-person singular
 - απέτυχε (drop) in the table of αποτυγχάνω: active imperative perfective second-person singular
@@ -123,6 +137,8 @@ Written by `Scripts/build_forms.py` on every build of the forms step ([0136-word
 - διέφερε (drop) in the table of διαφέρω: active imperative imperfective second-person singular
 - ελάφρυνε (drop) in the table of ελαφραίνω: active imperative imperfective second-person singular
 - ήλπισε (drop) in the table of ελπίζω: active imperative perfective second-person singular
+- εμφανστήκαν → εμφανιστήκαν (replace) in the table of εμφανίζω: indicative passive past perfective plural third-person
+- εμφανστήκανε → εμφανιστήκανε (replace) in the table of εμφανίζω: indicative passive past perfective plural third-person
 - επαναπροώθησε (keep) in the table of επαναπροωθώ: active imperative perfective second-person singular
 - επέζησε (drop) in the table of επιζώ: active imperative perfective second-person singular
 - επέμεινα (drop) in the table of επιμένω: active dependent first-person indicative perfective singular
@@ -156,15 +172,20 @@ Written by `Scripts/build_forms.py` on every build of the forms step ([0136-word
 - θυμήζανε → θυμίζανε (replace) in the table of θυμίζω: active imperfect imperfective indicative plural third-person
 - θυμήζετε → θυμίζετε (replace) in the table of θυμίζω: active imperative imperfective plural second-person
 - θυμήζοντας → θυμίζοντας (replace) in the table of θυμίζω: active indeclinable participle present
+- καίγετε → καίτε (replace) in the table of καίω: active imperative imperfective plural second-person
 - καρτέρησε (keep) in the table of καρτερώ: active imperative perfective second-person singular
 - καρτέραγε (drop) in the table of καρτερώ: active imperative imperfective second-person singular
+- κλίντε → κλίνετε (first) in the table of κλίνω: active imperative perfective plural second-person
 - μαλώσε → μάλωσε (replace) in the table of μαλώνω: active imperative perfective second-person singular
 - μαλώνε → μάλωνε (replace) in the table of μαλώνω: active imperative imperfective second-person singular
+- μελετιέται → μελετάται (first) in the table of μελετάω: imperfective indicative passive present singular third-person
+- μελετιούνται → μελετώνται (first) in the table of μελετάω: imperfective indicative passive plural present third-person
 - έμπαινε (keep) in the table of μπαίνω: active imperative imperfective informal second-person singular
 - νύσταξε → νυστάξτε (replace) in the table of νυστάζω: active imperative perfective plural second-person
 - ξύπνησε → ξύπνα (first) in the table of ξυπνάω: active imperative perfective second-person singular
 - παρήγαγε (drop) in the table of παράγω: active imperative perfective second-person singular
 - παρήγε (drop) in the table of παράγω: active imperative imperfective second-person singular
+- παραγάγτε → παραγάγετε (replace) in the table of παράγω: active imperative perfective plural second-person
 - παράτησε → παράτα (first) in the table of παρατάω: active imperative perfective second-person singular
 - παρέτεινε (drop) in the table of παρατείνω: active imperative perfective second-person singular
 - παρέτεινε (drop) in the table of παρατείνω: active imperative imperfective second-person singular
@@ -186,6 +207,7 @@ Written by `Scripts/build_forms.py` on every build of the forms step ([0136-word
 - περιμένουν (add) in the table of περιμένω: active dependent indicative perfective plural third-person
 - περιμένουνε (add) in the table of περιμένω: active dependent indicative perfective plural third-person
 - περιμένει (add) in the table of περιμένω: active infinitive-aorist
+- πετάτγονται → πετάγονται (replace) in the table of πετάω: imperfective indicative passive plural present third-person
 - πρέβαλε → πρόβαλε (replace) in the table of προβάλλω: active imperative perfective second-person singular
 - πρέβαλλε (drop) in the table of προβάλλω: active imperative imperfective second-person singular
 - πρέβαλα → πρόβαλα (replace) in the table of προβάλλω: active first-person indicative past perfective singular
@@ -206,8 +228,12 @@ Written by `Scripts/build_forms.py` on every build of the forms step ([0136-word
 - προέβαλλαν (add) in the table of προβάλλω: active imperfect imperfective indicative plural third-person
 - προβάλτε → προβάλετε (first) in the table of προβάλλω: active imperative perfective plural second-person
 - προβάλου (rare) in the table of προβάλλω: imperative passive perfective second-person singular
+- προστίθεσθε → προστίθεστε (replace) in the table of προσθέτω: imperfective indicative passive plural present second-person
+- προστίθεσθε → προστίθεστε (replace) in the table of προσθέτω: imperative imperfective passive plural second-person
 - προέτεινε (drop) in the table of προτείνω: active imperative perfective second-person singular
 - προέτεινε (drop) in the table of προτείνω: active imperative imperfective second-person singular
+- προτιμιέται → προτιμάται (first) in the table of προτιμάω: imperfective indicative passive present singular third-person
+- προτιμιούνται → προτιμώνται (first) in the table of προτιμάω: imperfective indicative passive plural present third-person
 - προχώρησε → προχώρα (first) in the table of προχωράω: active imperative perfective second-person singular
 - σερβιρίζοναι → σερβιρίζονται (replace) in the table of σερβίρω: imperfective indicative passive plural present third-person
 - σερβιριζόμαστε → σερβιρόμαστε (first) in the table of σερβίρω: first-person imperfective indicative passive plural present
@@ -249,9 +275,20 @@ Written by `Scripts/build_forms.py` on every build of the forms step ([0136-word
 - σύλλεξε (add) in the table of συλλέγω: active imperative perfective second-person singular
 - συμμμετείχε → συμμετείχε (replace) in the table of συμμετέχω: active indicative past perfective singular third-person
 - συμμετάσχτε → συμμετάσχετε (first) in the table of συμμετέχω: active imperative perfective plural second-person
+- συνάνταγε → συνάντα (replace) in the table of συναντάω: active imperative imperfective second-person singular
 - συνεδύασε (drop) in the table of συνδυάζω: active imperative perfective second-person singular
 - συνθέσε → σύνθεσε (replace) in the table of συνθέτω: active imperative perfective second-person singular
 - συνθέτε → σύνθετε (replace) in the table of συνθέτω: active imperative imperfective second-person singular
+- συνθέτεται → συντίθεται (replace) in the table of συνθέτω: imperfective indicative passive present singular third-person
+- συνθέτονται → συντίθενται (replace) in the table of συνθέτω: imperfective indicative passive plural present third-person
+- συνθέτομαι → συντίθεμαι (replace) in the table of συνθέτω: first-person imperfective indicative passive present singular
+- συντίθεμαι (rare) in the table of συνθέτω: first-person imperfective indicative passive present singular
+- συνθέτεσαι → συντίθεσαι (replace) in the table of συνθέτω: imperfective indicative passive present second-person singular
+- συντίθεσαι (rare) in the table of συνθέτω: imperfective indicative passive present second-person singular
+- συνθέτεστε → συντίθεστε (replace) in the table of συνθέτω: imperfective indicative passive plural present second-person
+- συντίθεστε (rare) in the table of συνθέτω: imperfective indicative passive plural present second-person
+- συνθέτεστε → συντίθεστε (replace) in the table of συνθέτω: imperative imperfective passive plural second-person
+- συντίθεστε (rare) in the table of συνθέτω: imperative imperfective passive plural second-person
 - συνέταξε (drop) in the table of συντάσσω: active imperative perfective second-person singular
 - συνέτασσε (drop) in the table of συντάσσω: active imperative imperfective second-person singular
 - τεμπαλιάσω → τεμπελιάσω (replace) in the table of τεμπελιάζω: active dependent first-person indicative perfective singular
@@ -340,7 +377,7 @@ The past-form flag and the row of `forms-fixes.tsv` that reviewed it; a flag wit
 | Top-5,000 findable | 89.2% | ≥ 87% | pass |
 | Stoplisted forms mapping to a verb | 0 | 0 | pass |
 | Forms tables | 24.3 MB | ≤ 25 MB | pass |
-| Table fixes (forms-fixes.tsv) that apply: the wrong form in its cell of the subset; an `add`'s verb with a table, its cell without the form (#378); a `keep` on a flag | 211 of 211 | all | pass |
+| Table fixes (forms-fixes.tsv) that apply: the wrong form in its cell of the subset; an `add`'s verb with a table, its cell without the form (#378); a `keep` on a flag | 248 of 248 | all | pass |
 | Imperative cells spelt like a past form (#362) with a drop or keep row | 38 of 38 | all | pass |
 
 **Top-500 verbs**: covered 482 of 500 (96.4%): own table 437, via a linked lemma 45. Missing (18): συμβαίνει, συμβαίνω, υποθέτω, πυροβολώ, ξαναβλέπω, μέλλων, χαρούμενος, προηγούμενος, παρελθών, μεγαλώνω, λειτουργώ, αναλαμβάνω, μεθυσμένος, καταραμένος, επιτίθεμαι, έστω, ξεφεύγω, ξεπερνάω.
@@ -363,7 +400,7 @@ The past-form flag and the row of `forms-fixes.tsv` that reviewed it; a flag wit
 |---|---|---|---|
 | `lemma` | 27,352 | 3,170,304 | `e57399c4ea3ee798431d4fcfff0333a16314ed4a7f39fd1c791df0213f55e963` |
 | `tagset` | 975 | 106,496 | `697154b65f892ebc60d05d16d118cc25f120b7cb8421042472800f970d3a9bcb` |
-| `paradigm` | 390,619 | 12,967,936 | `9bd87c1883e990937372a47e9429417334110b0e04373c9a76cac89591bbf4ee` |
-| `form_lookup` | 247,485 | 7,806,976 | `f5fe2b8723048d7d1f21217040f45142e5b44650befe81ea4c0c7cc3741fec78` |
+| `paradigm` | 390,621 | 12,967,936 | `40a763d9c3032cc3dca0b041330fef817b17ffed312c66d125cdc9dca5bf31d6` |
+| `form_lookup` | 247,484 | 7,806,976 | `8bce6da1594c53baf40c43ff3d485b5f010f33fe5e826cb80a4b36eb9bfb3ea1` |
 | `form_link` | 8,993 | 249,856 | `1731aa15873488b41f2572d27f7291e9a6e1afed6d5e2d2f82a8336f036b5c8d` |
 | total | | 24,301,568 | |

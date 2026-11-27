@@ -1036,7 +1036,7 @@ final class ArabicLocalizationTests: XCTestCase {
         XCTAssertTrue(installed.exists, "Greek is installed (`-installPacks all`)")
         XCTAssertEqual(installed.label.unicodeScalars.first, "\u{200F}", installed.label)
         XCTAssertTrue(Self.visible(installed.label).hasPrefix("مثبّت · "), installed.label)
-        XCTAssertTrue(installed.label.contains("62.7") || installed.label.contains("٦٢٫٧"),
+        XCTAssertTrue(installed.label.contains("69.2") || installed.label.contains("٦٩٫٢"),
                       "the installed size, one number: \(installed.label)")
         XCTAssertGreaterThan(greek.frame.minX, installed.frame.maxX, "the name is right of its status")
         attachScreenshot("Languages (ar)")
