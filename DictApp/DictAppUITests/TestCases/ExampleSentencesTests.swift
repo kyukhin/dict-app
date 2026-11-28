@@ -171,6 +171,23 @@ final class ExampleSentencesTests: XCTestCase {
         XCTAssertEqual(line.label, "Example sentences: Tatoeba (tatoeba.org), CC BY 2.0 FR. Each example names its authors.")
     }
 
+    /// #385: Credits names the conjugation examples from Greek texts, their
+    /// collections, BabyLM-ell and where the documents are listed.
+    func testCreditsListTheCorpus() throws {
+        _ = tabBarPage.tapSettingsTab()
+        let link = app.descendants(matching: .any)[AccessibilityIdentifiers.Inflection.creditsLink].firstMatch
+        XCTAssertTrue(app.scrollToElement(link), "the Credits row must be reachable in Settings")
+        link.tap()
+        let line = app.staticTexts[IDs.creditsCorpus]
+        XCTAssertTrue(line.waitForExistence(timeout: TestData.Timeouts.medium) || app.scrollToElement(line),
+                      "Credits must list the corpus sentences")
+        XCTAssertTrue(line.label.hasPrefix("Conjugation examples from Greek texts, via BabyLM-ell: books from "
+                                           + "openbook.gr, textbook and conversation corpora from CLARIN:EL"), line.label)
+        for part in ["Global Storybooks", "Vikidia", "adapted", "github.com/kyukhin/dict-app"] {
+            XCTAssertTrue(line.label.contains(part), "\(part): \(line.label)")
+        }
+    }
+
     /// At the largest accessibility text size every example lies inside the
     /// window's width, wrapping rather than cut, and More stays reachable.
     func testExamplesFitAtTheLargestTextSize() throws {

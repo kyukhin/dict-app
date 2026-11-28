@@ -134,6 +134,8 @@ struct AccessibilityIdentifiers {
         static let exampleButton = "exercise_example_button"
         /// The Tatoeba line on Credits.
         static let creditsTatoeba = "credits_tatoeba"
+        /// #385: the line of the corpus sentences on Credits.
+        static let creditsCorpus = "credits_corpus"
     }
 
     // MARK: - Reading Mode (Issue #5)
@@ -496,12 +498,18 @@ struct AccessibilityIdentifiers {
         /// The lines, in display order.
         static let lines = ["wordnet", "openrussian", "freedict", "spanish_wordnet", "arabic_wordnet",
                             "greek_wordnet", "wiktionary", "greek_lists", "cefrj", "octanove",
-                            "frequency_words", "tatoeba", "drill_examples", "greek_grammar"]
+                            "frequency_words", "tatoeba", "drill_examples", "corpus", "greek_grammar"]
         /// The licenses, in display order: id, name and URL (untranslated).
         static let licenses: [(id: String, name: String, url: String)] = [
             ("cc_by_sa_4_0", "CC BY-SA 4.0", "https://creativecommons.org/licenses/by-sa/4.0/"),
             ("cc_by_sa_3_0", "CC BY-SA 3.0", "https://creativecommons.org/licenses/by-sa/3.0/"),
             ("cc_by_3_0", "CC BY 3.0", "https://creativecommons.org/licenses/by/3.0/"),
+            // #385: the licences of the corpus sentences' documents.
+            ("cc_by_4_0", "CC BY 4.0", "https://creativecommons.org/licenses/by/4.0/"),
+            ("cc_by_nc_3_0", "CC BY-NC 3.0", "https://creativecommons.org/licenses/by-nc/3.0/"),
+            ("cc_by_nc_4_0", "CC BY-NC 4.0", "https://creativecommons.org/licenses/by-nc/4.0/"),
+            ("cc_by_nc_sa_3_0", "CC BY-NC-SA 3.0", "https://creativecommons.org/licenses/by-nc-sa/3.0/"),
+            ("cc_by_nc_sa_4_0", "CC BY-NC-SA 4.0", "https://creativecommons.org/licenses/by-nc-sa/4.0/"),
             ("cc_by_2_0_fr", "CC BY 2.0 FR", "https://creativecommons.org/licenses/by/2.0/fr/"),
             ("apache_2_0", "Apache 2.0", "https://www.apache.org/licenses/LICENSE-2.0"),
             ("wordnet", "WordNet 3.0 License", "https://wordnet.princeton.edu/license-and-commercial-use"),

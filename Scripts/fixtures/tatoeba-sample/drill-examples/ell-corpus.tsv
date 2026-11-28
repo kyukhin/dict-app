@@ -1,0 +1,4 @@
+id	cell	doc	original	text	eng	rus	model	check	checked_by	texts_sha256
+3000000001	γράφω|present.active|2pl	fixture-babiniotis	Και δεν τους γράφετε να ξαναγυρίσουν;	Και δεν τους γράφετε να ξαναγυρίσουν;	And don't you write to them to come back?	А вы не пишете им, чтобы они вернулись?	fixture 2026-11-27	ok	fixture 2026-11-27	aefc4d540a08e48f
+3000000002	κάνω|aorist.active|2pl	fixture-delta	Τι τον κάνατε;	Τι τον κάνατε;	What did you do with him?	Что вы с ним сделали?	fixture 2026-11-27	ok	fixture 2026-11-27	c8bb55c040768501
+3000000003	μιλάω|futureContinuous.active|1sg	fixture-galatsis	ΑΛΙΚΗ: Θα μιλάω με τα ζώα;	Θα μιλάω με τα ζώα;	Will I be talking to the animals?	Я буду разговаривать с животными?	fixture 2026-11-27	ok	fixture 2026-11-27	046e8cef2083cab3

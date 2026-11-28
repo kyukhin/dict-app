@@ -56,7 +56,7 @@ Aorist ⓘ
 
   - It is the asked cell's sentence, never the chosen option's. A compound form is highlighted whole, with any clitics between: **θα σου γράψω**.
   - Its translation is in the via language of Greek's pair, as in learning (0134, "Translation in learning"): Greek via English shows the English one; the limited Greek via Russian shows Russian when the sentence has it, else English.
-  - The byline names the source as on the Definition screen: the Tatoeba authors, "Wiktionary" or "LibreDict, generated" (0134, "Drill examples").
+  - The byline names the source as on the Definition screen: the Tatoeba authors, "Wiktionary" or "LibreDict, generated" (0134, "Drill examples"); for a sentence from an openly licensed corpus (#385), its document, collection and licence, "adapted" where LibreDict changed it, and "translation: LibreDict, generated", in the same small print (0134, "Corpus sentences").
   - **No sentence, no change**: a cell without one shows the panel as before, with no gap and no placeholder. So does a Greek pack from before #364, until it is updated (0237).
   - The sentence is not spoken, and its time is not the answer's: the answer's time ends at the tap, as before.
   - Which cells have a sentence, and from where, is 0134's "Drill examples". In 2.0 every cell of the A1 and A2 verbs at tenses up to A2 gets one (kyukhin, 2026-11-22). In 2.1 every cell of the verbs of the three lists at tenses up to B1 gets one or is skipped with its reason; the B2 tenses come in 2.2 (kyukhin, 2026-11-23 and 2026-11-25, #371). The continuous future and subjunctive skip generously rather than take a stilted sentence.
@@ -703,3 +703,4 @@ Questions 12 to 16 are #363's.
 - 2026-11-24 (kyukhin, #363, after #378): περιμένω and απέχω join the list (84 verbs; 0133). περιμένω's note shows: #378 gave it its dependent, so rule 3 holds.
 - 2026-11-24 (#363, as built): `ConjugationTense.aoristStem` is the four tenses of rule 1 and, at B2, `perfect`, `pluperfect` and `futurePerfect` (Open question 14; rule 1 now says so). The note is set in `ConjugationRunViewModel.show()` from the run's `grammarLinks`; `drill.irregularNote` is in the catalog in five languages.
 - 2026-11-25 (#371; approved by kyukhin the same day): the answer panel's example line says what 2.1 fills: every cell of the three lists' verbs at tenses up to B1, the continuous future and subjunctive skipping generously (0134, "B1 drill examples"). No change to the drill or its code.
+- 2026-11-28 (#385): the answer panel's byline also names a corpus sentence's document, collection and licence, "adapted" where LibreDict changed it, and the translation's source, in the same small print; no layout change (0134, "Corpus sentences").

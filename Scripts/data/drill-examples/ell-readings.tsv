@@ -943,6 +943,7 @@ cell	sentence_id	texts_sha256	verdict	checked_by	reason
 γνωρίζω|aorist.passive|3pl	5442913	1924b9e85e0ff0a7	ok	claude-opus-5-5 2026-11-23	Tatoeba check
 γνωρίζω|futureContinuous.active|1pl	5437106	a9e2de955579ec53	ok	claude-opus-5-5 2026-11-23	Tatoeba check
 γνωρίζω|imperativeSimple.active|2sg	12992630	6ba0b885e5846625	no	claude-opus-5-5 2026-11-22	Δεν with ποτέ makes γνώρισε an aorist, not an order.
+γνωρίζω|imperativeSimple.passive|2pl	2000023041	8466cdca6734bbee	no	claude-opus-5-5 2026-11-28 (PM check)	form: after όταν γνωριστείτε is the dependent form, not the imperative
 γνωρίζω|imperfect.active|1pl	5450247	42bb48c2e1bc92f3	ok	claude-opus-5-5 2026-11-23	Tatoeba check
 γνωρίζω|imperfect.active|1sg	5528601	f4b32e578ae207f8	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: ρώτησησε is a misspelling of ρώτησε.
 γνωρίζω|imperfect.active|1sg	7774596	5ceaa420e024dfb6	ok	claude-opus-5-5 2026-11-23	Tatoeba check
@@ -968,6 +969,7 @@ cell	sentence_id	texts_sha256	verdict	checked_by	reason
 γνωρίζω|subjunctiveSimple.active|1sg	5104546	bcf12c25b95b1d72	ok	claude-opus-5-5 2026-11-23	Tatoeba check
 γνωρίζω|subjunctiveSimple.active|2sg	4839079	03dee24e515858cf	no	claude-opus-5-5 2026-11-23	Tatoeba check, greek: Latin letters ("Tom").
 γνωρίζω|subjunctiveSimple.active|3sg	8346460	98362fc19c9c5a82	ok	claude-opus-5-5 2026-11-23	Tatoeba check
+γνωρίζω|subjunctiveSimple.passive|1pl	2000022521	841fa5423c51af9a	ok	claude-opus-5-5 2026-11-28 (PM check)	
 γοητεύω|present.passive|3pl	10165054	8e97b38adf6a89fd	ok	claude-opus-5-5 2026-11-23	Tatoeba check
 γράφω|aorist.active|1pl	3003781	fc21c28925379a3c	ok	claude-opus-5-5 2026-11-23	Tatoeba check
 γράφω|aorist.active|1sg	5397538	dedee850f84ec9a0	ok	claude-opus-5-5 2026-11-23	Tatoeba check
@@ -2327,6 +2329,7 @@ cell	sentence_id	texts_sha256	verdict	checked_by	reason
 λύνω|aorist.active|1sg	5434128	ae1a611fd47e00fa	ok	claude-opus-5-5 2026-11-23	Tatoeba check
 λύνω|aorist.active|3sg	5357818	469c45cafcb39178	ok	claude-opus-5-5 2026-11-23	Tatoeba check
 λύνω|future.active|1sg	11443118	dd8dac9d6598e464	ok	claude-opus-5-5 2026-11-23	Tatoeba check
+λύνω|future.passive|3sg	2000022609	24e64c4cb2da29f4	ok	claude-opus-5-5 2026-11-28 (PM check)	
 λύνω|subjunctiveContinuous.active|1sg	5488369	ed63aaee6199f76e	ok	claude-opus-5-5 2026-11-23	Tatoeba check
 λύνω|subjunctiveSimple.active|1sg	7800295	19f29d7264cfa280	ok	claude-opus-5-5 2026-11-23	Tatoeba check
 λύνω|subjunctiveSimple.active|3sg	2969420	bcc4eb6a36d6c4a8	ok	claude-opus-5-5 2026-11-23	Tatoeba check
@@ -2486,6 +2489,7 @@ cell	sentence_id	texts_sha256	verdict	checked_by	reason
 μετακομίζω|aorist.active|3sg	5541092	986885eaf421b25d	ok	claude-opus-5-5 2026-11-22	The subject Ο Τομ fixes the aorist.
 μετακομίζω|future.active|1sg	3740428	388b280c954b6396	ok	claude-opus-5-5 2026-11-23	Tatoeba check
 μετακομίζω|imperativeSimple.active|2sg	5541092	986885eaf421b25d	no	claude-opus-5-5 2026-11-22	The subject Ο Τομ makes μετακόμισε an aorist third person.
+μετακομίζω|perfect.active|1pl	2000023088	3797fe1dce4cf858	ok	claude-opus-5-5 2026-11-28 (PM check)	
 μετακομίζω|subjunctiveSimple.active|1pl	5522430	7403238d2656ae90	ok	claude-opus-5-5 2026-11-23	Tatoeba check
 μετακομίζω|subjunctiveSimple.active|3sg	11491759	7d3ea30f08c29880	ok	claude-opus-5-5 2026-11-23	Tatoeba check
 μεταφέρω|aorist.active|1pl	3399197	10979cf745c7ebe7	ok	claude-opus-5-5 2026-11-22	One completed move of the project to a new server: aorist.
