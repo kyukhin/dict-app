@@ -1,6 +1,6 @@
 # Example sentences
 
-> Status: Implemented (approved by kyukhin on 2026-11-04); the drill examples (#364, #365) approved by kyukhin on 2026-11-22; the B1 drill examples (#371) approved by kyukhin on 2026-11-25, its size budget set after the pilot · Epic: #134 · Tickets: #177, #178, #339, #364, #365, #362, #378, #371 · Updated: 2026-11-27
+> Status: Implemented (approved by kyukhin on 2026-11-04); the drill examples (#364, #365) approved by kyukhin on 2026-11-22; the B1 drill examples (#371) approved by kyukhin on 2026-11-25, its size budget set after the pilot; the corpus sentences (#385) approved by kyukhin on 2026-11-28 · Epic: #134 · Tickets: #177, #178, #339, #364, #365, #362, #378, #371, #385 · Updated: 2026-11-28
 
 Read [0000-overview.md](0000-overview.md), [0129-dictionary-file.md](0129-dictionary-file.md) and [0136-word-forms.md](0136-word-forms.md) first, then the approved specs this epic builds on, still in open PRs: 0237 (downloads: the English bundle and the language packs), 0130 (word lists: `WordKey`) and 0131 (learning). Numbers marked "measured" come from a prototype of the pipeline, run on 2026-11-04 against the Tatoeba export of 2026-10-31 (pinned below) and the dictionary file of master `e9997dd` (151,674,880 bytes, sha256 `24a1494d…`), Python 3.14.0, SQLite 3.51.2.
 
@@ -108,6 +108,22 @@ After each drill answer, right or wrong, the answer panel shows one sentence wit
 - Drill examples show only in the drill. The Definition screen and learning keep their word examples.
 - A learner with an older Greek pack sees no drill example until the pack is updated (0237: "Update available").
 
+### Corpus sentences in the drill (#385; approved by kyukhin on 2026-11-28)
+
+After #371, 21,816 of the 25,426 cells of the B1/B1 scope that have a sentence show a generated one (86%). kyukhin wants a sentence written by a person wherever an openly licensed corpus has a good one (2026-11-27, #385).
+- **Which cells**: a cell that shows a generated sentence, or none because it was skipped, takes a corpus sentence. Its pair passed the pair check, and its translations passed a separate check. A cell with a Tatoeba or Wiktionary sentence keeps it.
+- **The first source** is BabyLM-ell: children's books, school and L2 textbooks and transcripts of conversation, each document under its own licence. Its subtitles are never used. The ticket's other sources (Common Voice, MASSIVE, Pame!) come later, each in its own round through the same files.
+- **Licences** (kyukhin, 2026-11-27): the app stays free, with no ads and no purchases, so NonCommercial licences may ship. NoDerivatives never ship, since every sentence ships with our translations. A sentence ships only when its document's own licence statement allows it (Design, "Licences").
+- **What the learner sees**: the answer panel as today (0132): the sentence with its form highlighted, then its translation in the via. Under them, in small secondary type, the provenance (kyukhin, 2026-11-28: it must not crowd the sentence): the document, its collection and its licence, then the translation's source. For example: Πηνελόπη Δέλτα, «Τρελαντώνης» · openbook.gr · public domain · translation: LibreDict, generated.
+  - When LibreDict changed a sentence's punctuation, capitals or speaker tag, the provenance says "adapted" after the licence. The words are never changed.
+  - VoiceOver reads the provenance after the translation, and Dynamic Type scales it.
+- Credits gains a line naming the collections and their licences.
+- **The skipped cells read again** (#371's pipeline, in the same PR): 1,537 cells that a writer had skipped get a generated sentence, after a re-read found a natural one and a second pass checked it.
+- **The first pack** (measured; Design, "Corpus sentences"):
+  - corpus sentences in 2,659 of the 4,779 cells the run filled; the other 2,120 rows never ship (ND, no licence, or only a permission to copy), and one fails the "never a word" gate (as built, 2026-11-28);
+  - in the B1/B1 cells that have a sentence, the share written by people goes from 14.2% to 23.2%;
+  - the cells with a sentence go from 25,426 to 27,008: 45 skipped cells take a corpus sentence, and 1,537 a re-read one.
+
 ### Decisions
 
 - 2026-10-22 (kyukhin, #134): example sentences ship in 2.0.0. Acceptance: at least 85% of the top-500 Greek verbs show 3+ examples; each example has a translation, the highlighted form and its author; a Russian translation with the Russian UI when Tatoeba has one; offensive sentences filtered out; added size ≤ 10 MB; Tatoeba (CC BY 2.0 FR) credited.
@@ -154,6 +170,29 @@ After each drill answer, right or wrong, the answer panel shows one sentence wit
 - 2026-11-25 (kyukhin, #371): the continuous future and subjunctive (10,386 open cells) teach the least per sentence and are the hardest to write naturally: the second pass skips generously there, and open 0 is not chased with stilted sentences.
 - 2026-11-25 (kyukhin, #371, Claude's read in a separate session, accepted): καταστρέφομαι, πλένομαι and συμπεριλαμβάνομαι move from P2 to P1 of 0133's "Irregular aorists" in #371's PR, with no pack of their own (87 verbs).
 - 2026-11-26 (kyukhin, #371, Open question 13): the drill rows' budget is 11 MB installed (`DRILL_BUDGET`), set from the pilot's skip rate and bytes per row (16% of its cells skipped; rows 13% longer than #365's, about 390 bytes installed; History).
+- 2026-11-27 (kyukhin, #385): a sentence written by a person wherever an openly licensed corpus has a good one. It replaces the generated row or joins a Tatoeba one, ranked with Tatoeba above generated rows. NonCommercial licences are allowed, since the app stays free with no ads and no purchases. NoDerivatives never, since every sentence ships with our English and Russian translations. Acceptance:
+  - every shipped corpus sentence credits its source, licence and author or document;
+  - every shipped pair passed the pair check, and its translations a separate check, bound by `texts_sha256`;
+  - no ND or unlicensed text in the pack;
+  - drill rows within the 11 MB budget.
+- 2026-11-27 (kyukhin, #385): the first of the survey's sources is BabyLM-ell, without its ND parts and subtitles. kyukhin had the run done before this spec (Design, "The run").
+- 2026-11-28 (kyukhin, #385, Open questions 19 to 24, as recommended):
+  - 19: paidika-paramythia.gr and the copy-only openbook.gr books are left out; the 7 free-ebooks.gr book pages are read in the licence check;
+  - 20: the CLARIN:EL corpora ship on their records' licences, and a takedown request drops their rows;
+  - 21: every sentence's provenance names its licence and, where LibreDict changed it, "adapted". It must not crowd the sentence (the next decision);
+  - 22: a corpus row wins over a skip;
+  - 23: kyukhin reads a sample: 50 corpus rows, the 45 corpus rows of skipped cells, and 30 of the 1,537 generated rows that replace skips;
+  - 24: no pair round in #385 for the corpus rows' other cells.
+- 2026-11-28 (#385, the provenance's place; kyukhin's two options): small secondary type under the sentence and its translation, not a ⓘ under the sentence that opens it. Why:
+  - It is where every example's byline already sits (Tatoeba, Wiktionary, generated), so the panel keeps one look and gains no control.
+  - The licence and the change note stay visible with the sentence they credit, with no tap. The acceptance asks every sentence to credit its licence, and CC BY asks to indicate the change where the material is shown.
+  - The panel already has a ⓘ, the tense's (`drill_tense_info`). A second one under the sentence would be easy to confuse with it.
+  - The example stays one VoiceOver element, read as sentence, translation, provenance. A ⓘ would need a second element and a popover inside it.
+  - Its `.caption` type scales with Dynamic Type and wraps without truncation. The panel scrolls (0132), so a two- or three-line provenance never pushes the sentence out of view.
+- 2026-11-28 (kyukhin, #385, on CodeRabbit's review of #387):
+  - a corpus row that is excluded (stale, or NonCommercial with `NC_ALLOWED` off) never leaves its cell empty: the 45 cells a corpus row fills keep their skip lines, which count only while no sentence ships for the cell; with `NC_ALLOWED` off the build passes with 0 open cells (Design, "Skipped cells" and Checks 9);
+  - a Global Storybooks byline names the story's title, as CC BY asks: the title first in `work`, then the names (Data files).
+- 2026-11-28 (kyukhin, #385): the 1,537 generated rows of skipped cells that a re-read found natural (#371's pipeline: a writer, then a separate second pass) land in #385's PR as ordinary `ell.tsv` rows.
 
 Design choices of this spec, for review:
 - Greek examples ship in the Greek pack, English examples in the English lists pack; the bundle gains only empty tables.
@@ -170,6 +209,11 @@ Design choices of this spec, for review:
   - a homograph whose other reading differs needs a checked reading (Open question 8, resolved);
   - real sentences come before generated ones;
   - the drill examples get a size budget of their own (Open question 9, resolved).
+- Corpus sentences (#385, approved by kyukhin on 2026-11-28):
+  - a fourth id range and a structured `author` field, so the format stays 4;
+  - each document's licence taken from its own statement, not from BabyLM's column;
+  - a corpus row serves a cell other than its own only with a verdict;
+  - the generated rows it replaces stay as data.
 
 ### Out of scope
 
@@ -725,6 +769,277 @@ The open cells by tense ("passive": the passive of a verb with both voices):
 
 **Size of the work**: L, about 6 stream-days: tools and gates 0.5, the 2.0 pairs, Tatoeba and Wiktionary 0.5, the pilot and its review 0.5 (plus kyukhin's read), generation and the second pass 3 (at most about 33 batches), the fix rounds, the pair check and sweeps 0.75, the sample, the pack, the three verbs and QA 0.75. On master for 2.1.0.
 
+### Corpus sentences (#385; approved by kyukhin on 2026-11-28)
+
+2.1.0, on master. The match rule, the choice, the data files, the checks and the pair gate are #365's and #371's, above. This section adds a fourth source: sentences written by people, from openly licensed corpora. The same PR adds the generated rows of the skipped cells that a re-read found natural ("The re-read skips"). kyukhin approved it on 2026-11-28 with his answers to Open questions 19 to 24 (Decisions). Measured on 2026-11-27 and 2026-11-28 on:
+- master `1c3fd58` and the Greek pack `ell-b5b2b8b8ff22`;
+- the run's `corpus-rows.tsv` (scratchpad, not committed);
+- BabyLM-ell at Hugging Face revision `5a8f8df0fc19` (`data/train-00000-of-00001.parquet`, 55,220,309 bytes, sha256 `8401dc189b234319967018908d3577efdaa6d640b9a27e6d165605090ba0c31d`);
+- Python 3.15.2, SQLite 3.54.1.
+
+**The run** (done before this spec, as kyukhin asked).
+- **Source**: `BabyLM-community/babylm-ell`, 11,104 documents, licence "unknown" for the dataset, "see license in individual documents" (its card). Its OpenSubtitles padding is never used.
+- **Candidates**: a sentence of at most 15 words holding the cell's form by the match rule, with at most one word outside the lists up to the cell's level (#385, task 1). Only cells that show a generated sentence or none (skipped) were tried. Each round took, per open cell, the best untried candidate: fairy tales first, then books, textbooks, Vikidia and transcripts, then fewer words off the lists, then shorter.
+- **Pass 1** (a model, in batches of 500) judged each pair: `no` for the form (another tense, aspect, reading or sense; an idiom; θα + the present with no future frame), a fragment, register, content (the Tatoeba check's rule 3), level or Greek (a missing final ν of δεν, μην, την). For an `ok`, it gave `clean`, the text with only the allowed edits (Checks, 4), and the English and Russian translations, by the generator's translation rules.
+- **Pass 2**, a separate model in a fresh context, checked every pass-1 `ok`: `ok`, `fix` (only the translations or the punctuation of `clean`) or `reject`.
+- **Rounds**: 11,859 pairs judged in three rounds (8,436, 2,247, 1,176). Pass 1 passed 4,936. Pass 2 passed 4,627 as written, fixed 158 and rejected 151, which gives 4,785 cells. A deterministic sweep for a missing final ν dropped 6, leaving 4,779 cells: 4,712 that show a generated sentence today and 67 skipped.
+- **Edits**: 3,538 rows ship as the document has them; 1,241 have an allowed edit.
+- **Rows by BabyLM source**: openbook.gr 1,831, CLARIN:EL textbook corpora 1,217, paidika-paramythia.gr 893, CLARIN:EL transcripts 757, Global Storybooks 46, free-ebooks.gr 34, Vikidia 1.
+- **Provenance**: 4,768 of the originals are in their document verbatim. The other 11 are transcript lines whose tab after the speaker tag became a space.
+
+**Licences: the document's own statement, not BabyLM's column.** BabyLM gives each document a `license`. It is not reliable:
+- **ND labelled NC.** 963 rows from 77 openbook.gr books carry "CC-BY-NC" in BabyLM's column. The book's own statement, which BabyLM keeps in `misc` ("Άδεια διανομής: Creative Commons BY-NC-ND (… Όχι παράγωγα έργα)"), is NoDerivatives. They never ship.
+- **"Public Domain" for every story of paidika-paramythia.gr** (893 rows, 140 of its 162 documents). The stories name living authors (Σοφία Νόνα, Φώτης Λουκάς, Δημήτρης Γαλουτζής), and some are Greek versions of Andersen, Grimm and Saint-Exupéry, whose translators hold rights. The site's terms could not be read (HTTP 403). So these rows are unlicensed until shown otherwise, and they do not ship (kyukhin, 2026-11-28, Open question 19).
+- **Free copying, no adaptation.** 225 rows from 21 openbook.gr books say "Ελεύθερη αναπαραγωγή (με αναφορά της πηγής)" (198) or "Ελεύθερη διάθεση για μη εμπορική χρήση" (27). Either grants copying, not adaptation, and our translations are adaptations, which is why ND is out. They do not ship (kyukhin, 2026-11-28).
+- **No statement.** The 34 rows from 7 free-ebooks.gr books have no licence statement in the data. The licence check reads each book's page, and a book ships only if its page states an allowed licence (kyukhin, 2026-11-28). As checked (2026-11-28): the old addresses lead to freebooks.gr's home page, and each book's new page (freebooks.gr/book/…) states no licence, only the site's footer ("either under a Creative Commons licence or with the consent of their authors"). None ships.
+- **Public domain without a basis for the Greek text.** One openbook.gr book (4 rows), «Παραμύθι για ένα παλικάρι που ξεκίνησε να μάθει τι θα πει φόβος», says "Public Domain" and names the Brothers Grimm (died 1859 and 1863), but not the translator of its Greek text, whose rights the page does not settle. It does not ship (the licence check, 2026-11-28).
+
+So every document gets a **licence check** before its rows ship:
+- someone reads the licence where the document states it (the book's page, the corpus's CLARIN:EL record, the story's page) and records it verbatim, with the version;
+- when two statements differ, the stricter wins;
+- an unversioned CC licence takes the version current when the document was published (4.0 from 2013-11-25, 3.0 before), noted "version not stated". An openbook.gr page gives only the year ("Έτος έκδοσης"): 2014 and later is 4.0, 2013 and earlier 3.0. A Global Storybooks story takes the version its master index links (`MASTER.md` of global-asp/global-asp: CC BY 3.0 or 4.0, CC BY-NC 3.0);
+- public domain needs its basis: the author died more than 70 years ago (Greek law 2121/1993: 70 years after death), as Πηνελόπη Δέλτα (1874–1941).
+
+The licences that ship: public domain, CC BY, CC BY-SA, CC BY-NC and CC BY-NC-SA, at the versions found. Never ND, never a bare permission to copy or distribute.
+
+| Collection | Licence as the document or its record states it | Rows | Documents | Ships |
+|---|---|---|---|---|
+| CLARIN:EL, CGL Modern Greek Texts Corpora: corpus of Educational Textbooks (school textbooks; `inventory.clarin.gr/corpus/908`) | CC BY-NC-SA 4.0 | 668 | 523 | yes (Open question 20) |
+| CLARIN:EL, Pedagogical Greek L2 textbooks corpus (`hdl.handle.net/11500/ATHENA-0000-0000-2631-E`) | CC BY-NC-SA 4.0 | 549 | 353 | yes (Open question 20) |
+| CLARIN:EL, Babiniotis archive of everyday conversations (`…/11500/UOA-0000-0000-2515-F`) | CC BY-NC 4.0 | 739 | 371 | yes |
+| CLARIN:EL, Corpus of written transcripts of everyday conversations of the Department of Linguistics (BabyLM's child speech; `…/11500/UOA-0000-0000-5D9C-9`) | CC BY 4.0 | 18 | 11 | yes |
+| openbook.gr | CC BY-SA, 4.0 by its year | 211 | 5 | yes |
+| openbook.gr | CC BY-NC-SA: 4.0 by its year (13 books) and 3.0 (5 books of 2011 to 2013) | 161 | 18 | yes |
+| openbook.gr | Public domain (Πηνελόπη Δέλτα, 1874–1941) | 154 | 5 | yes |
+| openbook.gr | CC BY-NC: 4.0 by its year (5 books) and 3.0 (one of 2012) | 112 | 6 | yes |
+| Global Storybooks (BabyLM's GlotStoryBook) | CC BY 3.0 (23 rows), CC BY 4.0 (22), CC BY-NC 3.0 (1), as its master index links | 46 | 23 | yes |
+| Vikidia | CC BY-SA 3.0 (the wiki's licence) | 1 | 1 | yes |
+| openbook.gr | CC BY-NC-ND (BabyLM: CC-BY-NC) | 963 | 77 | never |
+| openbook.gr | free copying, no adaptation | 225 | 21 | no (Open question 19) |
+| openbook.gr | "Public Domain", no basis for the Greek text (an unnamed translation of the Brothers Grimm) | 4 | 1 | no |
+| paidika-paramythia.gr | none found (BabyLM: Public Domain) | 893 | 140 | no (Open question 19) |
+| free-ebooks.gr | none on the book pages (BabyLM: CC-BY-NC-SA 26, CC-BY-NC 8) | 34 | 7 | no (Open question 19) |
+| All | | 4,779 | 1,562 | 2,659 |
+
+As checked on 2026-11-28 (the licence check; the run's counts were 2,664 rows from 1,317 documents):
+- The 2,659 rows that ship: 2,614 cells that showed a generated sentence and 45 skipped cells. The documents of 2,660 rows cleared the check; one of those rows fails gate 4 and is left out: κοιμάμαι's simple imperative passive εσείς, whose original has an apostrophe for a comma ("οι δυο' εμείς"), which the gate cannot tell from an elision. 850 rows have an allowed edit.
+- By licence: NonCommercial 2,230 (CC BY-NC-SA 1,378, CC BY-NC 852), CC BY-SA 212, public domain 154, CC BY 63.
+- Their documents: 1,316 BabyLM documents from 62 works (34 books, 4 CLARIN:EL records, 23 stories, 1 Vikidia page). The 7 free-ebooks.gr books and the Grimm book are refused.
+- The repository is public, so its data files hold only rows that ship. Text under ND, or with no licence, is never committed, not even as data that does not ship: the repository would distribute it.
+
+**Data files** (#385), plain text in Git beside #365's, UTF-8, tab-separated, a header line, no quoting.
+
+**`Scripts/data/drill-examples/ell-corpus.tsv`**: one row per cell that takes a corpus sentence, sorted by `id`. 1.33 MB for the 2,659 rows of the first pack (about 2.5 MB for all 4,779).
+
+| Column | Content |
+|---|---|
+| `id` | 3,000,000,001…: given once, in the order added, never reused (as #365's ranges) |
+| `cell` | The cell key it was checked for; one row per cell |
+| `doc` | Its document: BabyLM's `doc-id`, a row of `ell-corpus-documents.tsv` |
+| `original` | The sentence as the document has it, runs of whitespace as one space (a tab cannot be a field) |
+| `text` | What ships, NFC: `original` with only the allowed edits (Checks, 4) |
+| `eng`, `rus` | LibreDict's translations: pass 1's, or pass 2's where it said `fix` |
+| `model` | Pass 1's model id and date: it judged the pair, made `text` and translated |
+| `check` | `ok`: pass 2 passed it as written or as fixed |
+| `checked_by` | Pass 2's model id and date |
+| `texts_sha256` | `texts_hash(text, eng, rus)`: what `check` was given on (#371) |
+
+- One Greek text may be several rows, one per cell, since each row's translations were written to show its own cell's form. In the run, 133 texts serve two or more cells, and only 29 of them with the same translations. The build stores each row as a sentence of its own.
+
+**`Scripts/data/drill-examples/ell-corpus-documents.tsv`**: one row per document a row cites (1,316 for the first pack), sorted by `doc`.
+
+| Column | Content |
+|---|---|
+| `doc` | BabyLM's `doc-id` |
+| `collection` | As the byline names it: `openbook.gr`, `CLARIN:EL`, `Global Storybooks`, `Vikidia` (and `free-ebooks.gr`, `paidika-paramythia.gr` if cleared) |
+| `work` | The byline's first part. For a book: "author, «title»", the author as the book names them, without dates; «title» alone when it names none. For a corpus: the title of its CLARIN:EL record ("Babiniotis archive"). For a story of Global Storybooks: "title, author, translator" (CC BY asks for the title; kyukhin, 2026-11-28): the title is the first line of the story at `url`, as checked on 2026-11-28 ("Φωτιά, Deborah Namugosa, …, Eleni Manou"). For a Vikidia page: «title» |
+| `licence` | `pd`, or a `CreditLicense` id: `cc_by_4_0`, `cc_by_sa_3_0`, `cc_by_sa_4_0`, `cc_by_nc_4_0`, `cc_by_nc_sa_4_0`, … |
+| `statement` | The licence as the document or its record states it, verbatim: "Creative Commons BY-NC-SA (Αναφορά δημιουργού - Μη εμπορική χρήση - Παρόμοια διανομή)". For public domain, its basis: "Πηνελόπη Δέλτα, 1874–1941" |
+| `url` | The document's page, or its corpus's handle |
+| `checked_by` | Who read `statement` at `url`, and the date (the licence check) |
+
+- The documents of one corpus repeat its record. The `doc` id ties each row to its text in BabyLM.
+- **The pin.** The data files are the pin, as the Tatoeba subset is: `original` holds the text, and the documents file holds the licence. The parquet is gated (a Hugging Face login) and not committed. Its revision and sha256 are above, and the `data_source` version names the revision.
+- **Licences of the files**: `Scripts/data/drill-examples/README.md` (new, a few lines) says what the folder is under:
+  - `ell.tsv`: CC BY-SA 4.0;
+  - each row of `ell-corpus.tsv`: under its document's licence, with LibreDict's edits and translations (Licences of what LibreDict adds, below);
+  - the NonCommercial rows: no commercial use.
+
+  The repository's MIT licence covers the software only.
+
+**Checks** (the build's corpus gate; the build fails):
+1. Ids in 3,000,000,001…3,999,999,999, unique and ascending; one row per cell. A cell the drill no longer asks makes its row stale: reported, never used.
+2. The row holds its cell by the match rule. One row of the run fails it and is dropped: αργώ, aorist αυτοί, "Καλώς τους κι ας αργήσανε!", where ας blocks the aorist (rule 3).
+3. At most 15 words, NFC, and both translations (two rows of the run have 16 words; neither is in the first pack).
+4. **Never a word.** `text` has the words of `original`, in order, once these allowed edits are undone:
+   - a leading speaker tag, dash, or exercise number or letter (`14)`, `19`, `(6δ)`, `ε.`) dropped. A speaker tag is a name of one or two words before a colon, as plays and transcripts write them (`*ΜΑ:`, `ΠΑΙΔΙ 6:`, `Ο Εβραίος:`, `(Ο τελωνειακός):`, `Σ.:`), or a narrator's part without one (`Αφηγητής`; as built, 2026-11-28). Each word of the name is capitalised or in capitals (a stray small letter allowed, as in `ΜΑρΘΑ:`), a number may follow (`ΠΑΙΔΙ-1:`), and a tag in parentheses may hold any words; so a clause before a colon (`Δεν μιλάω:`) is no tag and stays (CodeRabbit on #387);
+   - a look-alike character mapped to its Greek letter (µ → μ, ∆ → Δ; a Latin A, O … inside a Greek word or alone; the digit 0 for the article Ο);
+   - the case of the first letter;
+   - punctuation, quotation marks and spacing; an elision apostrophe keeps to its word across a space (σ'ένα and σ' ένα, να' ναι and να 'ναι are the same words). Two apostrophes used as quotation marks are quotation marks: one that opens a word, not after a letter, and the next apostrophe, closing a word of two or more letters (or a final mark) and not followed by a letter (`'Ναι' είπε.` and `«Ναι» είπε.` are the same words; CodeRabbit on #387).
+
+   An elision apostrophe ('πείσαν, σ' αγαπώ) and the comma of ό,τι belong to the word: a word-initial apostrophe with no such partner, or one whose next apostrophe follows a one-letter elision (σ', μ', τ'), is an elision. A changed, added, dropped or reordered word, or a moved accent, fails.
+5. Greek: no δε, μη or τη before a vowel or κ, π, τ, ξ, ψ, μπ, ντ, γκ, τσ, τζ (the run's final-ν sweep, kept as a gate).
+6. **Licence.** The row's document is in the documents file with a `checked_by`, and its `licence` is `pd` or a CC BY, BY-SA, BY-NC or BY-NC-SA id that `Credits.licenses` lists. Its `statement` names no NoDerivatives ("ND", "NoDerivatives", "Όχι παράγωγα") and is no bare grant to copy or distribute ("Ελεύθερη αναπαραγωγή", "Ελεύθερη διάθεση"). This is belt and braces against a mislabel like BabyLM's. `pd` needs a basis in `statement`: an author's life that ended by 1955 (`PD_DIED_BY`, 70 years in 2026). The NonCommercial ids pass only while `NC_ALLOWED` is true (Licences of what LibreDict adds).
+7. `check` is `ok` with a `checked_by`, and `texts_sha256` matches. Otherwise the row is stale: reported, never used, and its cell falls back to its next sentence, or to its skip line (Skipped cells, below).
+8. `work` and `collection` hold no `|`, the separator of the `author` field.
+9. **A fallback for every corpus cell** (kyukhin, 2026-11-28, on CodeRabbit's review of #387: a corpus row that is excluded never leaves its cell empty). Built without any corpus row, as if each were stale or NonCommercial with `NC_ALLOWED` off, every cell of the coverage gate's scope that shows a corpus row still has a sentence or a line in `ell-skipped.tsv`. A cell that has one then keeps one whichever corpus rows drop. As built: none fails, and the build with `NC_ALLOWED` off passes with 0 open cells.
+
+**How it ships** (no new table; the format stays 4, and only `ell` changes):
+- `example_sentence`: `id`, `'ell'`, `text`, and an `author` built from the documents file: `<work>|<collection>|<licence>|<change>`. `change` is `adapted` when `text` is not `original` (NFC), else empty: `Πηνελόπη Δέλτα, «Τρελαντώνης»|openbook.gr|pd|`. It is a structured text in a format-4 column, as the cell key is in `example_word.word`. Every text keeps an author (the step's gate).
+- `example_translation`: `eng` and `rus`, their `id` the sentence's, author "LibreDict".
+- `example_word`: the cell row, `ord` 1, its span by Match rule 6.
+- **Sources by id**: Tatoeba below 10^9, Wiktionary 1,000,000,000 + n, generated 2,000,000,000 + n, corpus 3,000,000,000 + n. `source_of` gives 0 to 3, and Swift's `ExampleSource` gains `.corpus`.
+  - The current app reads any id from 2·10^9 up as generated, so an old app would mislabel a corpus row. It never sees one: a pack version comes only with the app update that carries its catalog row (0237).
+- **`data_source`** (one row, listed under `ell` in `packs.json`):
+
+  | id | kind | Name | Version | Licence | URL |
+  |---|---|---|---|---|---|
+  | `corpus-ell-drill` | `example_sentences` | Greek texts via BabyLM-ell (drill examples) | `babylm-ell 5a8f8df0fc19` | the licences of the documents that ship, by name, as built: "public domain; CC BY 3.0; CC BY 4.0; CC BY-SA 3.0; CC BY-SA 4.0; CC BY-NC 3.0; CC BY-NC 4.0; CC BY-NC-SA 3.0; CC BY-NC-SA 4.0 (each document's own)" | `https://github.com/kyukhin/dict-app/blob/master/Scripts/data/drill-examples/ell-corpus-documents.tsv` |
+
+**Choice** (amends "Choice", above):
+1. Sources in this order: Tatoeba, Wiktionary, corpus, generated, so people's sentences come before generated ones. Tatoeba stays first: its translations are people's too.
+2. Within a source, as today: the cell's first form first, then the row written for the cell, then the source's rank. A corpus row's rank is a data row's: 3 to 10 words, fewer words, the id.
+3. **A corpus row serves its own cell** on its own `check` (the verdict, bound by its texts hash). **It serves another cell only with an `ok` verdict** in `ell-readings.tsv` for that (cell, id), as a spelling of another reading does (Match rule 5). Without one it waits: reported, not taken (Open question 24).
+   - Why: the 2,664 rows hold 2,585 (cell, row) pairs besides their own. 858 of them (540 cells) would take a cell that shows a generated sentence or none, and none of these pairs was checked for that cell (594 are spellings of another reading anyway). Taking them would fail the pair gate.
+   - With this rule, the pair gate does not change and passes. Exactly the corpus rows' own cells change.
+4. Nothing else moves. Tatoeba and Wiktionary cells keep their sentences, and the word examples keep their hash.
+
+**The pair gate** is unchanged. A corpus row's own `check` joins its inputs (`data_verdicts`), as a data row's does, and `ell-readings.tsv` may name corpus ids.
+
+**Skipped cells.** 45 of the rows that ship (67 in the run) are for cells in `ell-skipped.tsv`: a writer found no natural sentence there, and a person's text shows one. The corpus row wins (kyukhin, 2026-11-28). kyukhin reads all 45 with the sample.
+- **The skip line stays as the fallback** (kyukhin, 2026-11-28, on CodeRabbit's review of #387; the draft removed it). These cells have no generated row, so without the line a corpus row that drops (stale, or NonCommercial with `NC_ALLOWED` off) would leave its cell open and fail the coverage gate. The build reads a skipped cell's line only when no sentence ships for it: its own corpus row ships over the line, and any other sentence that holds the cell stays out, as #365's skips keep it (12 skipped cells have one). All 45 rows are NonCommercial, so with `NC_ALLOWED` off all 45 cells are skipped again (Checks, 9).
+- The run counted its cells against an earlier data file: αρέσω's continuous να εμείς has taken a generated row since, which its corpus row now replaces. The PR recounts against master, and a cell that has taken a Tatoeba or Wiktionary sentence since keeps it.
+
+**The re-read skips** (#371's pipeline; kyukhin, 2026-11-28: they land in #385 as ordinary generated rows). A reviewer's sample of #371's skips found 6 of 30 wrong (Claude's read in a separate session, accepted by kyukhin, 2026-11-27).
+- **The re-read**: 2,301 skipped cells were read again (batches s1 to s6) by a writer with the review's rules: a generic reason is no reason; never skip because a frame would repeat; a feeling's change of state is fine after μη, δεν αξίζει, δεν θέλω, δεν χρειάζεται; a bounded aorist is normal; a personal passive exists when Greek says it. The writer wrote 1,628 rows, and the other cells stay skipped with a reason that names what Greek says instead.
+- **The check**: a separate second pass, in a fresh context, checked every row: 1,293 `ok`, 244 fixed (the text or a translation), 91 rejected. 1,537 rows land; the cells of the 91 stay skipped.
+- **The rows**: `ell.tsv` rows of source `generated`, ids from 2,000,021,805 (after the highest today, 2,000,021,804). Their `model` is the writer's id and date, their `check` `ok` with the second pass's `checked_by`, and their `texts_sha256` the hash of the text, English and Russian as checked (`--add`). A fix takes the fixed fields; an empty fixed field keeps the row's own (68 fixes leave `fixed_text` empty).
+- **Where they land**: all 1,537 are in the B1/B1 scope, and each holds its own cell by the match rule (measured). None of these cells has a corpus row. Their 1,537 skip lines go. The 764 other cells re-read keep their lines with the re-read's reason (as `merge_all.py` applies a batch): 673 the writer's new one, which names what Greek says instead, and 91 "rejected by the check: …", each checked by the second pass of 2026-11-27.
+- **Other cells they hold**, by the choice as it stands (Tatoeba, Wiktionary and the own row first):
+  - 582 holds in cells with a Tatoeba or Wiktionary sentence, 119 in cells with their own generated row, and 296 spellings of another reading: none of them changes a cell;
+  - 28 may outrank another cell's generated row, and 4 fill an empty cell beyond the scope: at most 10 cells change.
+  - The pair gate catches any such new pair. The PR runs `--pairs` and the pair check on them, as #371's Pipeline 7.
+- `ell.tsv` grows by 0.6 MB, from 7.9 to 8.5 MB. `ell-skipped.tsv` loses the 1,537 lines of the re-read rows: from 6,406 to 4,869, 4,806 of them in the B1/B1 scope (45 of those the corpus rows' cells, which keep their lines as the fallback; 4,761 skipped cells without a sentence).
+
+**The generated rows a corpus row replaces** stay in `ell.tsv`, unchanged. They stop shipping where no other cell uses them. As built: 2,597 of the 2,614 cells that showed a generated sentence showed their own row; 2,592 of those rows leave the pack, and 5 still serve another cell through an `ok` verdict (the other 17 cells showed a row written for another cell, which stays where it serves).
+- They are checked data and the fallback. When a corpus row goes, its cell gets its generated row back at the next build with no new generation; a cell a writer had skipped gets its skip line back (Skipped cells). A corpus row can go when:
+  - its document's licence changes;
+  - a takedown request comes;
+  - `NC_ALLOWED` goes off;
+  - a sample rejects it.
+- The report counts them: "superseded by a corpus row". `ell.tsv` stays 7.9 MB.
+
+**Attribution.**
+- **Where it shows** (kyukhin, 2026-11-28: the provenance must not crowd the sentence; the choice and its reasons are in Decisions).
+  - The provenance is the byline, in small secondary type under the sentence and its translation. That is where every example's byline already sits: `ExampleSentenceView`'s third line, `.caption`, `.secondary`.
+  - The sentence stays `.body` at the top, its translation `.body` and secondary under it, and the provenance last.
+  - It wraps and is never truncated; `.caption` scales with Dynamic Type. In the drill it scrolls with the panel (0132: at most half the run's height), so the sentence stays first and in view.
+  - The example stays one VoiceOver element, read as sentence, translation, provenance (`accessibilityLabel`, below). No ⓘ and no popover: `ExampleSentenceView` and the panel's layout do not change.
+- **Byline** (kyukhin's rule of 2026-11-22: every example names its source):
+
+  | Sentence | Byline (en) | VoiceOver (en) |
+  |---|---|---|
+  | Corpus, as the document has it | Πηνελόπη Δέλτα, «Τρελαντώνης» · openbook.gr · public domain · translation: LibreDict, generated | From Πηνελόπη Δέλτα, «Τρελαντώνης», openbook.gr, public domain; translation generated by LibreDict |
+  | Corpus, adapted | Babiniotis archive · CLARIN:EL · CC BY-NC 4.0 · adapted · translation: LibreDict, generated | From Babiniotis archive, CLARIN:EL, CC BY-NC 4.0, adapted; translation generated by LibreDict |
+
+  - The licence is named as Credits' Licenses section names it (`CreditLicense.name`, untranslated); "public domain" is translated.
+  - Work, collection and licence are each isolated in FSI…PDI; the Arabic values start with U+200F (#119). VoiceOver reads a Greek work in the Greek voice (`spoken(_:lang:)`).
+  - An `author` field that does not parse into its four fields (never, per the gates) shows as it is, with the translation note.
+- **The change note** (CC BY 4.0 §3(a)(1)(B): "indicate if You modified the Licensed Material"; kyukhin, 2026-11-28, Open question 21):
+  - "adapted" marks the 850 rows whose punctuation, capitals, quotation marks, a look-alike letter or a speaker tag LibreDict changed;
+  - every row also says its translation is LibreDict's, the adaptation all of them have;
+  - the data file keeps `original`, and Credits links to it, so each row's change can be seen (§3(a)(2): in any reasonable manner).
+- **Credits**:
+  - one new line, `credits.dataSources.corpus` (Strings), crediting `corpus-ell-drill`;
+  - `CreditLine.license` becomes `licenses: [String]`, since this line names several. The other lines keep one;
+  - the Licenses section gains CC BY 4.0, CC BY-NC 4.0 and CC BY-NC-SA 4.0, and the other versions the licence check found: CC BY-NC 3.0 and CC BY-NC-SA 3.0 (CC BY 3.0 and CC BY-SA 3.0 are there already);
+  - `CreditsTests` checks that each licence the line names is recorded in the `data_source` row, and that the Licenses section lists exactly the licences the lines name.
+- **Licences of what LibreDict adds.** A row's edits and translations are shared under its document's licence: CC BY-SA 4.0 for BY-SA, CC BY-NC-SA 4.0 for BY-NC-SA, CC BY-NC 4.0 for BY-NC, CC BY 4.0 for BY. A public-domain row's are under CC BY-SA 4.0, as LibreDict's own data.
+  - ShareAlike covers the row and its translations, not the rest of the pack. The pack is a collection, as the CC BY-SA Wiktionary rows already sit beside other data.
+  - The packs come from GitHub Releases as plain SQLite files, outside the App Store's DRM, as the CC BY-SA rows already do. So no technological measure restricts them (CC 4.0 §2(a)(5)(C)).
+- **NonCommercial**: 2,230 of the 2,659 rows. They ship while LibreDict is free, with no ads and no purchases (kyukhin, 2026-11-27).
+  - `NC_ALLOWED` in `build_examples.py` records it. A change to the app's business model turns it off first. Each of those cells falls back to its generated row, or, for the 45 cells a writer skipped (all NonCommercial), to its skip line, so no cell opens (Checks, 9; kyukhin, 2026-11-28). As built with `NC_ALLOWED` off: 2,185 cells show their generated rows again, the 45 are skipped, and the coverage gate passes with 0 open cells.
+  - The release notes of the `packs-YYYYMMDD` release that carries the pack (0237, "Release") say that `ell` holds NonCommercial rows.
+  - Credits names BabyLM-ell as the route, as kaikki.org is named for Wiktionary.
+
+**Size** (measured as the build measures: `dbstat` on a VACUUMed file of the rows alone; xz preset 6; real spans, and `author` fields built from BabyLM's metadata):
+
+| Drill rows | Cell rows | Installed | Download |
+|---|---|---|---|
+| Today (`ell-b5b2b8b8ff22`) | 25,832 | 8,540,160 | 1,605,700 |
+| With the 2,664 corpus rows | 25,877 | 8,794,112 (+0.25 MB) | 1,687,820 (+0.08 MB) |
+| With the 1,537 re-read rows | 27,369 | 9,170,944 (+0.63 MB) | 1,708,768 (+0.10 MB) |
+| **With both (#385's pack)** | 27,414 | 9,420,800 (+0.88 MB) | 1,792,188 (+0.19 MB) |
+| As built (`ell-b2cfa5e98728`, 2026-11-28: 2,659 corpus rows and the 1,537 re-read rows) | 27,417 | 9,453,568 (+0.91 MB) | 1,793,760 (+0.19 MB) |
+| Both, if every document of the run were cleared (4,778 corpus rows; estimated from the corpus-only measures) | | about 9.8 MB | about 1.86 MB |
+
+- The corpus rows grow the drill rows although each replaces a generated one:
+  - a corpus row's Greek, English and Russian take 227 bytes against the replaced row's 207;
+  - the `author` field takes about 0.18 MB;
+  - the replaced generated sentences leave the pack.
+- A re-read row takes 252 bytes of text, about 410 installed.
+- The budget stays 11 MB (`DRILL_BUDGET`), with 1.58 MB to spare. The `ell` pack grows from 69.2 to about 70.1 MB installed and from 13.5 to about 13.7 MB to download. The App Store download does not change.
+- As built (2026-11-28): drill rows 9,453,568 bytes installed (1.55 MB to spare); `ell-b2cfa5e98728`, 70,090,752 bytes installed and 13,689,712 to download (+917,504 and +181,332 against `ell-b5b2b8b8ff22`; 0237).
+
+**Report.** `examples-qa.md`'s "Drill cells" gains:
+- a corpus column in every coverage table;
+- the corpus rows by collection and licence, shipped and not, with the reason: licence, stale, skipped, form, words or Greek;
+- the adapted rows;
+- the waiting pairs: other cells a corpus row holds without a verdict;
+- the generated rows superseded by a corpus row;
+- the documents by licence.
+
+**Tools** (`drill_examples.py`):
+- `--add-corpus <file>` appends checked corpus rows with their ids and texts hashes. It refuses a row whose document is not in the documents file.
+- `--sample 30 --base <rev> --corpus 50` writes `drill-examples-sample.md`. First 50 corpus rows, drawn with a seed from `ell-corpus.tsv`'s sha256; for each it shows `original` (where it differs), `text`, the byline and both translations. It then lists the corpus rows of the cells `<rev>`'s `ell-skipped.tsv` lists, the 45 (kyukhin, 2026-11-28, Open questions 22 and 23). Then, as #371's `--sample 30 --base <rev>`, 30 of the 1,537 re-read rows, those not in `<rev>`'s `ell.tsv`, each with its cell's tense line and the skip reason it replaces. (`--corpus M` rather than the draft's `--source corpus`, since `--source` names the built file whose forms the sample highlights; as built, 2026-11-28.)
+- `--pairs` is unchanged. It lists the re-read rows' new pairs, if any. A later round can feed it the corpus rows' waiting pairs (kyukhin, 2026-11-28: not in #385).
+
+**Pipeline and order**:
+1. The licence check of the 63 works and of the 7 free-ebooks.gr books (kyukhin, 2026-11-28).
+2. The two data files, from the run's rows of cleared documents, ids in cell-key order; the README.
+3. Recount against master. Add the 1,537 re-read rows to `ell.tsv` (`--add`). Remove the 1,537 skip lines of the re-read rows; the 45 cells a corpus row fills keep theirs as the fallback.
+4. Rebuild and run the gates. Check the re-read rows' new pairs, if any (`--pairs`, #371's Pipeline 7), until none is left unchecked.
+5. The report and the sample. Then the `ell` cut, whose release waits for kyukhin's ok on the sample (0237).
+
+**App** (pure where it can be, as #365's bylines; no new Swift file, no Xcode step, no format change; `INFOPLIST_KEY_CFBundleDisplayName` stays `LibreDict`):
+- `Models.swift`:
+  - `ExampleSource.corpus` (`corpusBase` 3,000,000,000; generated stays below it);
+  - `CorpusCredit` (`work`, `collection`, `licence`, `adapted`), parsed from `author`, nil when the field does not parse;
+  - `ExampleText.sourceOfTranslation` gives `.generated` for a corpus sentence;
+  - `byline` and `accessibilityLabel` compose the corpus rows, the licence name from `Credits.licenses`, and public domain from its key;
+  - `CreditLine.licenses`; the new `CreditLicense`s; the `corpus` line in `Credits.dataSources`.
+- `Localizable.xcstrings`: six keys (Strings).
+- 0132's answer panel shows what `ExampleSentenceView` is given, and neither that view nor the panel changes (the provenance's place, above). So the drill code does not change.
+
+**Code map** (#385):
+
+| Path | Change |
+|---|---|
+| `Scripts/build_examples.py` | Corpus rows: reading, the corpus gate (Checks 1 to 9), `NC_ALLOWED`, `source_of` with four sources, the choice's verdict rule for another cell, the `author` field, the `data_source` row, the report's corpus parts; `--self-check` cases |
+| `Scripts/drill_examples.py` | `--add-corpus`; `--sample --corpus M`; the re-read rows in `--sample --base` |
+| `Scripts/data/drill-examples/ell-corpus.tsv`, `ell-corpus-documents.tsv`, `README.md` | New |
+| `Scripts/data/drill-examples/ell.tsv`, `ell-skipped.tsv`, `ell-readings.tsv` | The 1,537 re-read rows; their 1,537 skip lines go (the 45 corpus cells keep theirs); verdicts of the re-read rows' new pairs, if any |
+| `Scripts/fixtures/tatoeba-sample/drill-examples/` | The corpus cases of the self-check |
+| `Scripts/packs.json` | `corpus-ell-drill` under `ell` |
+| `Scripts/reports/examples-qa.md`, `drill-examples-sample.md` | The report; the sample |
+| `Packs/ell-*.sqlite.xz`, the bundle's `catalog_pack` row | Rebuilt `ell`, a new version and its pin |
+| `DictApp/DictApp/Models/Models.swift` | `ExampleSource.corpus`, `CorpusCredit`, the corpus bylines, `CreditLine.licenses`, the licences and the Credits line |
+| `DictApp/DictApp/Resources/Localizable.xcstrings` | Six keys |
+| `DictApp/DictAppTests/DictAppTests.swift` | `DrillExampleDataTests`, `ExampleTextTests` and `CreditsTests` cases (Test plan) |
+| `DictApp/DictAppUITests/TestCases/ConjugationDrillFlowTests.swift`, `ExampleSentencesTests.swift`, `TestHelpers/AccessibilityIdentifiers.swift` | The corpus byline in the panel; the Credits line (`credits_corpus`) |
+| `CHANGELOG.md` | One line under Unreleased for #385 |
+| `docs/specs/0134-example-sentences.md`, `0132-conjugation-drill.md`, `0237-downloads.md`, `0000-overview.md` | The counts as built; 0132's byline line gains the corpus source; the `ell` pack's sizes; Credits in the overview |
+
+**Size of the work**: M, about 3 stream-days:
+- the licence check, 0.5;
+- the data files, the re-read rows and their pairs, gates, tools and report, 1;
+- the app bylines, Credits, strings and their tests, 1;
+- the sample (kyukhin reads 125 rows), the pack and QA, 0.5.
+
+One data stream and one UI stream run in parallel; the UI part starts on a fixture pack. The UI PR merges first: until the pack exists it reads nothing new. The data PR carries the catalog pin. On master for 2.1.0.
+
+**Out of scope**: corpus sentences as word examples (Definition screen, learning); the waiting pairs' round; the ticket's other sources (Common Voice, MASSIVE, Pame!, each with its own licence check); Spanish and Arabic translations.
+
 ### Identifiers
 
 | Element | Identifier |
@@ -737,6 +1052,7 @@ The open cells by tense ("passive": the passive of a verb with both voices):
 | Credits line | `credits_tatoeba` |
 | The drill's answer panel (#364): the example | `drill_example` (0132) |
 | Credits line of the generated drill examples (#365) | `credits_drill_examples` |
+| Credits line of the corpus sentences (#385) | `credits_corpus` |
 
 Numbered identifiers avoid the `firstMatch`-in-another-cell gotcha (#143).
 
@@ -772,6 +1088,19 @@ Seven keys. The implementing agent checks these texts and enters them in the cat
 | `credits.dataSources.wiktionary` (changed) | Word forms and usage examples: Wiktionary contributors, via kaikki.org (CC BY-SA 4.0) | Словоформы и примеры употребления: … | Formas de las palabras y ejemplos de uso: … | صيغ الكلمات وأمثلة الاستخدام: … | Κλιτοί τύποι και παραδείγματα χρήσης: … |
 
 "LibreDict" and the Wiktionary names are not translated beyond Credits' own wording. #364 adds no key: Tatoeba's byline is as today.
+
+#385 adds six keys (the implementing agent checks the texts; Arabic values start with U+200F). In the bylines, `%1$@` is the work, `%2$@` the collection and `%3$@` the licence's name, each isolated FSI…PDI:
+
+| Key | en | ru | es | ar | el |
+|---|---|---|---|---|---|
+| `examples.byline.corpus %@ %@ %@` | %1$@ · %2$@ · %3$@ · translation: LibreDict, generated | %1$@ · %2$@ · %3$@ · перевод: LibreDict, сгенерирован | %1$@ · %2$@ · %3$@ · traducción: LibreDict, generada | %1$@ · %2$@ · %3$@ · الترجمة: LibreDict، مولَّدة | %1$@ · %2$@ · %3$@ · μετάφραση: LibreDict, παραγόμενη |
+| `examples.byline.corpusAdapted %@ %@ %@` | %1$@ · %2$@ · %3$@ · adapted · translation: LibreDict, generated | … · адаптировано · перевод: LibreDict, сгенерирован | … · adaptado · traducción: LibreDict, generada | … · مُعدَّل · الترجمة: LibreDict، مولَّدة | … · προσαρμοσμένο · μετάφραση: LibreDict, παραγόμενη |
+| `examples.a11y.byline.corpus %@ %@ %@` | From %1$@, %2$@, %3$@; translation generated by LibreDict | Источник: %1$@, %2$@, %3$@; перевод сгенерирован LibreDict | De %1$@, %2$@, %3$@; traducción generada por LibreDict | من %1$@، %2$@، %3$@؛ الترجمة مولَّدة بواسطة LibreDict | Από: %1$@, %2$@, %3$@· μετάφραση από το LibreDict, παραγόμενη |
+| `examples.a11y.byline.corpusAdapted %@ %@ %@` | From %1$@, %2$@, %3$@, adapted; translation generated by LibreDict | Источник: %1$@, %2$@, %3$@, адаптировано; перевод сгенерирован LibreDict | De %1$@, %2$@, %3$@, adaptado; traducción generada por LibreDict | من %1$@، %2$@، %3$@، مُعدَّل؛ الترجمة مولَّدة بواسطة LibreDict | Από: %1$@, %2$@, %3$@, προσαρμοσμένο· μετάφραση από το LibreDict, παραγόμενη |
+| `examples.licence.publicDomain` | public domain | общественное достояние | dominio público | ملكية عامة | κοινό κτήμα |
+| `credits.dataSources.corpus` | Conjugation examples from Greek texts, via BabyLM-ell: books from openbook.gr, textbook and conversation corpora from CLARIN:EL, Global Storybooks and Vikidia. Each example names its source and licence; “adapted” means LibreDict changed punctuation, capitals or a speaker tag, never a word. Translations generated by LibreDict. The documents and their links: github.com/kyukhin/dict-app (Scripts/data/drill-examples). | Примеры спряжения из греческих текстов, через BabyLM-ell: книги с openbook.gr, корпуса учебников и разговоров из CLARIN:EL, Global Storybooks и Vikidia. У каждого примера указаны источник и лицензия; «адаптировано» значит, что LibreDict изменил пунктуацию, заглавные буквы или метку говорящего, но не слова. Переводы сгенерированы LibreDict. Документы и ссылки на них: github.com/kyukhin/dict-app (Scripts/data/drill-examples). | Ejemplos de conjugación de textos griegos, a través de BabyLM-ell: libros de openbook.gr, corpus de libros de texto y de conversaciones de CLARIN:EL, Global Storybooks y Vikidia. Cada ejemplo indica su fuente y su licencia; «adaptado» significa que LibreDict cambió la puntuación, las mayúsculas o una etiqueta de hablante, nunca una palabra. Traducciones generadas por LibreDict. Los documentos y sus enlaces: github.com/kyukhin/dict-app (Scripts/data/drill-examples). | أمثلة التصريف من نصوص يونانية، عبر BabyLM-ell: كتب من openbook.gr، ومدوّنات كتب مدرسية ومحادثات من CLARIN:EL، وGlobal Storybooks وVikidia. يذكر كل مثال مصدره وترخيصه؛ و«مُعدَّل» تعني أن LibreDict غيّر علامات الترقيم أو الأحرف الكبيرة أو وسم المتحدث، ولم يغيّر أي كلمة. الترجمات مولَّدة بواسطة LibreDict. الوثائق وروابطها: github.com/kyukhin/dict-app (Scripts/data/drill-examples). | Παραδείγματα κλίσης από ελληνικά κείμενα, μέσω BabyLM-ell: βιβλία από το openbook.gr, σώματα κειμένων σχολικών βιβλίων και συνομιλιών από το CLARIN:EL, Global Storybooks και Vikidia. Κάθε παράδειγμα αναφέρει την πηγή και την άδειά του· «προσαρμοσμένο» σημαίνει ότι το LibreDict άλλαξε τη στίξη, κεφαλαία ή ένδειξη ομιλητή, ποτέ λέξη. Μεταφράσεις από το LibreDict, παραγόμενες. Τα έγγραφα και οι σύνδεσμοί τους: github.com/kyukhin/dict-app (Scripts/data/drill-examples). |
+
+The work, the collection, BabyLM-ell, CLARIN:EL and the licences' names are never translated. If the licence check clears free-ebooks.gr books, the Credits line names free-ebooks.gr too, in all five languages. paidika-paramythia.gr is left out (kyukhin, 2026-11-28).
 
 ### Code map
 
@@ -831,6 +1160,7 @@ Drill examples (#364, #365; approved by kyukhin on 2026-11-22). Both land on mas
 | #364 Drill examples from Tatoeba | Data (1.5): `drill_cells.py`, the match rule, the choice, the cell rows, the report, the gates, `--self-check`, the rebuilt `ell`. App (1.0): the panel, the read, `-drillPlan` and the tests in 0132 | Approval of this spec and 0132's part | M, 2.5 | One data and one UI stream in parallel; the UI part starts on a fixture pack |
 | #365 Fill the cells Tatoeba lacks | Wiktionary rows (0.5); the data files and `drill_examples.py` (0.5); generation and the second pass for the 2.0 scope (1.0 for about 5,000 rows); the bylines, Credits and strings in five languages (0.5); the sample, then the rebuilt `ell` | #364 merged; kyukhin's sample review | M, 2.5 | Data |
 | #371 B1 drill examples (approved 2026-11-25) | The B1/B1 scope: the 13 pairs of the 2.0 scope, the Tatoeba side, Wiktionary, the pilot by risk, at most about 19,700 generated rows with the second pass, the pair check, verdicts tied to the text, the sample, the three verbs of 0133, the rebuilt `ell` ("B1 drill examples") | #362, #378 and #363 merged (done); kyukhin's pilot read (which sets the budget) and sample review | L, about 6 | Data |
+| #385 Corpus sentences (approved 2026-11-28) | The licence check; `ell-corpus.tsv` and its documents file; the corpus gate, the choice's verdict rule, `NC_ALLOWED`; the 1,537 re-read rows and their pairs; the bylines, Credits and six strings; the sample; the rebuilt `ell` ("Corpus sentences") | #371 merged (done); kyukhin's answers to Open questions 19 to 24 (given 2026-11-28); his sample review | M, about 3 | One data and one UI stream |
 
 ## Test plan
 
@@ -886,6 +1216,23 @@ B1 drill examples (#371; approved by kyukhin on 2026-11-25):
 | kyukhin 2026-11-25: three verbs move to P1 of "Irregular aorists" | Unit `GrammarContentTests.testIrregularAoristsListsTheApprovedVerbs` with 87 verbs, the three after στέκομαι; the link gate; `reviewed.tsv` unchanged (0133) |
 | #371: nothing else changes | The gate "the word examples do not change"; `cut_packs.py --verify` (only `ell` and its catalog row change); `PackFileTests.testEveryFileHasTheFormat` (format 4) |
 
+Corpus sentences (#385; approved by kyukhin on 2026-11-28). Data tests read the committed Greek pack through `PackFixtures` and the data files under `Scripts/data/drill-examples/`, as `testEveryShippedPairWasChecked` does:
+
+| Acceptance criterion | Test |
+|---|---|
+| #385: every shipped corpus sentence credits its source, licence and author or document | Build gates 6 and 8: every corpus row's document has a work, a collection and a checked licence, and the `author` field is built from them. Unit `DrillExampleDataTests.testCorpusSentencesNameTheirDocument`: every sentence of the pack with an id from 3·10^9 up is a row of `ell-corpus.tsv` with the same text; its `author` parses into work, collection, licence and change, which equal its document's; its licence is `pd` or in `Credits.licenses`; its English and Russian are by "LibreDict". `ExampleTextTests.testCorpusBylineNamesTheDocumentAndLicence`: both rows of the byline table in five languages, "public domain" translated and CC names not, Arabic starting with U+200F, the isolates, the VoiceOver labels with a Greek work in the Greek voice, and a malformed field shown as it is. `ExampleTextTests.testSourceByID`: the four ranges and their bounds (1,999,999,999 Wiktionary, 2,999,999,999 generated, 3,000,000,001 corpus). `CreditsTests`: `corpus-ell-drill` among the data sets; its line names each licence its `data_source` row records; the Licenses section lists exactly the licences the lines name (`licenses`). UI `ConjugationDrillFlowTests.testCorpusExampleNamesItsSource`: `-drillPlan` on a shipped corpus cell, έρχομαι's imperfect passive εμείς ("Όταν ερχόμασταν, κάναμε πολλές ώρες.", Babiniotis archive, adapted), or another adapted CLARIN:EL row the PR names. `drill_example`'s label holds the work, "CLARIN:EL", the licence, "adapted" and "translation generated by LibreDict". `ExampleSentencesTests.testCreditsListTheCorpus`: `credits_corpus` through `settings_credits_link` |
+| #385: every shipped pair passed the pair check, and its translations a separate check, bound by `texts_sha256` | The pair gate, unchanged: a corpus row's own `check` (pass 2's `ok`, with `checked_by`) bound by the hash of its text, English and Russian; any other cell only with an `ok` verdict. `--self-check`: a corpus row whose text, English or Russian was edited after its check is stale, and its cell falls back to its generated row; a corpus row that holds another cell without a verdict waits, and with one it serves. Unit `DrillExampleDataTests.testEveryShippedPairWasChecked`, extended to `ell-corpus.tsv`. Review: the run's records (pass 1 and pass 2 per batch) give each row's `model` and `checked_by` |
+| #385: no ND or unlicensed text in the pack | Build gate 6: the licence allowlist; a statement naming ND or only a permission to copy fails; no `checked_by` fails; `pd` without a basis fails; NonCommercial only with `NC_ALLOWED`. `--self-check`: a document whose `licence` says `cc_by_nc_4_0` but whose statement says BY-NC-ND fails (BabyLM's mislabel); so does one with "Ελεύθερη αναπαραγωγή", and one with no `checked_by`; `NC_ALLOWED` off drops the NC rows and their cells fall back; `pd` passes with a life that ended by `PD_DIED_BY` (1800–1890, 1874–1955) and fails after it (1874–1959). Unit `DrillExampleDataTests.testCorpusLicencesAllowShipping`: every document a shipped row cites has an allowed licence, a statement without ND and a `checked_by`, and a `pd` basis by the build's cutoff (`testPublicDomainBasisUsesTheBuildsCutoff`, CodeRabbit on #387). Review: the documents file, every statement of the 63 works read in the licence check, and the not-shipped table in the report |
+| #385: drill rows within the 11 MB budget | Build gate `DRILL_BUDGET`, unchanged (measured 9.42 MB with the 2,664 corpus rows and the 1,537 re-read rows). QA records the drill rows' bytes and the `ell` asset's and file's sizes in 0237's History |
+| kyukhin 2026-11-28: the provenance does not crowd the sentence; VoiceOver reads it, Dynamic Type scales it | Unit `ExampleTextTests.testCorpusBylineNamesTheDocumentAndLicence` (above): the VoiceOver label reads the sentence, then the translation, then the provenance. UI `ConjugationDrillFlowTests.testDrillExampleAtTheLargestTextSize`, extended to the corpus cell of the row above (`-UIPreferredContentSizeCategoryName UICTContentSizeCategoryAccessibilityXXXL`): the bar scrolls to `drill_example`, its label starts with the sentence and ends with the provenance, and Continue stays hittable. Review: `ExampleSentenceView` is unchanged (the provenance is its `.caption`, `.secondary` third line, never truncated); screenshots of the panel at the default and the largest size, iPhone and iPad, in the PR |
+| kyukhin 2026-11-28: the 1,537 re-read rows land as generated rows | The data files' form gate (Checks, 1): each holds its cell, at most 15 words, both translations, `check` ok with its `texts_sha256`. The pair gate: any new pair of a re-read row with another cell has its verdict (at most 32 pairs in 10 cells, measured). The coverage gate on B1/B1: open 0, with 4,761 cells skipped instead of 6,343; no skipped cell has a row. Unit `DrillExampleDataTests.testEveryCellInScopeHasASentence` and `testEveryShippedPairWasChecked`, unchanged, on the new pack |
+| kyukhin 2026-11-27: a corpus sentence's words are never changed | Build gate 4. `--self-check`: each allowed edit passes (a speaker tag, a dash, an exercise label, µ, a Latin O, the first capital, quotation marks, `'Ναι' είπε.` → `«Ναι» είπε.`, a final mark, a comma, να' ναι and να 'ναι either way); a changed letter, a moved accent, a dropped or added word, ότι → ό,τι, 'πείσαν without its apostrophe and a clause before a colon (`Δεν μιλάω: γράφετε.` → `Γράφετε.`) each fail (CodeRabbit on #387) |
+| #385: corpus sentences rank above generated ones and below Tatoeba and Wiktionary; nothing else changes | `--self-check`: a cell with a checked Tatoeba sentence, its own corpus row and its own generated row shows the Tatoeba sentence; without Tatoeba, the corpus row; a corpus row for another cell takes no cell without a verdict; with one, the report counts it as shipped, and the `corpus-ell-drill` row credits only the licences of rows stored (CodeRabbit on #387). The gate "the word examples do not change". The report: the cells that change are exactly the corpus rows' cells. `cut_packs.py --verify` (only `ell` and its catalog row change); `PackFileTests.testEveryFileHasTheFormat` (format 4) |
+| #385: the form holds, and the Greek is a learner's | Build gates 2, 3 and 5 (the match rule, at most 15 words, the final ν). `--self-check`: "κι ας αργήσανε" holds no aorist; a 16-word row and «δε μπορώ» fail |
+| kyukhin 2026-11-28: a corpus row wins over a skip, and an excluded corpus row never leaves its cell empty (on the review of #387) | The gate "no skipped cell has a row", amended: none but its own corpus row; the 45 cells keep their skip lines. Gate 9 (Checks): built without the corpus rows, no cell of the scope that shows one is open; a build with `NC_ALLOWED` off passes with 0 open cells. `--self-check`: a skipped cell takes its own corpus row and no other sentence; with `NC_ALLOWED` off, the row stale or no corpus row, it falls back to its skip line and no cell opens; gate 9 names a corpus row whose cell has no generated row and no skip line. Unit `DrillExampleDataTests.testEveryCellInScopeHasASentence`: a skipped cell shows only its own corpus row. The 45 rows are listed in `drill-examples-sample.md` for kyukhin (Open question 22) |
+| kyukhin 2026-11-28: his sample (Open question 23) | `drill-examples-sample.md` in the data PR: 50 corpus rows (`--sample 30 --base 1c3fd58 --corpus 50`, seeded by `ell-corpus.tsv`'s sha256, each with its original, text, byline and translations), the 45 corpus rows of skipped cells, and 30 of the 1,537 re-read rows (`--sample 30 --base <rev>`, seeded by `ell.tsv`'s sha256, each with the skip reason it replaces). Review: every sampled id is new. His ok in History; the `ell` release follows it |
+| kyukhin 2026-11-28: no pair round for the corpus rows' other cells (Open question 24) | The report lists the waiting pairs (858 in 540 cells, measured). `--self-check`: a corpus row that holds another cell without a verdict takes no cell |
+
 ## Open questions
 
 1. **English examples in 2.0.** Resolved 2026-11-04: yes, in the `eng-lists` pack, downloaded only when the user starts learning English (Decisions).
@@ -912,6 +1259,15 @@ B1 drill examples (#371):
 16. **Check again the B1-tense Tatoeba pairs.** Resolved 2026-11-25: no blanket recheck; only the 50 future continuous pairs and the pairs of shared spellings, 183 in all (Decisions).
 17. **Words for an A1 or A2 verb at a B1 tense.** Resolved 2026-11-25: A1 and A2 words for both; frame variety reported by the pilot (Decisions).
 18. **kyukhin's read of the pilot.** Resolved 2026-11-25: yes, 50 rows from a pilot drawn by risk, and the skip list read too (Decisions).
+
+Corpus sentences (#385):
+
+19. **Documents whose licence BabyLM gives and the document does not** (paidika-paramythia.gr 893 rows, copy-only openbook.gr books 225, free-ebooks.gr 34). Resolved 2026-11-28 as recommended: paidika-paramythia.gr and the copy-only books are left out, and their cells keep their generated rows; the licence check reads the 7 free-ebooks.gr book pages, and a book ships if its page states an allowed licence (Decisions).
+20. **The CLARIN:EL textbook corpora** (1,217 rows). Resolved 2026-11-28 as recommended: they ship on their records' licences, and a takedown request drops their rows (Decisions).
+21. **The byline's length.** Resolved 2026-11-28: every sentence's provenance names its licence and "adapted" where LibreDict changed it, and it must not crowd the sentence. Of kyukhin's two places for it, small secondary type under the sentence and its translation, not a ⓘ that opens it (Decisions).
+22. **Skipped cells with a corpus row** (45; 46 in the run). Resolved 2026-11-28 as recommended: the corpus row wins and the skip line goes (Decisions).
+23. **kyukhin's sample.** Resolved 2026-11-28: 50 corpus rows, the 45 corpus rows of skipped cells, and 30 of the 1,537 re-read rows that replace skips (Decisions).
+24. **Corpus rows for other cells** (858 pairs in 540 cells). Resolved 2026-11-28 as recommended: they wait for a verdict, and #385 runs no pair round for them (Decisions).
 
 ## History
 
@@ -964,3 +1320,31 @@ B1 drill examples (#371):
 - 2026-11-27 (#371, CodeRabbit on #384, on `9e52068`; the approach kyukhin's the same day): a verdict covered the Greek alone (Major), and a data row's own `check` passed for whatever text and translations the row held (Minor). Now both are bound to the Greek, English and Russian the pair ships with: `texts_sha256` in `ell-readings.tsv` (it replaces `text_sha256`) and in `ell.tsv` ("Verdicts tied to the text"); a stale one is reported and never used, and `--self-check` edits a checked row's text and, apart, its Russian, and each time its pair fails the gate. The hashes were recomputed from the current data (the migration above): none went stale, so no pair went back to the check. The report's list-word share also counts the forms of the row's own verb as allowed (Minor: ανακαινίσατε in ανακαινίζω's row); rows at 100%: 19,109 of 21,772 (17,476 before). μελετάω's passive present αυτοί, continuous future αυτός and continuous subjunctive αυτοί, skipped while they asked μελετιούνται or μελετιέται, took generated rows on μελετώνται and μελετάται, checked by a fresh pass (3 fixed). As built: `ell.tsv` 22,125 rows (21,774 generated: 17,336 new; 21,764 ship, 2 stale); `ell-skipped.tsv` 6,416 cells (5,807 new; 3 of #365's gone: μελετάω's present αυτοί and προτιμάω's present αυτός and αυτοί); `ell-readings.tsv` 5,073 verdicts. The B1/B1 scope's 31,769 cells: Tatoeba 3,291, Wiktionary 319, generated 21,806, skipped 6,353, open 0; the 2.0 scope's 7,278: Tatoeba 2,150, Wiktionary 140, generated 4,442, skipped 546, open 0; all 56,728 cells: 25,822 with a sentence (Tatoeba 3,622, Wiktionary 364, generated 21,836). No pair is without a verdict. Drill rows 8.54 MB installed (budget 11 MB), 1.60 MB to download. The `ell` asset is `ell-cffe13f0eb44` (0237).
 - 2026-11-27 (#371, the 13 pairs of the 2.0 scope, rule 7; Claude's read in a separate session, accepted by kyukhin 2026-11-26): `ok` for έρχομαι's simple να passive εμείς, ανακατεύω's simple imperative εσείς, αρχίζω's present εμείς, γυρίζω's future εσύ, καθαρίζω's simple να εγώ, μαζεύω's aorist αυτοί, ξεχνάω's present εσύ, παρακαλώ's present εμείς, προσέχω's simple imperative εσείς, σβήνω's aorist αυτοί and τρέχω's simple να εσύ; `no` for κρίνω's simple να αυτός (the sentence reads as the continuous) and προτείνω's present εμείς (after αν, a dependent form). Both cells now show their own new rows.
 - 2026-11-27 (kyukhin, #371, the second review; Claude's read in a separate session, accepted by kyukhin (2026-11-27)): the 20 rejected rows, 50 of the checker's fixes and 30 skips of the continuous future and να were read, and the data found shippable; 1 reject and 6 skips are overturned and 8 rows rewritten. The review named four patterns to read again across all rows, and a fresh pass read the 513 rows a text search found (520 lines, 7 rows under two patterns): 463 lines kept, 56 fixed (54 rows), 1 skipped. By pattern: a Russian aspect an earlier checker changed mechanically, 103 lines (10 fixed); μπορεί, μπορούν or μπορώ + the continuous να, 151 (17 fixed); σιγά σιγά or λίγο λίγο with the continuous future, 21 (11 fixed, 1 skipped); a first- or second-person passive with από + an agent, which Greek says with the active, 245 (18 fixed). A sense check of νοιάζομαι's 33 rows ("care about"; a one-off "look after" is φροντίζω or προσέχω): 16 ok, 17 fixed (12 rewritten in the caring sense, 4 for variety, 1 Russian). CodeRabbit on #384 (`8986bc0`, two Minor findings): αρέσω's continuous να εμείς was skipped for repeating a frame, which is no skip reason, and κοροϊδεύω's continuous imperative εσύ for having no natural order, while its neighbour's reason gives Κορόιδευε όσο θέλεις; both cells take rows. The review's rows and CodeRabbit's two, 17 checked by a fresh pass (13 ok, 4 fixed), went in last and win for a cell the pattern pass touched too (εξοπλίζω's continuous future εγώ, which it skipped, keeps the review's row): 7 rows rewritten in place, and 10 skipped cells take rows (κατοικώ's aorist αυτός and ασκώ's continuous future αυτός, rejected before; αρέσω's continuous να εσείς, διηγούμαι's continuous future passive εμείς, πικραίνω's and σερβίρω's continuous να passive εσείς, σχολιάζω's continuous να passive αυτός, χρεώνω's continuous future passive εμείς; CodeRabbit's two). In all 83 rows have a new text or translation (73 keep their ids, 10 are new), and 16 more carry the sense check's date; each has a new `texts_sha256`, no reading verdict named any of them, and each ships for its own cell alone. As built: `ell.tsv` 22,135 rows (21,784 generated: 17,346 new; 21,774 ship, 2 stale); `ell-skipped.tsv` 6,406 cells (5,797 new); `ell-readings.tsv` 5,073 verdicts. The B1/B1 scope's 31,769 cells: Tatoeba 3,291, Wiktionary 319, generated 21,816, skipped 6,343, open 0; the 2.0 scope's 7,278 as before; all 56,728 cells: 25,832 with a sentence (Tatoeba 3,622, Wiktionary 364, generated 21,846). No pair is without a verdict. Drill rows 8.54 MB installed (budget 11 MB), 1.61 MB to download. The `ell` asset is `ell-b5b2b8b8ff22` (0237).
+- 2026-11-27 (#385; Draft, waiting for kyukhin's review): "Corpus sentences" drafted, measured on master `1c3fd58`, `ell-b5b2b8b8ff22` and the run of 2026-11-27 on BabyLM-ell `5a8f8df0fc19`.
+  - The run judged 11,859 pairs in three rounds, with a separate pass on each `ok`, and filled 4,779 cells (4,712 that show a generated sentence, 67 skipped).
+  - BabyLM's licence column is not the documents': 963 rows come from 77 books whose own licence is BY-NC-ND; the 893 paidika-paramythia.gr rows name living authors though BabyLM calls them public domain; 225 rows only allow copying.
+  - 2,664 rows from documents with an allowed licence ship, 2,230 of them NonCommercial. The B1/B1 cells with a person's sentence go from 14.2% to 24.6%, and the drill rows from 8.54 to 8.81 MB installed (budget 11 MB) and from 1.61 to 1.68 MB to download.
+  - Design: a fourth id range and a structured `author` field (format 4); a corpus row serves only its own cell without a verdict, so the pair gate passes unchanged; the generated rows it replaces stay as data; a byline with the work, collection, licence and "adapted"; one Credits line. Open questions 19 to 24.
+- 2026-11-28: #385 approved by kyukhin, with his answers to Open questions 19 to 24, as recommended (Decisions).
+  - Left out: paidika-paramythia.gr and the copy-only openbook.gr books. The licence check reads the 7 free-ebooks.gr book pages.
+  - The CLARIN:EL corpora ship on their records' licences; a takedown request drops their rows.
+  - A corpus row wins over a skip (45 cells, 46 in the run: αρέσω's continuous να εμείς has taken a generated row since, so 2,619 corpus rows replace generated ones).
+  - No pair round for the corpus rows' other cells.
+  - Design change (Open question 21): the provenance must not crowd the sentence. Of kyukhin's two options it stays small secondary type under the sentence and its translation, `ExampleSentenceView`'s byline line, rather than a ⓘ that opens it. It stays visible with no tap, keeps one VoiceOver element and one look for every source, avoids a second ⓘ beside the tense's, and scales with Dynamic Type. No layout change; a test at the largest text size.
+  - kyukhin's sample: 50 corpus rows, the 45 corpus rows of skipped cells, and 30 of the 1,537 re-read rows.
+  - The 1,537 generated rows of skipped cells that a re-read found natural (2,301 cells re-read; 1,628 rows written; a second pass passed 1,293, fixed 244, rejected 91) land in #385's PR as ordinary `ell.tsv` rows ("The re-read skips"). All are in the B1/B1 scope and hold their cells; at most 32 new pairs in 10 other cells get the pair check.
+  - Measured with both: drill rows 9.42 MB installed (budget 11 MB) and 1.79 MB to download (from 8.54 and 1.61). The B1/B1 scope: Tatoeba 3,291, Wiktionary 319, corpus 2,657, generated 20,741, skipped 4,761, open 0. The share written by people in its 27,008 cells with a sentence goes from 14.2% to 23.2%. All cells: 27,414 with a sentence. `ell.tsv` 8.5 MB; `ell-skipped.tsv` 4,824 lines.
+- 2026-11-28 (#385, as built):
+  - The licence check read each document's statement where it is given: the 34 openbook.gr book pages, the 4 CLARIN:EL records (through the catalogue's API), the 23 Global Storybooks stories and their master index on GitHub, and Vikidia's licence (through its API; its pages are behind a bot check). The 7 free-ebooks.gr books, now on freebooks.gr, state no licence on their pages, and one openbook.gr book (4 rows) calls an unnamed Greek translation of the Brothers Grimm public domain: none of them ships. The versions found add CC BY-NC 3.0 and CC BY-NC-SA 3.0 (books of 2011 to 2013) to Credits' Licenses; CC BY 3.0 (Global Storybooks) and CC BY-SA 3.0 (Vikidia) are there already.
+  - `ell-corpus.tsv`: 2,659 rows (2,230 NonCommercial, 850 adapted) from 1,316 documents of 62 works; `ell-corpus-documents.tsv` keeps each statement and address. Gate 4 leaves out one row whose original has an apostrophe for a comma. As built, its speaker tags are a name of one or two words before a colon, or Αφηγητής, and its look-alikes include ∆ and the digit 0 for Ο (Checks, 4).
+  - The 1,537 re-read rows are `ell.tsv`'s 2,000,021,805 to 2,000,023,341. `ell-skipped.tsv` goes from 6,406 to 4,824 lines; the 764 other re-read cells keep their lines with the re-read's reason, 91 of them "rejected by the check" (the spec said "as they are").
+  - `drill_examples.py --sample` takes `--corpus M` for the corpus part, and `--add-corpus` appends corpus rows; the sample is in `drill-examples-sample.md` (`--sample 30 --base 1c3fd58 --corpus 50`).
+  - The re-read rows brought 4 new pairs in 4 cells beyond the B1/B1 scope, checked by a separate pass (`ell-readings.tsv`, checked_by "claude-opus-5-5 2026-11-28 (PM check)"): `ok` for γνωρίζω's simple να passive εμείς, λύνω's future passive αυτός and μετακομίζω's perfect εμείς; `no` for γνωρίζω's simple imperative passive εσείς («Όταν γνωριστείτε…» holds the dependent form), which stays without a sentence. No pair is without a verdict; open 0.
+  - The B1/B1 scope's 31,769 cells: Tatoeba 3,291, Wiktionary 319, corpus 2,652, generated 20,746, skipped 4,761, open 0; people's sentences are 23.2% of its 27,008 cells with one (14.2% before). All cells: 27,417 with a sentence (Tatoeba 3,622, Wiktionary 364, corpus 2,659, generated 20,772). Waiting pairs: 858 in 540 cells that show a generated sentence or none (2,580 in 1,432 cells in all). The cells that change against the choice without corpus rows are exactly the corpus rows' 2,659 own cells; 2,592 generated rows leave the pack. The word examples keep their hash.
+  - Drill rows 9,453,568 bytes installed (budget 11 MB), 1,793,760 to download. The `ell` asset is `ell-b2cfa5e98728` (0237; cut again after the review of #387, next line).
+- 2026-11-28 (#385, the review of #387: kyukhin's two decisions and CodeRabbit's findings):
+  - An excluded corpus row never leaves its cell empty. The 45 cells a corpus row fills get back their skip lines of `1c3fd58`, which count only while no sentence ships for the cell (`ell-skipped.tsv` 4,869 lines); gate 9 replaces the rule that removed them. With `NC_ALLOWED` off the build passes with 0 open cells: 2,185 cells show their generated rows again and the 45 are skipped (all 45 rows are NonCommercial). With no corpus row at all, no cell of the corpus rows is left without a sentence or a skip line.
+  - The 23 Global Storybooks documents name their story first in `work`, the title read from the first line of each story at its `url` on 2026-11-28; 46 rows' bylines change.
+  - Gate 4: a speaker tag's words are names (capitalised or in capitals), so a clause before a colon fails; two apostrophes used as quotation marks count as quotation marks, an elision apostrophe still as part of its word. All 2,659 rows pass as before.
+  - The report counts a corpus row stored only for another cell as shipped; `corpus-ell-drill` credits only the licences of rows stored (unchanged as built); the unit test reads public domain by `PD_DIED_BY`; the code map says `--sample --corpus M`; 850 adapted rows, not 851.
+  - The Greek pack is cut again: `ell-b2cfa5e98728`, 70,090,752 bytes installed and 13,689,712 to download; drill rows 9,453,568 installed (budget 11 MB), 1,793,760 to download. Only the 46 `author` fields differ from the cut before.

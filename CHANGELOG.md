@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- [#385] The Greek conjugation drill shows sentences written by people, from openly licensed Greek texts (books from openbook.gr, CLARIN:EL textbook and conversation corpora, Global Storybooks, Vikidia), in about 2,660 cells that showed a generated sentence or none. Each names its document, collection and licence in small print under it, "adapted" where LibreDict changed its punctuation, and Credits lists the collections. 1,537 cells skipped for want of a natural sentence get a checked one.
 - [#371] The Greek conjugation drill shows example sentences for the verbs and tenses up to B1 (about 17,300 new ones), and twelve verb tables Wiktionary had wrong are fixed (απελπίζομαι, συναντάω, καίω, προσθέτω, απασχολούμαι, εμφανίζομαι, κλίνω, παράγω, πετάω, συνθέτω, μελετάω, προτιμάω). The Irregular aorists topic also lists καταστρέφομαι, πλένομαι and συμπεριλαμβάνομαι.
 
 ### Changed

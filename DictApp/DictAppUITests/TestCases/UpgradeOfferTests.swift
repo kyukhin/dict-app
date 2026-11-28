@@ -42,7 +42,7 @@ final class UpgradeOfferTests: XCTestCase {
         for id in ["arb", "ell", "rus", "spa"] {
             XCTAssertTrue(welcome.isChecked(id), "every dictionary was on: \(id) is checked")
         }
-        XCTAssertEqual(UITestHelpers.visible(welcome.downloadButton.label), "Download 24.7 MB")
+        XCTAssertEqual(UITestHelpers.visible(welcome.downloadButton.label), "Download 24.9 MB")
         attachScreenshot("Welcome after 1.4.0")
 
         welcome.tapDownload()
@@ -92,7 +92,7 @@ final class UpgradeOfferTests: XCTestCase {
                         .waitForExistence(timeout: TestData.Timeouts.medium), "the \"not downloaded\" view")
         let download = app.buttons[AccessibilityIdentifiers.Welcome.notDownloadedDownload]
         XCTAssertTrue(download.exists)
-        XCTAssertEqual(UITestHelpers.visible(download.label), "Download Greek · 13.5 MB")
+        XCTAssertEqual(UITestHelpers.visible(download.label), "Download Greek · 13.7 MB")
         attachScreenshot("γράφω, Greek not downloaded")
         download.tap()
         XCTAssertTrue(definitionContent.waitForExistence(timeout: 60), "γράφω opens once Greek installs")

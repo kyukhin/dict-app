@@ -47,6 +47,16 @@ used. The pair gate: every cell row's (cell, sentence) is its data row's own
 cell or has an `ok` verdict in the readings file, each with the hash of the
 texts the pair ships with.
 
+#385 adds a fourth source, sentences written by people from openly licensed
+corpora (`ell-corpus.tsv`, BabyLM-ell first), each tied to its document and
+that document's own licence (`ell-corpus-documents.tsv`). They rank after
+Tatoeba and Wiktionary and before generated rows, serve their own cell on
+their own `check` and another cell only with an `ok` verdict; the corpus
+gate (0134, "Corpus sentences", Checks 1 to 9) fails the build, and
+`NC_ALLOWED` lets the NonCommercial rows ship. A corpus row's cell keeps a
+fallback: its generated row, another sentence or its skip line, which counts
+only while no sentence ships for the cell (kyukhin 2026-11-28).
+
 Usage (from the repository root):
     python3 Scripts/build_examples.py --self-check
         offline, on Scripts/fixtures/tatoeba-sample/: builds twice, compares
@@ -195,6 +205,10 @@ SAMPLES = {"ell": ("γράφω", "είμαι", "σπίτι", "καλός", "μέ
 # Drill examples (#364). Sources by sentence id (0134, "Where it lives").
 WIKTIONARY_IDS = 1_000_000_000  # + n, #365
 GENERATED_IDS = 2_000_000_000  # + n, #365
+CORPUS_IDS = 3_000_000_000  # + n, #385
+TATOEBA_SOURCE, WIKTIONARY, GENERATED, CORPUS = 0, 1, 2, 3  # `source_of`
+# The choice's order of the sources (#385): people's sentences before generated ones, Tatoeba first.
+SOURCE_RANK = {TATOEBA_SOURCE: 0, WIKTIONARY: 1, CORPUS: 2, GENERATED: 3}
 # Bytes installed: the cell rows and the sentences only they use (kyukhin 2026-11-22: 3.5 MB; #371, after the
 # pilot, kyukhin 2026-11-26: 11 MB).
 DRILL_BUDGET = 11_000_000
@@ -260,6 +274,69 @@ GENERATED_SOURCE = {
     "license": "CC BY-SA 4.0",
     "url": "https://github.com/kyukhin/dict-app/tree/master/Scripts/data/drill-examples",
 }
+
+# #385: corpus sentences (0134, "Corpus sentences"). The data files are the pin: `original` holds each text, the
+# documents file each document's licence; the BabyLM-ell parquet (gated) is not committed.
+CORPUS_FILE, DOCUMENTS_FILE = "ell-corpus.tsv", "ell-corpus-documents.tsv"
+CORPUS_COLUMNS = ("id", "cell", "doc", "original", "text", "eng", "rus", "model", "check", "checked_by",
+                  "texts_sha256")
+DOCUMENT_COLUMNS = ("doc", "collection", "work", "licence", "statement", "url", "checked_by")
+BABYLM_REVISION = "5a8f8df0fc19"  # BabyLM-community/babylm-ell on Hugging Face, data/train-00000-of-00001.parquet
+# The licences that ship (kyukhin 2026-11-27: never ND, never a bare permission to copy): `pd` or the
+# `CreditLicense.id` of the app's Credits, with the name Credits gives it. Order: the data_source row's.
+CORPUS_LICENCES = {
+    "pd": "public domain",
+    "cc_by_3_0": "CC BY 3.0", "cc_by_4_0": "CC BY 4.0",
+    "cc_by_sa_3_0": "CC BY-SA 3.0", "cc_by_sa_4_0": "CC BY-SA 4.0",
+    "cc_by_nc_3_0": "CC BY-NC 3.0", "cc_by_nc_4_0": "CC BY-NC 4.0",
+    "cc_by_nc_sa_3_0": "CC BY-NC-SA 3.0", "cc_by_nc_sa_4_0": "CC BY-NC-SA 4.0",
+}
+NONCOMMERCIAL = frozenset(k for k in CORPUS_LICENCES if "_nc_" in k)
+# NonCommercial rows ship while LibreDict is free, with no ads and no purchases (kyukhin 2026-11-27). A change to
+# the app's business model turns this off first; the NC rows then drop and each of their cells falls back to its
+# next sentence (its generated row) or, for a cell a writer skipped, to its skip line, which `ell-skipped.tsv`
+# keeps (kyukhin 2026-11-28: an excluded corpus row never leaves its cell empty; the fallback gate checks it).
+NC_ALLOWED = True
+# A statement that names NoDerivatives, or only grants copying or distribution, never ships (belt and braces
+# against a mislabel like BabyLM's column: 0134, Checks 6).
+NO_DERIVATIVES = re.compile(r"\bND\b|NoDerivatives|No Derivatives|Όχι παράγωγα", re.IGNORECASE)
+COPY_ONLY = re.compile(r"Ελεύθερη αναπαραγωγή|Ελεύθερη διάθεση", re.IGNORECASE)
+# Public domain needs its basis: the author died more than 70 years ago (Greek law 2121/1993), so by 1955 in 2026.
+PD_DIED_BY = 1955
+LIFE = re.compile(r"\b\d{4}\s*[–-]\s*(\d{4})\b")
+CORPUS_SOURCE = {
+    "id": "corpus-ell-drill",
+    "kind": "example_sentences",
+    "display_name": "Greek texts via BabyLM-ell (drill examples)",
+    "version": f"babylm-ell {BABYLM_REVISION}",
+    "url": "https://github.com/kyukhin/dict-app/blob/master/Scripts/data/drill-examples/ell-corpus-documents.tsv",
+}
+# Gate 4, the edits a corpus text may have: a leading speaker tag, dash, or exercise number or letter; a
+# look-alike character (µ, ∆, a Latin letter inside a Greek word, the digit 0 for Ο); the first letter's case;
+# punctuation, quotation marks and spacing. An elision apostrophe and the comma of ό,τι belong to the word. A
+# speaker tag is a name of one or two words before a colon, as plays and transcripts write them (*ΜΑ:, ΠΑΙΔΙ 6:,
+# Ο Εβραίος:, (Ο τελωνειακός):, Σ.:), or a narrator's part without one (Αφηγητής). A name's words are each
+# capitalised or in capitals, a number may follow (ΠΑΙΔΙ-1), and a tag in parentheses may hold any words; so a
+# clause before a colon («Δεν μιλάω:», CodeRabbit on #387) is no tag (`SPEAKER_TAG`, `is_speaker_tag`).
+SPEAKER_TAG = re.compile(r"^\s*(?P<open>\()?\*?(?P<first>[^\W\d_]+)\.?"
+                         r"(?:[ -](?:(?P<second>[^\W\d_]+)\.?|\d{1,2}))?(?(open)\))\s*:\s*")
+LEADING_EDIT = re.compile(r"^\s*(?:(?:Αφηγητής|Αφηγήτρια)(?=\s)"
+                          r"|[-–—]+|\(?\d{1,3}[^\W\d_]?[.)]?\)?(?=\s)|\(?[^\W\d_][.)](?=\s))\s*")
+# Apostrophe look-alikes, and the increment sign ∆ (no letter, so mapped before the words are cut).
+APOSTROPHE_LIKE = str.maketrans({"’": "'", "ʼ": "'", "`": "'", "´": "'", "΄": "'", "‘": "'", "∆": "Δ"})
+# Apostrophes as quotation marks ('Ναι' είπε; CodeRabbit on #387): one that opens a word, not after a letter or
+# digit, and the next apostrophe, which closes a word of two or more letters (or a final mark) and is not followed
+# by a letter. They count as quotation marks, not as part of a word. A word-initial elision with no such partner
+# ('πείσαν, να 'ναι), or one before a one-letter elision (σ', μ', τ'), stays an elision.
+QUOTE_PAIR = re.compile(r"(?<!\w)'(?=[^\W\d_])([^']*?(?:[^\W\d_]{2}|[.!?,;…]))'(?![^\W\d_])")
+# An elision apostrophe keeps to its word across a space: σ' ένα, σ'ένα; να 'ναι, να' ναι.
+APOSTROPHE_SPACE = re.compile(r"(?<=[^\W\d_])'\s+(?=[^\W\d_])|(?<=[^\W\d_])\s+'(?=[^\W\d_])")
+LOOKALIKES = str.maketrans({"µ": "μ", "A": "Α", "B": "Β", "E": "Ε", "H": "Η", "I": "Ι", "K": "Κ",
+                            "M": "Μ", "N": "Ν", "O": "Ο", "P": "Ρ", "T": "Τ", "X": "Χ", "Y": "Υ", "Z": "Ζ",
+                            "o": "ο"})
+GATE_WORD = re.compile(r"[όΌ],τι|'?[^\W\d_]+(?:'[^\W\d_]+)*'?|\d+")
+# Gate 5, the final ν: δε, μη and τη never before a vowel or κ, π, τ, ξ, ψ, μπ, ντ, γκ, τσ, τζ.
+MISSING_NU = re.compile(r"(?<!\w)(δε|μη|τη)\s+(?=[αεηιουωάέήίόύώϊϋΐΰκπτξψ]|μπ|ντ|γκ|τσ|τζ)", re.IGNORECASE)
 
 # Tatoeba's tags that keep a sentence or translation out. Maintenance tags
 # (every tag starting with "@") say the sentence, its language or a link
@@ -794,18 +871,19 @@ def homographs(cells: list[drill_cells.DrillCell]) -> Homographs:
 
 
 def source_of(sid: int) -> int:
-    """A sentence's source by its id (0134): 0 Tatoeba, 1 Wiktionary, 2 generated."""
-    return 0 if sid < WIKTIONARY_IDS else 1 if sid < GENERATED_IDS else 2
+    """A sentence's source by its id (0134): 0 Tatoeba, 1 Wiktionary, 2 generated, 3 corpus (#385)."""
+    return (TATOEBA_SOURCE if sid < WIKTIONARY_IDS else WIKTIONARY if sid < GENERATED_IDS
+            else GENERATED if sid < CORPUS_IDS else CORPUS)
 
 
 def cell_order(sid: int, form_index: int, rank: tuple, own: bool = False) -> tuple:
-    """The choice's order of a sentence for a cell, lowest first: real
-    sentences first (Tatoeba, Wiktionary, then generated), the cell's first
-    form (the option shown as right) before another, a data row written or
-    translated for the cell (`own`, #365) before one written for another,
-    then the source's own rank (Tatoeba: step 5's; Wiktionary and
-    generated: 3 to 10 words, fewer words, the id)."""
-    return (source_of(sid), min(form_index, 1), 0 if own else 1) + tuple(rank)
+    """The choice's order of a sentence for a cell, lowest first: sentences
+    written by people first (Tatoeba, Wiktionary, then a corpus, #385), then
+    generated ones; the cell's first form (the option shown as right) before
+    another, a data row written or translated for the cell (`own`, #365)
+    before one written for another, then the source's own rank (Tatoeba:
+    step 5's; the data rows: 3 to 10 words, fewer words, the id)."""
+    return (SOURCE_RANK[source_of(sid)], min(form_index, 1), 0 if own else 1) + tuple(rank)
 
 
 @dataclass
@@ -818,6 +896,8 @@ class Drill:
     found: dict[str, int]  # cell key -> sentences that hold it
     waiting: dict[str, int]  # cell key -> sentences held only through another reading, without an ok verdict
     data: dict[int, Candidate] = field(default_factory=dict)  # #365: the Wiktionary and generated rows, by id
+    # #385: (cell, corpus id) pairs a corpus row holds besides its own cell, without an ok verdict: not taken.
+    corpus_waiting: list[tuple[str, int]] = field(default_factory=list)
 
 
 def build_drill(pool: list, cells: list[drill_cells.DrillCell], candidates: dict[int, Candidate],
@@ -830,7 +910,10 @@ def build_drill(pool: list, cells: list[drill_cells.DrillCell], candidates: dict
     whatever the cell is. A spelling of another reading counts only with an
     `ok` verdict for (cell, sentence); without one the cell stays open. A
     `skipped` cell (`ell-skipped.tsv`) stays without a sentence, even when
-    one is found (kyukhin 2026-11-22)."""
+    one is found (kyukhin 2026-11-22), unless its own corpus row ships: the
+    skip line is its fallback (kyukhin 2026-11-28). A corpus row (#385)
+    serves another cell than its own only with an `ok` verdict; without one
+    the pair waits (`corpus_waiting`)."""
     verdicts, data, own, skipped = verdicts or {}, data or {}, own or {}, frozenset(skipped)
     homo = homographs(cells)
     by_last: dict[str, set[int]] = collections.defaultdict(set)
@@ -839,6 +922,7 @@ def build_drill(pool: list, cells: list[drill_cells.DrillCell], candidates: dict
             by_last[form.rsplit(" ", 1)[-1]].add(i)
     occurrences: dict[str, list[tuple]] = collections.defaultdict(list)
     waiting: collections.Counter = collections.Counter()
+    corpus_waiting: list[tuple[str, int]] = []
     everything = {**candidates, **data}
     for sid in sorted(everything):
         candidate = everything[sid]
@@ -847,10 +931,15 @@ def build_drill(pool: list, cells: list[drill_cells.DrillCell], candidates: dict
             c, blocked = cells[i], False
             if verdicts.get((c.key, sid)) == "no":
                 continue  # decided: never this sentence for this cell
+            # #385: a corpus row serves another cell only with an ok verdict (Open question 24).
+            foreign = source_of(sid) == CORPUS and own.get(sid) != c.key and verdicts.get((c.key, sid)) != "ok"
             for form_index, form in enumerate(c.forms):
                 span = find_form(toks, form, infinitives)
                 if span is None:
                     continue
+                if foreign:
+                    corpus_waiting.append((c.key, sid))
+                    break
                 if (c.key, form) in homo.reading and verdicts.get((c.key, sid)) != "ok":
                     blocked = True
                     continue
@@ -860,9 +949,15 @@ def build_drill(pool: list, cells: list[drill_cells.DrillCell], candidates: dict
             else:
                 if blocked:
                     waiting[c.key] += 1
-    rows = {key: min(found)[1:] for key, found in occurrences.items() if key not in skipped}
+    rows = {}
+    for key, found in occurrences.items():
+        if key in skipped:  # #385: only the cell's own corpus row ships over its skip line
+            found = [f for f in found if source_of(f[1]) == CORPUS and own.get(f[1]) == key]
+        if found:
+            rows[key] = min(found)[1:]
     return Drill(pool, cells, homo, rows, {key: len(found) for key, found in occurrences.items()},
-                 {key: n for key, n in waiting.items() if key not in rows and key not in skipped}, data)
+                 {key: n for key, n in waiting.items() if key not in rows and key not in skipped}, data,
+                 sorted(corpus_waiting))
 
 
 @dataclass
@@ -1006,6 +1101,43 @@ class DataRow:
         return self.text, self.eng, self.rus
 
 
+@dataclass(frozen=True)
+class CorpusRow:
+    """A row of `ell-corpus.tsv` (#385, 0134 "Corpus sentences", Data files)."""
+    id: int
+    cell: str  # the cell key it was checked for; one row per cell
+    doc: str  # its document, a row of `ell-corpus-documents.tsv`
+    original: str  # the sentence as the document has it, runs of whitespace as one space
+    text: str  # what ships, NFC: `original` with only the allowed edits (gate 4)
+    eng: str
+    rus: str
+    model: str  # pass 1: it judged the pair, made `text` and translated
+    check: str  # ok: pass 2 passed it as written or as fixed
+    checked_by: str
+    texts_sha256: str = ""
+
+    @property
+    def texts(self) -> tuple[str, str, str]:
+        return self.text, self.eng, self.rus
+
+    @property
+    def adapted(self) -> bool:
+        """LibreDict changed punctuation, capitals, a look-alike letter or a speaker tag (the byline's "adapted")."""
+        return self.text != nfc(self.original)
+
+
+@dataclass(frozen=True)
+class Document:
+    """A row of `ell-corpus-documents.tsv`: a document a corpus row cites, with its licence check (#385)."""
+    doc: str
+    collection: str  # as the byline names it: openbook.gr, CLARIN:EL, Global Storybooks, Vikidia
+    work: str  # the byline's first part: "author, «title»", a corpus record's title, "author, translator"
+    licence: str  # `pd` or a key of CORPUS_LICENCES
+    statement: str  # the licence as the document or its record states it, verbatim; for pd its basis
+    url: str
+    checked_by: str  # who read `statement` at `url`, and the date
+
+
 @dataclass
 class DrillData:
     """The data files, read."""
@@ -1017,6 +1149,9 @@ class DrillData:
     pin: dict[str, tuple[int, str, str]]  # a Wiktionary usage example's NFC text -> (n, page, English)
     wiktionary_version: str  # the kaikki subset's dump
     version: str  # the data file's date: the latest in its generated rows
+    corpus: list[CorpusRow] = field(default_factory=list)  # #385
+    documents: dict[str, Document] = field(default_factory=dict)  # #385: by `doc`
+    document_rows: list[Document] = field(default_factory=list)  # #385: as the file has them
 
     def credits(self) -> list[dict]:
         """The two `data_source` rows (0134, "Credits and `data_source`")."""
@@ -1100,10 +1235,18 @@ def read_drill_data(folder: Path, pin: dict[str, tuple[int, str, str]], wiktiona
             raise RuntimeError(f"{READINGS_FILE}: sentence_id {r['sentence_id']!r} is not a number")
     skipped_rows = read_tsv(folder / SKIPPED_FILE, SKIPPED_COLUMNS)
     dates = [d for r in rows if r.source == "generated" for d in DATE.findall(r.model + " " + r.checked_by)]
+    corpus, documents = [], []
+    if (folder / CORPUS_FILE).is_file():  # #385
+        for r in read_tsv(folder / CORPUS_FILE, CORPUS_COLUMNS):
+            if not r["id"].isdigit():
+                raise RuntimeError(f"{CORPUS_FILE}: id {r['id']!r} is not a number")
+            corpus.append(CorpusRow(**{**r, "id": int(r["id"])}))
+        documents = [Document(**r) for r in read_tsv(folder / DOCUMENTS_FILE, DOCUMENT_COLUMNS)]
     return DrillData(rows, {(r["cell"], int(r["sentence_id"])): (r["verdict"], r["texts_sha256"]) for r in reading_rows},
                      reading_rows,
                      {r["cell"]: r["reason"] for r in skipped_rows}, skipped_rows, pin,
-                     f"enwiktionary {wiktionary_version}", max(dates, default="none"))
+                     f"enwiktionary {wiktionary_version}", max(dates, default="none"),
+                     corpus, {d.doc: d for d in documents}, documents)
 
 
 def data_candidates(data: DrillData, cells: dict[str, drill_cells.DrillCell]) -> dict[int, Candidate]:
@@ -1134,10 +1277,195 @@ def data_verdicts(data: DrillData, texts: dict[int, tuple[str, str, str]]) -> di
     (a built file read after an edit carries the old ones); the readings
     file's verdicts come on top of it."""
     current = {sid: texts_hash(*shipped) for sid, shipped in texts.items()}
-    own = {(r.cell, r.id): "ok" for r in data.rows
+    own = {(r.cell, r.id): "ok" for r in [*data.rows, *data.corpus]
            if r.check == "ok" and r.texts_sha256 == texts_hash(*r.texts) == current.get(r.id)}
     return {**own, **{key: verdict for key, (verdict, digest) in data.readings.items()
                       if current.get(key[1]) == digest}}
+
+
+# ---------------------------------------------------------------------------
+# Corpus sentences (#385): sentences written by people, each under its
+# document's own licence
+# ---------------------------------------------------------------------------
+
+def gate_words(text: str) -> list[str]:
+    """Gate 4's words of a text: runs of letters with an elision apostrophe
+    kept ('πείσαν, σ'), ό,τι as one word, and runs of digits; a look-alike
+    letter mapped to the Greek one inside a word with Greek letters, or
+    alone (a Latin O for the article Ο, the digit 0 too). A pair of
+    apostrophes used as quotation marks ('Ναι', `QUOTE_PAIR`) is no part of
+    its words."""
+    words = []
+    unquoted = QUOTE_PAIR.sub(r" \1 ", nfc(text).translate(APOSTROPHE_LIKE))
+    for w in GATE_WORD.findall(APOSTROPHE_SPACE.sub("'", unquoted)):
+        lookalike = GREEK_LETTER.search(w) or "µ" in w or (len(w) == 1 and ord(w) in LOOKALIKES)
+        words.append("Ο" if w == "0" else w.translate(LOOKALIKES) if lookalike else w)
+    return words
+
+
+def is_name(word: str) -> bool:
+    """A word of a speaker tag's name: capitalised (Γιώργος, Ο) or in
+    capitals, a stray small letter allowed (ΜΑρΘΑ, νΑΤΑΣΑ)."""
+    return word[:1].isupper() or 2 * sum(ch.isupper() for ch in word) > len(word)
+
+
+def is_speaker_tag(m: re.Match) -> bool:
+    """A leading `SPEAKER_TAG` match is a speaker tag (0134, Checks 4): in
+    parentheses, or its words names (`is_name`), a number allowed as the
+    second. "Δεν μιλάω:" is a clause, not a tag (CodeRabbit on #387)."""
+    return bool(m.group("open")) or (is_name(m.group("first"))
+                                     and (m.group("second") is None or is_name(m.group("second"))))
+
+
+def same_words(original: str, text: str) -> bool:
+    """Gate 4, "never a word": `text` has the words of `original`, in order,
+    once the allowed edits are undone (a leading speaker tag, dash or
+    exercise label dropped; a look-alike letter; the first letter's case;
+    punctuation, quotation marks and spacing). A changed, added, dropped or
+    reordered word, or a moved accent, fails; so does ότι made ό,τι, and a
+    clause before a colon dropped as if it were a speaker tag."""
+    def first_case(words: list[str]) -> list[str]:
+        return [words[0][:1].lower() + words[0][1:]] + words[1:] if words else words
+    shipped = first_case(gate_words(text))
+    trimmed = original
+    while True:
+        if first_case(gate_words(trimmed)) == shipped:
+            return True
+        tag = SPEAKER_TAG.match(trimmed)
+        cut = trimmed[tag.end():] if tag and is_speaker_tag(tag) else LEADING_EDIT.sub("", trimmed, count=1)
+        if cut == trimmed:
+            return False
+        trimmed = cut
+
+
+def licence_problems(d: Document | None) -> list[str]:
+    """Gate 6 on a document: in the documents file with a `checked_by`; its
+    licence `pd` or a CC BY, BY-SA, BY-NC or BY-NC-SA of CORPUS_LICENCES; a
+    statement that names no NoDerivatives and is no bare grant to copy or
+    distribute; public domain with its basis (a life that ended by
+    PD_DIED_BY). NC_ALLOWED is not checked here: an NC row then drops."""
+    if d is None:
+        return ["not in the documents file"]
+    problems = []
+    if not d.checked_by:
+        problems.append("no checked_by")
+    if d.licence not in CORPUS_LICENCES:
+        problems.append(f"licence {d.licence!r} is not one that ships")
+    if NO_DERIVATIVES.search(d.statement):
+        problems.append("the statement names NoDerivatives")
+    if COPY_ONLY.search(d.statement):
+        problems.append("the statement only grants copying or distribution")
+    if d.licence == "pd" and not any(int(died) <= PD_DIED_BY for died in LIFE.findall(d.statement)):
+        problems.append(f"public domain without its basis (an author who died by {PD_DIED_BY})")
+    if any("|" in s for s in (d.work, d.collection)):
+        problems.append("a | in the work or collection")  # gate 8: the `author` field's separator
+    if not d.work or not d.collection or not d.url:
+        problems.append("no work, collection or url")
+    return problems
+
+
+def corpus_author(r: CorpusRow, d: Document) -> str:
+    """The `author` field of a corpus sentence (0134, "How it ships"):
+    `<work>|<collection>|<licence>|<change>`, change `adapted` when the text
+    is not the original."""
+    return "|".join((d.work, d.collection, d.licence, "adapted" if r.adapted else ""))
+
+
+def corpus_status(data: DrillData, cells: dict[str, drill_cells.DrillCell], nc_allowed: bool = NC_ALLOWED
+                  ) -> dict[int, str]:
+    """Why each corpus row does not ship, by id ("" when it is a candidate):
+    a cell the drill no longer asks or a check given on other texts (stale:
+    reported, never used; its cell falls back, gate 7), or a NonCommercial
+    document while `nc_allowed` is off (licence)."""
+    status = {}
+    for r in data.corpus:
+        d = data.documents.get(r.doc)
+        if r.cell not in cells:
+            status[r.id] = "stale: no drill cell"
+        elif r.check != "ok" or not r.checked_by or r.texts_sha256 != texts_hash(*r.texts):
+            status[r.id] = "stale: checked on other texts"
+        elif d is not None and d.licence in NONCOMMERCIAL and not nc_allowed:
+            status[r.id] = "licence: NonCommercial while NC_ALLOWED is off"
+        else:
+            status[r.id] = ""
+    return status
+
+
+def corpus_candidates(data: DrillData, cells: dict[str, drill_cells.DrillCell],
+                      nc_allowed: bool = NC_ALLOWED) -> dict[int, Candidate]:
+    """The corpus rows as candidates of the choice: those not stale and
+    allowed by `nc_allowed`. Author: the structured field; translations by
+    LibreDict; rank as a data row's (3 to 10 words, fewer words, the id)."""
+    status = corpus_status(data, cells, nc_allowed)
+    out = {}
+    for r in data.corpus:
+        d = data.documents.get(r.doc)
+        if status[r.id] or d is None:
+            continue
+        toks = tokens(r.text)
+        short = 0 if SHORT_WORDS[0] <= len(toks) <= SHORT_WORDS[1] else 1
+        out[r.id] = Candidate(r.id, r.text, corpus_author(r, d), toks,
+                              {"eng": (r.id, r.eng, GENERATED_AUTHOR), "rus": (r.id, r.rus, GENERATED_AUTHOR)},
+                              False, (short, len(toks), r.id))
+    return out
+
+
+def corpus_failures(data: DrillData, cells: dict[str, drill_cells.DrillCell],
+                    infinitives: frozenset[str]) -> list[str]:
+    """The corpus gate (0134, "Corpus sentences", Checks 1 to 6 and 8; 7
+    makes a row stale, `corpus_status`; 9, the fallback, is checked on the
+    choice, `corpus_without_fallback`): the build fails on each."""
+    problems, last, seen = [], 0, set()
+    for r in data.corpus:
+        where = f"{CORPUS_FILE} {r.id} {r.cell}"
+        if not CORPUS_IDS < r.id < CORPUS_IDS + WIKTIONARY_IDS:
+            problems.append(f"{where}: id outside 3,000,000,001…3,999,999,999")
+        if r.id <= last:
+            problems.append(f"{where}: ids must be unique and ascending")
+        last = max(last, r.id)
+        if r.cell in seen:
+            problems.append(f"{where}: a second row for the cell")
+        seen.add(r.cell)
+        if any(not t or t != nfc(t) for t in (r.text, r.eng, r.rus)):
+            problems.append(f"{where}: a text, eng or rus empty or not NFC")
+        if not r.original or "\t" in r.original:
+            problems.append(f"{where}: no original")
+        if len(tokens(r.text)) > MAX_WORDS:
+            problems.append(f"{where}: over {MAX_WORDS} words")
+        if not same_words(r.original, r.text):
+            problems.append(f"{where}: its words are not the original's (gate 4)")
+        if MISSING_NU.search(r.text):
+            problems.append(f"{where}: δε, μη or τη without its final ν (gate 5)")
+        if not TEXTS_HASH.fullmatch(r.texts_sha256):
+            problems.append(f"{where}: texts_sha256 {r.texts_sha256!r} is not 16 hex digits")
+        if not r.model:
+            problems.append(f"{where}: no model")
+        problems += [f"{where}: document {r.doc}: {p}" for p in licence_problems(data.documents.get(r.doc))]
+        cell = cells.get(r.cell)
+        if cell is not None and not any(find_form(drill_tokens(r.text), form, infinitives) for form in cell.forms):
+            problems.append(f"{where}: does not hold its cell by the match rule ({' / '.join(cell.forms)})")
+    cited = {r.doc for r in data.corpus}
+    docs_seen = set()
+    for d in data.document_rows:
+        if d.doc in docs_seen:
+            problems.append(f"{DOCUMENTS_FILE} {d.doc}: twice")
+        docs_seen.add(d.doc)
+        if d.doc not in cited:
+            problems.append(f"{DOCUMENTS_FILE} {d.doc}: no corpus row cites it")
+    return problems
+
+
+def corpus_credit(candidates: dict[int, Candidate], rows: Rows) -> list[dict]:
+    """The `corpus-ell-drill` data_source row when corpus rows ship: the
+    licences of their documents, by name, in CORPUS_LICENCES' order. Only
+    the candidates stored in `rows` count: one that loses its cell, or
+    waits for a verdict, credits nothing (CodeRabbit on #387)."""
+    stored = {s[0] for s in rows.sentences}
+    used = {c.author.split("|")[2] for c in candidates.values() if source_of(c.id) == CORPUS and c.id in stored}
+    if not used:
+        return []
+    names = "; ".join(name for key, name in CORPUS_LICENCES.items() if key in used)
+    return [{**CORPUS_SOURCE, "license": f"{names} (each document's own)"}]
 
 
 def data_failures(data: DrillData, cells: dict[str, drill_cells.DrillCell], infinitives: frozenset[str],
@@ -1219,10 +1547,14 @@ def in_scope(c: drill_cells.DrillCell, scope: tuple[int, int] = SCOPE) -> bool:
     return c.verb_level is not None and c.verb_level <= scope[0] and c.tense_level <= scope[1]
 
 
-def skipped_with_rows(rows: Rows, skipped: dict[str, str]) -> list[str]:
+def skipped_with_rows(rows: Rows, skipped: dict[str, str], own: dict[int, str] | None = None) -> list[str]:
     """The skipped cells that have a cell row, checked on the rows as stored:
-    a listed cell stays without an example (kyukhin 2026-11-22)."""
-    return sorted(w[1] for w in rows.words if is_cell(w[1]) and w[1] in skipped)
+    a listed cell stays without an example (kyukhin 2026-11-22), unless the
+    row is the cell's own corpus row (`own`: a corpus id's cell), which
+    ships over the skip line (kyukhin 2026-11-28)."""
+    own = own or {}
+    return sorted(w[1] for w in rows.words if is_cell(w[1]) and w[1] in skipped
+                  and not (source_of(w[3]) == CORPUS and own.get(w[3]) == w[1]))
 
 
 def open_cells(drill: Drill, skipped: dict[str, str], scope: tuple[int, int] = SCOPE) -> list[str]:
@@ -1230,6 +1562,17 @@ def open_cells(drill: Drill, skipped: dict[str, str], scope: tuple[int, int] = S
     are not listed as skipped (kyukhin 2026-11-22: a listed cell is done)."""
     return [c.key for c in drill.cells
             if in_scope(c, scope) and c.key not in drill.rows and c.key not in skipped]
+
+
+def corpus_without_fallback(drill: Drill, without: Drill, skipped: dict[str, str],
+                            scope: tuple[int, int] = SCOPE) -> list[str]:
+    """The fallback gate (#385; kyukhin 2026-11-28: an excluded corpus row
+    never leaves its cell empty): the cells of the scope that show a corpus
+    row and would be open in `without`, the choice with no corpus row (each
+    stale, or NonCommercial with `NC_ALLOWED` off). A cell that has a
+    sentence or a skip line there keeps one whichever corpus rows drop."""
+    gaps = set(open_cells(without, skipped, scope))
+    return sorted(key for key, (sid, *_) in drill.rows.items() if source_of(sid) == CORPUS and key in gaps)
 
 
 def unchecked_pairs(rows: Rows, verdicts: dict[tuple[str, int], str]) -> list[tuple[str, int]]:
@@ -1444,12 +1787,23 @@ def drill_byline(c: Candidate, lang: str) -> str:
     """A cell sentence's byline (0134, "Byline") with its translation in
     `lang`, as the report shows it."""
     source = source_of(c.id)
-    if source == 0:
+    if source == TATOEBA_SOURCE:
         shown = c.translations.get(lang) or c.translations.get("eng")
         return byline(c.author, shown[2] if shown else None)
-    if source == 1:
+    if source == WIKTIONARY:
         return "Wiktionary" if lang == "eng" else "Wiktionary · translation: LibreDict, generated"
+    if source == CORPUS:
+        return corpus_byline(c.author)
     return "LibreDict, generated"
+
+
+def corpus_byline(author: str) -> str:
+    """A corpus sentence's byline in English (#385, 0134 "Attribution"): the
+    work, the collection, the licence's name, "adapted" when LibreDict
+    changed the text, and the translation's source."""
+    work, collection, licence, change = (author.split("|") + ["", "", "", ""])[:4]
+    parts = [work, collection, CORPUS_LICENCES.get(licence, licence)] + (["adapted"] if change else [])
+    return " · ".join(parts) + " · translation: LibreDict, generated"
 
 
 def list_word_share(data: DrillData, cells: dict[str, drill_cells.DrillCell], greek: GreekWords,
@@ -1479,23 +1833,100 @@ def list_word_share(data: DrillData, cells: dict[str, drill_cells.DrillCell], gr
     return sorted(out, key=lambda x: (x[0], x[1].id))
 
 
+def corpus_section(drill: Drill, data: DrillData, status: dict[int, str], without: Drill | None = None) -> list[str]:
+    """#385: the corpus rows by collection and licence, shipped and not with
+    the reason; the adapted rows; the waiting pairs; the generated rows a
+    corpus row supersedes; the documents by licence; with `without` (the
+    choice without corpus rows), the cells that change."""
+    rows = drill.rows
+    shown = {sid for sid, *_ in rows.values()}
+    reasons: dict[int, str] = {}
+    for r in data.corpus:
+        if status.get(r.id):
+            reasons[r.id] = status[r.id]
+        elif r.id in shown:  # stored: for its own cell, or for another through an ok verdict (CodeRabbit on #387)
+            reasons[r.id] = ""
+        elif r.cell in rows:
+            reasons[r.id] = ("its cell takes a " + ("Tatoeba", "Wiktionary", "generated", "another corpus")[
+                source_of(rows[r.cell][0])] + " sentence")
+        else:
+            reasons[r.id] = "a no verdict on its own cell"
+    shipped = [r for r in data.corpus if not reasons[r.id]]
+    groups: dict[tuple[str, str], list[CorpusRow]] = collections.defaultdict(list)
+    for r in data.corpus:
+        d = data.documents.get(r.doc)
+        groups[(d.collection if d else "?", d.licence if d else "?")].append(r)
+    out = ["", f"### Corpus sentences (#385)", "",
+           f"`{CORPUS_FILE}`: {len(data.corpus):,} rows from {len({r.doc for r in data.corpus}):,} documents "
+           f"(`{DOCUMENTS_FILE}`, each with its licence as its document states it); {len(shipped):,} ship, "
+           f"{sum(1 for r in shipped if rows.get(r.cell, (0,))[0] == r.id):,} of them for their own cells; "
+           f"NonCommercial rows allowed: {'yes' if NC_ALLOWED else 'no'} (`NC_ALLOWED`). A "
+           "corpus row ranks after Tatoeba and Wiktionary and before generated rows, and serves another cell "
+           "only with an `ok` verdict.", "",
+           "| Collection | Licence | Documents | Rows | Shipped | Not shipped |", "|---|---|---|---|---|---|"]
+    for (collection, licence), group in sorted(groups.items(), key=lambda g: (-len(g[1]), g[0])):
+        why = collections.Counter(reasons[r.id] for r in group if reasons[r.id])
+        out.append(f"| {cell(collection)} | {CORPUS_LICENCES.get(licence, licence)} | "
+                   f"{len({r.doc for r in group}):,} | {len(group):,} | "
+                   f"{sum(1 for r in group if not reasons[r.id]):,} | "
+                   + (cell(", ".join(f"{n:,} {w}" for w, n in sorted(why.items()))) or "0") + " |")
+    by_licence = collections.Counter(data.documents[r.doc].licence for r in shipped if r.doc in data.documents)
+    docs_by_licence = collections.Counter(d.licence for d in data.document_rows)
+    out += ["", "By licence (documents in the file; rows shipped): " + ", ".join(
+        f"{CORPUS_LICENCES.get(k, k)} {docs_by_licence[k]:,}; {by_licence[k]:,}" for k in CORPUS_LICENCES
+        if docs_by_licence[k]) + f". NonCommercial rows shipped: "
+        f"{sum(n for k, n in by_licence.items() if k in NONCOMMERCIAL):,}.",
+        f"- Adapted (LibreDict changed punctuation, capitals, a look-alike letter or a speaker tag; the byline says "
+        f"\"adapted\"): {sum(1 for r in shipped if r.adapted):,} of the {len(shipped):,} shipped rows",
+        f"- Shipped rows of cells in the coverage gate's scope: "
+        f"{sum(1 for r in shipped if r.cell in {c.key for c in drill.cells if in_scope(c)}):,}"]
+    generated_own = {r.cell: r.id for r in data.rows if r.source == "generated"}
+    superseded = [generated_own[r.cell] for r in shipped
+                  if r.cell in generated_own and rows.get(r.cell, (0,))[0] == r.id]
+    still = [sid for sid in superseded if sid in shown]
+    out.append(f"- Generated rows superseded by a corpus row (kept in `{DATA_FILE}` as the fallback): "
+               f"{len(superseded):,}; {len(superseded) - len(still):,} no longer ship, {len(still):,} still serve "
+               "another cell through an `ok` verdict")
+    would = [(k, sid) for k, sid in drill.corpus_waiting
+             if k not in rows or source_of(rows[k][0]) == GENERATED]
+    out.append(f"- Waiting pairs (other cells a corpus row holds without an `ok` verdict; no pair round in #385, "
+               f"kyukhin 2026-11-28): {len(drill.corpus_waiting):,} in {len({k for k, _ in drill.corpus_waiting}):,} "
+               f"cells; of them in cells that show a generated sentence or none: {len(would):,} in "
+               f"{len({k for k, _ in would}):,} cells")
+    if without is not None:
+        changed = sorted(k for k in set(rows) | set(without.rows) if rows.get(k) != without.rows.get(k))
+        own = {k for k, (sid, *_) in rows.items() if source_of(sid) == CORPUS}
+        others = sorted(set(changed) - own)
+        out.append(f"- Cells that change against the choice without corpus rows: {len(changed):,}; all of them "
+                   f"cells that show a corpus row: {'no: ' + ', '.join(others[:20]) if others else 'yes'}")
+    out += ["", "The waiting pairs in cells that show a generated sentence or none (cell: corpus ids):", ""]
+    grouped: dict[str, list[int]] = collections.defaultdict(list)
+    for k, sid in would:
+        grouped[k].append(sid)
+    out += [f"- {cell(k)}: {', '.join(str(s) for s in ids)}" for k, ids in sorted(grouped.items())] or ["None."]
+    return out
+
+
 def drill_section(drill: Drill, greek: Result, data: DrillData | None = None, stale: dict | None = None,
                   missing: list[str] = (), share: list[tuple[float, DataRow, list[str]]] = (),
-                  unchecked: list[tuple[str, int]] = ()) -> list[str]:
+                  unchecked: list[tuple[str, int]] = (), corpus_status_: dict[int, str] | None = None,
+                  without_corpus: Drill | None = None) -> list[str]:
     """#364, #365: the drill's cells, their sentences and the data files;
-    #371: the pairs no check covers and the stale verdicts."""
+    #371: the pairs no check covers and the stale verdicts; #385: the corpus
+    sentences, by collection and licence, and what they change."""
     cells, rows = drill.cells, drill.rows
     skipped = data.skipped if data else {}
     stale = stale or {"rows": [], "readings": [], "hashes": [], "own": [], "skipped": []}
     reading = {key for key, _ in drill.homographs.reading}
     aspect = {key for key, _ in drill.homographs.aspect} - reading
-    columns = ("Tatoeba", "Wiktionary", "Generated")
+    columns = ("Tatoeba", "Wiktionary", "Corpus", "Generated")
+    sources = (TATOEBA_SOURCE, WIKTIONARY, CORPUS, GENERATED)  # the columns' `source_of`, in the choice's order
 
     def counts(group: list[drill_cells.DrillCell]) -> str:
         by_source = collections.Counter(source_of(rows[c.key][0]) for c in group if c.key in rows)
         n = len(group)
         covered = " | ".join(f"{by_source[i]:,} ({percent(by_source[i], n)})" if by_source[i] else "0"
-                             for i in range(len(columns)))
+                             for i in sources)
         listed = sum(1 for c in group if c.key not in rows and c.key in skipped)
         none = n - sum(by_source.values()) - listed
         waiting = sum(1 for c in group if c.key in drill.waiting)
@@ -1510,7 +1941,8 @@ def drill_section(drill: Drill, greek: Result, data: DrillData | None = None, st
            f"coverage gate's scope ({SCOPE_NAMES[SCOPE]}) has one sentence or is skipped; the gate does not cover "
            "the cells outside it, such as the B2 tenses', which can have neither a sentence nor a skip entry. "
            "Sources, in this order: Tatoeba "
-           "(#364), Wiktionary usage examples and generated sentences from `Scripts/data/drill-examples/` (#365). "
+           "(#364), Wiktionary usage examples (#365), sentences from openly licensed corpora (#385) and generated "
+           "sentences (#365), the last three from `Scripts/data/drill-examples/`. "
            "\"Skipped\": cells with no natural sentence, listed in `ell-skipped.tsv`, which the coverage gate counts "
            "as done. \"Waiting for a reading verdict\": open cells whose found sentences hold them only through a "
            "spelling of another reading (match rule 5), which takes a sentence only with an `ok` verdict of the "
@@ -1550,14 +1982,20 @@ def drill_section(drill: Drill, greek: Result, data: DrillData | None = None, st
                 f"{len(stale['hashes']):,}; data rows whose own check was given on other texts: "
                 f"{len(stale['own']):,}",
                 f"- `{SKIPPED_FILE}`: {len(skipped):,} cells, {sum(1 for c in scope if c.key in skipped):,} in the "
-                f"gate's scope; of them with a found sentence, left out: "
-                f"{sum(1 for k in skipped if drill.found.get(k)):,}; stale: {len(stale['skipped']):,}",
+                f"gate's scope; of them with their own corpus row, which ships over the skip line (#385): "
+                f"{sum(1 for k in skipped if k in rows):,}; with a found sentence, left out: "
+                f"{sum(1 for k in skipped if drill.found.get(k) and k not in rows):,}; stale: "
+                f"{len(stale['skipped']):,}",
                 f"- The coverage gate's scope ({SCOPE_NAMES[SCOPE]}): {len(scope):,} cells; with a sentence "
                 f"{sum(1 for c in scope if c.key in rows):,}, skipped "
                 f"{sum(1 for c in scope if c.key not in rows and c.key in skipped):,}, open {len(missing):,}"
                 + (": " + ", ".join(missing[:50]) + (" …" if len(missing) > 50 else "") if missing else ""),
                 f"- The data file's date (`libredict-drill-ell`'s version): {data.version}; Wiktionary: "
                 f"{data.wiktionary_version}"]
+        if data.corpus:
+            out.append(f"- `{CORPUS_FILE}` (#385): {len(data.corpus):,} rows, {len(used & {r.id for r in data.corpus}):,} "
+                       f"in the pack; `{DOCUMENTS_FILE}`: {len(data.document_rows):,} documents (\"Corpus sentences\" "
+                       "below)")
 
     out += ["", "### By verb list and tense level", "", "| Verbs, tenses " + header, "|---" + rule + "|"]
     for level in (1, 2, 3):
@@ -1608,6 +2046,8 @@ def drill_section(drill: Drill, greek: Result, data: DrillData | None = None, st
 
     out += ["", "### Stale data rows", "", "Rows of cells the drill no longer asks, which the build skips.", "",
             ", ".join(f"{r.id} {r.cell}" for r in stale["rows"]) or "None."]
+    if data.corpus:
+        out += corpus_section(drill, data, corpus_status_ or {}, without_corpus)
 
     by_source = collections.Counter(source_of(sid) for _, sid in unchecked)
     out += ["", f"### Pairs no check covers ({len(unchecked):,}; #371)", "",
@@ -1615,7 +2055,7 @@ def drill_section(drill: Drill, greek: Result, data: DrillData | None = None, st
             f"`{READINGS_FILE}`, each with the `texts_sha256` of the Greek, English and Russian the pair ships "
             "with: the pair gate fails on each"
             + ("" if PAIR_GATE else " once `PAIR_GATE` is on (until #371's pair checks land, it lists them)")
-            + ". By source: " + ", ".join(f"{name} {by_source[i]:,}" for i, name in enumerate(columns)) + ".", ""]
+            + ". By source: " + ", ".join(f"{name} {by_source[i]:,}" for i, name in zip(sources, columns)) + ".", ""]
     out += [f"- {cell(key)} {sid}" for key, sid in unchecked] or ["None."]
     out += ["", "### Stale verdicts (#371)", "",
             f"- No drill cell, or no candidate sentence: {len(stale['readings']):,}",
@@ -1640,11 +2080,13 @@ def drill_section(drill: Drill, greek: Result, data: DrillData | None = None, st
 
     out += ["", f"### Skipped cells ({len(skipped):,})", "",
             "The cells with no natural sentence (kyukhin 2026-11-22), with the second pass's reason, those in the "
-            f"coverage gate's scope ({SCOPE_NAMES[SCOPE]}) first.", "", "| Cell | In scope | Reason |", "|---|---|---|"]
+            f"coverage gate's scope ({SCOPE_NAMES[SCOPE]}) first. A cell whose own corpus row ships says so; its "
+            "line is the fallback should the row drop (#385).", "", "| Cell | In scope | Reason |", "|---|---|---|"]
     by_key = {c.key: c for c in cells}
     for key in sorted(skipped, key=lambda k: (not (k in by_key and in_scope(by_key[k])), k)):
+        shows = f" (shows its corpus row {rows[key][0]})" if key in rows else ""
         out.append(f"| {cell(key)} | {'yes' if key in by_key and in_scope(by_key[key]) else 'no'} | "
-                   f"{cell(skipped[key])} |")
+                   f"{cell(skipped[key] + shows)} |")
     return out
 
 
@@ -1809,27 +2251,40 @@ def run(writer: sqlite3.Connection, reader: sqlite3.Connection, cache_dir: Path,
                                   if tok.lower() in english.ambiguous)
 
     # #364: one sentence per drill cell, from the same Greek candidates;
-    # #365: and from the data files' Wiktionary and generated rows.
+    # #365: and from the data files' Wiktionary and generated rows;
+    # #385: and from the corpus rows of cleared documents.
     pool, cells = drill_cells.drill_cells(reader)
     infinitives = aorist_infinitives(reader)
     kaikki, dump_date = kaikki_subset()
     data = read_drill_data(DRILL_DATA, wiktionary_examples(kaikki), dump_date)
     by_key = {c.key: c for c in cells}
     extra = data_candidates(data, by_key)
-    texts = {sid: shipped_texts(c) for sid, c in {**results[0].candidates, **extra}.items()}
+    corpus = corpus_candidates(data, by_key)
+    texts = {sid: shipped_texts(c) for sid, c in {**results[0].candidates, **extra, **corpus}.items()}
     data_problems, stale = data_failures(data, by_key, infinitives, texts)
+    data_problems += corpus_failures(data, by_key, infinitives)
     verdicts = data_verdicts(data, texts)
-    drill = build_drill(pool, cells, results[0].candidates, infinitives, verdicts, extra,
-                        {r.id: r.cell for r in data.rows}, data.skipped)
+    own_cells = {**{r.id: r.cell for r in data.rows}, **{r.id: r.cell for r in data.corpus}}
+    drill = build_drill(pool, cells, results[0].candidates, infinitives, verdicts, {**extra, **corpus},
+                        own_cells, data.skipped)
+    # #385: the choice without the corpus rows, for the report's "cells that change" and gate 9: a cell of a
+    # corpus row keeps a sentence or a skip line whichever corpus rows drop (kyukhin 2026-11-28).
+    without = build_drill(pool, cells, results[0].candidates, infinitives, verdicts, extra, own_cells,
+                          data.skipped) if corpus else None
+    if without is not None:
+        data_problems += [f"{CORPUS_FILE} cell {key}: no fallback: without its corpus row it has no sentence and no "
+                          f"line in {SKIPPED_FILE} (gate 9)" for key in corpus_without_fallback(drill, without,
+                                                                                                data.skipped)]
     missing = open_cells(drill, data.skipped)
     print(f"  drill: {len(pool):,} verbs, {len(cells):,} cells, {len(drill.rows):,} with a sentence; data rows "
-          f"{len(data.rows):,}, skipped cells {len(data.skipped):,}, open in the gate's scope {len(missing):,}")
+          f"{len(data.rows):,}, corpus rows {len(data.corpus):,} ({len(corpus):,} candidates), skipped cells "
+          f"{len(data.skipped):,}, open in the gate's scope {len(missing):,}")
 
     word_rows = rows_of(results)
     rows = rows_of(results, drill)
     word_part, drill_part = split_rows(rows)
     word_hashes = rows_hashes(word_part)
-    write_rows(writer, rows, f"export {pins[folder]['export_date']}", data.credits())
+    write_rows(writer, rows, f"export {pins[folder]['export_date']}", data.credits() + corpus_credit(corpus, rows))
     hashes = table_hashes(writer)
     try:
         sizes = {"all": shipped_size(rows), "Greek (ell pack)": shipped_size(rows, "ell"),
@@ -1858,7 +2313,7 @@ def run(writer: sqlite3.Connection, reader: sqlite3.Connection, cache_dir: Path,
     failures.update(drill_failures(rows, cells, infinitives,
                                    collections.ChainMap(*(s.sentences for s in subsets.values()))))
     total = sum(sizes["Word examples (all files)"][0].values())
-    listed = skipped_with_rows(rows, data.skipped)
+    listed = skipped_with_rows(rows, data.skipped, {r.id: r.cell for r in data.corpus})
     unchecked = unchecked_pairs(rows, verdicts)
     drill_total = sum(sizes["Drill rows and the sentences only they use"][0].values())
     unchanged = rows_hashes(word_rows) == word_hashes
@@ -1888,9 +2343,11 @@ def run(writer: sqlite3.Connection, reader: sqlite3.Connection, cache_dir: Path,
         ("Drill rows and the sentences only they use, installed", f"{drill_total / 1e6:.2f} MB",
          f"≤ {DRILL_BUDGET / 1e6:.1f} MB", drill_total <= DRILL_BUDGET),
         (f"Drill: every cell of the gate's scope ({SCOPE_NAMES[SCOPE]}) has a sentence or is listed as "
-         "skipped, and no skipped cell has one (#365)", f"{len(missing)} open, {len(listed)} skipped with a sentence",
+         "skipped, and no skipped cell has one but its own corpus row (#365, #385)",
+         f"{len(missing)} open, {len(listed)} skipped with a sentence",
          "0, 0", not missing and not listed),
-        ("Drill: the data files pass the form gate (0134, Checks 1; #365)", f"{len(data_problems)} problems", "0",
+        ("Drill: the data files pass the form gate (0134, Checks 1; #365) and the corpus gate (#385, Checks 1 to 9)",
+         f"{len(data_problems)} problems", "0",
          not data_problems),
         ("Drill: every cell row's (cell, sentence) is its data row's own cell or `ok` in the readings file, each "
          "with the hash of the Greek, English and Russian the pair ships with (#371)",
@@ -1908,7 +2365,8 @@ def run(writer: sqlite3.Connection, reader: sqlite3.Connection, cache_dir: Path,
     share = list_word_share(data, by_key, greek, levels)
     report_path.parent.mkdir(parents=True, exist_ok=True)
     report_path.write_text(report(folder, pins, results, english, ambiguity, skipped, verbs, hashes, sizes, gates,
-                                  list_rule, drill_section(drill, results[0], data, stale, missing, share, unchecked),
+                                  list_rule, drill_section(drill, results[0], data, stale, missing, share, unchecked,
+                                                           corpus_status(data, by_key), without),
                                   word_hashes, rows_hashes(drill_part)),
                            encoding="utf-8")
 
@@ -2482,6 +2940,229 @@ def self_check() -> int:
          and (g5.cell, g5.id) in text_edit[0] and [r.id for r in text_edit[1]["own"]] == [g5.id]
          and (g5.cell, g5.id) in russian_edit[0] and [r.id for r in russian_edit[1]["own"]] == [g5.id]
          and not stale["own"]),
+    ]
+    # #385: the corpus rows of the fixture (rows of the real ell-corpus.tsv on the fixture's verbs) and their
+    # documents: the choice's order, own cells and waiting pairs, stale rows, NC_ALLOWED, the corpus gate, the
+    # author field and the data_source row.
+    c1, c2, c3 = data.corpus  # γράφετε (present 2pl, NC), κάνατε (aorist 2pl, pd), θα μιλάω (adapted, BY-SA)
+    corpus = corpus_candidates(data, by_key)
+    corpus_known = {**known, **{sid: shipped_texts(c) for sid, c in corpus.items()}}
+    corpus_verdicts = data_verdicts(data, corpus_known)
+    corpus_own = {**own_cells, **{r.id: r.cell for r in data.corpus}}
+
+    def corpus_build(candidates: dict[int, Candidate] = results[0].candidates, verdicts_: dict | None = None,
+                     rows_: dict[int, Candidate] | None = None) -> Drill:
+        return build_drill(pool, cells, candidates, infinitives, corpus_verdicts if verdicts_ is None else verdicts_,
+                           {**extra, **(corpus if rows_ is None else rows_)}, corpus_own, data.skipped)
+
+    with_corpus = [corpus_build() for _ in range(2)]
+    corpus_rows = [rows_of(results, b) for b in with_corpus]
+    tatoeba_g2 = {**results[0].candidates, 998: Candidate(998, g2.text, "fixture", tokens(g2.text), {}, True, (0,))}
+    over_tatoeba = corpus_build(tatoeba_g2, {**corpus_verdicts, (c1.cell, 998): "ok"})
+    imperative = "γράφω|imperativeContinuous.active|2pl"  # γράφετε's other reading
+    served = corpus_build(verdicts_={**corpus_verdicts, (imperative, c1.id): "ok"})
+    edited = replace(data, corpus=[replace(c1, rus=c1.rus.replace("?", "!")), c2, c3])
+    stale_status = corpus_status(edited, by_key)
+    no_nc = corpus_candidates(data, by_key, nc_allowed=False)
+
+    def corpus_gate(rows_: list | None = None, documents: list | None = None, skipped: dict | None = None) -> list[str]:
+        docs = data.document_rows if documents is None else documents
+        probe = replace(data, corpus=data.corpus if rows_ is None else rows_, document_rows=docs,
+                        documents={d.doc: d for d in docs}, skipped=data.skipped if skipped is None else skipped)
+        return corpus_failures(probe, by_key, infinitives)
+
+    nc_doc = data.documents[c1.doc]
+    corpus_gate_cases = [
+        ("NoDerivatives", corpus_gate(documents=[replace(nc_doc, statement="Creative Commons BY-NC-ND (Αναφορά "
+                                                         "δημιουργού – Μη εμπορική χρήση – Όχι παράγωγα έργα)"),
+                                                 *data.document_rows[1:]])),
+        ("only grants copying", corpus_gate(documents=[replace(nc_doc, statement="Ελεύθερη αναπαραγωγή (με αναφορά "
+                                                               "της πηγής)"), *data.document_rows[1:]])),
+        ("no checked_by", corpus_gate(documents=[replace(nc_doc, checked_by=""), *data.document_rows[1:]])),
+        ("is not one that ships", corpus_gate(documents=[replace(nc_doc, licence="cc_by_nd_4_0"),
+                                                         *data.document_rows[1:]])),
+        ("without its basis", corpus_gate(documents=[nc_doc, replace(data.document_rows[1], statement="Public Domain"),
+                                                     data.document_rows[2]])),
+        ("a | in the work", corpus_gate(documents=[replace(nc_doc, work="Babiniotis|archive"), *data.document_rows[1:]])),
+        ("not in the documents file", corpus_gate(documents=data.document_rows[1:])),
+        ("no corpus row cites it", corpus_gate(rows_=[c2, c3])),
+        ("id outside", corpus_gate(rows_=[replace(c1, id=2_999_999_999), c2, c3])),
+        ("unique and ascending", corpus_gate(rows_=[c2, c1, c3])),
+        ("a second row for the cell", corpus_gate(rows_=[c1, replace(c2, cell=c1.cell), c3])),
+        ("over 15 words", corpus_gate(rows_=[replace(c1, text=" ".join([c1.text] * 3)), c2, c3])),
+        ("final ν", corpus_gate(rows_=[replace(c1, text=c1.text.replace("δεν τους", "δε τους"),
+                                               original=c1.original.replace("δεν τους", "δε τους")), c2, c3])),
+        ("not the original's", corpus_gate(rows_=[replace(c1, text=c1.text.replace("δεν τους", "δεν σας")), c2, c3])),
+        # κι ας + an aorist holds no aorist (match rule 3; the run's "Καλώς τους κι ας αργήσανε!").
+        ("does not hold its cell", corpus_gate(rows_=[c1, replace(c2, cell="μιλάω|aorist.active|3sg",
+                                                                  text="Κι ας μίλησε δυνατά.",
+                                                                  original="Κι ας μίλησε δυνατά."), c3])),
+        ("not NFC", corpus_gate(rows_=[c1, c2, replace(c3, text=unicodedata.normalize("NFD", c3.text))])),
+    ]
+    # Gate 4 ("never a word", 0134 Checks 4): each allowed edit passes, each change of a word fails.
+    allowed_edits = [("ΑΛΙΚΗ: Θα μιλάω με τα ζώα;", "Θα μιλάω με τα ζώα;"), ("*ΜΑ: θα μιλάω", "Θα μιλάω."),
+                     ("ΠΑΙΔΙ 6: Θα μιλάω.", "Θα μιλάω."), ("(Ο τελωνειακός): Θα μιλάω.", "Θα μιλάω."),
+                     ("- Θα μιλάω!", "Θα μιλάω!"), ("14) Θα μιλάω.", "Θα μιλάω."), ("ε. Θα μιλάω.", "Θα μιλάω."),
+                     ("19 Θα μιλάω.", "Θα μιλάω."), ("Ο µαθητής μιλάει.", "Ο μαθητής μιλάει."),
+                     ("O μαθητής μιλάει.", "Ο μαθητής μιλάει."), ("ΜAΘΗΤΗΣ", "ΜΑΘΗΤΗΣ"), ("0 μαθητής", "Ο μαθητής"),
+                     ("∆ε μιλάει.", "Δε μιλάει."), ("θα μιλάω", "Θα μιλάω."), ('"Ναι" είπε', "«Ναι» είπε."),
+                     ("Ναι θα μιλάω", "Ναι, θα μιλάω."), ("σ'αγαπώ", "Σ' αγαπώ."), ("σαν να' ναι", "Σαν να 'ναι."),
+                     # CodeRabbit on #387: apostrophes as quotation marks; both spacings of an elision; the
+                     # speaker tags the spec names.
+                     ("'Ναι' είπε.", "«Ναι» είπε."), ("να' ναι", "να 'ναι"), ("να 'ναι", "να' ναι"),
+                     ("Ο Εβραίος: Θα μιλάω.", "Θα μιλάω."), ("Σ.: Θα μιλάω.", "Θα μιλάω."),
+                     ("Αφηγητής Θα μιλάω.", "Θα μιλάω.")]
+    changed_words = [("Το είπα.", "Το είπε."), ("μόνο", "μονό"), ("Θα μιλάω αύριο.", "Θα μιλάω."),
+                     ("Θα μιλάω.", "Θα μιλάω αύριο."), ("Θα μιλάω αύριο.", "Αύριο θα μιλάω."),
+                     ("ότι ήθελε", "ό,τι ήθελε"), ("'πείσαν", "Πείσαν."), ("Θα σου μιλάω.", "Θα μιλάω."),
+                     # CodeRabbit on #387: a clause before a colon is no speaker tag.
+                     ("Δεν μιλάω: γράφετε.", "Γράφετε.")]
+    credit = corpus_credit(corpus, corpus_rows[0])
+    corpus_conn = new_database(":memory:")
+    write_rows(corpus_conn, corpus_rows[0], "self-check", data.credits() + credit)
+    checks += [
+        ("#385: the fixture's corpus rows pass the corpus gate", not corpus_failures(data, by_key, infinitives)),
+        ("#385: sources by id: 3·10^9 + n is a corpus row, after Tatoeba and Wiktionary and before generated rows",
+         (source_of(2_999_999_999), source_of(3_000_000_001)) == (GENERATED, CORPUS)
+         and cell_order(1_000_000_009, 1, (1, 12, 9)) < cell_order(3_000_000_001, 0, (0, 3, 1), True)
+         < cell_order(2_000_000_001, 0, (0, 3, 1), True)
+         and cell_order(5, 1, (1, 0, 1, 5)) < cell_order(3_000_000_001, 0, (0, 3, 1), True)),
+        ("#385: a corpus row wins over its cell's generated row, and a Tatoeba sentence over it",
+         full_sentence(c1.cell) == g2.id and with_corpus[0].rows[c1.cell][0] == c1.id
+         and over_tatoeba.rows[c1.cell][0] == 998),
+        ("#385: a corpus row serves its own cell of another reading (κάνατε, the aorist) on its own check, never "
+         "the other without a verdict; with an ok verdict it serves (γράφετε, the imperative)",
+         with_corpus[0].rows.get(c2.cell, (0,))[0] == c2.id and "κάνω|imperfect.active|2pl" not in with_corpus[0].rows
+         and ("κάνω|imperfect.active|2pl", c2.id) in with_corpus[0].corpus_waiting
+         and (imperative, c1.id) in with_corpus[0].corpus_waiting and imperative not in with_corpus[0].rows
+         and served.rows.get(imperative, (0,))[0] == c1.id and (imperative, c1.id) not in served.corpus_waiting),
+        ("#385: a corpus row edited after its check (here its Russian) is stale, never used, and its cell falls back "
+         "to its generated row",
+         stale_status[c1.id].startswith("stale") and c1.id not in corpus_candidates(edited, by_key)
+         and corpus_build(rows_=corpus_candidates(edited, by_key)).rows[c1.cell][0] == g2.id
+         and not stale_status[c2.id]),
+        ("#385: NC_ALLOWED off drops the NonCommercial rows (CC BY-NC) and their cells fall back; the others stay",
+         NC_ALLOWED is True and c1.id in corpus and c1.id not in no_nc and {c2.id, c3.id} <= set(no_nc)
+         and corpus_build(rows_=no_nc).rows[c1.cell][0] == g2.id
+         and corpus_status(data, by_key, nc_allowed=False)[c1.id].startswith("licence")),
+        ("#385: the corpus gate catches each kind of bad row and document",
+         all(any(keyword in p for p in problems) for keyword, problems in corpus_gate_cases)),
+        ("#385: gate 4 lets each allowed edit pass (a speaker tag, a dash, an exercise label, µ, a Latin O, the "
+         "first capital, quotation marks, a final mark, a comma, spacing around an elision)",
+         all(same_words(o, t) for o, t in allowed_edits)),
+        ("#385: gate 4 fails a changed letter, a moved accent, a dropped, added or moved word, ότι made ό,τι and a "
+         "dropped elision apostrophe", not any(same_words(o, t) for o, t in changed_words)),
+        ("#385: the author field names the work, collection, licence and change; translations by LibreDict",
+         corpus[c3.id].author == "Γιώργος Γαλάτσης, «Όλαφ, ο μικρός πελαργούλης και ο φίλος του ο Θανάσης»|"
+         "openbook.gr|cc_by_sa_4_0|adapted"
+         and corpus[c2.id].author == "Πηνελόπη Δέλτα, «Τρελαντώνης»|openbook.gr|pd|"
+         and {a for _, a in [(t[0], t[2]) for t in corpus[c1.id].translations.values()]} == {GENERATED_AUTHOR}
+         and set(corpus[c1.id].translations) == {"eng", "rus"}
+         and corpus_byline(corpus[c3.id].author).endswith("· CC BY-SA 4.0 · adapted · translation: LibreDict, "
+                                                          "generated")),
+        ("#385: the corpus-ell-drill data_source row names the licences of the documents that ship, and only "
+         "those of rows stored (CodeRabbit on #387: a candidate that loses its cell credits nothing)",
+         [r["license"] for r in credit] == ["public domain; CC BY-SA 4.0; CC BY-NC 4.0 (each document's own)"]
+         and corpus_credit(no_nc, rows_of(results, corpus_build(rows_=no_nc)))[0]["license"]
+         == "public domain; CC BY-SA 4.0 (each document's own)"
+         and corpus_credit(corpus, Rows([s for s in corpus_rows[0].sentences if s[0] != c1.id], [], []))[0][
+             "license"] == "public domain; CC BY-SA 4.0 (each document's own)"
+         and corpus_conn.execute("SELECT version, url FROM data_source WHERE id = 'corpus-ell-drill'").fetchone()
+         == (f"babylm-ell {BABYLM_REVISION}", CORPUS_SOURCE["url"]) and corpus_credit({}, corpus_rows[0]) == []
+         and corpus_credit(corpus, rows_of(results, corpus_build(rows_={}))) == []),
+        ("#385: two builds with the corpus rows give equal hashes; the drill and output gates hold; the word "
+         "examples do not change",
+         rows_hashes(corpus_rows[0]) == rows_hashes(corpus_rows[1])
+         and not any(drill_failures(corpus_rows[0], cells, infinitives, set(subsets["ell"].sentences)).values())
+         and not any(output_failures(corpus_rows[0], results, subsets, keys).values())
+         and rows_hashes(rows_of(results)) == rows_hashes(split_rows(corpus_rows[0])[0])
+         and not unchecked_pairs(Rows([], [], [w for w in corpus_rows[0].words if source_of(w[3]) == CORPUS]),
+                                 corpus_verdicts)),
+    ]
+
+    # #385 QA (0134 Test plan): an edit of any of the three checked texts, not only the Russian, makes the row
+    # stale and its cell falls back; gate 3 at its bound (15 words pass, 16 fail); gate 5 on a digraph («δε μπορώ»).
+    def falls_back(**edit: str) -> bool:
+        probe = replace(data, corpus=[replace(c1, **edit), c2, c3])
+        status = corpus_status(probe, by_key)
+        return (status[c1.id].startswith("stale") and not status[c2.id] and not status[c3.id]
+                and corpus_build(rows_=corpus_candidates(probe, by_key)).rows[c1.cell][0] == g2.id)
+
+    def words_of(n: int) -> str:  # c1's text padded with its own last word to n words, as text and original
+        base = c1.text.rstrip(";")
+        return base + " ξαναγυρίσουν" * (n - len(tokens(base))) + ";"
+
+    def gate_on(**edit: str) -> list[str]:
+        return corpus_gate(rows_=[replace(c1, **edit), c2, c3])
+
+    checks += [
+        ("#385: a corpus row whose text, English or Russian was edited after its check is stale, and its cell falls "
+         "back to its generated row",
+         falls_back(text=c1.text.replace(";", "!")) and falls_back(eng=c1.eng.replace("?", "!"))
+         and falls_back(rus=c1.rus.replace("?", "!"))),
+        ("#385: gate 3 at its bound: a 15-word row passes, a 16-word row fails",
+         len(tokens(words_of(15))) == 15 and len(tokens(words_of(16))) == 16
+         and not any("words" in p for p in gate_on(text=words_of(15), original=words_of(15)))
+         and any(f"over {MAX_WORDS} words" in p for p in gate_on(text=words_of(16), original=words_of(16)))),
+        ("#385: gate 5 fails «δε μπορώ» (δε before the digraph μπ)",
+         any("final ν" in p for p in gate_on(text=c1.text.replace("δεν τους", "δε μπορώ"),
+                                             original=c1.original.replace("δεν τους", "δε μπορώ")))),
+    ]
+
+    # #385, review of #387 (kyukhin 2026-11-28; CodeRabbit): an excluded corpus row never leaves its cell empty. A
+    # skipped cell keeps its skip line, which counts only while its own corpus row does not ship; gate 9 finds a
+    # corpus row whose cell would be open without it. Every cell counts here (the fixture is no full scope).
+    everything = (3, 3)
+    corpus_ids = {r.id: r.cell for r in data.corpus}
+    skips = {**data.skipped, c1.cell: "fixture"}
+
+    def skip_build(rows_: dict[int, Candidate], extra_: dict[int, Candidate] = extra,
+                   skipped_: dict[str, str] = skips) -> Drill:
+        return build_drill(pool, cells, results[0].candidates, infinitives, corpus_verdicts, {**extra_, **rows_},
+                           corpus_own, skipped_)
+
+    over_skip = skip_build(corpus)
+    fallbacks = {"NC_ALLOWED off": skip_build(no_nc), "stale": skip_build(corpus_candidates(edited, by_key)),
+                 "no corpus row": skip_build({})}
+    opened = {why: set(open_cells(b, skips, everything)) - set(open_cells(over_skip, skips, everything))
+              for why, b in fallbacks.items()}
+    no_generated = {sid: c for sid, c in extra.items() if sid != g2.id}  # c1's cell: no generated row, no skip
+    bare = skip_build(corpus, no_generated, data.skipped)
+    bare_without = skip_build({}, no_generated, data.skipped)
+    # A corpus row stored only for another cell (an ok verdict) while a Tatoeba sentence takes its own cell.
+    foreign = corpus_build(tatoeba_g2, {**corpus_verdicts, (c1.cell, 998): "ok", (imperative, c1.id): "ok"})
+    foreign_report = "\n".join(corpus_section(foreign, data, corpus_status(data, by_key)))
+    pd_doc = data.documents[c2.doc]
+    checks += [
+        ("#385: a skipped cell takes its own corpus row over its skip line, and no other sentence; the gate allows "
+         "that row only",
+         over_skip.rows[c1.cell][0] == c1.id and not corpus_failures(replace(data, skipped=skips), by_key, infinitives)
+         and not skipped_with_rows(rows_of(results, over_skip), skips, corpus_ids)
+         and skipped_with_rows(rows_of(results, over_skip), skips) == [c1.cell]
+         and skipped_with_rows(rows_of(results, over_skip), skips, {c1.id: c2.cell}) == [c1.cell]
+         and c1.cell not in skip_build({}, skipped_=skips).rows),
+        ("#385: NC_ALLOWED off or a stale corpus row: the skipped cell falls back to its skip line and no cell "
+         "opens (0 open against the build with the corpus rows); with no corpus row at all, gate 9 names exactly "
+         "the cells that open (the fixture's other two rows have neither a generated row nor a skip line)",
+         all(c1.cell not in b.rows and c1.cell in skips for b in fallbacks.values())
+         and opened["NC_ALLOWED off"] == opened["stale"] == set()
+         and opened["no corpus row"] == {c2.cell, c3.cell}
+         == set(corpus_without_fallback(over_skip, fallbacks["no corpus row"], skips, everything))),
+        ("#385: gate 9 fails a corpus row whose cell has no generated row, no other sentence and no skip line",
+         bare.rows[c1.cell][0] == c1.id and c1.cell in open_cells(bare_without, data.skipped, everything)
+         and c1.cell in corpus_without_fallback(bare, bare_without, data.skipped, everything)
+         and c1.cell not in corpus_without_fallback(with_corpus[0], corpus_build(rows_={}), data.skipped,
+                                                    everything)),
+        ("#385: the report counts a corpus row stored only for another cell (an ok verdict) as shipped "
+         "(CodeRabbit on #387)",
+         foreign.rows[c1.cell][0] == 998 and foreign.rows[imperative][0] == c1.id
+         and "3 ship, 2 of them for their own cells" in foreign_report
+         and f"| CLARIN:EL | {CORPUS_LICENCES[nc_doc.licence]} | 1 | 1 | 1 | 0 |" in foreign_report),
+        (f"#385: public domain needs a life that ended by PD_DIED_BY ({PD_DIED_BY}): 1800–1890 and "
+         f"1874–{PD_DIED_BY} pass, 1874–{PD_DIED_BY + 4} fails (CodeRabbit on #387)",
+         not licence_problems(replace(pd_doc, statement="basis: 1800–1890"))
+         and not licence_problems(replace(pd_doc, statement=f"basis: 1874–{PD_DIED_BY}"))
+         and any("basis" in p for p in licence_problems(replace(pd_doc, statement=f"basis: 1874–{PD_DIED_BY + 4}")))),
     ]
     for problem in data_problems:
         print(f"    data files: {problem}")

@@ -2787,19 +2787,49 @@ struct ExampleTranslation: Hashable, Sendable {
 
 /// Where an example sentence comes from, read from its id (0134, "Drill
 /// examples", #365): Tatoeba's own ids are below 10^9, Wiktionary's usage
-/// examples start at 1,000,000,001, generated ones at 2,000,000,001.
+/// examples start at 1,000,000,001, generated ones at 2,000,000,001, and
+/// sentences from openly licensed corpora at 3,000,000,001 (#385).
 enum ExampleSource: Sendable {
-    case tatoeba, wiktionary, generated
+    case tatoeba, wiktionary, generated, corpus
 
     static let wiktionaryBase: Int64 = 1_000_000_000
     static let generatedBase: Int64 = 2_000_000_000
+    static let corpusBase: Int64 = 3_000_000_000
 
     init(id: Int64) {
         switch id {
         case ..<Self.wiktionaryBase: self = .tatoeba
         case ..<Self.generatedBase: self = .wiktionary
-        default: self = .generated
+        case ..<Self.corpusBase: self = .generated
+        default: self = .corpus
         }
+    }
+}
+
+/// The provenance of a corpus sentence (0134, "Corpus sentences", #385),
+/// stored in its `author` as `<work>|<collection>|<licence>|<change>`: the
+/// document ("Πηνελόπη Δέλτα, «Τρελαντώνης»"), its collection
+/// ("openbook.gr"), its licence (`pd` or a `CreditLicense.id`) and
+/// `adapted` when LibreDict changed punctuation, capitals or a speaker tag.
+struct CorpusCredit: Hashable, Sendable {
+    let work: String
+    let collection: String
+    let licence: String
+    let adapted: Bool
+
+    /// The licence key of public domain, which has no `CreditLicense`.
+    static let publicDomain = "pd"
+
+    /// Nil when the field does not have its four parts (never, per the
+    /// build's gates).
+    init?(author: String) {
+        let parts = author.split(separator: "|", omittingEmptySubsequences: false).map(String.init)
+        guard parts.count == 4, !parts[0].isEmpty, !parts[1].isEmpty, !parts[2].isEmpty,
+              parts[3].isEmpty || parts[3] == "adapted" else { return nil }
+        work = parts[0]
+        collection = parts[1]
+        licence = parts[2]
+        adapted = parts[3] == "adapted"
     }
 }
 
@@ -2878,20 +2908,22 @@ enum ExampleText {
 
     /// Whose text a translation is (0134, "Byline"): a translation has its
     /// sentence's source, except that a Wiktionary sentence's English is
-    /// Wiktionary's and its Russian is generated.
+    /// Wiktionary's and its Russian is generated, and a corpus sentence's
+    /// translations are generated (#385).
     static func sourceOfTranslation(_ translation: ExampleTranslation, of example: ExampleSentence) -> ExampleSource {
         switch example.source {
         case .tatoeba: return .tatoeba
-        case .generated: return .generated
+        case .generated, .corpus: return .generated
         case .wiktionary: return translation.lang == "eng" ? .wiktionary : .generated
         }
     }
 
     /// The byline key's suffix of a Wiktionary or generated example; nil for
-    /// Tatoeba's, whose byline names the authors.
+    /// Tatoeba's, whose byline names the authors, and for a corpus
+    /// sentence's, which names its document (`corpusByline`).
     private static func sourceKey(_ example: ExampleSentence, translation: ExampleTranslation?) -> String? {
         switch example.source {
-        case .tatoeba: return nil
+        case .tatoeba, .corpus: return nil
         case .generated: return "generated"
         case .wiktionary:
             guard let translation, sourceOfTranslation(translation, of: example) == .generated else { return "wiktionary" }
@@ -2903,8 +2935,12 @@ enum ExampleText {
     /// isolated FSI…PDI, so a list of Latin names keeps its order in Arabic,
     /// whose value starts with U+200F, #119); "Wiktionary", "Wiktionary ·
     /// translation: LibreDict, generated" or "LibreDict, generated" for the
-    /// other sources (`examples.byline.<source>`, #365).
+    /// other sources (`examples.byline.<source>`, #365); a corpus sentence's
+    /// provenance (#385, `corpusByline`).
     static func byline(_ example: ExampleSentence, translation: ExampleTranslation?, bundle: Bundle) -> String {
+        if example.source == .corpus {
+            return corpusByline(example, bundle: bundle)
+        }
         if let key = sourceKey(example, translation: translation) {
             return format("examples.byline.\(key)", bundle: bundle)
         }
@@ -2912,17 +2948,99 @@ enum ExampleText {
         return String(format: format("examples.byline %@", bundle: bundle), names.joined(separator: ", "))
     }
 
+    /// A corpus sentence's provenance (0134, "Attribution", #385): "Πηνελόπη
+    /// Δέλτα, «Τρελαντώνης» · openbook.gr · public domain · translation:
+    /// LibreDict, generated", with "adapted" after the licence when
+    /// LibreDict changed the text (`examples.byline.corpus %@ %@ %@`,
+    /// `…corpusAdapted …`). The work, collection and licence are each
+    /// isolated FSI…PDI; the licence is named as Credits names it
+    /// (`Credits.licenses`, untranslated), public domain in the UI language.
+    /// An `author` that does not parse shows as it is, with the
+    /// translation note.
+    static func corpusByline(_ example: ExampleSentence, bundle: Bundle) -> String {
+        let isolate = { (text: String) in "\u{2068}\(text)\u{2069}" }
+        guard let credit = CorpusCredit(author: example.author) else {
+            let (head, tail) = framing(format("examples.byline.corpus %@ %@ %@", bundle: bundle))
+            return head + isolate(example.author) + tail
+        }
+        let key = credit.adapted ? "examples.byline.corpusAdapted %@ %@ %@" : "examples.byline.corpus %@ %@ %@"
+        return String(format: format(key, bundle: bundle), isolate(credit.work), isolate(credit.collection),
+                      isolate(licenceName(credit.licence, bundle: bundle)))
+    }
+
+    /// The name of a corpus sentence's licence: `CreditLicense.name` (not
+    /// translated), or "public domain" in the UI language; an unknown key
+    /// as it is.
+    static func licenceName(_ licence: String, bundle: Bundle) -> String {
+        if licence == CorpusCredit.publicDomain {
+            return format("examples.licence.publicDomain", bundle: bundle)
+        }
+        return Credits.licenses.first { $0.id == licence }?.name ?? licence
+    }
+
+    /// A three-argument format's text before its first argument and after
+    /// its last (the U+200F of an Arabic value, the translation note): what
+    /// frames an `author` field that does not parse.
+    private static func framing(_ format: String) -> (String, String) {
+        let head = format.components(separatedBy: "%1$@").first ?? ""
+        let tail = format.components(separatedBy: "%3$@").dropFirst().first ?? ""
+        return (head, tail)
+    }
+
+    /// `format` (positional `%1$@`… arguments) with `arguments` in place, as
+    /// an `AttributedString` whose arguments keep their own runs: a Greek
+    /// work is read in the Greek voice.
+    private static func compose(_ format: String, _ arguments: [AttributedString]) -> AttributedString {
+        var result = AttributedString()
+        var rest = Substring(format)
+        while let range = rest.range(of: #"%[1-9]\$@"#, options: .regularExpression) {
+            result += AttributedString(String(rest[..<range.lowerBound]))
+            let index = Int(String(rest[range].dropFirst().prefix(1))) ?? 1
+            if arguments.indices.contains(index - 1) {
+                result += arguments[index - 1]
+            }
+            rest = rest[range.upperBound...]
+        }
+        return result + AttributedString(String(rest))
+    }
+
+    /// Whether a text has Greek letters (the Greek and Coptic block, or
+    /// Greek Extended).
+    static func isGreek(_ text: String) -> Bool {
+        text.unicodeScalars.contains { (0x0370...0x03FF).contains($0.value) || (0x1F00...0x1FFF).contains($0.value) }
+    }
+
+    /// What VoiceOver reads after a corpus sentence and its translation:
+    /// "From Πηνελόπη Δέλτα, «Τρελαντώνης», openbook.gr, public domain;
+    /// translation generated by LibreDict", the work in the Greek voice
+    /// when it is Greek.
+    private static func corpusAccessibilityByline(_ example: ExampleSentence, bundle: Bundle) -> AttributedString {
+        let voice = { (text: String) in isGreek(text) ? spoken(text, lang: "ell") : AttributedString(text) }
+        guard let credit = CorpusCredit(author: example.author) else {
+            let (head, tail) = framing(format("examples.a11y.byline.corpus %@ %@ %@", bundle: bundle))
+            return AttributedString(head) + voice(example.author) + AttributedString(tail)
+        }
+        let key = credit.adapted ? "examples.a11y.byline.corpusAdapted %@ %@ %@"
+                                 : "examples.a11y.byline.corpus %@ %@ %@"
+        return compose(format(key, bundle: bundle), [voice(credit.work), AttributedString(credit.collection),
+                                                     AttributedString(licenceName(credit.licence, bundle: bundle))])
+    }
+
     /// What VoiceOver reads for one example: the sentence and the
     /// translation in their own voices, then "From Tatoeba: Zeus and
     /// Shishir" in the UI language (`locale`), the names joined by the
     /// locale's "and"; "From Wiktionary", "From Wiktionary; translation
     /// generated by LibreDict" or "Generated by LibreDict" for the other
-    /// sources (`examples.a11y.byline.<source>`, #365).
+    /// sources (`examples.a11y.byline.<source>`, #365); a corpus sentence's
+    /// provenance (#385).
     static func accessibilityLabel(_ example: ExampleSentence, translation: ExampleTranslation?,
                                    bundle: Bundle, locale: Locale) -> AttributedString {
         var label = spoken(example.text, lang: example.lang)
         if let translation {
             label += AttributedString(" ") + spoken(translation.text, lang: translation.lang)
+        }
+        if example.source == .corpus {
+            return label + AttributedString(" ") + corpusAccessibilityByline(example, bundle: bundle)
         }
         if let key = sourceKey(example, translation: translation) {
             return label + AttributedString(" " + format("examples.a11y.byline.\(key)", bundle: bundle))
@@ -3009,8 +3127,10 @@ struct CreditLine: Identifiable, Hashable, Sendable {
     let id: String
     /// The `Localizable.xcstrings` key of the text.
     let key: String
-    /// The `CreditLicense.id` the text names.
-    let license: String
+    /// The `CreditLicense.id`s the line names: one, which its text names;
+    /// several for the corpus sentences (#385), each document's own, which
+    /// their bylines name.
+    let licenses: [String]
     /// The `dict_metadata.source` and `data_source.id` values it credits.
     let sources: Set<String>
 
@@ -3025,6 +3145,17 @@ enum Credits {
                       address: "https://creativecommons.org/licenses/by-sa/3.0/"),
         CreditLicense(id: "cc_by_3_0", name: "CC BY 3.0",
                       address: "https://creativecommons.org/licenses/by/3.0/"),
+        // #385: the licences of the corpus sentences' documents (0134, "Corpus sentences").
+        CreditLicense(id: "cc_by_4_0", name: "CC BY 4.0",
+                      address: "https://creativecommons.org/licenses/by/4.0/"),
+        CreditLicense(id: "cc_by_nc_3_0", name: "CC BY-NC 3.0",
+                      address: "https://creativecommons.org/licenses/by-nc/3.0/"),
+        CreditLicense(id: "cc_by_nc_4_0", name: "CC BY-NC 4.0",
+                      address: "https://creativecommons.org/licenses/by-nc/4.0/"),
+        CreditLicense(id: "cc_by_nc_sa_3_0", name: "CC BY-NC-SA 3.0",
+                      address: "https://creativecommons.org/licenses/by-nc-sa/3.0/"),
+        CreditLicense(id: "cc_by_nc_sa_4_0", name: "CC BY-NC-SA 4.0",
+                      address: "https://creativecommons.org/licenses/by-nc-sa/4.0/"),
         CreditLicense(id: "cc_by_2_0_fr", name: "CC BY 2.0 FR",
                       address: "https://creativecommons.org/licenses/by/2.0/fr/"),
         CreditLicense(id: "apache_2_0", name: "Apache 2.0",
@@ -3063,38 +3194,43 @@ enum Credits {
     ]
 
     static let dataSources: [CreditLine] = [
-        CreditLine(id: "wordnet", key: "credits.dataSources.wordnet", license: "wordnet",
+        CreditLine(id: "wordnet", key: "credits.dataSources.wordnet", licenses: ["wordnet"],
                    sources: ["wordnet"]),
-        CreditLine(id: "openrussian", key: "credits.dataSources.openrussian", license: "cc_by_sa_4_0",
+        CreditLine(id: "openrussian", key: "credits.dataSources.openrussian", licenses: ["cc_by_sa_4_0"],
                    sources: ["openrussian"]),
-        CreditLine(id: "freedict", key: "credits.dataSources.freedict", license: "cc_by_sa_3_0",
+        CreditLine(id: "freedict", key: "credits.dataSources.freedict", licenses: ["cc_by_sa_3_0"],
                    sources: ["freedict-eng-spa", "freedict-ell-eng", "freedict-eng-ell"]),
-        CreditLine(id: "spanish_wordnet", key: "credits.dataSources.spanishWordnet", license: "cc_by_3_0",
+        CreditLine(id: "spanish_wordnet", key: "credits.dataSources.spanishWordnet", licenses: ["cc_by_3_0"],
                    sources: ["wordnet-spa-eng"]),
-        CreditLine(id: "arabic_wordnet", key: "credits.dataSources.arabicWordnet", license: "cc_by_sa_3_0",
+        CreditLine(id: "arabic_wordnet", key: "credits.dataSources.arabicWordnet", licenses: ["cc_by_sa_3_0"],
                    sources: ["wordnet-arb-eng"]),
-        CreditLine(id: "greek_wordnet", key: "credits.dataSources.greekWordnet", license: "apache_2_0",
+        CreditLine(id: "greek_wordnet", key: "credits.dataSources.greekWordnet", licenses: ["apache_2_0"],
                    sources: ["wordnet-ell-eng", "wordnet-eng-ell"]),
         // #144: the Greek word forms and inflection tables (0136); #365: and the usage examples (0134).
-        CreditLine(id: "wiktionary", key: "credits.dataSources.wiktionary", license: "cc_by_sa_4_0",
+        CreditLine(id: "wiktionary", key: "credits.dataSources.wiktionary", licenses: ["cc_by_sa_4_0"],
                    sources: ["wiktionary-ell-forms", "wiktionary-ell-examples"]),
         // #152, #153: the word lists and the frequencies that order new words (0130).
-        CreditLine(id: "greek_lists", key: "credits.dataSources.greekLists", license: "cc_by_sa_4_0",
+        CreditLine(id: "greek_lists", key: "credits.dataSources.greekLists", licenses: ["cc_by_sa_4_0"],
                    sources: ["ky-ell-lists"]),
-        CreditLine(id: "cefrj", key: "credits.dataSources.cefrj", license: "cefrj",
+        CreditLine(id: "cefrj", key: "credits.dataSources.cefrj", licenses: ["cefrj"],
                    sources: ["cefrj-1.5"]),
-        CreditLine(id: "octanove", key: "credits.dataSources.octanove", license: "cc_by_sa_4_0",
+        CreditLine(id: "octanove", key: "credits.dataSources.octanove", licenses: ["cc_by_sa_4_0"],
                    sources: ["octanove-c1c2-1.0"]),
-        CreditLine(id: "frequency_words", key: "credits.dataSources.frequencyWords", license: "cc_by_sa_4_0",
+        CreditLine(id: "frequency_words", key: "credits.dataSources.frequencyWords", licenses: ["cc_by_sa_4_0"],
                    sources: ["frequencywords-2018"]),
         // #178: the example sentences; each example names its authors (0134).
-        CreditLine(id: "tatoeba", key: "credits.dataSources.tatoeba", license: "cc_by_2_0_fr",
+        CreditLine(id: "tatoeba", key: "credits.dataSources.tatoeba", licenses: ["cc_by_2_0_fr"],
                    sources: ["tatoeba"]),
         // #365: the generated conjugation examples, LibreDict's own text (0134).
-        CreditLine(id: "drill_examples", key: "credits.dataSources.drillExamples", license: "cc_by_sa_4_0",
+        CreditLine(id: "drill_examples", key: "credits.dataSources.drillExamples", licenses: ["cc_by_sa_4_0"],
                    sources: ["libredict-drill-ell"]),
+        // #385: the conjugation examples from Greek texts via BabyLM-ell, each under its document's licence (0134).
+        CreditLine(id: "corpus", key: "credits.dataSources.corpus",
+                   licenses: ["cc_by_3_0", "cc_by_4_0", "cc_by_sa_3_0", "cc_by_sa_4_0", "cc_by_nc_3_0", "cc_by_nc_4_0",
+                              "cc_by_nc_sa_3_0", "cc_by_nc_sa_4_0"],
+                   sources: ["corpus-ell-drill"]),
         // #172: the Greek grammar notes, LibreDict's own text (0133).
-        CreditLine(id: "greek_grammar", key: "credits.dataSources.greekGrammar", license: "cc_by_sa_4_0",
+        CreditLine(id: "greek_grammar", key: "credits.dataSources.greekGrammar", licenses: ["cc_by_sa_4_0"],
                    sources: ["libredict-grammar-ell"]),
     ]
 

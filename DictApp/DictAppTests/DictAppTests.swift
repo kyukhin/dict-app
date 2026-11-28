@@ -28349,14 +28349,23 @@ final class DrillExampleDataTests: XCTestCase {
         XCTAssertEqual(stale.count, 63, "the stale skips of #362")
         let open = b1Scope.subtracting(rows).subtracting(skipped).sorted()
         XCTAssertEqual(open.prefix(20), [], "\(open.count) cells of the B1/B1 scope have no sentence")
-        XCTAssertEqual(skipped.intersection(rows).sorted(), [], "a skipped cell stays without an example")
+        // #385 (kyukhin 2026-11-28): a skipped cell stays without an example unless its own corpus row ships;
+        // the skip line is then its fallback, should the row drop.
+        let corpusCells = Dictionary(uniqueKeysWithValues: try Self.dataRows("ell-corpus.tsv").compactMap { row in
+            row["id"].flatMap(Int64.init).map { ($0, row["cell"] ?? "") }
+        })
+        let shown = try cellRows().filter { skipped.contains($0.key) && corpusCells[$0.sentenceID] != $0.key }
+        XCTAssertEqual(shown.map(\.key).sorted().prefix(20), [], "a skipped cell shows only its own corpus row")
+        XCTAssertFalse(skipped.intersection(rows).isEmpty, "the cells a corpus row fills keep their skip lines")
     }
 
-    /// #365: every sentence of the Greek pack is in one of the three id
-    /// ranges (0134, "Where it lives"). A generated sentence has English and
-    /// Russian only, all by "LibreDict"; a Wiktionary one is by "Wiktionary"
-    /// with Wiktionary's English and a Russian by "LibreDict". Both are the
-    /// data file's rows, unchanged, and only cell rows use them.
+    /// #365: every sentence of the Greek pack is in one of the id ranges
+    /// (0134, "Where it lives"; #385 adds the corpus's). A generated sentence
+    /// has English and Russian only, all by "LibreDict"; a Wiktionary one is
+    /// by "Wiktionary" with Wiktionary's English and a Russian by
+    /// "LibreDict". Both are the data file's rows, unchanged, and only cell
+    /// rows use them; a corpus sentence is checked by
+    /// `testCorpusSentencesNameTheirDocument`.
     func testEverySentenceHasASource() throws {
         let file = try BundledDictionary(url: try PackFixtures.file(.ell)).read { db in
             (sentences: try GRDB.Row.fetchAll(db, sql: "SELECT id, text, author FROM example_sentence"),
@@ -28378,7 +28387,8 @@ final class DrillExampleDataTests: XCTestCase {
             let id: Int64 = row["id"], text: String = row["text"], author: String = row["author"]
             let source = id < 1_000_000_000 ? "tatoeba"
                 : (1_000_000_001..<2_000_000_000).contains(id) ? "wiktionary"
-                : (2_000_000_001..<3_000_000_000).contains(id) ? "generated" : "none"
+                : (2_000_000_001..<3_000_000_000).contains(id) ? "generated"
+                : (3_000_000_001..<4_000_000_000).contains(id) ? "corpus" : "none"
             counts[source, default: 0] += 1
             guard source == "wiktionary" || source == "generated" else {
                 if source == "none" { problems.append("\(id): in no source's range") }
@@ -28403,7 +28413,138 @@ final class DrillExampleDataTests: XCTestCase {
         XCTAssertEqual(problems.prefix(20), [], "\(problems.count) problems")
         XCTAssertGreaterThan(counts["wiktionary"] ?? 0, 0, "Wiktionary sentences")
         XCTAssertGreaterThan(counts["generated"] ?? 0, 0, "generated sentences")
+        XCTAssertGreaterThan(counts["corpus"] ?? 0, 0, "corpus sentences (#385)")
         XCTAssertEqual(file.words, 0, "word examples are Tatoeba's only")
+    }
+
+    /// #385: every sentence of the Greek pack with an id from 3·10^9 up is a
+    /// row of `ell-corpus.tsv` with the same text; its `author` parses into
+    /// work, collection, licence and change, which are its document's
+    /// (`ell-corpus-documents.tsv`) and "adapted" exactly when the text is
+    /// not the original; its licence is public domain or one Credits lists;
+    /// its English and Russian are the row's, by "LibreDict".
+    func testCorpusSentencesNameTheirDocument() throws {
+        let file = try BundledDictionary(url: try PackFixtures.file(.ell)).read { db in
+            (sentences: try GRDB.Row.fetchAll(db, sql: "SELECT id, text, author FROM example_sentence WHERE id >= 3000000000"),
+             translations: try GRDB.Row.fetchAll(db, sql: """
+                SELECT sentence_id, lang, text, author FROM example_translation WHERE sentence_id >= 3000000000
+                """),
+             cells: try GRDB.Row.fetchAll(db, sql: """
+                SELECT word, sentence_id FROM example_word WHERE sentence_id >= 3000000000
+                """))
+        }
+        let rows = Dictionary(uniqueKeysWithValues: try Self.dataRows("ell-corpus.tsv").map { (Int64($0["id"] ?? "") ?? 0, $0) })
+        let documents = Dictionary(uniqueKeysWithValues: try Self.dataRows("ell-corpus-documents.tsv").map { ($0["doc"] ?? "", $0) })
+        var translations: [Int64: [String: (text: String, author: String)]] = [:]
+        for row in file.translations {
+            let id: Int64 = row["sentence_id"], lang: String = row["lang"]
+            translations[id, default: [:]][lang] = (row["text"], row["author"])
+        }
+        let licences = Set(Credits.licenses.map(\.id)).union([CorpusCredit.publicDomain])
+        var problems: [String] = []
+        for sentence in file.sentences {
+            let id: Int64 = sentence["id"], text: String = sentence["text"], author: String = sentence["author"]
+            guard let row = rows[id], row["text"] == text else {
+                problems.append("\(id): not the text of an ell-corpus.tsv row")
+                continue
+            }
+            guard let credit = CorpusCredit(author: author), let document = documents[row["doc"] ?? ""] else {
+                problems.append("\(id): author \(author) does not parse, or no document")
+                continue
+            }
+            if credit.work != document["work"] || credit.collection != document["collection"]
+                || credit.licence != document["licence"] {
+                problems.append("\(id): \(author) is not its document's")
+            }
+            let original = (row["original"] ?? "").precomposedStringWithCanonicalMapping
+            if credit.adapted != (text != original) { problems.append("\(id): adapted \(credit.adapted)") }
+            if !licences.contains(credit.licence) { problems.append("\(id): licence \(credit.licence)") }
+            let mine = translations[id] ?? [:]
+            if Set(mine.keys) != ["eng", "rus"] || mine["eng"]?.text != row["eng"] || mine["rus"]?.text != row["rus"]
+                || mine.values.contains(where: { $0.author != "LibreDict" }) {
+                problems.append("\(id): translations \(mine)")
+            }
+        }
+        for cell in file.cells {
+            let key: String = cell["word"], id: Int64 = cell["sentence_id"]
+            if !key.contains("|") { problems.append("\(id): a word example (\(key))") }
+        }
+        XCTAssertEqual(problems.prefix(20), [], "\(problems.count) problems")
+        XCTAssertGreaterThan(file.sentences.count, 2_000, "the corpus sentences of the first pack")
+        let example = try XCTUnwrap(file.sentences.first { ($0["text"] as String) == "Όταν ερχόμασταν, κάναμε πολλές ώρες." })
+        XCTAssertEqual(example["author"] as String, "Babiniotis archive|CLARIN:EL|cc_by_nc_4_0|adapted",
+                       "έρχομαι's imperfect passive εμείς, the UI test's corpus cell")
+    }
+
+    /// The build's `PD_DIED_BY` (0134, Checks 6): public domain needs an
+    /// author who died by 1955, 70 years before 2026 (Greek law 2121/1993).
+    private static let pdDiedBy = 1955
+
+    /// The death years of the lives a statement names ("1874–1941"), read
+    /// as the build's `LIFE` reads them.
+    private static func deathYears(_ statement: String) throws -> [Int] {
+        let life = try NSRegularExpression(pattern: #"\b\d{4}\s*[–-]\s*(\d{4})\b"#)
+        let range = NSRange(statement.startIndex..., in: statement)
+        return life.matches(in: statement, range: range).compactMap { match in
+            Range(match.range(at: 1), in: statement).flatMap { Int(statement[$0]) }
+        }
+    }
+
+    /// #385, CodeRabbit on #387: the public-domain basis is a death year by
+    /// `PD_DIED_BY`, not a 20th-century pattern: 1800–1890 and 1874–1955
+    /// pass, 1874–1959 fails.
+    func testPublicDomainBasisUsesTheBuildsCutoff() throws {
+        let passes = { (statement: String) in try Self.deathYears(statement).contains { $0 <= Self.pdDiedBy } }
+        XCTAssertTrue(try passes("basis: 1800–1890"))
+        XCTAssertTrue(try passes("basis: 1874–1955"))
+        XCTAssertTrue(try passes("basis: 1874-1941"), "a hyphen too")
+        XCTAssertFalse(try passes("basis: 1874–1959"))
+        XCTAssertFalse(try passes("Public Domain"), "no life, no basis")
+    }
+
+    /// #385: every document a shipped corpus row cites passed the licence
+    /// check (0134, "Licences"): a licence that ships (public domain, CC BY,
+    /// BY-SA, BY-NC or BY-NC-SA, as Credits lists them), a statement that
+    /// names no NoDerivatives and grants more than copying, public domain
+    /// with an author's life that ended by `PD_DIED_BY`, and who read it when.
+    func testCorpusLicencesAllowShipping() throws {
+        let shipped = try BundledDictionary(url: try PackFixtures.file(.ell)).read { db in
+            Set(try String.fetchAll(db, sql: "SELECT author FROM example_sentence WHERE id >= 3000000000"))
+        }
+        let cited = Set(shipped.compactMap { CorpusCredit(author: $0) }.map(\.licence))
+        let allowed: Set<String> = ["pd", "cc_by_3_0", "cc_by_4_0", "cc_by_sa_3_0", "cc_by_sa_4_0", "cc_by_nc_3_0",
+                                    "cc_by_nc_4_0", "cc_by_nc_sa_3_0", "cc_by_nc_sa_4_0"]
+        XCTAssertTrue(cited.isSubset(of: allowed), "\(cited.subtracting(allowed))")
+        XCTAssertTrue(allowed.subtracting(["pd"]).isSubset(of: Set(Credits.licenses.map(\.id))), "Credits lists them")
+        let documents = try Self.dataRows("ell-corpus-documents.tsv")
+        let rows = try Self.dataRows("ell-corpus.tsv")
+        let citedDocs = Set(rows.map { $0["doc"] ?? "" })
+        XCTAssertEqual(Set(documents.map { $0["doc"] ?? "" }), citedDocs, "a document per cited doc, and no other")
+        var problems: [String] = []
+        for document in documents {
+            let doc = document["doc"] ?? "", statement = document["statement"] ?? "", licence = document["licence"] ?? ""
+            if !allowed.contains(licence) { problems.append("\(doc): licence \(licence)") }
+            if statement.range(of: #"\bND\b|NoDerivatives|No Derivatives|Όχι παράγωγα"#,
+                               options: [.regularExpression, .caseInsensitive]) != nil {
+                problems.append("\(doc): NoDerivatives in \(statement)")
+            }
+            if statement.contains("Ελεύθερη αναπαραγωγή") || statement.contains("Ελεύθερη διάθεση") {
+                problems.append("\(doc): only a permission to copy")
+            }
+            if (document["checked_by"] ?? "").isEmpty { problems.append("\(doc): no checked_by") }
+            if licence == "pd", try !Self.deathYears(statement).contains(where: { $0 <= Self.pdDiedBy }) {
+                problems.append("\(doc): public domain without an author's life that ended by \(Self.pdDiedBy)")
+            }
+            for field in ["work", "collection"] where (document[field] ?? "").isEmpty || (document[field] ?? "").contains("|") {
+                problems.append("\(doc): \(field)")
+            }
+            if !(document["url"] ?? "").hasPrefix("http") { problems.append("\(doc): url") }
+        }
+        XCTAssertEqual(problems.prefix(20), [], "\(problems.count) problems")
+        for collection in Set(documents.map { $0["collection"] ?? "" }) {
+            XCTAssertTrue(["openbook.gr", "CLARIN:EL", "Global Storybooks", "Vikidia"].contains(collection),
+                          "a collection the Credits line names: \(collection)")
+        }
     }
 
     /// #365: the Greek pack, and no other file, credits the Wiktionary usage
@@ -28418,10 +28559,21 @@ final class DrillExampleDataTests: XCTestCase {
                     WHERE id IN ('wiktionary-ell-examples', 'libredict-drill-ell') ORDER BY id
                     """)
             }
+            // #385: the corpus sentences' row, in the Greek pack only, names each document's licence.
+            let corpus = try BundledDictionary(url: url).read { db in
+                try GRDB.Row.fetchOne(db, sql: "SELECT kind, version, license, url FROM data_source WHERE id = 'corpus-ell-drill'")
+            }
             guard url == packs[.ell] else {
                 XCTAssertEqual(rows.count, 0, url.lastPathComponent)
+                XCTAssertNil(corpus, url.lastPathComponent)
                 continue
             }
+            let row = try XCTUnwrap(corpus, "corpus-ell-drill")
+            XCTAssertEqual(row["kind"] as String, "example_sentences")
+            XCTAssertEqual(row["version"] as String, "babylm-ell 5a8f8df0fc19")
+            XCTAssertEqual(row["url"] as String,
+                           "https://github.com/kyukhin/dict-app/blob/master/Scripts/data/drill-examples/ell-corpus-documents.tsv")
+            XCTAssertTrue((row["license"] as String).hasSuffix("(each document's own)"), row["license"] as String)
             XCTAssertEqual(rows.map { $0["id"] as String }, ["libredict-drill-ell", "wiktionary-ell-examples"])
             XCTAssertEqual(Set(rows.map { $0["kind"] as String }), ["example_sentences"])
             XCTAssertEqual(Set(rows.map { $0["license"] as String }), ["CC BY-SA 4.0"])
@@ -28468,7 +28620,8 @@ final class DrillExampleDataTests: XCTestCase {
             return String(SHA256.hash(data: Data(joined.utf8)).map { String(format: "%02x", $0) }.joined().prefix(16))
         }
         var own: [Int64: String] = [:], editedSinceCheck: [String] = []
-        for row in try Self.dataRows("ell.tsv") where row["check"] == "ok" {
+        // #385: a corpus row's own check counts as a data row's does.
+        for row in try Self.dataRows("ell.tsv") + Self.dataRows("ell-corpus.tsv") where row["check"] == "ok" {
             let hash = row["texts_sha256"] ?? ""
             XCTAssertTrue(isHash(hash), "texts_sha256 of \(row["id"] ?? "")")
             guard hash == textsHash([row["text"] ?? "", row["eng"] ?? "", row["rus"] ?? ""]) else {
@@ -37410,6 +37563,106 @@ final class ExampleTextTests: XCTestCase {
         }
         let tatoeba = try? XCTUnwrap(grafo1.translation(in: "eng"))
         XCTAssertEqual(ExampleText.sourceOfTranslation(tatoeba ?? drillTranslation("eng", "CH"), of: grafo1), .tatoeba)
+        // #385: a corpus sentence's translations are LibreDict's.
+        let corpus = corpusSentence(author: "Babiniotis archive|CLARIN:EL|cc_by_nc_4_0|adapted")
+        for lang in ["eng", "rus"] {
+            XCTAssertEqual(ExampleText.sourceOfTranslation(drillTranslation(lang, "LibreDict"), of: corpus), .generated, lang)
+        }
+    }
+
+    /// #385: the four ranges by id and their bounds (0134, "How it ships").
+    func testSourceByID() {
+        let cases: [(Int64, ExampleSource)] = [
+            (1, .tatoeba), (999_999_999, .tatoeba), (1_000_000_000, .wiktionary), (1_000_000_001, .wiktionary),
+            (1_999_999_999, .wiktionary), (2_000_000_000, .generated), (2_000_000_001, .generated),
+            (2_999_999_999, .generated), (3_000_000_000, .corpus), (3_000_000_001, .corpus), (3_000_002_659, .corpus),
+        ]
+        for (id, source) in cases {
+            XCTAssertEqual(ExampleSource(id: id), source, "\(id)")
+        }
+        XCTAssertEqual(ExampleSource.corpusBase, 3_000_000_000)
+        XCTAssertEqual(corpusSentence(author: "x|y|pd|").source, .corpus)
+    }
+
+    /// A corpus sentence (#385) by its structured `author`, with LibreDict's English and Russian.
+    private func corpusSentence(author: String, text: String = "Όταν ερχόμασταν, κάναμε πολλές ώρες.") -> ExampleSentence {
+        ExampleSentence(id: 3_000_000_002, lang: "ell", text: text, author: author, form: 5..<15,
+                        translations: [ExampleTranslation(lang: "eng", text: "When we used to come, it took us many hours.",
+                                                          author: "LibreDict"),
+                                       ExampleTranslation(lang: "rus", text: "Когда мы ехали, у нас уходило много часов.",
+                                                          author: "LibreDict")])
+    }
+
+    /// #385 (0134, "Attribution"): both rows of the byline table in the five
+    /// UI languages. The work, the collection and a CC licence's name are
+    /// never translated, public domain is; each is isolated FSI…PDI, and
+    /// Arabic starts with U+200F. VoiceOver reads the sentence, the
+    /// translation, then the provenance, a Greek work in the Greek voice. An
+    /// `author` that does not parse shows as it is, with the translation
+    /// note.
+    func testCorpusBylineNamesTheDocumentAndLicence() throws {
+        let delta = corpusSentence(author: "Πηνελόπη Δέλτα, «Τρελαντώνης»|openbook.gr|pd|")
+        let babiniotis = corpusSentence(author: "Babiniotis archive|CLARIN:EL|cc_by_nc_4_0|adapted")
+        XCTAssertEqual(CorpusCredit(author: babiniotis.author),
+                       CorpusCredit(author: "Babiniotis archive|CLARIN:EL|cc_by_nc_4_0|adapted"))
+        XCTAssertEqual(CorpusCredit(author: babiniotis.author)?.adapted, true)
+        XCTAssertEqual(CorpusCredit(author: delta.author)?.licence, "pd")
+        XCTAssertEqual(CorpusCredit(author: delta.author)?.adapted, false)
+        for malformed in ["Babiniotis archive|CLARIN:EL", "a|b|c|d|e", "|CLARIN:EL|pd|", "a|b|pd|changed", "LibreDict"] {
+            XCTAssertNil(CorpusCredit(author: malformed), malformed)
+        }
+        let delta2 = "Πηνελόπη Δέλτα, «Τρελαντώνης»"
+        let expected: [String: [String]] = [
+            "en": ["\(delta2) · openbook.gr · public domain · translation: LibreDict, generated",
+                   "Babiniotis archive · CLARIN:EL · CC BY-NC 4.0 · adapted · translation: LibreDict, generated"],
+            "ru": ["\(delta2) · openbook.gr · общественное достояние · перевод: LibreDict, сгенерирован",
+                   "Babiniotis archive · CLARIN:EL · CC BY-NC 4.0 · адаптировано · перевод: LibreDict, сгенерирован"],
+            "es": ["\(delta2) · openbook.gr · dominio público · traducción: LibreDict, generada",
+                   "Babiniotis archive · CLARIN:EL · CC BY-NC 4.0 · adaptado · traducción: LibreDict, generada"],
+            "ar": ["\(delta2) · openbook.gr · ملكية عامة · الترجمة: LibreDict، مولَّدة",
+                   "Babiniotis archive · CLARIN:EL · CC BY-NC 4.0 · مُعدَّل · الترجمة: LibreDict، مولَّدة"],
+            "el": ["\(delta2) · openbook.gr · κοινό κτήμα · μετάφραση: LibreDict, παραγόμενη",
+                   "Babiniotis archive · CLARIN:EL · CC BY-NC 4.0 · προσαρμοσμένο · μετάφραση: LibreDict, παραγόμενη"],
+        ]
+        for (code, lines) in expected {
+            let bundle = try bundle(code)
+            let got = [delta, babiniotis].map { ExampleText.byline($0, translation: $0.translation(in: "eng"), bundle: bundle) }
+            XCTAssertEqual(got.map(UITestVisible.text), lines, code)
+            XCTAssertTrue(got[1].contains("\u{2068}Babiniotis archive\u{2069}") && got[1].contains("\u{2068}CLARIN:EL\u{2069}")
+                          && got[1].contains("\u{2068}CC BY-NC 4.0\u{2069}"), "\(code): each part isolated: \(got[1])")
+            XCTAssertEqual(got.allSatisfy { $0.unicodeScalars.first == "\u{200F}" }, code == "ar",
+                           "\(code): only Arabic starts with U+200F")
+        }
+        let en = try bundle("en")
+        let spoken = ExampleText.accessibilityLabel(delta, translation: delta.translation(in: "eng"), bundle: en,
+                                                    locale: Locale(identifier: "en"))
+        XCTAssertEqual(String(spoken.characters), "Όταν ερχόμασταν, κάναμε πολλές ώρες. When we used to come, it took "
+                       + "us many hours. From Πηνελόπη Δέλτα, «Τρελαντώνης», openbook.gr, public domain; translation "
+                       + "generated by LibreDict", "sentence, translation, provenance")
+        let work = spoken.runs.first { String(spoken[$0.range].characters) == delta2 }
+        XCTAssertEqual(work?.languageIdentifier, "el", "the Greek work in the Greek voice")
+        XCTAssertEqual(spoken.runs.first?.languageIdentifier, "el", "the sentence in the Greek voice")
+        let adapted = ExampleText.accessibilityLabel(babiniotis, translation: babiniotis.translation(in: "rus"),
+                                                     bundle: try bundle("ru"), locale: Locale(identifier: "ru"))
+        XCTAssertTrue(String(adapted.characters).hasSuffix("Источник: Babiniotis archive, CLARIN:EL, CC BY-NC 4.0, "
+                                                           + "адаптировано; перевод сгенерирован LibreDict"),
+                      String(adapted.characters))
+        let arabic = ExampleText.accessibilityLabel(babiniotis, translation: nil, bundle: try bundle("ar"),
+                                                    locale: Locale(identifier: "ar"))
+        XCTAssertTrue(String(arabic.characters).contains("من Babiniotis archive، CLARIN:EL، CC BY-NC 4.0، مُعدَّل"),
+                      String(arabic.characters))
+
+        // An author field that does not parse: as it is, with the translation note.
+        let broken = corpusSentence(author: "Babiniotis archive|CLARIN:EL")
+        XCTAssertEqual(UITestVisible.text(ExampleText.byline(broken, translation: nil, bundle: en)),
+                       "Babiniotis archive|CLARIN:EL · translation: LibreDict, generated")
+        XCTAssertEqual(UITestVisible.text(ExampleText.byline(broken, translation: nil, bundle: try bundle("ru"))),
+                       "Babiniotis archive|CLARIN:EL · перевод: LibreDict, сгенерирован")
+        XCTAssertTrue(String(ExampleText.accessibilityLabel(broken, translation: nil, bundle: en, locale: Locale(identifier: "en"))
+            .characters).hasSuffix("From Babiniotis archive|CLARIN:EL; translation generated by LibreDict"))
+        // A licence Credits does not list shows its key, never crashes.
+        XCTAssertEqual(ExampleText.licenceName("cc_by_nd_4_0", bundle: en), "cc_by_nd_4_0")
+        XCTAssertEqual(ExampleText.licenceName("cc_by_sa_3_0", bundle: try bundle("el")), "CC BY-SA 3.0", "never translated")
     }
 
     /// The four rows of the byline table, in the five UI languages (0134,
@@ -37485,7 +37738,7 @@ final class ExampleTextTests: XCTestCase {
         XCTAssertEqual(wiktionary, Credits.line(crediting: "wiktionary-ell-forms"), "one Wiktionary line for both rows")
         let drill = try XCTUnwrap(Credits.line(crediting: "libredict-drill-ell"))
         XCTAssertEqual(drill.accessibilityID, "credits_drill_examples")
-        XCTAssertEqual(drill.license, "cc_by_sa_4_0")
+        XCTAssertEqual(drill.licenses, ["cc_by_sa_4_0"])
         let english = SettingsViewModel.localizedString(wiktionary.key, locale: Locale(identifier: "en"))
         XCTAssertEqual(english, "Word forms and usage examples: Wiktionary contributors, via kaikki.org (CC BY-SA 4.0)")
         XCTAssertEqual(SettingsViewModel.localizedString(drill.key, locale: Locale(identifier: "en")),
@@ -38049,6 +38302,11 @@ final class CreditsTests: XCTestCase {
         "cc_by_sa_4_0": "CC BY-SA 4.0",
         "cc_by_sa_3_0": "CC BY-SA 3.0",
         "cc_by_3_0": "CC BY 3.0",
+        "cc_by_4_0": "CC BY 4.0",
+        "cc_by_nc_3_0": "CC BY-NC 3.0",
+        "cc_by_nc_4_0": "CC BY-NC 4.0",
+        "cc_by_nc_sa_3_0": "CC BY-NC-SA 3.0",
+        "cc_by_nc_sa_4_0": "CC BY-NC-SA 4.0",
         "cc_by_2_0_fr": "CC BY 2.0 FR",
         "apache_2_0": "Apache License",
         "wordnet": "WordNet 3.0 License",
@@ -38064,7 +38322,9 @@ final class CreditsTests: XCTestCase {
         XCTAssertEqual(dataSets, ["wiktionary-ell-forms", "ky-ell-lists", "frequencywords-2018", "tatoeba",
                                   "libredict-grammar-ell", "cefrj-1.5", "octanove-c1c2-1.0",
                                   // #365: the drill's Wiktionary and generated examples, in the rebuilt `ell` pack.
-                                  "wiktionary-ell-examples", "libredict-drill-ell"],
+                                  "wiktionary-ell-examples", "libredict-drill-ell",
+                                  // #385: the drill's sentences from openly licensed corpora.
+                                  "corpus-ell-drill"],
                        "the data sets of 2.0; a new one needs a Credits line")
         for row in rows {
             XCTAssertNotNil(Credits.line(crediting: row.id), "\(row.file): \(row.id) has a Credits line")
@@ -38090,8 +38350,17 @@ final class CreditsTests: XCTestCase {
             XCTAssertFalse(row.license.isEmpty, "\(what): license")
             XCTAssertTrue(row.url.hasPrefix("https://"), "\(what): url \(row.url)")
             guard let line = Credits.line(crediting: row.id) else { continue }
-            let license = try XCTUnwrap(Self.recordedLicense[line.license], line.license)
-            XCTAssertTrue(row.license.contains(license), "\(what): the file records \(license), as Credits says")
+            // #385: a line of several licences (the corpus sentences, each document's own): the file
+            // records exactly the licences the line names, and public domain.
+            let names = try line.licenses.map { try XCTUnwrap(Self.recordedLicense[$0], $0) }
+            guard names.count == 1 else {
+                let recorded = row.license.replacingOccurrences(of: " (each document's own)", with: "")
+                    .components(separatedBy: "; ")
+                XCTAssertEqual(Set(recorded).subtracting(["public domain"]), Set(names),
+                               "\(what): the file records each licence the line names, and no other: \(row.license)")
+                continue
+            }
+            XCTAssertTrue(row.license.contains(names[0]), "\(what): the file records \(names[0]), as Credits says")
         }
     }
 
@@ -38153,7 +38422,7 @@ final class CreditsTests: XCTestCase {
     func testEachLineNamesALicenseTheLicensesSectionLinks() throws {
         let licenses = Dictionary(uniqueKeysWithValues: Credits.licenses.map { ($0.id, $0) })
         XCTAssertEqual(licenses.count, Credits.licenses.count, "license ids are unique")
-        XCTAssertEqual(Set(Credits.dataSources.map(\.license) + Credits.software.map(\.license)), Set(licenses.keys),
+        XCTAssertEqual(Set(Credits.dataSources.flatMap(\.licenses) + Credits.software.map(\.license)), Set(licenses.keys),
                        "every license is named by a line or a library")
         for license in Credits.licenses {
             let url = try XCTUnwrap(license.url, license.id)
@@ -38169,18 +38438,56 @@ final class CreditsTests: XCTestCase {
         let english = SettingsViewModel.localizedString("credits.dataSources.wordnet", locale: Locale(identifier: "en"))
         XCTAssertEqual(english, "WordNet — Princeton University, WordNet 3.0 License")
         for line in Credits.dataSources {
-            let license = try XCTUnwrap(licenses[line.license], "\(line.id): \(line.license)")
+            let named = try line.licenses.map { try XCTUnwrap(licenses[$0], "\(line.id): \($0)") }
+            XCTAssertFalse(named.isEmpty, line.id)
             for code in ["en", "ru", "es", "ar", "el"] {
                 let text = SettingsViewModel.localizedString(line.key, locale: Locale(identifier: code))
                 XCTAssertNotEqual(text, line.key, "\(code): \(line.key) is translated")
+                // #385: the corpus sentences' line names several licences; each example names its own.
+                guard let license = named.first, named.count == 1 else {
+                    XCTAssertTrue(text.contains("BabyLM-ell") && text.contains("CLARIN:EL"), "\(code): \(text)")
+                    continue
+                }
                 // CEFR-J asks for its citation only, which the line is.
-                if line.license == "cefrj" {
+                if line.licenses == ["cefrj"] {
                     XCTAssertTrue(text.contains("The CEFR-J Wordlist Version 1.5"), "\(code): \(text)")
                 } else {
                     XCTAssertTrue(text.contains(license.name), "\(code): \(line.id) names \(license.name): \(text)")
                 }
             }
         }
+    }
+}
+
+extension CreditsTests {
+    /// #385 (0134, "Attribution"): Credits has one line for the corpus
+    /// sentences (`credits_corpus`), crediting `corpus-ell-drill`; it names
+    /// BabyLM-ell, the collections that ship and where their documents are
+    /// listed, in every UI language, and never the collections left out.
+    func testCorpusLineNamesTheCollections() throws {
+        let line = try XCTUnwrap(Credits.line(crediting: "corpus-ell-drill"))
+        XCTAssertEqual(line.accessibilityID, "credits_corpus")
+        XCTAssertEqual(line.sources, ["corpus-ell-drill"])
+        XCTAssertEqual(Set(line.licenses), ["cc_by_3_0", "cc_by_4_0", "cc_by_sa_3_0", "cc_by_sa_4_0", "cc_by_nc_3_0",
+                                            "cc_by_nc_4_0", "cc_by_nc_sa_3_0", "cc_by_nc_sa_4_0"])
+        XCTAssertEqual(SettingsViewModel.localizedString(line.key, locale: Locale(identifier: "en")),
+                       "Conjugation examples from Greek texts, via BabyLM-ell: books from openbook.gr, textbook and "
+                       + "conversation corpora from CLARIN:EL, Global Storybooks and Vikidia. Each example names its "
+                       + "source and licence; \u{201C}adapted\u{201D} means LibreDict changed punctuation, capitals or "
+                       + "a speaker tag, never a word. Translations generated by LibreDict. The documents and their "
+                       + "links: github.com/kyukhin/dict-app (Scripts/data/drill-examples).")
+        for code in ["en", "ru", "es", "ar", "el"] {
+            let text = SettingsViewModel.localizedString(line.key, locale: Locale(identifier: code))
+            for name in ["BabyLM-ell", "openbook.gr", "CLARIN:EL", "Global Storybooks", "Vikidia", "LibreDict",
+                         "github.com/kyukhin/dict-app (Scripts/data/drill-examples)"] {
+                XCTAssertTrue(text.contains(name), "\(code): \(name) untranslated in '\(text)'")
+            }
+            for left in ["paidika-paramythia", "free-ebooks"] {
+                XCTAssertFalse(text.contains(left), "\(code): \(left) is left out")
+            }
+        }
+        let index = try XCTUnwrap(Credits.dataSources.firstIndex(of: line))
+        XCTAssertEqual(Credits.dataSources[index - 1].id, "drill_examples", "beside the generated examples' line")
     }
 }
 

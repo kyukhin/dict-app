@@ -24,10 +24,11 @@ final class CreditsFlowTests: XCTestCase {
         app = nil
     }
 
-    /// The Credits row sits right under the version; Credits lists the 14
-    /// data source lines (#365: the generated drill examples), each naming
-    /// its license, the GRDB.swift row, which
-    /// opens its license verbatim, and the 8 licenses, each with its URL.
+    /// The Credits row sits right under the version; Credits lists the 15
+    /// data source lines (#365: the generated drill examples; #385: the
+    /// corpus sentences, whose documents each have their own licence), each
+    /// naming its license, the GRDB.swift row, which
+    /// opens its license verbatim, and the 13 licenses, each with its URL.
     /// The placeholder is gone.
     func testCreditsListEverySourceAndLicense() throws {
         _ = TabBarPage(app: app).tapSettingsTab()
@@ -61,7 +62,12 @@ final class CreditsFlowTests: XCTestCase {
         for id in IDs.lines {
             let line = app.staticTexts[IDs.line(id)]
             XCTAssertTrue(app.scrollToElement(line), "the \(id) line")
-            if let license = named[id].flatMap({ licenseNames[$0] }) {
+            if id == "corpus" {
+                // #385: each example names its document's licence; the line names the route and the collections.
+                XCTAssertTrue(line.label.hasPrefix("Conjugation examples from Greek texts, via BabyLM-ell: books from "
+                                                   + "openbook.gr"), line.label)
+                XCTAssertTrue(line.label.contains("Each example names its source and licence"), line.label)
+            } else if let license = named[id].flatMap({ licenseNames[$0] }) {
                 XCTAssertTrue(line.label.contains(license), "\(id) names \(license): \(line.label)")
             } else {
                 XCTAssertTrue(line.label.hasPrefix("The CEFR-J Wordlist Version 1.5."), "the citation: \(line.label)")
